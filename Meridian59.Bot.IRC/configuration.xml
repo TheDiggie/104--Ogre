@@ -1,0 +1,131 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<configuration>
+
+  <!-- 
+    RESOURCES:
+      version: the Download= value from your client's meridian.ini
+      path: no need to touch this
+      preloadrooms/..: no need to touch these
+  -->
+  <resources
+    version="10016"
+    path="../../../../Resources/"
+    preloadrooms="false"
+    preloadobjects="false"
+    preloadroomtextures="false"
+    preloadsound="false"
+    preloadmusic="false" />
+
+  <!-- 
+    CONNECTIONS:
+      selectedindex: the 0-based entryindex to use from below
+  -->
+  <connections selectedindex="0">
+    <!-- 
+      CONNECTION:
+        name: just a name
+        host: DNS or IP of the M59 server
+        port: TCP port of the M59 server 
+        stringdictionary: string-resources (get this from the "resource" folder of your client)
+        username: your username
+        password: your password
+    -->
+    <connection
+      name="106"
+      host="meridian106.meridiannext.com"
+      port="5906"
+      useipv6="false"
+      stringdictionary="rsc0000-106.rsb"
+      username="user"
+      password=""
+      character="Help">
+      <ignorelist />
+    </connection>
+    <connection
+      name="localhost"
+      host="127.0.0.1"
+      port="5959"
+      useipv6="false"
+      stringdictionary="rsc0000-git.rsb"
+      username="user"
+      password=""
+      character="charactername">
+      <ignorelist />
+    </connection>
+  </connections>
+  
+  <aliases />
+  
+  <!-- 
+    CONNECTION:
+      majorverson: see client menu help/about
+      minorversion: see client menu help/about
+      logfile: the bot will log also to this file (cleaned at startup, "" to disable)
+  -->
+  <connection
+    majorversion="70"
+    minorversion="1"
+    logfile="bot.log" />
+
+  <!--
+    ADMINS:
+      These players will have "admin" access to your bot from IRC.
+      The bot will try to forward their private messages as admin-console commands.
+      Also it will "broadcast" any response to ANY entry. DONT MAKE IT TOO MANY.
+  -->
+  <admins>
+    <item name="ShaKrune" />
+    <item name="Delerium" />
+    <item name="Arantis" />
+  </admins>
+  
+  <!--
+    BOT:
+      ircserver: IP or DNS of irc server
+      ircport: port of irc server
+      channel: IRC channel to join
+      nickname: nickname to use for the bot
+      ircpassword: set this if you have registered the nick
+      chatprefix: a prefix all forwarded messages have
+      maxburst: the maximum amount of available tokens in the token-bucket (used to limit outflow peek)
+      refill: the ms delay until a new token is put into the token-bucket (used to limit min. outflow)
+      banner: this will be inserted into messages forwarded to M59
+  -->
+  <bot
+    ircserver="irc.esper.net"
+    ircport="7000"
+    channel="#Meridian59de"
+    nickname="M59-Bot-106"
+    ircpassword=""
+    chatprefix="106"
+    maxburst="10"
+    refill="1000"
+    banner="~B~g[~kIRC~g]~r ">
+    
+    <!-- Allow only admin-console commands listed here -->
+    <admincommands>
+      <item name="help" />
+      <item name="show" />
+      <item name="who" />
+    </admincommands>  
+  
+    <!--
+    ALLOWEDUSERS:
+      These players will have "user" access to your bot from IRC.
+      The bot will allow them to broadcast and send tells.
+    -->
+    <allowedusers>
+    </allowedusers>
+  
+    <!--
+    RELAYBOTS:
+      The bot can relay messages said by other IRC bots to the server this bot is on.
+      The bots that will have their messages relayed need to be placed here. The
+      banner is what gets displayed at the front of the relayed message (as opposed
+      to the IRC header which is simpler).
+    -->
+    <relaybots>
+      <item name="placeholder" banner="~g[~k~B106~g]~k:" ignoresystemregex="(Please welcome|Au revoir to|just logged on for the first time)" ignoreallregex=""/>
+    </relaybots>
+  </bot>
+</configuration>

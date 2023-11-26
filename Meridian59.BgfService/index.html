@@ -1,0 +1,293 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <title>BGF Image Service</title>
+    <meta charset="utf-8" />
+    <style>
+        .tdImage {
+            vertical-align: bottom;
+        }
+
+        .imgCentered {
+            display: block;
+            margin: auto;
+        }
+
+        .imgPalette {
+            image-rendering: optimizeSpeed;             /* STOP SMOOTHING, GIVE ME SPEED  */
+            image-rendering: -moz-crisp-edges;          /* Firefox                        */
+            image-rendering: -o-crisp-edges;            /* Opera                          */
+            image-rendering: -webkit-optimize-contrast; /* Chrome (and eventually Safari) */
+            image-rendering: pixelated;                 /* Chrome                         */
+            image-rendering: optimize-contrast;         /* CSS3 Proposed                  */
+            -ms-interpolation-mode: nearest-neighbor;   /* IE8+                           */
+        }
+    </style>
+</head>
+<body>
+    <h1>BGF Image Service</h1>
+
+    <hr />
+    <h2>(1) BGF List/Frame/Group/Info</h2>
+    <h3>Query-URL BGF List:</h3>
+    <p>
+        <span>http://bgf.meridian59.de/list</span><br />
+        <a href="list">Test BGF List (JSON)</a>
+    </p>
+    <h3>Query-URL BGF Info:</h3>
+    <p>
+        <span>http://bgf.meridian59.de/file/{name}/meta</span><br />
+        <a href="file/avsham/meta">Test avsham.bgf Info (JSON)</a>
+    </p>
+    <h3>Query-URL BGF Frame:</h3>
+    <p>
+        <span>http://bgf.meridian59.de/file/{name}/frame/{format}/{index}/{palette}</span>
+    </p>
+    <a href="file/avsham/frame/bin/0">avsham.bgf Frame #0 (BIN)</a>
+    <h3>Examples PNG/BMP</h3>
+    <table>
+        <tbody>
+            <tr>
+                <td>Name: avsham<br />Format: png<br />Index: 0<br />Palette: 0</td>
+                <td>Name: avsham<br />Format: png<br />Index: 1<br />Palette: 54</td>
+                <td>Name: phax<br />Format: bmp<br />Index: 0<br />Palette: 0</td>
+                <td>Name: phax<br />Format: bmp<br />Index: 1<br />Palette: 3</td>
+            </tr>
+            <tr>
+                <td><img src="file/avsham/frame/png/0/0" /></td>
+                <td><img src="file/avsham/frame/png/1/54" /></td>
+                <td><img src="file/phax/frame/bmp/0/0" /></td>
+                <td><img src="file/phax/frame/bmp/1/3" /></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>Query-URL BGF Group frame:</h3>
+    <p>
+        <span>http://bgf.meridian59.de/file/{name}/group/{format}/{group_index}/{angle}/{palette}<br /><br />
+        Displays the angle (from 0-7) of a 1-based group. Angle and palette are optional.</span>
+    </p>
+    <a href="file/avsham/group/bin/1">avsham.bgf Group #1 (BIN)</a>
+    <h3>Examples PNG/BMP</h3>
+    <table>
+        <tbody>
+            <tr>
+                <td>Name: avsham<br />Format: png<br />Group: 1<br />Angle: 0<br />Palette: 0</td>
+                <td>Name: avsham<br />Format: png<br />Group: 2<br />Angle: 3<br />Palette: 54</td>
+                <td>Name: phax<br />Format: bmp<br />Group: 1<br />Angle: 5<br />Palette: 0</td>
+                <td>Name: phax<br />Format: bmp<br />Group: 1<br />Angle: 6<br />Palette: 3</td>
+            </tr>
+            <tr>
+                <td><img src="file/avsham/group/png/1" /></td>
+                <td><img src="file/avsham/group/png/2/3/54" /></td>
+                <td><img src="file/phax/group/bmp/1/5" /></td>
+                <td><img src="file/phax/group/bmp/1/6/3" /></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <hr />
+    <h2>(2) Single Object Image</h2>
+    <h3>Query-URL</h3>
+    <p>
+        <span>http://bgf.meridian59.de/object/{scale}{file}/{group}/{palette}/{angle}/?s={file};{group};{palette};{hotspot}&s=...</span>
+    </p>
+    <h3>Return</h3>
+    <p>
+        <span>PNG Image with dynamic size (shows all object parts) and 32-Bit ARGB colors.</span>
+    </p>
+    <h3>Examples</h3>
+    <table border="1">
+        <tbody>
+            <tr>
+                <td>Name</td>
+                <td>Player</td>
+                <td>Rat</td>
+                <td>Avatar Shaman</td>
+                <td>Troll</td>
+                <td>Skeleton</td>
+                <td>Orc</td>
+            </tr>
+            <tr>
+                <td>Scale</td>
+                <td>50</td>
+                <td>50</td>
+                <td>50</td>
+                <td>50</td>
+                <td>50</td>
+                <td>50</td>
+            </tr>
+            <tr>
+                <td>Angle</td>
+                <td>6 (3072)</td>
+                <td>2 (1024)</td>
+                <td>1 (512)</td>
+                <td>0 (0)</td>
+                <td>0 (0)</td>
+                <td>4 (2048)</td>
+            </tr>
+            <tr>
+                <td>MainOv</td>
+                <td>bta G:1 P:236</td>
+                <td>rat G:1 P:0</td>
+                <td>avsham G:4 P:0</td>
+                <td>troll G:1 P:0</td>
+                <td>skelbody G:1 P:69</td>
+                <td>orc G:1 P:0</td>
+            </tr>
+            <tr>
+                <td>SubOvs</td>
+                <td>phax G:1 P:3 HS:1<br />pecx G:1 P:3 HS:11<br />pmax G:1 P:3 HS:12<br />ptad G:1 P:10 HS:13<br />pnax G:1 P:3 HS:14<br />bra G:1 P:236 HS:21<br />bla G:1 P:236 HS:31<br/>bfe G:1 P:236 HS:41</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td>skelhed2 G:1 P:69 HS:1</td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>Image</td>
+                <td class="tdImage"><img class="imgCentered" src="object/50/bta/1/236/6?s=phax;1;3;1&s=pecx;1;3;11&s=pmax;1;3;12&s=ptad;1;10;13&s=pnax;1;3;14&s=bra;1;236;21&s=bla;1;236;31&s=bfe;1;236;41" /></td>
+                <td class="tdImage"><img class="imgCentered" src="object/50/rat/1/0/2" /></td>
+                <td class="tdImage"><img class="imgCentered" src="object/50/avsham/4/0/1" /></td>
+                <td class="tdImage"><img class="imgCentered" src="object/50/troll/1/0/0" /></td>
+                <td class="tdImage"><img class="imgCentered" src="object/50/skelbody/1/69/0?s=skelhed2;1;69;1" /></td>
+                <td class="tdImage"><img class="imgCentered" src="object/50/orc/1/0/4" /></td>
+            </tr>
+        </tbody>
+    </table>
+
+
+    <hr />
+    <h2>(3) Animated GIF</h2>
+    <h3>Query-URL</h3>
+    <p>
+        <span>http://bgf.meridian59.de/render/{width}/{height}/{scale}/{file}/{anim}/{palette}/{angle}/?s={file};{anim};{palette};{hotspot}&s=...</span>
+    </p>
+    <h3>Return</h3>
+    <p>
+        <span>GIF File with Indexed Colors (up to 256 per frame). Image-Size is fixed, object might be only partially visible.</span>
+    </p>
+    <h3>Parameters</h3>
+    <table border="1">
+        <tbody>
+            <tr>
+                <td></td>
+                <td>{width}</td>
+                <td>{height}</td>
+                <td>{scale}</td>
+                <td>{file}</td>
+                <td>{anim}</td>
+                <td>{palette}</td>
+                <td>{angle}</td>
+                <td>{hotspot}</td>
+            </tr>
+            <tr>
+                <td>Range/Syntax</td>
+                <td>[16, 256]</td>
+                <td>[16, 256]</td>
+                <td>[1, 80]</td>
+                <td>filename</td>
+                <td>Cycle: Lo-Hi-T<br/>None: Group</td>
+                <td>[0, 255]</td>
+                <td>[0, 7]</td>
+                <td>[0,127]</td>
+            </tr>
+        </tbody>
+    </table>
+    <h3>Examples</h3>
+    <table border="1">
+        <tbody>
+            <tr>
+                <td>Name</td>
+                <td>Player</td>
+                <td>Skeleton</td>
+                <td>Orc</td>
+                <td>Minotaur</td>
+                <td>Troll</td>
+                <td>Giant Rant</td>
+            </tr>
+            <tr>
+                <td>Size/Scale</td>
+                <td>256x256@30</td>
+                <td>256x256@30</td>
+                <td>256x256@30</td>
+                <td>256x256@30</td>
+                <td>256x256@30</td>
+                <td>256x256@30</td>
+            </tr>
+            <tr>
+                <td>Angle</td>
+                <td>1 (512)</td>
+                <td>0 (0)</td>
+                <td>0 (0)</td>
+                <td>0 (0)</td>
+                <td>6 (3072)</td>
+                <td>4 (2048)</td>
+            </tr>
+            <tr>
+                <td>MainOv</td>
+                <td>bta G:1 P:236</td>
+                <td>skelbody A:2-7-100 P:69</td>
+                <td>orc A:2-6-100 P:0</td>
+                <td>minotaur A:1-32-100 P:0</td>
+                <td>troll A:1-7-200 P:0</td>
+                <td>rat A:7-11-150 P:0</td>
+            </tr>
+            <tr>
+                <td>SubOvs</td>
+                <td>phax G:1 P:3 HS:1<br />pecx G:1 P:3 HS:11<br />pmax G:1 P:3 HS:12<br />ptad G:1 P:10 HS:13<br />pnax G:1 P:3 HS:14<br />bra A:2-3-100 P:236 HS:21<br />bla A:2-3-100 P:236 HS:31<br />bfe A:2-5-150 P:236 HS:41</td>
+                <td>skelhed2 A:2-7-100 P:69 HS:1</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td>Image</td>
+                <td><img src="render/256/256/30/bta/1/236/1?s=phax;1;3;1&s=pecx;1;3;11&s=pmax;1;3;12&s=ptad;1;10;13&s=pnax;1;3;14&s=bra;2-3-200;236;21&s=bla;2-3-200;236;31&s=bfe;2-5-150;236;41" /></td>
+                <td><img src="render/256/256/30/skelbody/2-7-100/69/0?s=skelhed2;2-7-100;69;1" /></td>
+                <td><img src="render/256/256/30/orc/2-6-100/0/0" /></td>
+                <td><img src="render/256/256/30/minotaur/1-32-100/0/0" /></td>
+                <td><img src="render/256/256/30/troll/1-7-200/0/6" /></td>
+                <td><img src="render/256/256/30/rat/7-11-150/0/4" /></td>
+            </tr>
+        </tbody>
+    </table>
+    <hr />
+    <h2>(4) Palettes</h2>
+    <h3>Query-URL</h3>
+    <p>
+        <span>http://bgf.meridian59.de/palette/{index}/{format}</span>
+    </p>
+    <h3>Return</h3>
+    <p>
+        <ul>
+            <li><span>BMP: Image with 16x16 pixels and 256 Colors/Palette. Each palette entry appears once.</span></li>
+            <li><span>JSON: Array with 256 Integers (32-Bit ARGB colors with alpha set)</span></li>
+        </ul>
+    </p>
+    <h3>Parameters</h3>
+    <table border="1">
+        <tbody>
+            <tr>
+                <td></td>
+                <td>{index}</td>
+                <td>{format}</td>
+            </tr>
+            <tr>
+                <td>Range/Syntax</td>
+                <td>[0, 255]</td>
+                <td>bmp/json</td>
+            </tr>
+        </tbody>
+    </table>
+    <h3>Examples</h3>
+    <img width="256" height="256" class="imgPalette" src="palette/0/bmp" />
+    <img width="256" height="256" class="imgPalette" src="palette/4/bmp" />
+    <img width="256" height="256" class="imgPalette" src="palette/69/bmp" />
+    <img width="256" height="256" class="imgPalette" src="palette/130/bmp" />
+    <img width="256" height="256" class="imgPalette" src="palette/180/bmp" />
+    <img width="256" height="256" class="imgPalette" src="palette/255/bmp" />
+</body>
+</html>

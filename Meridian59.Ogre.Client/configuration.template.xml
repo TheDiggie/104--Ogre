@@ -1,0 +1,138 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<configuration>
+  
+  <resources 
+    version="10016" 
+    path="../resources/"
+    preloadrooms="false" 
+    preloadobjects="false" 
+    preloadroomtextures="false"
+    preloadsound="false"
+    preloadmusic="false" />
+
+  <connections selectedindex="2">
+
+    <connection
+      name="420"
+      host="meridian420.meridian59.us"
+      port="5959"
+      stringdictionary="rsc0000.rsb"
+      username=""
+      password=""
+      character="">
+      <ignorelist />
+      <groups />
+    </connection>
+
+    <connection
+      name="127"
+      host="localhost"
+      port="5959"
+      stringdictionary="rsc0000.rsb"
+      username="silence"
+      password=""
+      character="">
+      <ignorelist />
+      <groups />
+    </connection>    
+  </connections>
+  <language value="English" />
+  <aliases>
+    <alias key="chuckle" value="emote chuckles." />
+    <alias key="giggle" value="emote giggles." />
+    <alias key="laugh" value="emote laughs." />
+  </aliases>
+  <engine>
+    <display value="0" />
+    <resolution value="1280 x 720 @ 32-bit colour" />
+    <windowmode enabled="true" />
+    <windowframe enabled="true" />
+    <vsync enabled="true" />
+    <fsaa value="8" />
+    <nomipmaps value="false" />
+    <texturefiltering value="Anisotropic x16" />
+    <imagebuilder value="GDI" />
+    <bitmapscaling value="Default" />
+    <texturequality value="Default" />
+    <decorationintensity value="20" />
+    <disablenewroomtextures value="false" />
+    <disable3dmodels value="false" />
+    <disablenewsky value="false" />
+    <disableweathereffects value="False" />
+    <weatherparticles value="5000" />
+    <musicvolume value="4.0" />
+    <soundvolume value="10.0" />
+    <disableloopsounds value="false" />
+  </engine>
+  <ui>
+    <layout />
+  </ui>
+  <input>
+    <mouseaimspeed value="15" />
+    <keyrotatespeed value="25" />
+    <invertmousey value="False" />
+    <keybinding rightclickaction="13">
+      <moveforward key="17" />
+      <movebackward key="31" />
+      <moveleft key="16" />
+      <moveright key="18" />
+      <rotateleft key="30" />
+      <rotateright key="32" />
+      <walk key="42" />
+      <automove key="69" />
+      <nexttarget key="15" />
+      <selftarget key="56" />
+      <open key="49" />
+      <close key="1" />     
+      <action01 key="2" />
+      <action02 key="3" />
+      <action03 key="4" />
+      <action04 key="5" />
+      <action05 key="6" />
+      <action06 key="7" />
+      <action07 key="8" />
+      <action08 key="9" />
+      <action09 key="10" />
+      <action10 key="11" />
+      <action11 key="35" />
+      <action12 key="35" />
+      <action13 key="57" />
+      <action14 key="19" />
+      <action15 key="34" />
+      <action16 key="23" />
+      <action17 key="22" />
+      <action18 key="48" />
+      <action19 key="20" />
+      <action20 key="33" />
+      <action21 key="46" />
+      <action22 key="47" />
+      <action23 key="36" />
+      <action24 key="36" />
+      <action25 key="0" />
+      <action26 key="0" />
+      <action27 key="0" />
+      <action28 key="0" />
+      <action29 key="0" />
+      <action30 key="0" />
+      <action31 key="0" />
+      <action32 key="0" />
+      <action33 key="0" />
+      <action34 key="0" />
+      <action35 key="0" />
+      <action36 key="0" />
+      <action37 key="0" />
+      <action38 key="0" />
+      <action39 key="0" />
+      <action40 key="0" />
+      <action41 key="0" />
+      <action42 key="0" />
+      <action43 key="0" />
+      <action44 key="0" />
+      <action45 key="0" />
+      <action46 key="0" />
+      <action47 key="0" />
+      <action48 key="0" />
+    </keybinding>
+    <actionbuttonsets />
+  </input>
+</configuration>

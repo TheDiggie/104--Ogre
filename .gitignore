@@ -1,0 +1,61 @@
+Meridian59-Ogre-Installer
+
+Engine
+
+# File-Type exclusions for Visual Studio
+*.sdf
+*.suo
+*.pdb
+*.opendb
+*.opensdf
+*.ipch
+*.VC.db
+.vs
+
+# NuGet packages
+/packages
+
+# Other generic exclusions
+*.log
+
+# ircdotnet lib
+/ircdotnet/bin
+/ircdotnet/lib/Samples/*.pdb
+/ircdotnet/src/IrcDotNet/obj
+
+# Exclusions of 'obj' and 'bin' folders
+/Meridian59/obj
+/Meridian59/bin
+/Meridian59.Android.ChatClient/bin
+/Meridian59.Android.ChatClient/obj
+/Meridian59.AdminUI/obj
+/Meridian59.AdminUI/bin
+/Meridian59.BgfEditor/obj
+/Meridian59.BgfEditor/bin
+/Meridian59.Bot.IRC/bin
+/Meridian59.Bot.IRC/obj
+/Meridian59.Bot.Shop/obj
+/Meridian59.Bot.Shop/bin
+/Meridian59.Bot.Spell/obj
+/Meridian59.Bot.Spell/bin
+/Meridian59.Ogre.Client/obj
+/Meridian59.Ogre.Client/bin
+/Meridian59.Ogre.Client/Meridian59.Ogre.Client.vcxproj.user
+/Meridian59.Ogre.Client/app.aps
+/Meridian59.RooViewer/obj
+/Meridian59.RooViewer/bin
+/Meridian59.UnitTest/obj
+/Meridian59.UnitTest/bin
+/Meridian59.RsbEditor/bin
+/Meridian59.RsbEditor/obj
+/Meridian59.Patcher/bin
+/Meridian59.Patcher/obj
+
+# Excludings in Resources
+/Resources/bgfobjects/*.bgf
+/Resources/bgftextures/*.bgf
+/Resources/mails
+
+# Others
+/Meridian59.BgfService/Bin
+/Meridian59.Brain

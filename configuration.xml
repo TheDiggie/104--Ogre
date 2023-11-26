@@ -1,0 +1,189 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <resources version="10016" path="../resources/" preloadrooms="true" preloadobjects="false" preloadroomtextures="false" preloadsound="true" preloadmusic="true" />
+  <connections selectedindex="1">
+    <connection name="420" host="meridian420.meridian59.us" port="5959" stringdictionary="rsc0000.rsb" username="silence" password="" character="">
+      <ignorelist />
+      <groups />
+    </connection>
+    <connection name="127" host="127.0.0.1" port="5959" stringdictionary="rsc0000.rsb" username="silence20" password="" character="Cyx">
+      <ignorelist />
+      <groups />
+    </connection>
+  </connections>
+  <language value="English" />
+  <aliases />
+  <engine>
+    <display value="0" />
+    <resolution value="1280 x 720 @ 32-bit colour" />
+    <windowmode enabled="true" />
+    <windowframe enabled="true" />
+    <vsync enabled="true" />
+    <fsaa value="8" />
+    <nomipmaps value="false" />
+    <texturefiltering value="Anisotropic x16" />
+    <imagebuilder value="GDI" />
+    <bitmapscaling value="Default" />
+    <texturequality value="Default" />
+    <decorationintensity value="100" />
+    <disablenewroomtextures value="false" />
+    <disable3dmodels value="false" />
+    <disablenewsky value="false" />
+    <disableweathereffects value="false" />
+    <brightnessfactor value="0" />
+    <weatherparticles value="26696" />
+    <musicvolume value="0" />
+    <soundvolume value="10" />
+    <disableloopsounds value="false" />
+  </engine>
+  <ui>
+    <layout locked="true">
+      <avatar xrel="0" xabs="2" yrel="0" yabs="25" wrel="0" wabs="250" hrel="0" habs="141" />
+      <target xrel="0" xabs="254" yrel="0" yabs="25" wrel="0" wabs="250" hrel="0" habs="90" />
+      <targetvisibility value="false" />
+      <minimap xrel="1" xabs="-258" yrel="0" yabs="25" wrel="0" wabs="256" hrel="0" habs="256" />
+      <minimapvisibility value="true" />
+      <roomenchantments xrel="0" xabs="2" yrel="0" yabs="168" wrel="0" wabs="250" hrel="0" habs="42" />
+      <chat xrel="0" xabs="-2" yrel="1" yabs="-240" wrel="0" wabs="463" hrel="0" habs="227" />
+      <chatvisibility value="true" />
+      <inventory xrel="1" xabs="-271" yrel="1" yabs="-250" wrel="0" wabs="284" hrel="0" habs="250" />
+      <inventoryvisibility value="true" />
+      <spells xrel="0.5" xabs="173" yrel="0.3" yabs="228" wrel="0" wabs="192" hrel="0" habs="255" />
+      <spellsvisibility value="false" />
+      <skills xrel="0.5" xabs="171" yrel="0.3" yabs="286" wrel="0" wabs="192" hrel="0" habs="192" />
+      <skillsvisibility value="false" />
+      <actions xrel="0.5" xabs="-96" yrel="0.3" yabs="48" wrel="0" wabs="192" hrel="0" habs="192" />
+      <actionsvisibility value="false" />
+      <attributes xrel="0.5" xabs="113" yrel="0.3" yabs="51" wrel="0" wabs="288" hrel="0" habs="192" />
+      <attributesvisibility value="false" />
+      <mainbuttonsleft xrel="0.5" xabs="-174" yrel="1" yabs="-32" wrel="0" wabs="175" hrel="0" habs="30" />
+      <mainbuttonsright xrel="0.5" xabs="0" yrel="1" yabs="-32" wrel="0" wabs="175" hrel="0" habs="30" />
+      <actionbuttongrid xrel="0.5" xabs="-174" yrel="1" yabs="-150" wrel="0" wabs="349" hrel="0" habs="117" />
+      <onlineplayers xrel="0.5" xabs="-96" yrel="0.3" yabs="-24" wrel="0" wabs="192" hrel="0" habs="345" />
+      <onlineplayersvisibility value="false" />
+      <input>
+        <mouseaimspeed value="75" />
+        <mouseaimdistance value="45" />
+        <keyrotatespeed value="25" />
+        <invertmousey value="False" />
+        <cameracollisions value="True" />
+        <cameradistancemax value="1024" />
+        <camerapitchmax value="0.25" />
+        <keybinding rightclickaction="48">
+          <moveforward key="17" />
+          <movebackward key="31" />
+          <moveleft key="30" />
+          <moveright key="32" />
+          <rotateleft key="203" />
+          <rotateright key="205" />
+          <walk key="42" />
+          <automove key="69" />
+          <nexttarget key="15" />
+          <selftarget key="56" />
+          <open key="57" />
+          <close key="1" />
+          <action01 key="16" />
+          <action02 key="18" />
+          <action03 key="19" />
+          <action04 key="33" />
+          <action05 key="20" />
+          <action06 key="34" />
+          <action07 key="79" />
+          <action08 key="79" />
+          <action09 key="80" />
+          <action10 key="80" />
+          <action11 key="81" />
+          <action12 key="81" />
+          <action13 key="44" />
+          <action14 key="45" />
+          <action15 key="46" />
+          <action16 key="47" />
+          <action17 key="48" />
+          <action18 key="49" />
+          <action19 key="82" />
+          <action20 key="82" />
+          <action21 key="82" />
+          <action22 key="82" />
+          <action23 key="83" />
+          <action24 key="83" />
+          <action25 key="59" />
+          <action26 key="60" />
+          <action27 key="61" />
+          <action28 key="62" />
+          <action29 key="63" />
+          <action30 key="64" />
+          <action31 key="65" />
+          <action32 key="66" />
+          <action33 key="67" />
+          <action34 key="68" />
+          <action35 key="87" />
+          <action36 key="88" />
+          <action37 key="2" />
+          <action38 key="3" />
+          <action39 key="4" />
+          <action40 key="5" />
+          <action41 key="6" />
+          <action42 key="7" />
+          <action43 key="8" />
+          <action44 key="9" />
+          <action45 key="10" />
+          <action46 key="11" />
+          <action47 key="41" />
+          <action48 key="0" />
+        </keybinding>
+        <actionbuttonsets count="1">
+          <actionbuttons player="Cyx" count="48">
+            <actionbutton num="0" type="action" name="activate" numofsamename="0" />
+            <actionbutton num="1" type="action" name="attack" numofsamename="0" />
+            <actionbutton num="2" type="action" name="rest" numofsamename="0" />
+            <actionbutton num="3" type="spell" name="meditate" numofsamename="0" />
+            <actionbutton num="4" type="spell" name="conveyance" numofsamename="0" />
+            <actionbutton num="5" type="action" name="loot" numofsamename="0" />
+            <actionbutton num="6" type="unset" name="" numofsamename="0" />
+            <actionbutton num="7" type="unset" name="" numofsamename="0" />
+            <actionbutton num="8" type="unset" name="" numofsamename="0" />
+            <actionbutton num="9" type="unset" name="" numofsamename="0" />
+            <actionbutton num="10" type="unset" name="" numofsamename="0" />
+            <actionbutton num="11" type="unset" name="" numofsamename="0" />
+            <actionbutton num="12" type="unset" name="" numofsamename="0" />
+            <actionbutton num="13" type="unset" name="" numofsamename="0" />
+            <actionbutton num="14" type="unset" name="" numofsamename="0" />
+            <actionbutton num="15" type="unset" name="" numofsamename="0" />
+            <actionbutton num="16" type="action" name="buy" numofsamename="0" />
+            <actionbutton num="17" type="action" name="trade" numofsamename="0" />
+            <actionbutton num="18" type="unset" name="" numofsamename="0" />
+            <actionbutton num="19" type="unset" name="" numofsamename="0" />
+            <actionbutton num="20" type="unset" name="" numofsamename="0" />
+            <actionbutton num="21" type="unset" name="" numofsamename="0" />
+            <actionbutton num="22" type="unset" name="" numofsamename="0" />
+            <actionbutton num="23" type="unset" name="" numofsamename="0" />
+            <actionbutton num="24" type="unset" name="" numofsamename="0" />
+            <actionbutton num="25" type="unset" name="" numofsamename="0" />
+            <actionbutton num="26" type="unset" name="" numofsamename="0" />
+            <actionbutton num="27" type="unset" name="" numofsamename="0" />
+            <actionbutton num="28" type="unset" name="" numofsamename="0" />
+            <actionbutton num="29" type="unset" name="" numofsamename="0" />
+            <actionbutton num="30" type="unset" name="" numofsamename="0" />
+            <actionbutton num="31" type="unset" name="" numofsamename="0" />
+            <actionbutton num="32" type="unset" name="" numofsamename="0" />
+            <actionbutton num="33" type="unset" name="" numofsamename="0" />
+            <actionbutton num="34" type="unset" name="" numofsamename="0" />
+            <actionbutton num="35" type="unset" name="" numofsamename="0" />
+            <actionbutton num="36" type="unset" name="" numofsamename="0" />
+            <actionbutton num="37" type="unset" name="" numofsamename="0" />
+            <actionbutton num="38" type="unset" name="" numofsamename="0" />
+            <actionbutton num="39" type="unset" name="" numofsamename="0" />
+            <actionbutton num="40" type="unset" name="" numofsamename="0" />
+            <actionbutton num="41" type="unset" name="" numofsamename="0" />
+            <actionbutton num="42" type="unset" name="" numofsamename="0" />
+            <actionbutton num="43" type="unset" name="" numofsamename="0" />
+            <actionbutton num="44" type="unset" name="" numofsamename="0" />
+            <actionbutton num="45" type="spell" name="blink" numofsamename="0" />
+            <actionbutton num="46" type="spell" name="phase" numofsamename="0" />
+            <actionbutton num="47" type="action" name="inspect" numofsamename="0" />
+          </actionbuttons>
+        </actionbuttonsets>
+      </input>
+    </layout>
+  </ui>
+</configuration>
