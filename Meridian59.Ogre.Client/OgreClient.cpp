@@ -1183,7 +1183,7 @@ namespace Meridian59 { namespace Ogre
 	   DemoSceneDestroy();
 
 	   RoomInfo^ roomInfo = Data->RoomInformation;
-	   roomInfo->RoomFile = "tosmalevals.roo";
+	   roomInfo->RoomFile = "tosinn.roo";
 	   roomInfo->AmbientLight = 200;
 	   roomInfo->ResourceRoom = OgreClient::Singleton->ResourceManager->GetRoom(roomInfo->RoomFile);
 	   if (roomInfo->ResourceRoom)
@@ -1194,8 +1194,8 @@ namespace Meridian59 { namespace Ogre
 	   IsCameraListenerEnabled = true;
 	   sceneManager->getRootSceneNode()->addChild(CameraNode);
 
-	   CameraNode->setPosition(720, 40, 334);
-	   CameraNode->rotate(::Ogre::Vector3::UNIT_Y, ::Ogre::Radian(-0.8f));
+	   CameraNode->setPosition(700, 150, 700);
+	   CameraNode->rotate(::Ogre::Vector3::UNIT_Y, ::Ogre::Radian(0.7f));
 
 	   PlayMusic^ music = gcnew PlayMusic();
 	   music->ResourceName = "nec02.ogg";

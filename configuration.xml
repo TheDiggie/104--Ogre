@@ -1,8 +1,8 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <resources version="10016" path="../resources/" preloadrooms="true" preloadobjects="false" preloadroomtextures="false" preloadsound="true" preloadmusic="true" />
-  <connections selectedindex="1">
-    <connection name="420" host="meridian420.meridian59.us" port="5959" stringdictionary="rsc0000.rsb" username="silence" password="" character="">
+  <connections selectedindex="0">
+    <connection name="104" host="3.141.65.36" port="5959" stringdictionary="rsc0000.rsb" username="diggie3" password="" character="Sir Diggeltins">
       <ignorelist />
       <groups />
     </connection>
@@ -10,11 +10,15 @@
       <ignorelist />
       <groups />
     </connection>
+    <connection name="420" host="meridian420.meridian59.us" port="5959" stringdictionary="rsc0000.rsb" username="" password="" character="">
+      <ignorelist />
+      <groups />
+    </connection>
   </connections>
   <language value="English" />
   <aliases />
   <engine>
-    <display value="0" />
+    <display value="1" />
     <resolution value="1280 x 720 @ 32-bit colour" />
     <windowmode enabled="true" />
     <windowframe enabled="true" />
@@ -40,9 +44,9 @@
     <layout locked="true">
       <avatar xrel="0" xabs="2" yrel="0" yabs="25" wrel="0" wabs="250" hrel="0" habs="141" />
       <target xrel="0" xabs="254" yrel="0" yabs="25" wrel="0" wabs="250" hrel="0" habs="90" />
-      <targetvisibility value="false" />
+      <targetvisibility value="true" />
       <minimap xrel="1" xabs="-258" yrel="0" yabs="25" wrel="0" wabs="256" hrel="0" habs="256" />
-      <minimapvisibility value="true" />
+      <minimapvisibility value="false" />
       <roomenchantments xrel="0" xabs="2" yrel="0" yabs="168" wrel="0" wabs="250" hrel="0" habs="42" />
       <chat xrel="0" xabs="-2" yrel="1" yabs="-240" wrel="0" wabs="463" hrel="0" habs="227" />
       <chatvisibility value="true" />
@@ -132,7 +136,7 @@
           <action48 key="0" />
         </keybinding>
         <actionbuttonsets count="1">
-          <actionbuttons player="Cyx" count="48">
+          <actionbuttons player="Sir Diggeltins" count="48">
             <actionbutton num="0" type="action" name="activate" numofsamename="0" />
             <actionbutton num="1" type="action" name="attack" numofsamename="0" />
             <actionbutton num="2" type="action" name="rest" numofsamename="0" />
