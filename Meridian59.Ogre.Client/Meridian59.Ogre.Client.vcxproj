@@ -90,10 +90,10 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <OutDir>bin\x86\Release\</OutDir>
-    <IntDir>obj\x86\Release\</IntDir>
+    <OutDir>bin\x86\</OutDir>
+    <IntDir>obj\x86\</IntDir>
     <LinkKeyFile>..\Meridian59\Meridian59.snk</LinkKeyFile>
-    <TargetName>meridian</TargetName>
+    <TargetName>Ogre-104</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>

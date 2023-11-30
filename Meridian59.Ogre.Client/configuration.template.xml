@@ -13,8 +13,8 @@
   <connections selectedindex="2">
 
     <connection
-      name="420"
-      host="meridian420.meridian59.us"
+      name="104"
+      host="3.141.65.36"
       port="5959"
       stringdictionary="rsc0000.rsb"
       username=""
@@ -29,7 +29,7 @@
       host="localhost"
       port="5959"
       stringdictionary="rsc0000.rsb"
-      username="silence"
+      username=""
       password=""
       character="">
       <ignorelist />

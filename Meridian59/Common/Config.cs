@@ -565,15 +565,15 @@ namespace Meridian59.Common
 
                 // Double check we have all available servers in connections list.
 
-                if (!HasConnection(ConnectionInfo.CON420.Host, ConnectionInfo.CON420.Port))
-                    connections.Add(ConnectionInfo.CON420);
+                if (!HasConnection(ConnectionInfo.CON104.Host, ConnectionInfo.CON104.Port))
+                    connections.Add(ConnectionInfo.CON104);
                 if (!HasConnection(ConnectionInfo.CON127.Host, ConnectionInfo.CON127.Port))
                     connections.Add(ConnectionInfo.CON127);
             }
             else
             {
                 SelectedConnectionIndex = DEFAULTVAL_CONNECTIONS_SELECTEDINDEX;
-                connections.Add(ConnectionInfo.CON420);
+                connections.Add(ConnectionInfo.CON104);
                 connections.Add(ConnectionInfo.CON127);
             }
 

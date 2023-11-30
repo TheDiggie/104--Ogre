@@ -22,7 +22,7 @@ namespace Meridian59 { namespace Ogre
 
       // set according branding logo and text
       Logo->setProperty(UI_PROPNAME_IMAGE, UI_IMAGE_BRANDING);
-      Text->setText(baseStr + "Server 420");
+      Text->setText(baseStr + "Server 104");
    };
 
    void ControllerUI::Branding::Destroy()

@@ -40,7 +40,7 @@ namespace Meridian59.Data.Models
         #endregion
 
         #region Hardcoded ConnectionInfos
-        public static readonly ConnectionInfo CON420 = new ConnectionInfo("420", "meridian420.meridian59.us",5959, "rsc0000.rsb", "", "", "", null);
+        public static readonly ConnectionInfo CON104 = new ConnectionInfo("104", "3.141.65.36", 5959, "rsc0000.rsb", "", "", "", null);
         public static readonly ConnectionInfo CON127 = new ConnectionInfo("127", "127.0.0.1",5959, "rsc0000.rsb", "", "", "", null);
         #endregion
 

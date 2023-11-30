@@ -507,7 +507,7 @@ namespace Meridian59 { namespace Ogre
 
          // mousewheel / zoom
          
-         // Third Person View is Disabled in the 420 Client
+         // Third Person View is Disabled in the 104 Client
 
 /*         if (dz != 0 && ControllerUI::IgnoreTopControlForMouseInput)
          {
