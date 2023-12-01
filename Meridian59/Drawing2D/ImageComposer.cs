@@ -444,9 +444,9 @@ namespace Meridian59.Drawing2D
             public static uint CacheSize = 0;
 
             /// <summary>
-            /// Maximum size of the cache in bytes (default: 32 MB) (500 MB - try this).
+            /// Maximum size of the cache in bytes (default: 32 MB)
             /// </summary>
-            public static uint CacheSizeMax = 500 * 1024 * 1024;
+            public static uint CacheSizeMax = 32 * 1024 * 1024;
 
             /// <summary>
             /// Count of currently stored items

@@ -62,7 +62,7 @@ namespace Meridian59.Common
         /// <returns></returns>
         public static DateTime ToDateTime(uint MeridianDate)
         {
-            return MERIDIANZERO.AddSeconds(MeridianDate + 1599982030);
+            return MERIDIANZERO.AddSeconds(MeridianDate);
         }
 
         /// <summary>

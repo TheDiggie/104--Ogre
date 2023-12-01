@@ -227,7 +227,6 @@ namespace Meridian59.Data.Models
                     returnValue = new UserCommandTime(Buffer, StartIndex);
                     break;
 #endif
-
                 default:
                     returnValue = new UserCommandGeneric(Buffer, StartIndex, Length);
                     break;

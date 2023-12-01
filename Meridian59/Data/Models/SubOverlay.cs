@@ -208,11 +208,7 @@ namespace Meridian59.Data.Models
             }
 
             animation = Animation.ExtractAnimation(ref Buffer);
-
-            if (animation != null)
-            {
-                animation.PropertyChanged += OnAnimationPropertyChanged;
-            }
+            animation.PropertyChanged += OnAnimationPropertyChanged;
         }
 
         public byte[] Bytes
@@ -543,7 +539,7 @@ namespace Meridian59.Data.Models
                     resource = M59ResourceManager.GetObject(Name);
                 }
 
-                if (resource != null && animation != null)
+                if (resource != null)
                 {
                     animation.GroupMax = resource.FrameSets.Count;
                 }
@@ -579,7 +575,7 @@ namespace Meridian59.Data.Models
         /// <param name="ViewerAngle">An viewer angle on the suboverlay.</param>
         public void UpdateFrameIndices(ushort ViewerAngle)
         {
-            if (resource != null && Animation != null)
+            if (resource != null)
             {
                 FrontFrameIndex = resource.GetFrameIndex(Animation.CurrentGroup, ObjectBase.DEFAULTANGLE);
                 ViewerFrameIndex = resource.GetFrameIndex(Animation.CurrentGroup, ViewerAngle);

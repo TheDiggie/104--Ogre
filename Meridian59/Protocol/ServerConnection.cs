@@ -234,9 +234,8 @@ namespace Meridian59.Protocol
             timPing.Elapsed += new ElapsedEventHandler(OnPingTimerElapsed);
 
             // enable UDP for 105/112 by default, keep disabled for others
-            // DISABLE UDP
 #if !VANILLA && !OPENMERIDIAN
-            useUdp = false; //true;
+            useUdp = true;
 #else
             useUdp = false;
 #endif
@@ -529,9 +528,8 @@ namespace Meridian59.Protocol
                 SendQueue.Enqueue(new PingMessage());
 
                 // also send udp ping for 105/112
-                // DISABLE UDP
 #if !VANILLA && !OPENMERIDIAN
-//                SendQueue.Enqueue(new UdpPingMessage());
+                SendQueue.Enqueue(new UdpPingMessage());
 #endif
                 // save time ping was sent
                 lastPingSent = DateTime.Now;

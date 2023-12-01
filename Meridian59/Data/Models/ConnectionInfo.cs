@@ -40,8 +40,18 @@ namespace Meridian59.Data.Models
         #endregion
 
         #region Hardcoded ConnectionInfos
-        public static readonly ConnectionInfo CON104 = new ConnectionInfo("104", "3.141.65.36", 5959, "rsc0000.rsb", "", "", "", null);
-        public static readonly ConnectionInfo CON127 = new ConnectionInfo("127", "127.0.0.1",5959, "rsc0000.rsb", "", "", "", null);
+#if VANILLA
+        public static readonly ConnectionInfo CON101 = new ConnectionInfo("101", "meridian101.meridian59.com",  5901, "rsc0000-101.rsb", "", "", "", null);
+        public static readonly ConnectionInfo CON102 = new ConnectionInfo("102", "meridian102.meridian59.com",  5902, "rsc0000-101.rsb", "", "", "", null);
+#elif OPENMERIDIAN
+        public static readonly ConnectionInfo CON103 = new ConnectionInfo("103", "meridian103.openmeridian.org",5903, "rsc0000-103.rsb", "", "", "", null);
+        public static readonly ConnectionInfo CON104 = new ConnectionInfo("104", "meridian104.openmeridian.org",5904, "rsc0000-104.rsb", "", "", "", null);
+#else
+        public static readonly ConnectionInfo CON105 = new ConnectionInfo("105", "meridian105.meridiannext.com",5905, "rsc0000-105.rsb", "", "", "", null);
+        public static readonly ConnectionInfo CON106 = new ConnectionInfo("106", "meridian106.meridiannext.com",5906, "rsc0000-106.rsb", "", "", "", null);
+        public static readonly ConnectionInfo CON112 = new ConnectionInfo("112", "meridian112.meridian59.de",   5912, "rsc0000-112.rsb", "", "", "", null);
+        public static readonly ConnectionInfo CON200 = new ConnectionInfo("200", "meridian200.meridian59.de",   5900, "rsc0000-200.rsb", "", "", "", null);
+#endif
         #endregion
 
         #region Fields

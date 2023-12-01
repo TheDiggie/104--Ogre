@@ -32,10 +32,10 @@ namespace Meridian59.Patcher
         private const string CONFIRMCANCEL_DE = "Möchtest du das Update wirklich abbrechen?";
 
         private const string CLIENTEXEMISSINGERROR_EN = "Fatal error finding the client executable. Try to disable your " + 
-            "anti-virus software and repeat patching. If this issue persists please reach out for support in Meridian 59 104 Discord #technical-support channel.";
+            "anti-virus software and repeat patching. If this issue persists please report it in the forums at meridiannext.com/phpbb3.";
         private const string CLIENTEXEMISSINGERROR_DE = "Schwerer Fehler beim Auffinden der Startdatei des Clients. Versuche deine " +
             "Anti-Viren Software zu deaktivieren und das Patchen zu wiederholen. Sollte dieser Fehler weiterhin bestehen, dann " +
-            "discord meridian 59 server 104 #technical-support.";
+            "melde dies bitte im Forum auf meridiannext.com/phpbb3.";
 
         private const string URLINFOMISSING_EN = "Patch information from file {0} is missing. You may be " +
             "able to obtain this file automatically by using the game client to connect to a valid server. " +

@@ -134,29 +134,22 @@ namespace Meridian59.Protocol.GameMessages
 
             Array.Copy(BitConverter.GetBytes(PasswordHash.HASH4), 0, Buffer, cursor, TypeSizes.INT);
             cursor += TypeSizes.INT;
-
+#if !VANILLA
             Array.Copy(BitConverter.GetBytes((ushort)16), 0, Buffer, cursor, TypeSizes.SHORT);
             cursor += TypeSizes.SHORT;
 
-            Array.Copy(Util.Encoding.GetBytes(SecretKey), 0, Buffer, cursor, SecretKey.Length);
-            cursor += SecretKey.Length;
+            Array.Copy(BitConverter.GetBytes(RsbHash.HASH1), 0, Buffer, cursor, TypeSizes.INT);
+            cursor += TypeSizes.INT;
 
-/*#if !VANILLA
-                        Array.Copy(BitConverter.GetBytes((ushort)16), 0, Buffer, cursor, TypeSizes.SHORT);
-                        cursor += TypeSizes.SHORT;
+            Array.Copy(BitConverter.GetBytes(RsbHash.HASH2), 0, Buffer, cursor, TypeSizes.INT);
+            cursor += TypeSizes.INT;
 
-                        Array.Copy(BitConverter.GetBytes(RsbHash.HASH1), 0, Buffer, cursor, TypeSizes.INT);
-                        cursor += TypeSizes.INT;
+            Array.Copy(BitConverter.GetBytes(RsbHash.HASH3), 0, Buffer, cursor, TypeSizes.INT);
+            cursor += TypeSizes.INT;
 
-                        Array.Copy(BitConverter.GetBytes(RsbHash.HASH2), 0, Buffer, cursor, TypeSizes.INT);
-                        cursor += TypeSizes.INT;
-
-                        Array.Copy(BitConverter.GetBytes(RsbHash.HASH3), 0, Buffer, cursor, TypeSizes.INT);
-                        cursor += TypeSizes.INT;
-
-                        Array.Copy(BitConverter.GetBytes(RsbHash.HASH4), 0, Buffer, cursor, TypeSizes.INT);
-                        cursor += TypeSizes.INT;
-            #endif*/
+            Array.Copy(BitConverter.GetBytes(RsbHash.HASH4), 0, Buffer, cursor, TypeSizes.INT);
+            cursor += TypeSizes.INT;
+#endif
             return cursor - StartIndex;
         }
 
@@ -234,11 +227,7 @@ namespace Meridian59.Protocol.GameMessages
             cursor += TypeSizes.INT;
 
             PasswordHash = hash;
-
-            SecretKey = Util.Encoding.GetString(Buffer, cursor, len);
-            cursor += len;
-
-/*#if !VANILLA
+#if !VANILLA
             // rsbhash len, always 0x10 = 16
             cursor += TypeSizes.SHORT;
 
@@ -256,15 +245,10 @@ namespace Meridian59.Protocol.GameMessages
             cursor += TypeSizes.INT;
 
             RsbHash = rsbHash;
-#endif*/
+#endif
             return cursor - StartIndex;
         }
         #endregion
-
-        /// <summary>
-        /// SecretKey to match server configuration
-        /// </summary>
-        public string SecretKey { get; set; }
 
         /// <summary>
         /// Major program version of the Meridian 59 client trying to login
@@ -411,7 +395,7 @@ namespace Meridian59.Protocol.GameMessages
         /// </summary>
         /// <param name="Username"></param>
         /// <param name="Password"></param>
-        /// <param name="SecretKey"></param>
+        /// <param name="RsbHash"></param>
         /// <param name="MajorClientVersion"></param>
         /// <param name="MinorClientVersion"></param>
         /// <param name="WindowsType"></param>
@@ -430,7 +414,7 @@ namespace Meridian59.Protocol.GameMessages
         public LoginMessage(
             string Username, 
             string Password,
-            string SecretKey, //Hash128Bit RsbHash,
+            Hash128Bit RsbHash,
             byte MajorClientVersion, 
             byte MinorClientVersion,
             uint WindowsType = WINTYPE_NT, 
@@ -466,7 +450,7 @@ namespace Meridian59.Protocol.GameMessages
             this.ColorDepth = ColorDepth;
             this.PartnerNr = PartnerNr;
             this.Unused = Unused;
-            this.SecretKey = SecretKey; //this.RsbHash = RsbHash;
+            this.RsbHash = RsbHash;
             this.Username = Username;
             this.Password = Password;           
         }

@@ -74,8 +74,8 @@ const char* EN_DESCRIPTIONS_STATUSBAR[] =
 const char* EN_CHARINFONOTOKERROR_OKDIALOG[] =
 {
    "No error.",                                                                                                                                                                   // 0
-   "Character creation failed due to an unspecified error, please try again and contact an admin in-game or at Meridian 59 Server 104 Discord if you are unable to create a character.", // 1
-   "Character slot already in use! Please try a different character slot, and contact an admin in-game or at Meridian 59 Server 104 Discord.",                                           // 2
+   "Character creation failed due to an unspecified error, please try again and contact an admin in-game or at meridiannext.com/phpbb3 if you are unable to create a character.", // 1
+   "Character slot already in use! Please try a different character slot, and contact an admin in-game or at meridiannext.com/phpbb3.",                                           // 2
    "Character names must be between 3 and 30 characters long.",                                                                                                                   // 3
    "Invalid character used in name.",                                                                                                                                             // 4
    "Your character name is already taken by someone else.",                                                                                                                       // 5
@@ -122,14 +122,14 @@ const char* EN_MISC[] =
 
 const char* EN_TOOLTIPS_TARGET[] =
 {
-   "Inspect",    // 0
-   "Attack",     // 1
-   "Activate",   // 2
-   "Items",      // 3
-   "Buy",        // 4
-   "Trade",      // 5
-   "Loot",       // 6
-   "Quest"       // 7
+   "Inspect",   // 0
+   "Attack",    // 1
+   "Activate",  // 2
+   "Items",     // 3
+   "Buy",       // 4
+   "Trade",     // 5
+   "Loot",      // 6
+   "Quest"      // 7
 };
 
 /**************************************************************************************/
@@ -217,8 +217,8 @@ const char* DE_DESCRIPTIONS_STATUSBAR[] =
 const char* DE_CHARINFONOTOKERROR_OKDIALOG[] =
 {
    "Kein Fehler.",                                                                                                                                                                                                                                     // 0
-   "Charaktererstellung aufgrund eines unspezifizierten Fehlers fehlgeschlagen, bitte versuche es erneut und kontaktiere einen Administrator im Spiel oder auf Meridian 59 Server 104 Discord wenn Du nicht in der Lage bist, einen Charakter zu erstellen.", // 1
-   "Charakterplatz bereits belegt! Bitte versuche einen anderen Charakterplatz und kontaktiere einen Administrator im Spiel oder auf Meridian 59 Server 104 Discord.",                                                                                        // 2
+   "Charaktererstellung aufgrund eines unspezifizierten Fehlers fehlgeschlagen, bitte versuche es erneut und kontaktiere einen Administrator im Spiel oder auf meridiannext.com/phpbb3 wenn Du nicht in der Lage bist, einen Charakter zu erstellen.", // 1
+   "Charakterplatz bereits belegt! Bitte versuche einen anderen Charakterplatz und kontaktiere einen Administrator im Spiel oder auf meridiannext.com/phpbb3.",                                                                                        // 2
    "Charakternamen müssen zwischen 3 und 30 Zeichen lang sein.",                                                                                                                                                                                       // 3
    "Ungültiges Symbol im Namen verwendet.",                                                                                                                                                                                                            // 4
    "Dieser Name ist bereits vergeben.",                                                                                                                                                                                                                // 5

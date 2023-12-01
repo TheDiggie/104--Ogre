@@ -123,7 +123,7 @@ namespace Meridian59 { namespace Ogre
    {
       if (!OgreClient::Singleton->RenderWindow->isClosed())
       {
-         Group->setText(StringConvert::CLRToCEGUI("Preloading..."));
+         Group->setText(StringConvert::CLRToCEGUI("legacy resources"));
          Group->setProgress(Group->getProgress() + stepSizeGroup);
 
          Content->setProgress(0.0f);

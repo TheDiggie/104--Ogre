@@ -2,20 +2,16 @@
 
 namespace Meridian59 { namespace Ogre
 {
-    bool isMarketplace = false;
-
    void ControllerUI::Trade::Initialize()
    {
-        // setup references to children from xml nodes 
-        Window = static_cast<CEGUI::FrameWindow*>(guiRoot->getChild(UI_NAME_TRADE_WINDOW));
-        NameYou     = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_TRADE_NAMEYOU));
-        AmountYou = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_TRADE_AMOUNTYOU));
-        AmountYouMarketplace = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_TRADE_AMOUNTYOUMARKET));
-        NamePartner = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_TRADE_NAMEPARTNER));
-        ListYou     = static_cast<CEGUI::ItemListbox*>(Window->getChild(UI_NAME_TRADE_LISTYOU));
-        ListPartner = static_cast<CEGUI::ItemListbox*>(Window->getChild(UI_NAME_TRADE_LISTPARTNER));
-        Offer       = static_cast<CEGUI::PushButton*>(Window->getChild(UI_NAME_TRADE_OFFER));
-        Accept      = static_cast<CEGUI::PushButton*>(Window->getChild(UI_NAME_TRADE_ACCEPT));
+      // setup references to children from xml nodes
+      Window      = static_cast<CEGUI::FrameWindow*>(guiRoot->getChild(UI_NAME_TRADE_WINDOW));
+      NameYou     = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_TRADE_NAMEYOU));
+      NamePartner = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_TRADE_NAMEPARTNER));
+      ListYou     = static_cast<CEGUI::ItemListbox*>(Window->getChild(UI_NAME_TRADE_LISTYOU));
+      ListPartner = static_cast<CEGUI::ItemListbox*>(Window->getChild(UI_NAME_TRADE_LISTPARTNER));
+      Offer       = static_cast<CEGUI::PushButton*>(Window->getChild(UI_NAME_TRADE_OFFER));
+      Accept      = static_cast<CEGUI::PushButton*>(Window->getChild(UI_NAME_TRADE_ACCEPT));
 
       // attach listener to trade data
       OgreClient::Singleton->Data->Trade->PropertyChanged += 
@@ -35,9 +31,6 @@ namespace Meridian59 { namespace Ogre
 
       // accept not visible in defaultstate
       Accept->setVisible(false);
-
-      // Marketplace not visible by default
-      AmountYouMarketplace->setVisible(false);
 
       // subscribe selection change
       ListYou->subscribeEvent(CEGUI::ItemListbox::EventDragDropItemDropped, CEGUI::Event::Subscriber(UICallbacks::Trade::OnListYouItemDropped));
@@ -86,20 +79,8 @@ namespace Meridian59 { namespace Ogre
          // bring to front
          if (tradeInfo->IsVisible)
             Window->moveToFront();
-
-         isMarketplace = false;
-
-         if (tradeInfo->TradePartner->Flags && tradeInfo->TradePartner->Flags->IsMarketplace)
-         {
-             // We need to show an extra box and the "Save" behavior will change.
-             isMarketplace = true;
-             AmountYouMarketplace = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_TRADE_AMOUNTYOUMARKET));
-             AmountYouMarketplace->setVisible(true);
-         }
-         else {
-             AmountYouMarketplace->setVisible(false);
-         }
       }
+
       // pending
       else if (CLRString::Equals(e->PropertyName, TradeInfo::PROPNAME_ISPENDING))
       {
@@ -195,9 +176,7 @@ namespace Meridian59 { namespace Ogre
          CEGUI::Window* icon     = (CEGUI::Window*)widget->getChildAtIdx(UI_TRADE_CHILDINDEX_ICON);
          CEGUI::Window* name     = (CEGUI::Window*)widget->getChildAtIdx(UI_TRADE_CHILDINDEX_NAME);
          CEGUI::Editbox* amount  = (CEGUI::Editbox*)widget->getChildAtIdx(UI_TRADE_CHILDINDEX_AMOUNT);
-         CEGUI::Editbox* unitplat    = (CEGUI::Editbox*)widget->getChildAtIdx(UI_TRADE_CHILDINDEX_UNITPLAT);
-         CEGUI::Editbox* unitshills = (CEGUI::Editbox*)widget->getChildAtIdx(UI_TRADE_CHILDINDEX_UNITSHILLS);
-         
+
          // subscribe event to focusleave on textbox
          amount->subscribeEvent(CEGUI::Editbox::EventDeactivated, CEGUI::Event::Subscriber(UICallbacks::Trade::OnItemYouAmountDeactivated));
          amount->subscribeEvent(CEGUI::Editbox::EventTextAccepted, CEGUI::Event::Subscriber(UICallbacks::Trade::OnItemYouAmountDeactivated));
@@ -227,20 +206,6 @@ namespace Meridian59 { namespace Ogre
          // set default amount
          amount->setText(CEGUI::PropertyHelper<unsigned int>::toString(obj->Count));
          amount->setVisible(obj->IsStackable);
-
-         if (isMarketplace)
-         {
-             // set default unit price
-             unitplat->setText(CEGUI::PropertyHelper<unsigned int>::toString(1));
-             unitplat->setVisible(true); // Always visible, we want a price to list on the marketplace.
-             unitshills->setText(CEGUI::PropertyHelper<unsigned int>::toString(500));
-             unitshills->setVisible(true); // Always visible, we want a price to list on the marketplace.
-         }
-         else {
-             // Hide Marketplace unit from normal trades
-             unitplat->setVisible(false);
-             unitshills->setVisible(false);
-         }
       }
 
       // insert widget in ui-list
@@ -299,12 +264,6 @@ namespace Meridian59 { namespace Ogre
       // create widget (item)
       CEGUI::ItemEntry* widget = (CEGUI::ItemEntry*)wndMgr.createWindow(
          UI_WINDOWTYPE_TRADELISTBOXITEM);
-
-      CEGUI::Editbox* unitplat = (CEGUI::Editbox*)widget->getChildAtIdx(UI_TRADE_CHILDINDEX_UNITPLAT);
-      CEGUI::Editbox* unitshills = (CEGUI::Editbox*)widget->getChildAtIdx(UI_TRADE_CHILDINDEX_UNITSHILLS);
-
-      unitplat->setVisible(false);
-      unitshills->setVisible(false);
 
       // set id
       widget->setID(obj->ID);
@@ -445,44 +404,22 @@ namespace Meridian59 { namespace Ogre
                // get text from box
                CEGUI::String strItemCount = list->getItemFromIndex(i)->getChildAtIdx(
                   UI_TRADE_CHILDINDEX_AMOUNT)->getText();
-               CEGUI::String strUnitPricePlat = list->getItemFromIndex(i)->getChildAtIdx(
-                   UI_TRADE_CHILDINDEX_UNITPLAT)->getText();
-               CEGUI::String strUnitPriceShills = list->getItemFromIndex(i)->getChildAtIdx(
-                   UI_TRADE_CHILDINDEX_UNITSHILLS)->getText();
 
                if (strItemCount == STRINGEMPTY)
-                   continue; // Items that are empty or zero should be skipped. //strItemCount = "1";
+                  strItemCount = "1";
 
                idList->Add(gcnew ObjectID(
                   dataItems[i]->ID, 
                   CEGUI::PropertyHelper<unsigned int>::fromString(strItemCount)));
-
-               if (isMarketplace)
-               {
-                   // List this item on the marketplace if possible.
-                   OgreClient::Singleton->SendUserCommandMarketplaceList(
-                       dataItems[i]->ID,
-                       CEGUI::PropertyHelper<unsigned int>::fromString(strItemCount),
-                       CEGUI::PropertyHelper<unsigned int>::fromString(strUnitPricePlat),
-                       CEGUI::PropertyHelper<unsigned int>::fromString(strUnitPriceShills)
-                       );
-               }
             }
          }
 
-         if (!isMarketplace)
-         {
-             // either send reqoffer or reqcounteroffer
-             if (!tradeInfo->IsBackgroundOffer)
-                 OgreClient::Singleton->SendReqOffer(tradeInfo->TradePartner, idList->ToArray());
+         // either send reqoffer or reqcounteroffer
+         if (!tradeInfo->IsBackgroundOffer)
+            OgreClient::Singleton->SendReqOffer(tradeInfo->TradePartner, idList->ToArray());
 
-             else
-                 OgreClient::Singleton->SendReqCounterOffer(idList->ToArray());
-         }
-         else {
-             // clear (view will react)
-             OgreClient::Singleton->Data->Trade->Clear(true);
-         }
+         else
+            OgreClient::Singleton->SendReqCounterOffer(idList->ToArray());
       }
 
       return true;

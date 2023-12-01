@@ -444,29 +444,28 @@ namespace Meridian59 { namespace Ogre
       graphics->DrawImage(background, toRectangle, fromRectangle, GraphicsUnit::Pixel);
    }
 
-   //[System::Runtime::ExceptionServices::HandleProcessCorruptedStateExceptionsAttribute]
    bool ImageBuilder::GDI::DrawBGF(::Meridian59::Files::BGF::BgfBitmap^ BgfBitmap, ::System::Drawing::Rectangle DestRect, unsigned char Palette)
    {
-        // lock
-        ::System::Drawing::Imaging::BitmapData^ data = source->LockBits(
-            ::System::Drawing::Rectangle(0, 0, CACHESURFACEWIDTH, CACHESURFACEHEIGHT),
-            ::System::Drawing::Imaging::ImageLockMode::WriteOnly,
-            ::System::Drawing::Imaging::PixelFormat::Format32bppArgb);
+      // lock
+      ::System::Drawing::Imaging::BitmapData^ data = source->LockBits(
+         ::System::Drawing::Rectangle(0, 0, CACHESURFACEWIDTH, CACHESURFACEHEIGHT),
+         ::System::Drawing::Imaging::ImageLockMode::WriteOnly,
+         ::System::Drawing::Imaging::PixelFormat::Format32bppArgb);
 
-            ZeroMemory(data->Scan0.ToPointer(), (BgfBitmap->Height + 1) * CACHESURFACEWIDTH * 4);
+      ZeroMemory(data->Scan0.ToPointer(), (BgfBitmap->Height+1) * CACHESURFACEWIDTH * 4); 
 
-        // fill with new data
-        BgfBitmap->FillPixelDataAsA8R8G8B8((unsigned int*)data->Scan0.ToPointer(), Palette, CACHESURFACEWIDTH);
+      // fill with new data
+      BgfBitmap->FillPixelDataAsA8R8G8B8((unsigned int*)data->Scan0.ToPointer(), Palette, CACHESURFACEWIDTH);
 
-        // unlock
-        source->UnlockBits(data);
+      // unlock
+      source->UnlockBits(data);
 
-        // source rectangle of just filled pixels
-        ::System::Drawing::Rectangle srcRect =
-            ::System::Drawing::Rectangle(0, 0, BgfBitmap->Width, BgfBitmap->Height);
+      // source rectangle of just filled pixels
+      ::System::Drawing::Rectangle srcRect = 
+         ::System::Drawing::Rectangle(0, 0, BgfBitmap->Width, BgfBitmap->Height);
 
-        // draw into destinaation
-        graphics->DrawImage(source, DestRect, srcRect, ::System::Drawing::GraphicsUnit::Pixel);
+      // draw into destinaation
+      graphics->DrawImage(source, DestRect, srcRect, ::System::Drawing::GraphicsUnit::Pixel);
 
       return true;
    }

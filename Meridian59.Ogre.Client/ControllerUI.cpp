@@ -118,6 +118,7 @@ namespace Meridian59 { namespace Ogre
       Welcome::Initialize();
       StatusBar::Initialize();
       OnlinePlayers::Initialize();
+      RoomObjects::Initialize();
       Chat::Initialize();
       Avatar::Initialize();
       ObjectDetails::Initialize();
@@ -188,6 +189,7 @@ namespace Meridian59 { namespace Ogre
       Welcome::Destroy();
       StatusBar::Destroy();
       OnlinePlayers::Destroy();
+      RoomObjects::Destroy();
       Chat::Destroy();
       Avatar::Destroy();
       ObjectDetails::Destroy();
@@ -260,6 +262,7 @@ namespace Meridian59 { namespace Ogre
       Welcome::ApplyLanguage();
       StatusBar::ApplyLanguage();
       OnlinePlayers::ApplyLanguage();
+      RoomObjects::ApplyLanguage();
       Chat::ApplyLanguage();
       Avatar::ApplyLanguage();
       ObjectDetails::ApplyLanguage();
@@ -341,6 +344,10 @@ namespace Meridian59 { namespace Ogre
          OnlinePlayers::Window->setDragMovingEnabled(false);
          OnlinePlayers::Window->setSizingEnabled(false);
          OnlinePlayers::Window->getTitlebar()->setMouseCursor(UI_DEFAULTARROW);
+
+         RoomObjects::Window->setDragMovingEnabled(false);
+         RoomObjects::Window->setSizingEnabled(false);
+         RoomObjects::Window->getTitlebar()->setMouseCursor(UI_DEFAULTARROW);
       }
       else
       {
@@ -374,6 +381,10 @@ namespace Meridian59 { namespace Ogre
          OnlinePlayers::Window->setDragMovingEnabled(true);
          OnlinePlayers::Window->setSizingEnabled(true);
          OnlinePlayers::Window->getTitlebar()->setMouseCursor(UI_MOUSECURSOR_DRAG);
+
+         RoomObjects::Window->setDragMovingEnabled(true);
+         RoomObjects::Window->setSizingEnabled(true);
+         RoomObjects::Window->getTitlebar()->setMouseCursor(UI_MOUSECURSOR_DRAG);
       }
    };
 
@@ -694,6 +705,11 @@ namespace Meridian59 { namespace Ogre
       OgreClient::Singleton->Config->UILayoutOnlinePlayers->setPosition(OnlinePlayers::Window->getPosition());
       OgreClient::Singleton->Config->UILayoutOnlinePlayers->setSize(OnlinePlayers::Window->getSize());
       OgreClient::Singleton->Config->UIVisibilityOnlinePlayers = OnlinePlayers::Window->isVisible();
+
+      // roomobjects
+      OgreClient::Singleton->Config->UILayoutRoomObjects->setPosition(RoomObjects::Window->getPosition());
+      OgreClient::Singleton->Config->UILayoutRoomObjects->setSize(RoomObjects::Window->getSize());
+      OgreClient::Singleton->Config->UIVisibilityRoomObjects = RoomObjects::Window->isVisible();
    };
 
    void ControllerUI::OnDataPropertyChanged(Object^ sender, PropertyChangedEventArgs^ e)
@@ -710,6 +726,7 @@ namespace Meridian59 { namespace Ogre
          Welcome::Window->setVisible(mode == UIMode::AvatarSelection);
          StatusBar::Window->setVisible(mode == UIMode::Playing);
          OnlinePlayers::Window->setVisible(mode == UIMode::Playing && OgreClient::Singleton->Config->UIVisibilityOnlinePlayers);
+         RoomObjects::Window->setVisible(mode == UIMode::Playing && OgreClient::Singleton->Config->UIVisibilityRoomObjects);
          Chat::Window->setVisible(mode == UIMode::Playing && OgreClient::Singleton->Config->UIVisibilityChat);
          Avatar::Window->setVisible(mode == UIMode::Playing);
          ObjectDetails::Window->setVisible(false);

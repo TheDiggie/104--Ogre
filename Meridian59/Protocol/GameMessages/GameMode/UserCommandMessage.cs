@@ -69,7 +69,7 @@ namespace Meridian59.Protocol.GameMessages
             : base(MessageTypeGameMode.UserCommand)
         {         
             this.Command = Command;
-            this.StringResources = StringResources;
+            this.StringResources = StringResources;            
         }
 
 		public UserCommandMessage(StringDictionary StringResources, MessageDirection Direction, byte[] Buffer, int StartIndex = 0) 

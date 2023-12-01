@@ -304,6 +304,35 @@ namespace Meridian59 { namespace Ogre
       };
 
       /// <summary>
+      /// RoomObjects window
+      /// </summary>
+      ref class RoomObjects abstract sealed
+      {
+      public:
+         static ::CEGUI::FrameWindow* Window = nullptr;
+         static ::CEGUI::ItemListbox* List = nullptr;
+         static ::CEGUI::ToggleButton* ShowAll = nullptr;
+         static ::CEGUI::ToggleButton* ShowGuild = nullptr;
+         static ::CEGUI::ToggleButton* ShowEnemy = nullptr;
+         static ::CEGUI::ToggleButton* ShowFriend = nullptr;
+         static ::CEGUI::ToggleButton* ShowAttack = nullptr;
+         static ::CEGUI::ToggleButton* ShowGet = nullptr;
+         static ::CEGUI::ToggleButton* ShowMinion = nullptr;
+         static ::CEGUI::ToggleButton* ShowPK = nullptr;
+         static ::CEGUI::ToggleButton* ShowBuy = nullptr;
+         static bool FlippedbyAll = false;
+
+         static void Initialize();
+         static void Destroy();
+         static void ApplyLanguage();
+         static void OnRoomObjectsFilteredListChanged(Object^ sender, ListChangedEventArgs^ e);
+         static void OnDataPropertyChanged(Object^ sender, PropertyChangedEventArgs^ e);
+         static void RoomObjectAdd(int Index);
+         static void RoomObjectRemove(int Index);
+         static void RoomObjectChange(int Index);
+      };
+
+      /// <summary>
       /// Chat window
       /// </summary>
       ref class Chat abstract sealed
@@ -598,13 +627,7 @@ namespace Meridian59 { namespace Ogre
          static ::CEGUI::ItemListbox* List = nullptr;
          static ::CEGUI::PushButton* OK = nullptr;
          static ::CEGUI::Window* SumDescription = nullptr;
-         static ::CEGUI::Window* SumPlatIcon = nullptr;
-         static ::CEGUI::Window* SumPlat = nullptr;
-         static ::CEGUI::Window* SumShillsIcon = nullptr;
-         static ::CEGUI::Window* SumShills = nullptr;
-         static ::CEGUI::Window* SumSoulsIcon = nullptr;
-         static ::CEGUI::Window* SumSouls = nullptr;
-
+         static ::CEGUI::Window* SumValue = nullptr;
 
          static void Initialize();
          static void Destroy();
@@ -766,6 +789,7 @@ namespace Meridian59 { namespace Ogre
       {
       public:
          static ::CEGUI::Window* Window = nullptr;
+         static ::CEGUI::Window* RoomObjects = nullptr;
          static ::CEGUI::Window* Attributes = nullptr;
          static ::CEGUI::Window* Quests = nullptr;
          static ::CEGUI::Window* Guild = nullptr;
@@ -807,8 +831,6 @@ namespace Meridian59 { namespace Ogre
       public:
          static ::CEGUI::FrameWindow* Window = nullptr;
          static ::CEGUI::Window* NameYou = nullptr;
-         static ::CEGUI::Window* AmountYou = nullptr;
-         static ::CEGUI::Window* AmountYouMarketplace = nullptr;
          static ::CEGUI::Window* NamePartner = nullptr;
          static ::CEGUI::ItemListbox* ListYou = nullptr;
          static ::CEGUI::ItemListbox* ListPartner = nullptr;
@@ -1634,6 +1656,16 @@ namespace Meridian59 { namespace Ogre
       {
       public:
          static bool OnIgnoreSelectStateChanged(const CEGUI::EventArgs& e);
+      };
+
+      /// <summary>
+      /// RoomObjects event handlers
+      /// </summary>
+      class RoomObjects
+      {
+      public:
+         static bool OnFilterSelectStateChanged(const CEGUI::EventArgs& e);
+         static bool OnListSelectionChanged(const CEGUI::EventArgs& e);
       };
 
       /// <summary>

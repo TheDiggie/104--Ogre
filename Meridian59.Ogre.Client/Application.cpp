@@ -23,7 +23,7 @@ extern "C"
 // console window
 void showWin32Console()
 {
-   static const WORD MAX_CONSOLE_LINES = 1000; // Original: 500
+   static const WORD MAX_CONSOLE_LINES = 500;
    int hConHandle;
    HANDLE lStdHandle;
    CONSOLE_SCREEN_BUFFER_INFO coninfo;

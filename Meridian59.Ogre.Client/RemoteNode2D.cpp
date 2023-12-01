@@ -164,11 +164,6 @@ namespace Meridian59 { namespace Ogre
 
    void RemoteNode2D::UpdateMaterial()
       {
-
-       if (imageComposer->Image == nullptr) {
-           return;
-       }
-
       // INVISIBLE
       if (RoomObject->Flags->Drawing == ObjectFlags::DrawingType::Invisible)
          billboardSet->setMaterialName(*imageComposer->Image->MaterialNameInvisible);

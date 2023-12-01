@@ -98,8 +98,6 @@ namespace Meridian59 { namespace Ogre
 
       ::System::DateTime time = MeridianDate::ToDateTime(obj->Timestamp);
 
-      Logger::Log("MAIL", LogType::Info, "Date Time: " + time.ToLongDateString() + " / M59 Timestamp " + obj->Timestamp.ToString());
-
       CEGUI::ListboxTextItem* itmDate = new CEGUI::ListboxTextItem(
          StringConvert::CLRToCEGUI(time.ToShortDateString() + " " + time.ToShortTimeString()));
 

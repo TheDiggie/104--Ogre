@@ -2304,13 +2304,8 @@ namespace Meridian59.Data
             {
 #if !VANILLA && !OPENMERIDIAN
                 // set new angle from message
-                //roomObject.AngleUnits = Message.Angle;
+                roomObject.AngleUnits = Message.Angle;
 #endif
-                if (roomObject.IsAvatar)
-                {
-                    roomObject.AngleUnits = AvatarObject.AngleUnits;
-                }
-
                 // create destination from values
                 V2 destination = new V2(Message.NewCoordinateX, Message.NewCoordinateY);
 

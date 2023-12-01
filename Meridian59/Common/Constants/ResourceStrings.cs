@@ -302,7 +302,6 @@ namespace Meridian59.Common.Constants
                 public const string TRUCE       = "truce";
                 public const string MINORHEAL   = "minor heal";
                 public const string HOSPICE     = "hospice";
-                public const string DONATE      = "donate";
 
                 public static bool Is(string Value)
                 {
@@ -312,8 +311,7 @@ namespace Meridian59.Common.Constants
                         string.Equals(Value, RESISTACID) ||
                         string.Equals(Value, TRUCE) ||
                         string.Equals(Value, MINORHEAL) ||
-                        string.Equals(Value, HOSPICE) ||
-                        string.Equals(Value, DONATE));
+                        string.Equals(Value, HOSPICE));
                 }
             }
 
@@ -331,8 +329,6 @@ namespace Meridian59.Common.Constants
                 public const string FREEACTION      = "free action";
                 public const string ANTIMAGICAURA   = "anti-magic aura";
                 public const string CONVEYANCE      = "conveyance";
-                public const string TRANSFERENCE    = "transference";
-                public const string CAMP            = "camp";
 
                 public static bool Is(string Value)
                 {
@@ -348,9 +344,7 @@ namespace Meridian59.Common.Constants
                         string.Equals(Value, EAGLEEYES) ||
                         string.Equals(Value, FREEACTION) ||
                         string.Equals(Value, ANTIMAGICAURA) ||
-                        string.Equals(Value, CONVEYANCE) ||
-                        string.Equals(Value, TRANSFERENCE) ||
-                        string.Equals(Value, CAMP));
+                        string.Equals(Value, CONVEYANCE));
                 }
             }
 

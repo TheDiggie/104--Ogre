@@ -1180,27 +1180,84 @@ namespace Meridian59 { namespace Ogre
 
    void OgreClient::DemoSceneLoadBrax()
    {
-	   DemoSceneDestroy();
+      DemoSceneDestroy();
 
-	   RoomInfo^ roomInfo = Data->RoomInformation;
-	   roomInfo->RoomFile = "tosinn.roo";
-	   roomInfo->AmbientLight = 200;
-	   roomInfo->ResourceRoom = OgreClient::Singleton->ResourceManager->GetRoom(roomInfo->RoomFile);
-	   if (roomInfo->ResourceRoom)
-		   roomInfo->ResourceRoom->ResolveResources(OgreClient::Singleton->ResourceManager);
+      RoomInfo^ roomInfo = Data->RoomInformation;
+      roomInfo->RoomFile = "necarea3.roo";
+      roomInfo->AmbientLight = 40;
+      roomInfo->ResourceRoom = OgreClient::Singleton->ResourceManager->GetRoom(roomInfo->RoomFile);
+      if (roomInfo->ResourceRoom)
+         roomInfo->ResourceRoom->ResolveResources(OgreClient::Singleton->ResourceManager);
 
-	   ControllerRoom::LoadRoom();
+      ControllerRoom::LoadRoom();
 
-	   IsCameraListenerEnabled = true;
-	   sceneManager->getRootSceneNode()->addChild(CameraNode);
+      IsCameraListenerEnabled = true;
+      sceneManager->getRootSceneNode()->addChild(CameraNode);
 
-	   CameraNode->setPosition(700, 150, 700);
-	   CameraNode->rotate(::Ogre::Vector3::UNIT_Y, ::Ogre::Radian(0.7f));
+      CameraNode->setPosition(1266, 460, 1344);
+      CameraNode->rotate(::Ogre::Vector3::UNIT_Y, ::Ogre::Radian(-0.55f));
 
-	   PlayMusic^ music = gcnew PlayMusic();
-	   music->ResourceName = "nec02.ogg";
-	   music->ResolveResources(OgreClient::Singleton->ResourceManager, false);
-	   ControllerSound::StartMusic(music);
+      // tree1
+      RoomObject^ tree1 = gcnew RoomObject();
+      tree1->ID = 1;
+      tree1->Animation = gcnew AnimationNone(1);
+      tree1->OverlayFile = "nectree3.bgf";
+      tree1->Flags->Value = 131136;
+      tree1->LightingInfo = gcnew LightingInfo(1, 50, 320);
+      tree1->Position3D = V3(1696.0f, 360.0f, 1120.0f);
+      tree1->ResolveResources(OgreClient::Singleton->ResourceManager, false);
+      Data->RoomObjects->Add(tree1);
+
+      // tree2
+      RoomObject^ tree2 = gcnew RoomObject();
+      tree2->ID = 2;
+      tree2->Animation = gcnew AnimationNone(1);
+      tree2->OverlayFile = "nectree2.bgf";
+      tree2->Flags->Value = 131136;
+      tree2->LightingInfo = gcnew LightingInfo(1, 50, 15360);
+      tree2->Position3D = V3(1280.0f, 357.25f, 896.0f);
+      tree2->ResolveResources(OgreClient::Singleton->ResourceManager, false);
+      Data->RoomObjects->Add(tree2);
+
+      // brazier
+      RoomObject^ brazier = gcnew RoomObject();
+      brazier->ID = 3;
+      brazier->Animation = gcnew AnimationCycle(120, 2, 7);
+      brazier->OverlayFile = "brazier.bgf";
+      brazier->Flags->Value = 131136;
+      brazier->LightingInfo = gcnew LightingInfo(1, 40, 32518);
+      brazier->Position3D = V3(1430.0f, 360.0f, 1120.0f);
+      brazier->ResolveResources(OgreClient::Singleton->ResourceManager, false);
+      Data->RoomObjects->Add(brazier);
+
+      // venya'cyr
+      RoomObject^ lich = gcnew RoomObject();
+      lich->ID = 4;
+      lich->Animation = gcnew AnimationNone(1);
+      lich->OverlayFile = "licha.bgf";
+      lich->Flags->Value = 1544;
+      lich->Angle = 1.49f;
+      lich->LightingInfo = gcnew LightingInfo();
+      lich->Position3D = V3(1400.0f, 360.0f, 1080.0f);
+      lich->ResolveResources(OgreClient::Singleton->ResourceManager, false);
+      Data->RoomObjects->Add(lich);
+
+      // narthyl worm
+      RoomObject^ worm = gcnew RoomObject();
+      worm->ID = 5;
+      worm->Animation = gcnew AnimationCycle(150, 1, 4);
+      worm->OverlayFile = "darkbeas.bgf";
+      worm->Flags->Value = 0;
+      worm->Angle = 2.8f;
+      worm->LightingInfo = gcnew LightingInfo();
+      worm->Position3D = V3(1500.0f, 360.0f, 1130.0f);
+      worm->ResolveResources(OgreClient::Singleton->ResourceManager, false);
+      Data->RoomObjects->Add(worm);
+
+      PlayMusic^ music = gcnew PlayMusic();
+      music->ResourceName = "nec02.ogg";
+      music->ResolveResources(OgreClient::Singleton->ResourceManager, false);
+      ControllerSound::StartMusic(music);
    };
 
    void OgreClient::RenderManually()

@@ -31,7 +31,7 @@ namespace Meridian59.Data.Models
         #region Constants
         public const uint ATTRIBUTE_MINVALUE = 1;
         public const uint ATTRIBUTE_MAXVALUE = 50;
-        public const uint ATTRIBUTE_MAXSUM = 220;
+        public const uint ATTRIBUTE_MAXSUM = 200;
         public const uint SCHOOL_MINVALUE = 0;
         public const uint SCHOOL_MAXVALUE = 6;
 

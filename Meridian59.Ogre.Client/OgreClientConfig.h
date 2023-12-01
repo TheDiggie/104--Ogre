@@ -78,7 +78,8 @@ namespace Meridian59 { namespace Ogre
       literal bool         DEFAULTVAL_UI_VISIBILITYMAINBUTTONSRIGHT  = true;
       literal bool         DEFAULTVAL_UI_VISIBILITYACTIONBUTTONGRID  = true;
       literal bool         DEFAULTVAL_UI_VISIBILITYONLINEPLAYERS     = false;
-      
+      literal bool         DEFAULTVAL_UI_VISIBILITYROOMOBJECTS       = false;
+
       literal CLRString^ BUTTONTYPE_SPELL = "spell";
       literal CLRString^ BUTTONTYPE_SKILL = "skill";
       literal CLRString^ BUTTONTYPE_ACTION = "action";
@@ -125,6 +126,7 @@ namespace Meridian59 { namespace Ogre
       literal CLRString^ TAG_MAINBUTTONSRIGHT = "mainbuttonsright";
       literal CLRString^ TAG_ACTIONBUTTONGRID = "actionbuttongrid";
       literal CLRString^ TAG_ONLINEPLAYERS = "onlineplayers";
+      literal CLRString^ TAG_ROOMOBJECTS = "roomobjects";
       literal CLRString^ TAG_TARGETVISIBILITY = "targetvisibility";
       literal CLRString^ TAG_MINIMAPVISIBILITY = "minimapvisibility";
       literal CLRString^ TAG_CHATVISIBILITY = "chatvisibility";
@@ -134,6 +136,7 @@ namespace Meridian59 { namespace Ogre
       literal CLRString^ TAG_ACTIONSVISIBILITY = "actionsvisibility";
       literal CLRString^ TAG_ATTRIBUTESVISIBILITY = "attributesvisibility";
       literal CLRString^ TAG_ONLINEPLAYERSVISIBILITY = "onlineplayersvisibility";
+      literal CLRString^ TAG_ROOMOBJECTSVISIBILITY = "roomobjectsvisibility";
       literal CLRString^ TAG_INPUT = "input";
       literal CLRString^ TAG_MOUSEAIMSPEED = "mouseaimspeed";
       literal CLRString^ TAG_MOUSEAIMDISTANCE = "mouseaimdistance";
@@ -271,7 +274,8 @@ namespace Meridian59 { namespace Ogre
       bool UIVisibilityActions;
       bool UIVisibilityAttributes;
       bool UIVisibilityOnlinePlayers;
-      
+      bool UIVisibilityRoomObjects;
+
       ::CEGUI::URect* UILayoutAvatar;
       ::CEGUI::URect* UILayoutTarget;
       ::CEGUI::URect* UILayoutMinimap;
@@ -286,6 +290,7 @@ namespace Meridian59 { namespace Ogre
       ::CEGUI::URect* UILayoutMainButtonsRight;
       ::CEGUI::URect* UILayoutActionButtons;
       ::CEGUI::URect* UILayoutOnlinePlayers;
+      ::CEGUI::URect* UILayoutRoomObjects;
 
       ::System::Collections::Generic::List<ActionButtonList^>^ ActionButtonSets =
          gcnew ::System::Collections::Generic::List<ActionButtonList^>();

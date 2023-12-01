@@ -229,11 +229,7 @@ namespace Meridian59.Data.Models
                 colorTranslation = ColorTransformation.FILTERWHITE90;
 
             animation = Animation.ExtractAnimation(ref Buffer);
-
-            if (animation != null)
-            {
-                animation.PropertyChanged += OnAnimationPropertyChanged;
-            }
+            animation.PropertyChanged += OnAnimationPropertyChanged;
 
             byte subOverlaysCount = Buffer[0];
             Buffer++;
@@ -932,7 +928,7 @@ namespace Meridian59.Data.Models
                     resource = M59ResourceManager.GetObject(OverlayFile);
                 }
 
-                if (resource != null && animation != null)
+                if (resource != null)                
                     animation.GroupMax = resource.FrameSets.Count;
             }
 
@@ -1182,7 +1178,7 @@ namespace Meridian59.Data.Models
         /// </summary>
         protected virtual void UpdateFrameIndices()
         {
-            if (resource != null && Animation != null)
+            if (resource != null)
             {
                 ViewerFrameIndex = resource.GetFrameIndex(Animation.CurrentGroup, viewerAngle);
 

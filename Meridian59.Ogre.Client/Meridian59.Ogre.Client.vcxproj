@@ -79,8 +79,6 @@
     <OutDir>bin\x86\Debug\</OutDir>
     <IntDir>obj\x86\Debug\</IntDir>
     <LinkKeyFile>..\Meridian59\Meridian59.snk</LinkKeyFile>
-    <EnableMicrosoftCodeAnalysis>false</EnableMicrosoftCodeAnalysis>
-    <TargetName>meridian</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
@@ -93,7 +91,6 @@
     <OutDir>bin\x86\</OutDir>
     <IntDir>obj\x86\</IntDir>
     <LinkKeyFile>..\Meridian59\Meridian59.snk</LinkKeyFile>
-    <TargetName>Ogre-104</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
@@ -349,6 +346,7 @@
     <ClCompile Include="UIPlayerOverlays.cpp" />
     <ClCompile Include="UIQuests.cpp" />
     <ClCompile Include="UIRoomEnchantments.cpp" />
+    <ClCompile Include="UIRoomObjects.cpp" />
     <ClCompile Include="UISkillDetails.cpp" />
     <ClCompile Include="UISkills.cpp" />
     <ClCompile Include="UISpellDetails.cpp" />

@@ -82,9 +82,7 @@ namespace Meridian59.Common.Enums
         MiniGameResetPlayers= 49,
 
 #if !VANILLA
-        Time                = 60,
+        Time                = 60
 #endif
-        MarketplaceList     = 61,
-        MarketplaceUnList   = 62
     }
 }

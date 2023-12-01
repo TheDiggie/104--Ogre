@@ -38,8 +38,12 @@ namespace Meridian59.Data.Models
         public const uint ATTRIBUTE_MINVALUE                = 1;
         public const uint ATTRIBUTE_MAXVALUE                = 50; 
         public const uint ATTRIBUTE_DEFAULT                 = 25;        
-        public const uint ATTRIBUTE_MAXSUM                  = 220;
-        public const uint SKILLPOINTS_MAXSUM                = 50;
+        public const uint ATTRIBUTE_MAXSUM                  = 200;
+#if VANILLA || OPENMERIDIAN
+        public const uint SKILLPOINTS_MAXSUM                = 45;
+#else
+        public const uint SKILLPOINTS_MAXSUM                = 125;
+#endif
         public const uint SLOTID_DEFAULT                    = 0;
         public const byte HAIRCOLOR_DEFAULT                 = 0;
         public const byte SKINCOLOR_DEFAULT                 = 0;
@@ -1205,9 +1209,7 @@ namespace Meridian59.Data.Models
 
         public bool LevelOneCountCheck(AvatarCreatorSpellObject Spell)
         {
-            return true;
-
-            /*// Fine if we're adding a level 1 spell.
+            // Fine if we're adding a level 1 spell.
             if (Spell.SpellCost == 10)
                 return true;
 
@@ -1221,14 +1223,12 @@ namespace Meridian59.Data.Models
                 }
             }
 
-            return count > 1;*/
+            return count > 1;
         }
 
         public bool LevelOneCountCheck(AvatarCreatorSkillObject Skill)
         {
-            return true;
-
-/*            // Fine if we're adding a level 1 skill.
+            // Fine if we're adding a level 1 skill.
             if (Skill.SkillCost == 10)
                 return true;
 
@@ -1243,12 +1243,12 @@ namespace Meridian59.Data.Models
             }
 
             return count > 1;
-*/        }
+        }
 
         public void RemainingLevelOneCheck(AvatarCreatorSkillObject Skill)
         {
             // Don't need to remove any others if removing a level 2 skill.
-            if (Skill.SkillCost == 20)
+            if (Skill.SkillCost == 25)
                 return;
 
             // Fine if we still have more than one level 1 skill.
@@ -1266,7 +1266,7 @@ namespace Meridian59.Data.Models
             {
                 for (int i = SelectedSkills.Count - 1; i >= 0; --i)
                 {
-                    if (SelectedSkills[i].SkillCost == 20)
+                    if (SelectedSkills[i].SkillCost == 25)
                     {
                         SelectedSkills.RemoveAt(i);
                     }
@@ -1279,7 +1279,7 @@ namespace Meridian59.Data.Models
         public void RemainingLevelOneCheck(AvatarCreatorSpellObject Spell)
         {
             // Don't need to remove any others if removing a level 2 spell.
-            if (Spell.SpellCost == 20)
+            if (Spell.SpellCost == 25)
                 return;
 
             // Fine if we still have more than one level 1 spell in the same school.
@@ -1298,7 +1298,7 @@ namespace Meridian59.Data.Models
             {
                 for (int i = SelectedSpells.Count - 1; i >= 0; --i)
                 {
-                    if (SelectedSpells[i].SpellCost == 20 && SelectedSpells[i].SchoolType == Spell.SchoolType)
+                    if (SelectedSpells[i].SpellCost == 25 && SelectedSpells[i].SchoolType == Spell.SchoolType)
                     {
                         SelectedSpells.RemoveAt(i);
                     }

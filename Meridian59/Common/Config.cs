@@ -488,7 +488,13 @@ namespace Meridian59.Common
 
                     string host = (child.Attributes[XMLATTRIB_HOST] != null) ?
                         child.Attributes[XMLATTRIB_HOST].Value : DEFAULTVAL_CONNECTIONS_HOST;
-
+#if !VANILLA && !OPENMERIDIAN
+                    // Change old 112/200 host entry if present.
+                    if (host.Equals("meridian112.arantis.eu"))
+                        host = ConnectionInfo.CON112.Host;
+                    else if (host.Equals("meridian200.arantis.eu"))
+                        host = ConnectionInfo.CON200.Host;
+#endif
                     ushort port = (child.Attributes[XMLATTRIB_PORT] != null && UInt16.TryParse(child.Attributes[XMLATTRIB_PORT].Value, out val_ushort)) ?
                         val_ushort : DEFAULTVAL_CONNECTIONS_PORT;
 
@@ -564,17 +570,42 @@ namespace Meridian59.Common
                 }
 
                 // Double check we have all available servers in connections list.
-
+#if VANILLA
+                if (!HasConnection(ConnectionInfo.CON101.Host, ConnectionInfo.CON101.Port))
+                    connections.Add(ConnectionInfo.CON101);
+                if (!HasConnection(ConnectionInfo.CON102.Host, ConnectionInfo.CON102.Port))
+                    connections.Add(ConnectionInfo.CON102);
+#elif OPENMERIDIAN
+                if (!HasConnection(ConnectionInfo.CON103.Host, ConnectionInfo.CON103.Port))
+                    connections.Add(ConnectionInfo.CON103);
                 if (!HasConnection(ConnectionInfo.CON104.Host, ConnectionInfo.CON104.Port))
                     connections.Add(ConnectionInfo.CON104);
-                if (!HasConnection(ConnectionInfo.CON127.Host, ConnectionInfo.CON127.Port))
-                    connections.Add(ConnectionInfo.CON127);
+#else
+                if (!HasConnection(ConnectionInfo.CON105.Host, ConnectionInfo.CON105.Port))
+                    connections.Add(ConnectionInfo.CON105);
+                if (!HasConnection(ConnectionInfo.CON106.Host, ConnectionInfo.CON106.Port))
+                    connections.Add(ConnectionInfo.CON106);
+                if (!HasConnection(ConnectionInfo.CON112.Host, ConnectionInfo.CON112.Port))
+                    connections.Add(ConnectionInfo.CON112);
+                if (!HasConnection(ConnectionInfo.CON200.Host, ConnectionInfo.CON200.Port))
+                    connections.Add(ConnectionInfo.CON200);
+#endif
             }
             else
             {
                 SelectedConnectionIndex = DEFAULTVAL_CONNECTIONS_SELECTEDINDEX;
+#if VANILLA
+                connections.Add(ConnectionInfo.CON101);
+                connections.Add(ConnectionInfo.CON102);
+#elif OPENMERIDIAN
+                connections.Add(ConnectionInfo.CON103);
                 connections.Add(ConnectionInfo.CON104);
-                connections.Add(ConnectionInfo.CON127);
+#else
+                connections.Add(ConnectionInfo.CON105);
+                connections.Add(ConnectionInfo.CON106);
+                connections.Add(ConnectionInfo.CON112);
+                connections.Add(ConnectionInfo.CON200);
+#endif
             }
 
             /******************************************************************************/

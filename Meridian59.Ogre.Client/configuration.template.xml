@@ -3,7 +3,7 @@
   
   <resources 
     version="10016" 
-    path="../resources/"
+    path="../../../../Resources/"
     preloadrooms="false" 
     preloadobjects="false" 
     preloadroomtextures="false"
@@ -13,11 +13,47 @@
   <connections selectedindex="2">
 
     <connection
-      name="104"
-      host="3.141.65.36"
-      port="5959"
-      stringdictionary="rsc0000.rsb"
-      username=""
+      name="101"
+      host="meridian101.meridian59.com"
+      port="5901"
+      stringdictionary="rsc0000-101.rsb"
+      username="user"
+      password=""
+      character="">
+      <ignorelist />
+      <groups />
+    </connection>
+    
+    <connection 
+      name="102" 
+      host="meridian102.meridian59.com" 
+      port="5902"
+      stringdictionary="rsc0000-101.rsb"
+      username="user"
+      password=""
+      character="">
+      <ignorelist />
+      <groups />
+    </connection>
+    
+    <connection 
+      name="103" 
+      host="meridian103.openmeridian.org" 
+      port="5903"
+      stringdictionary="rsc0000-103.rsb" 
+      username="user"
+      password=""
+      character="">
+      <ignorelist />
+      <groups />
+    </connection>
+    
+    <connection 
+      name="104" 
+      host="meridian104.openmeridian.org" 
+      port="5904"
+      stringdictionary="rsc0000-104.rsb" 
+      username="user"
       password=""
       character="">
       <ignorelist />
@@ -25,16 +61,73 @@
     </connection>
 
     <connection
-      name="127"
-      host="localhost"
-      port="5959"
-      stringdictionary="rsc0000.rsb"
-      username=""
+      name="105"
+      host="meridian105.meridiannext.com"
+      port="5905"
+      stringdictionary="rsc0000-105.rsb"
+      username="user"
+      password=""
+      character="">
+      <ignorelist>
+        <ignore name="PathethicTroll0815" />
+      </ignorelist>
+      <groups>
+        <group name="My Buddies">
+          <entry name="Nice Guy" />
+        </group>
+      </groups>
+    </connection>
+
+    <connection
+      name="106"
+      host="meridian106.meridiannext.com"
+      port="5906"
+      stringdictionary="rsc0000-106.rsb"
+      username="user"
+      password=""
+      character="">
+      <ignorelist>
+        <ignore name="PathethicTroll0815" />
+      </ignorelist>
+      <groups />
+    </connection>
+
+    <connection
+      name="112"
+      host="meridian112.meridian59.de"
+      port="5912"
+      stringdictionary="rsc0000-112.rsb"
+      username="user"
       password=""
       character="">
       <ignorelist />
       <groups />
-    </connection>    
+    </connection>
+    
+    <connection
+      name="115"
+      host="proxy03.zyres.net"
+      port="5959"
+      stringdictionary="rsc0000-115.rsb"
+      username="user"
+      password=""
+      character="">
+      <ignorelist />
+      <groups />
+    </connection>
+    
+    <connection 
+      name="localhost" 
+      host="127.0.0.1" 
+      port="5959"
+      stringdictionary="rsc0000-git.rsb" 
+      username="user"
+      password=""
+      character="">
+      <ignorelist />
+      <groups />
+    </connection>
+    
   </connections>
   <language value="English" />
   <aliases>

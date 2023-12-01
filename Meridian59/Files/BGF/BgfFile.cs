@@ -884,14 +884,14 @@ namespace Meridian59.Files.BGF
                     }
 
                     // load bitmap from file
-                    Bitmap bmp = (Bitmap)Image.FromFile(file); // path + "/" + 
+                    Bitmap bmp = (Bitmap)Image.FromFile(path + "/" + file);
 
                     byte[] pixelData = BgfBitmap.BitmapToPixelData(bmp);
                     BgfBitmap bgfBitmap = new BgfBitmap(
                         (uint)i + 1,
                         version,
-                        (uint)bmp.Width,
-                        (uint)bmp.Height,
+                        width,
+                        height,
                         xoffset,
                         yoffset,
                         hotspots,

@@ -774,11 +774,11 @@ namespace Meridian59.Client
         {
             // create message instance
             LoginMessage message = new LoginMessage(
-                Username, Password, "5", //ResourceManager.RsbHash,
+                Username, Password, ResourceManager.RsbHash,
                 AppVersionMajor, AppVersionMinor,
-                LoginMessage.WINTYPE_NT, 6, 2, 512000000, LoginMessage.CPUTYPE_PENTIUM,
+                LoginMessage.WINTYPE_NT, 6, 1, 512000000, LoginMessage.CPUTYPE_PENTIUM,
                 MeridianExeCRCs.NEWCLIENTDETECT,
-                1024, 768, 0, 0, 32, 0);
+                1024, 768, 0, 0, 32, 30, 0);
             
             // send/enqueue it (async)
             ServerConnection.SendQueue.Enqueue(message);
@@ -1009,24 +1009,6 @@ namespace Meridian59.Client
             // send/enqueue it (async)
             ServerConnection.SendQueue.Enqueue(message);
         }
-
-        /// <summary>
-        /// Lists an item on the marketplace.
-        /// </summary>
-        /// <param name="ID"></param>
-        /// <param name="Quantity"></param>
-        /// <param name="UnitPricePlat"></param>
-        /// <param name="UnitPriceShills"></param>
-        public virtual void SendUserCommandMarketplaceList(uint ID, uint Quantity, uint UnitPricePlat, uint UnitPriceShills)
-        {
-            // create message instance
-            UserCommand command = new UserCommandMarketplaceList(new ObjectID(ID), Quantity, UnitPricePlat, UnitPriceShills);
-            UserCommandMessage message = new UserCommandMessage(command, null);
-
-            // send/enqueue it (async)
-            ServerConnection.SendQueue.Enqueue(message);
-        }
-
 
         /// <summary>
         /// Requests to withdraw something from the closest NPC (no ID!)
@@ -1558,11 +1540,8 @@ namespace Meridian59.Client
         /// <param name="SendPositionBefore"></param>
         public virtual void SendReqGo(bool SendPositionBefore = true)
         {
-            if (SendPositionBefore)
-            {
-                SendReqTurnMessage(true);
+            if (SendPositionBefore)           
                 SendReqMoveMessage(true);
-            }
                         
             // create message instance
             ReqGoMessage message = new ReqGoMessage();
@@ -2418,7 +2397,6 @@ namespace Meridian59.Client
             }
         }
 
-
         /// <summary>
         /// Requests to deposit items into an holder.
         /// </summary>
@@ -2831,8 +2809,6 @@ namespace Meridian59.Client
         /// <param name="PlayerHeight">Height of the player for ceiling collisions (in ROO scale!)</param>
         public void TryMove(V2 Direction, bool Running, Real PlayerHeight)
         {
-            bool hasWolfpack = false;
-
             // avatar we're controlling
             RoomObject avatar = Data.AvatarObject;
 
@@ -2846,19 +2822,8 @@ namespace Meridian59.Client
                 if (Data.VigorPoints < StatNumsValues.LOWVIGOR)
                     Running = false;
 
-                foreach(ObjectBase buff in Data.RoomBuffs)
-                {
-                    if (buff.Name == "wolfpack")
-                    {
-                        hasWolfpack = true;
-                        break;
-                    }
-                }
-
                 // pick base speed as requested
-                Real Speed = (Running) ? 
-                    (hasWolfpack ? (Real)MovementSpeed.SPEED_WOLFPACK : (Real)MovementSpeed.Run)
-                    : (Real)MovementSpeed.Walk;
+                Real Speed = (Running) ? (Real)MovementSpeed.Run : (Real)MovementSpeed.Walk;
 
                 // Modify by movementspeed percent.
                 Speed = Speed * Data.MovementSpeedPercent / 100;
@@ -3334,7 +3299,6 @@ namespace Meridian59.Client
                         // filter for offerable targets
                         ObjectFlags flags = new ObjectFlags();
                         flags.IsOfferable = true;
-                        flags.IsMarketplace = false;
 
                         // find object
                         obj = Data.GetInteractObject(true, true, flags);

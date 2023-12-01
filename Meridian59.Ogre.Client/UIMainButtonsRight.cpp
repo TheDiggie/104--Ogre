@@ -9,6 +9,7 @@ namespace Meridian59 { namespace Ogre
 
       // setup references to children from xml nodes
       Window      = static_cast<CEGUI::Window*>(guiRoot->getChild(UI_NAME_MAINBUTTONSRIGHT_WINDOW));
+      RoomObjects = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_MAINBUTTONSRIGHT_ROOMOBJECTS));
       Attributes  = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_MAINBUTTONSRIGHT_ATTRIBUTES));
       Quests      = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_MAINBUTTONSRIGHT_QUESTS));
       Guild       = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_MAINBUTTONSRIGHT_GUILD));
@@ -20,6 +21,7 @@ namespace Meridian59 { namespace Ogre
       Window->setSize(OgreClient::Singleton->Config->UILayoutMainButtonsRight->getSize());
 
       // subscribe click to head
+      RoomObjects->subscribeEvent(CEGUI::Window::EventMouseClick, CEGUI::Event::Subscriber(UICallbacks::MainButtonsRight::OnItemClicked));
       Attributes->subscribeEvent(CEGUI::Window::EventMouseClick, CEGUI::Event::Subscriber(UICallbacks::MainButtonsRight::OnItemClicked));
       Quests->subscribeEvent(CEGUI::Window::EventMouseClick, CEGUI::Event::Subscriber(UICallbacks::MainButtonsRight::OnItemClicked));
       Guild->subscribeEvent(CEGUI::Window::EventMouseClick, CEGUI::Event::Subscriber(UICallbacks::MainButtonsRight::OnItemClicked));
@@ -46,8 +48,14 @@ namespace Meridian59 { namespace Ogre
    {
       const CEGUI::MouseEventArgs& args = static_cast<const CEGUI::MouseEventArgs&>(e);
 
+      // roomobjects clicked
+      if (args.window == ControllerUI::MainButtonsRight::RoomObjects)
+      {
+         ControllerUI::ToggleVisibility(ControllerUI::RoomObjects::Window);
+      }
+
       // attributes clicked
-      if (args.window == ControllerUI::MainButtonsRight::Attributes)
+      else if (args.window == ControllerUI::MainButtonsRight::Attributes)
       {
          ControllerUI::ToggleVisibility(ControllerUI::Attributes::Window);
       }

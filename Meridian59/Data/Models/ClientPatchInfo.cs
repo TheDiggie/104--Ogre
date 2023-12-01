@@ -30,13 +30,12 @@ namespace Meridian59.Data.Models
     public class ClientPatchInfo : IByteSerializableFast, INotifyPropertyChanged, IClearable
     {
         #region Constants
-        public const string PROPNAME_MACHINE         = "OgrePatchHost";      // ww1.meridian59.us
-        public const string PROPNAME_PATCHPATH       = "OgrePatchPath";      // /ogrepatch
-        public const string PROPNAME_PATCHCACHEPATH  = "OgrePatchCachePath"; // /ogrepatch
-        public const string PROPNAME_UPDATERFILE     = "OgreUpdaterFile";    // update.exe
-        public const string PROPNAME_PATCHFILE       = "OgrePatchTxt";       // patchinfo.txt
-        public const string PROPNAME_CLUB            = "OgreClubExe";        // club.exe (placeholder, not used)
-        public const string PROPNAME_REASON          = "Reason";             // "Update is required"
+        public const string PROPNAME_MACHINE     = "Machine";            // ww1.meridiannext.com
+        public const string PROPNAME_PATCHPATH   = "PatchPath";          // /105/clientpatch
+        public const string PROPNAME_PATCHCACHEPATH  = "PatchCachePath"; // /105/
+        public const string PROPNAME_UPDATERFILE = "UpdaterFile";        // Meridian59.Ogre.Patcher.exe
+        public const string PROPNAME_PATCHFILE   = "PatchFile";          // patchinfo.txt
+        public const string PROPNAME_REASON      = "Reason";             // "Update is required"
         #endregion
 
         #region INotifyPropertyChanged
@@ -56,8 +55,7 @@ namespace Meridian59.Data.Models
                     TypeSizes.SHORT + patchPath.Length +
                     TypeSizes.SHORT + patchCachePath.Length +
                     TypeSizes.SHORT + patchFile.Length +
-                    TypeSizes.SHORT + updaterFile.Length +
-                    TypeSizes.SHORT + clubFile.Length +
+                    TypeSizes.SHORT + updaterFile.Length + 
                     TypeSizes.SHORT + reason.Length;
 
                 return len;
@@ -96,12 +94,6 @@ namespace Meridian59.Data.Models
             cursor += TypeSizes.SHORT;
 
             updaterFile = Util.Encoding.GetString(Buffer, cursor, len);
-            cursor += len;
-
-            len = BitConverter.ToUInt16(Buffer, cursor);
-            cursor += TypeSizes.SHORT;
-
-            clubFile = Util.Encoding.GetString(Buffer, cursor, len);
             cursor += len;
 
             len = BitConverter.ToUInt16(Buffer, cursor);
@@ -146,9 +138,6 @@ namespace Meridian59.Data.Models
 
             Array.Copy(Util.Encoding.GetBytes(updaterFile), 0, Buffer, cursor, updaterFile.Length);
             cursor += updaterFile.Length;
-
-            Array.Copy(Util.Encoding.GetBytes(clubFile), 0, Buffer, cursor, clubFile.Length);
-            cursor += clubFile.Length;
 
             Array.Copy(BitConverter.GetBytes(Convert.ToUInt16(reason.Length)), 0, Buffer, cursor, TypeSizes.SHORT);
             cursor += TypeSizes.SHORT;
@@ -259,17 +248,6 @@ namespace Meridian59.Data.Models
                 Buffer += len;
             }
 
-            fixed (char* pString = clubFile)
-            {
-                len = (ushort)clubFile.Length;
-
-                *((ushort*)Buffer) = len;
-                Buffer += TypeSizes.SHORT;
-
-                Util.Encoding.GetEncoder().Convert(pString, len, Buffer, len, true, out a, out b, out c);
-                Buffer += len;
-            }
-
             fixed (char* pString = reason)
             {
                 len = (ushort)reason.Length;
@@ -298,7 +276,6 @@ namespace Meridian59.Data.Models
         protected string patchPath;
         protected string patchCachePath;
         protected string patchFile;
-        protected string clubFile;
         protected string updaterFile;
         protected string reason;
         #endregion
@@ -348,22 +325,6 @@ namespace Meridian59.Data.Models
                 {
                     patchCachePath = value;
                     RaisePropertyChanged(new PropertyChangedEventArgs(PROPNAME_PATCHCACHEPATH));
-                }
-            }
-        }
-
-        public string ClubFile
-        {
-            get
-            {
-                return clubFile;
-            }
-            set
-            {
-                if (clubFile != value)
-                {
-                    clubFile = value;
-                    RaisePropertyChanged(new PropertyChangedEventArgs(PROPNAME_CLUB));
                 }
             }
         }
@@ -424,14 +385,13 @@ namespace Meridian59.Data.Models
         }
 
         public ClientPatchInfo(string Machine, string PatchPath, string PatchCachePath,
-                               string PatchFile, string UpdaterFile, string ClubFile, string Reason)
+                               string PatchFile, string UpdaterFile, string Reason)
         {
             this.machine = Machine;
             this.patchPath = PatchPath;
             this.patchCachePath = PatchCachePath;
             this.patchFile = PatchFile;
             this.updaterFile = UpdaterFile;
-            this.clubFile = ClubFile;
             this.reason = Reason;
         }
 
@@ -456,7 +416,6 @@ namespace Meridian59.Data.Models
                 PatchCachePath = String.Empty;
                 PatchFile = String.Empty;
                 UpdaterFile = String.Empty;
-                ClubFile = String.Empty;
                 Reason = String.Empty;
             }
             else
@@ -466,7 +425,6 @@ namespace Meridian59.Data.Models
                 patchCachePath = String.Empty;
                 patchFile = String.Empty;
                 updaterFile = String.Empty;
-                clubFile = String.Empty;
                 reason = String.Empty;
             }
         }
@@ -479,7 +437,7 @@ namespace Meridian59.Data.Models
         /// <returns></returns>
         public string GetUpdateBasePath()
         {
-            return "http://" + machine + patchPath;
+            return "https://" + machine + patchPath;
         }
 
         /// <summary>
@@ -490,8 +448,8 @@ namespace Meridian59.Data.Models
         public string GetUpdaterURL()
         {
             if (patchPath.EndsWith("/"))
-                return "http://" + machine + patchPath + updaterFile;
-            return "http://" + machine + patchPath + "/" + updaterFile;
+                return "https://" + machine + patchPath + updaterFile;
+            return "https://" + machine + patchPath + "/" + updaterFile;
         }
 
         /// <summary>
@@ -502,8 +460,8 @@ namespace Meridian59.Data.Models
         public string GetJsonDataURL()
         {
             if (patchCachePath.EndsWith("/"))
-                return "http://" + machine + patchCachePath + patchFile;
-            return "http://" + machine + patchCachePath + "/" + patchFile;
+                return "https://" + machine + patchCachePath + patchFile;
+            return "https://" + machine + patchCachePath + "/" + patchFile;
         }
     }
 }

@@ -227,11 +227,8 @@ namespace Meridian59.Data.Models
             if (flags.Drawing == ObjectFlags.DrawingType.SecondTrans)
                 motionColorTranslation = ColorTransformation.FILTERWHITE90;
 
-            if (Animation != null)
-            {
-                motionAnimation = Animation.ExtractAnimation(ref Buffer);
-                motionAnimation.PropertyChanged += OnMotionAnimationPropertyChanged;
-            }
+            motionAnimation = Animation.ExtractAnimation(ref Buffer);
+            motionAnimation.PropertyChanged += OnMotionAnimationPropertyChanged;
 
             byte subOverlaysCount = Buffer[0];
             Buffer++;
@@ -889,7 +886,7 @@ namespace Meridian59.Data.Models
                 else             
                     resource = M59ResourceManager.GetObject(OverlayFile);
                 
-                if (resource != null && animation != null)
+                if (resource != null)
                 {
                     animation.GroupMax = resource.FrameSets.Count;
                     motionAnimation.GroupMax = resource.FrameSets.Count;
@@ -1340,10 +1337,7 @@ namespace Meridian59.Data.Models
             }
 
             // update animation
-            if (animation != null)
-            {
-                animation.Tick(Tick, Span);
-            }
+            animation.Tick(Tick, Span);
 
             // update suboverlay animations
             foreach (SubOverlay subOverlay in SubOverlays)
@@ -1721,7 +1715,7 @@ namespace Meridian59.Data.Models
             // no base
             // base.UpdateFrameIndices();
 
-            if (resource != null && Animation != null)
+            if (resource != null)
             {
                 if (!UseMotionAnimation)
                 {

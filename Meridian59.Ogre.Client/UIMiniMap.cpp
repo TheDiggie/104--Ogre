@@ -149,6 +149,9 @@ namespace Meridian59 { namespace Ogre
       if (!ControllerUI::MiniMap::IsMouseOnCircle())
          return true;
 
+      // toggle visibility of roomobjects
+      ControllerUI::ToggleVisibility(ControllerUI::RoomObjects::Window);
+
       return true;
    };
 };};

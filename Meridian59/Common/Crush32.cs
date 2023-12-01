@@ -178,18 +178,11 @@ namespace Meridian59.Common
                         if (Crush32.CX_SUCCESS == Crush32.cxBuf2BufExpand(ptrSourceIndex, ptrTargetIndex, UncompressedLength, CompressedLength))
                             isSuccessful = true;
                     }
-
+                    
                     Crush32.cxBuf2BufClose();
                 }
 
-                try
-                {
-                    cxCleanup();
-                }
-                catch (Exception e)
-                {
-                    Logger.Log("CRUSH32", Enums.LogType.Error, e.Message);
-                }
+                Crush32.cxCleanup();
             }
 
             return isSuccessful;

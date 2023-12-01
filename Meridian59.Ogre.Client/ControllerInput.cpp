@@ -506,10 +506,7 @@ namespace Meridian59 { namespace Ogre
          }
 
          // mousewheel / zoom
-         
-         // Third Person View is Disabled in the 104 Client
-
-/*         if (dz != 0 && ControllerUI::IgnoreTopControlForMouseInput)
+         if (dz != 0 && ControllerUI::IgnoreTopControlForMouseInput)
          {
             // set a new zoomlevel, this will be processed tick based
             cameraZoom += ZOOMSPEED * (float)-dz;
@@ -518,13 +515,11 @@ namespace Meridian59 { namespace Ogre
             cameraZoom = CLRMath::Max(cameraZoom, (CLRReal)0.0f);
             cameraZoom = CLRMath::Min(cameraZoom, (CLRReal)OgreClient::Singleton->Config->CameraDistanceMax);
          }
-         */
+
          // restore/fixed windows cursor position on mouse look
          if (isAiming)
             SetCursorPos(mouseDownWindowsPosition->x, mouseDownWindowsPosition->y);
       }
-
-      //Logger::Log("CONTROLLERINPUT", LogType::Info, "Camera " + cameraNode->getPosition().xy().x.ToString() + "[x] " + cameraNode->getPosition().xy().y.ToString() + "[y] " + cameraNode->getPosition().z.ToString() + "[z] ");
 
       if (!isAiming && ControllerUI::IgnoreTopControlForMouseInput && OgreClient::Singleton->Data->AvatarObject != nullptr)
          PerformMouseOver(arg.state.X.abs, arg.state.Y.abs, 0);
@@ -550,7 +545,7 @@ namespace Meridian59 { namespace Ogre
          return true;
 
       if (arg.key == ActiveKeyBinding->ReqGo)
-         OgreClient::Singleton->SendReqGo(true);
+         OgreClient::Singleton->SendReqGo(false);
 
       else if (arg.key == ActiveKeyBinding->Close)
       {
