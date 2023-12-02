@@ -474,8 +474,6 @@
 #define UI_NAME_AMOUNT_OK                 "Amount.OK"
 #define UI_NAME_TRADE_WINDOW              "Trade"
 #define UI_NAME_TRADE_LISTYOU             "Trade.ListYou"
-#define UI_NAME_TRADE_AMOUNTYOU           "Trade.AmountYou"
-#define UI_NAME_TRADE_AMOUNTYOUMARKET     "Trade.AmountYouMarketplace"
 #define UI_NAME_TRADE_LISTPARTNER         "Trade.ListPartner"
 #define UI_NAME_TRADE_OFFER               "Trade.Offer"
 #define UI_NAME_TRADE_ACCEPT              "Trade.Accept"
