@@ -5315,52 +5315,11 @@
             </Dim>
          </Area>
       </NamedArea>
-      <!-- Plat Icon -->
-      <Child type ="TaharezLook/StaticImage" nameSuffix="__auto__image_plat">
-         <Area>
-            <Dim type="LeftEdge">
-               <UnifiedDim scale="0" offset="0" type="LeftEdge" />            
-            </Dim>
-            <Dim type="TopEdge">
-               <UnifiedDim scale="0" offset="6" type="TopEdge" />
-            </Dim>
-            <Dim type="Width">
-               <UnifiedDim scale="0" offset="12" type="Width" />
-            </Dim>
-            <Dim type="Height">
-               <UnifiedDim scale="0" offset="12" type="Height"/>
-            </Dim>
-         </Area>
-         <Property name="FrameEnabled" value="False" />
-         <Property name="BackgroundEnabled" value="False" />
-         <Property name="MousePassThroughEnabled" value="True" />
-         <Property name="Image" value="TaharezLook/Plat" />
-      </Child>
-      <!-- Price/Plat -->
-      <Child type ="TaharezLook/Label" nameSuffix="__auto__checkbox_plat">
-         <Area>
-            <Dim type="LeftEdge">
-               <UnifiedDim scale="0" offset="14" type="LeftEdge" />
-            </Dim>
-            <Dim type="TopEdge">
-               <UnifiedDim scale="0" offset="2" type="TopEdge" />
-            </Dim>
-            <Dim type="Width">
-               <UnifiedDim scale="0" offset="40" type="Width" />
-            </Dim>
-            <Dim type="Height">
-               <UnifiedDim scale="0" offset="20" type="Height"/>
-            </Dim>
-         </Area>
-         <Property name="HorzFormatting" value="LeftAligned" />
-         <Property name="VertFormatting" value="CentreAligned" />
-         <Property name="MousePassThroughEnabled" value="True" />
-      </Child>   
       <!-- Shilling Icon -->
       <Child type ="TaharezLook/StaticImage" nameSuffix="__auto__image_shilling">
          <Area>
             <Dim type="LeftEdge">
-               <UnifiedDim scale="0" offset="66" type="LeftEdge" />            
+               <UnifiedDim scale="0" offset="0" type="LeftEdge" />            
             </Dim>
             <Dim type="TopEdge">
                <UnifiedDim scale="0" offset="6" type="TopEdge" />
@@ -5377,49 +5336,8 @@
          <Property name="MousePassThroughEnabled" value="True" />
          <Property name="Image" value="TaharezLook/Coin" />
       </Child>
-      <!-- Price/Shills -->
-      <Child type ="TaharezLook/Label" nameSuffix="__auto__checkbox_shills">
-         <Area>
-            <Dim type="LeftEdge">
-               <UnifiedDim scale="0" offset="80" type="LeftEdge" />
-            </Dim>
-            <Dim type="TopEdge">
-               <UnifiedDim scale="0" offset="2" type="TopEdge" />
-            </Dim>
-            <Dim type="Width">
-               <UnifiedDim scale="0" offset="30" type="Width" />
-            </Dim>
-            <Dim type="Height">
-               <UnifiedDim scale="0" offset="20" type="Height"/>
-            </Dim>
-         </Area>
-         <Property name="HorzFormatting" value="LeftAligned" />
-         <Property name="VertFormatting" value="CentreAligned" />
-         <Property name="MousePassThroughEnabled" value="True" />
-      </Child>   
-      <!-- Souls Icon -->
-      <Child type ="TaharezLook/StaticImage" nameSuffix="__auto__image_souls">
-         <Area>
-            <Dim type="LeftEdge">
-               <UnifiedDim scale="0" offset="0" type="LeftEdge" />            
-            </Dim>
-            <Dim type="TopEdge">
-               <UnifiedDim scale="0" offset="6" type="TopEdge" />
-            </Dim>
-            <Dim type="Width">
-               <UnifiedDim scale="0" offset="12" type="Width" />
-            </Dim>
-            <Dim type="Height">
-               <UnifiedDim scale="0" offset="12" type="Height"/>
-            </Dim>
-         </Area>
-         <Property name="FrameEnabled" value="False" />
-         <Property name="BackgroundEnabled" value="False" />
-         <Property name="MousePassThroughEnabled" value="True" />
-         <Property name="Image" value="TaharezLook/Soul" />
-      </Child>
-      <!-- Price/Souls -->
-      <Child type ="TaharezLook/Label" nameSuffix="__auto__checkbox_souls">
+      <!-- Price -->
+      <Child type ="TaharezLook/Label" nameSuffix="__auto__checkbox">
          <Area>
             <Dim type="LeftEdge">
                <UnifiedDim scale="0" offset="14" type="LeftEdge" />
@@ -5442,7 +5360,7 @@
       <Child type ="TaharezLook/StaticImage" nameSuffix="__auto__image">
          <Area>
             <Dim type="LeftEdge">
-               <UnifiedDim scale="0" offset="120" type="LeftEdge" />            
+               <UnifiedDim scale="0" offset="62" type="LeftEdge" />            
             </Dim>
             <Dim type="TopEdge">
                <UnifiedDim scale="0" offset="4" type="TopEdge" />
@@ -5462,7 +5380,7 @@
       <Child type ="TaharezLook/Label" nameSuffix="__auto__label">
          <Area>
             <Dim type="LeftEdge">
-               <UnifiedDim scale="0" offset="145" type="LeftEdge" />
+               <UnifiedDim scale="0" offset="80" type="LeftEdge" />
             </Dim>
             <Dim type="RightEdge">
                <UnifiedDim scale="1" offset="-53" type="LeftEdge" />
@@ -5478,7 +5396,7 @@
          <Property name="VertFormatting" value="CentreAligned" />
          <Property name="MousePassThroughEnabled" value="True" />
       </Child>
-      <!-- Amount/Plat -->
+      <!-- Amount -->
       <Child type ="TaharezLook/Editbox" nameSuffix="__auto__editbox">
          <Area>
             <Dim type="LeftEdge">
@@ -6359,7 +6277,7 @@
                <UnifiedDim scale="0" offset="2" type="TopEdge" />
             </Dim>
             <Dim type="Width">
-               <UnifiedDim scale="1" offset="100" type="Width" />
+               <UnifiedDim scale="1" offset="-90" type="Width" />
             </Dim>
             <Dim type="Height">
                <UnifiedDim scale="0" offset="20" type="Height"/>
@@ -6372,13 +6290,13 @@
       <Child type ="TaharezLook/Editbox" nameSuffix="__auto__editbox">
          <Area>
             <Dim type="LeftEdge">
-               <UnifiedDim scale="1" offset="-175" type="LeftEdge" />
+               <UnifiedDim scale="1" offset="-65" type="LeftEdge" />
             </Dim>
             <Dim type="TopEdge">
                <UnifiedDim scale="0" offset="2" type="TopEdge" />
             </Dim>
             <Dim type="Width">
-               <UnifiedDim scale="0" offset="60" type="Width" />
+               <UnifiedDim scale="0" offset="65" type="Width" />
             </Dim>
             <Dim type="Height">
                <UnifiedDim scale="0" offset="20" type="Height"/>
@@ -6387,48 +6305,6 @@
          <Property name="ValidationString" value="\A\Z|[1-9][0-9]*" />
          <Property name="MouseInputPropagationEnabled" value="False" />
          <Property name="MaxTextLength" value="7" />
-      </Child>
-
-      <!-- Unit/Price/Platinum -->
-      <Child type ="TaharezLook/Editbox" nameSuffix="__auto__editbox_unitplat">
-         <Area>
-            <Dim type="LeftEdge">
-               <UnifiedDim scale="1" offset="-106" type="LeftEdge" />
-            </Dim>
-            <Dim type="TopEdge">
-               <UnifiedDim scale="0" offset="2" type="TopEdge" />
-            </Dim>
-            <Dim type="Width">
-               <UnifiedDim scale="0" offset="50" type="Width" />
-            </Dim>
-            <Dim type="Height">
-               <UnifiedDim scale="0" offset="20" type="Height"/>
-            </Dim>
-         </Area>
-         <Property name="ValidationString" value="\A\Z|[1-9][0-9]*" />
-         <Property name="MouseInputPropagationEnabled" value="False" />
-         <Property name="MaxTextLength" value="10" />
-      </Child>
-
-      <!-- Unit/Price/Shillings -->
-      <Child type ="TaharezLook/Editbox" nameSuffix="__auto__editbox_unitshills">
-         <Area>
-            <Dim type="LeftEdge">
-               <UnifiedDim scale="1" offset="-45" type="LeftEdge" />
-            </Dim>
-            <Dim type="TopEdge">
-               <UnifiedDim scale="0" offset="2" type="TopEdge" />
-            </Dim>
-            <Dim type="Width">
-               <UnifiedDim scale="0" offset="40" type="Width" />
-            </Dim>
-            <Dim type="Height">
-               <UnifiedDim scale="0" offset="20" type="Height"/>
-            </Dim>
-         </Area>
-         <Property name="ValidationString" value="\A\Z|[1-9][0-9]*" />
-         <Property name="MouseInputPropagationEnabled" value="False" />
-         <Property name="MaxTextLength" value="10" />
       </Child>
       <ImagerySection name="selection">
          <ImageryComponent>

@@ -1011,24 +1011,6 @@ namespace Meridian59.Client
         }
 
         /// <summary>
-        /// Lists an item on the marketplace.
-        /// </summary>
-        /// <param name="ID"></param>
-        /// <param name="Quantity"></param>
-        /// <param name="UnitPricePlat"></param>
-        /// <param name="UnitPriceShills"></param>
-        public virtual void SendUserCommandMarketplaceList(uint ID, uint Quantity, uint UnitPricePlat, uint UnitPriceShills)
-        {
-            // create message instance
-            UserCommand command = new UserCommandMarketplaceList(new ObjectID(ID), Quantity, UnitPricePlat, UnitPriceShills);
-            UserCommandMessage message = new UserCommandMessage(command, null);
-
-            // send/enqueue it (async)
-            ServerConnection.SendQueue.Enqueue(message);
-        }
-
-
-        /// <summary>
         /// Requests to withdraw something from the closest NPC (no ID!)
         /// </summary>
         /// <param name="Amount">Amount to try to withdraw</param>
@@ -3334,7 +3316,6 @@ namespace Meridian59.Client
                         // filter for offerable targets
                         ObjectFlags flags = new ObjectFlags();
                         flags.IsOfferable = true;
-                        flags.IsMarketplace = false;
 
                         // find object
                         obj = Data.GetInteractObject(true, true, flags);

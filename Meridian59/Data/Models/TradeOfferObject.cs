@@ -28,18 +28,14 @@ namespace Meridian59.Data.Models
     [Serializable]
     public class TradeOfferObject : ObjectBase
     {        
-        public const string PROPNAME_PLAT = "Platinum";
-        public const string PROPNAME_SHILLS = "Shillings";
-        public const string PROPNAME_SOULS = "Souls";
+        public const string PROPNAME_PRICE = "Price";
 
-        protected uint plat;
-        protected uint shills;
-        protected uint souls;
+        protected uint price;
 
         public override int ByteLength
         { 
             get { 
-                return base.ByteLength + TypeSizes.INT + TypeSizes.INT + TypeSizes.INT; 
+                return base.ByteLength + TypeSizes.INT; 
             }
         }
     
@@ -48,14 +44,8 @@ namespace Meridian59.Data.Models
             int cursor = StartIndex;
 
             cursor += base.ReadFrom(Buffer, cursor);
-
-            shills = BitConverter.ToUInt32(Buffer, cursor);
-            cursor += TypeSizes.INT;
-
-            plat = BitConverter.ToUInt32(Buffer, cursor);
-            cursor += TypeSizes.INT;
-
-            souls = BitConverter.ToUInt32(Buffer, cursor);
+            
+            price = BitConverter.ToUInt32(Buffer, cursor);
             cursor += TypeSizes.INT;
 
             return cursor - StartIndex; 
@@ -67,15 +57,9 @@ namespace Meridian59.Data.Models
             
             cursor += base.WriteTo(Buffer, cursor);
 
-            Array.Copy(BitConverter.GetBytes(shills), 0, Buffer, cursor, TypeSizes.INT);
+            Array.Copy(BitConverter.GetBytes(price), 0, Buffer, cursor, TypeSizes.INT);
             cursor += TypeSizes.INT;
-
-            Array.Copy(BitConverter.GetBytes(plat), 0, Buffer, cursor, TypeSizes.INT);
-            cursor += TypeSizes.INT;
-
-            Array.Copy(BitConverter.GetBytes(souls), 0, Buffer, cursor, TypeSizes.INT);
-            cursor += TypeSizes.INT;
-
+            
             return cursor - StartIndex;
         }
 
@@ -83,13 +67,7 @@ namespace Meridian59.Data.Models
         {
             base.ReadFrom(ref Buffer);
 
-            shills = *((uint*)Buffer);
-            Buffer += TypeSizes.INT;
-
-            plat = *((uint*)Buffer);
-            Buffer += TypeSizes.INT;
-
-            souls = *((uint*)Buffer);
+            price = *((uint*)Buffer);
             Buffer += TypeSizes.INT;
         }
 
@@ -97,63 +75,25 @@ namespace Meridian59.Data.Models
         {
             base.WriteTo(ref Buffer);
 
-            *((uint*)Buffer) = shills;
-            Buffer += TypeSizes.INT;
-
-            *((uint*)Buffer) = plat;
-            Buffer += TypeSizes.INT;
-
-            *((uint*)Buffer) = souls;
+            *((uint*)Buffer) = price;
             Buffer += TypeSizes.INT;
         }
 
         /// <summary>
         /// Per unit price of the object.
         /// </summary>
-        public uint Plat
+        public uint Price
         {
-            get { return plat; }
+            get { return price; }
             set
             {
-                if (plat != value)
+                if (price != value)
                 {
-                    plat = value;
-                    RaisePropertyChanged(new PropertyChangedEventArgs(PROPNAME_PLAT));
+                    price = value;
+                    RaisePropertyChanged(new PropertyChangedEventArgs(PROPNAME_PRICE));
                 }
             }
-        }
-
-        /// <summary>
-        /// Per unit price of the object.
-        /// </summary>
-        public uint Shills
-        {
-            get { return shills; }
-            set
-            {
-                if (shills != value)
-                {
-                    shills = value;
-                    RaisePropertyChanged(new PropertyChangedEventArgs(PROPNAME_SHILLS));
-                }
-            }
-        }
-
-        /// <summary>
-        /// Per unit price of the object.
-        /// </summary>
-        public uint Souls
-        {
-            get { return souls; }
-            set
-            {
-                if (souls != value)
-                {
-                    souls = value;
-                    RaisePropertyChanged(new PropertyChangedEventArgs(PROPNAME_SOULS));
-                }
-            }
-        }
+        }  
 
         /// <summary>
         /// Empty constructor
@@ -175,9 +115,7 @@ namespace Meridian59.Data.Models
         /// <param name="Effect"></param>
         /// <param name="Animation"></param>
         /// <param name="SubOverlays"></param>
-        /// <param name="Plat"></param>
-        /// <param name="Shills"></param>
-        /// <param name="Souls"></param>
+        /// <param name="Price"></param>
         public TradeOfferObject(
             uint ID,
             uint Count,
@@ -190,17 +128,13 @@ namespace Meridian59.Data.Models
             byte Effect,
             Animation Animation,
             IEnumerable<SubOverlay> SubOverlays,
-            uint Plat = 0,
-            uint Shills = 0,
-            uint Souls = 0)
+            uint Price)
             : base(
                 ID, Count, OverlayFileRID, NameRID, Flags,
                 LightingInfo, FirstAnimationType,
                 ColorTranslation, Effect, Animation, SubOverlays)
         {
-            this.plat = Plat;
-            this.shills = Shills;
-            this.souls = Souls;
+            this.price = Price;
         }
 
         /// <summary>
@@ -228,15 +162,11 @@ namespace Meridian59.Data.Models
 
             if (RaiseChangedEvent)
             {
-                Plat = 0;
-                Shills = 0;
-                Souls = 0;
+                Price = 0;
             }
             else
             {
-                plat = 0;
-                Shills = 0;
-                souls = 0;
+                price = 0;
             }
         }
     }
