@@ -5,16 +5,11 @@ namespace Meridian59 { namespace Ogre
    void ControllerUI::Buy::Initialize()
    {
       // setup references to children from xml nodes
-      Window          = static_cast<CEGUI::FrameWindow*>(guiRoot->getChild(UI_NAME_BUY_WINDOW));
-      List            = static_cast<CEGUI::ItemListbox*>(Window->getChild(UI_NAME_BUY_LIST));
-      OK	          = static_cast<CEGUI::PushButton*>(Window->getChild(UI_NAME_BUY_OK));
-      SumDescription  = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_BUY_SUMDESC));
-      SumPlat         = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_BUY_SUMPLAT));
-      SumPlatIcon = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_BUY_SUMPLAT_ICON));
-      SumShills       = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_BUY_SUMSHILLS));
-      SumShillsIcon = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_BUY_SUMSHILLS_ICON));
-      SumSouls        = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_BUY_SUMSOULS));
-      SumSoulsIcon = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_BUY_SUMSOULS_ICON));
+      Window         = static_cast<CEGUI::FrameWindow*>(guiRoot->getChild(UI_NAME_BUY_WINDOW));
+      List           = static_cast<CEGUI::ItemListbox*>(Window->getChild(UI_NAME_BUY_LIST));
+      OK	            = static_cast<CEGUI::PushButton*>(Window->getChild(UI_NAME_BUY_OK));
+      SumDescription = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_BUY_SUMDESC));
+      SumValue       = static_cast<CEGUI::Window*>(Window->getChild(UI_NAME_BUY_SUMVAL));
 
       // set multiselect
       List->setMultiSelectEnabled(true);
@@ -106,46 +101,10 @@ namespace Meridian59 { namespace Ogre
       // check
       if (widget->getChildCount() > 3)
       {
-         CEGUI::Window* plat    = (CEGUI::Window*)widget->getChildAtIdx(UI_BUY_CHILDINDEX_PLAT);
-         CEGUI::Window* shills  = (CEGUI::Window*)widget->getChildAtIdx(UI_BUY_CHILDINDEX_SHILLS);
-         CEGUI::Window* souls   = (CEGUI::Window*)widget->getChildAtIdx(UI_BUY_CHILDINDEX_SOULS);
-         CEGUI::Window* platicon = (CEGUI::Window*)widget->getChildAtIdx(UI_BUY_CHILDINDEX_PLAT_ICON);
-         CEGUI::Window* shillsicon = (CEGUI::Window*)widget->getChildAtIdx(UI_BUY_CHILDINDEX_SHILLS_ICON);
-         CEGUI::Window* soulsicon = (CEGUI::Window*)widget->getChildAtIdx(UI_BUY_CHILDINDEX_SOULS_ICON);
+         CEGUI::Window* price    = (CEGUI::Window*)widget->getChildAtIdx(UI_BUY_CHILDINDEX_PRICE);
          CEGUI::Window* icon     = (CEGUI::Window*)widget->getChildAtIdx(UI_BUY_CHILDINDEX_ICON);
          CEGUI::Window* name     = (CEGUI::Window*)widget->getChildAtIdx(UI_BUY_CHILDINDEX_NAME);
          CEGUI::Editbox* amount  = (CEGUI::Editbox*)widget->getChildAtIdx(UI_BUY_CHILDINDEX_AMOUNT);
-
-         if (obj->Souls > 0) {
-             shills->setVisible(false);
-             shillsicon->setVisible(false);
-             plat->setVisible(false);
-             platicon->setVisible(false);
-             souls->setVisible(true);
-             soulsicon->setVisible(true);
-
-             SumShills->setVisible(false);
-             SumShillsIcon->setVisible(false);
-             SumPlat->setVisible(false);
-             SumPlatIcon->setVisible(false);
-             SumSouls->setVisible(true);
-             SumSoulsIcon->setVisible(true);
-         }
-         else {
-             shills->setVisible(true);
-             shillsicon->setVisible(true);
-             plat->setVisible(true);
-             platicon->setVisible(true);
-             souls->setVisible(false);
-             soulsicon->setVisible(false);
-
-             SumShills->setVisible(true);
-             SumShillsIcon->setVisible(true);
-             SumPlat->setVisible(true);
-             SumPlatIcon->setVisible(true);
-             SumSouls->setVisible(false);
-             SumSoulsIcon->setVisible(false);
-         }
 
          // subscribe event to focusleave on textbox
          amount->subscribeEvent(CEGUI::Editbox::EventDeactivated, CEGUI::Event::Subscriber(UICallbacks::Buy::OnItemAmountDeactivated));
@@ -159,10 +118,8 @@ namespace Meridian59 { namespace Ogre
          name->setProperty(UI_PROPNAME_NORMALTEXTCOLOUR, ::CEGUI::PropertyHelper<::CEGUI::Colour>::toString(color));
          name->setText(StringConvert::CLRToCEGUI(obj->Name));
 
-         // set price (platinum and shillings)
-         plat->setText(CEGUI::PropertyHelper<unsigned int>::toString(obj->Plat));
-         shills->setText(CEGUI::PropertyHelper<unsigned int>::toString(obj->Shills));
-         souls->setText(CEGUI::PropertyHelper<unsigned int>::toString(obj->Souls));
+         // set price
+         price->setText(CEGUI::PropertyHelper<unsigned int>::toString(obj->Price));
 
          // set default amount
          amount->setText(CEGUI::PropertyHelper<unsigned int>::toString(obj->Count));
@@ -237,47 +194,21 @@ namespace Meridian59 { namespace Ogre
    {
       ObjectBaseList<TradeOfferObject^>^ dataItems = OgreClient::Singleton->Data->Buy->Items;
 
-      int sumPlat = 0;
-      int sumShills = 0;
-      int sumSouls = 0;
+      int sum = 0;
       int itemcount = (int)List->getItemCount();
-      int itemPlat = 0;
-      int itemShills = 0;
-      int itemSouls = 0;
-      int newPlat = 0;
-
       for(int i = 0; i < itemcount; i++)
       {
          if (List->isItemSelected(i) && dataItems->Count > i)
          {
-             if (dataItems[i]->IsStackable)
-             {
-                 itemPlat = dataItems[i]->Count * dataItems[i]->Plat;
-                 itemShills = dataItems[i]->Count * dataItems[i]->Shills;
-                 itemSouls = dataItems[i]->Count * dataItems[i]->Souls;
+            if (dataItems[i]->IsStackable)
+               sum += dataItems[i]->Count * dataItems[i]->Price;
 
-                 sumPlat += itemPlat;
-                 sumShills += itemShills;
-                 sumSouls += itemSouls;
-             }
-             else {
-                 sumPlat += dataItems[i]->Plat;
-                 sumShills += dataItems[i]->Shills;
-                 sumSouls += dataItems[i]->Souls;
-             }
+            else
+               sum += dataItems[i]->Price;
          }
       }
 
-      if (sumShills >= 1000)
-      {
-          newPlat = (sumShills / 1000);
-          sumShills = (sumShills - (newPlat * 1000));
-          sumPlat += newPlat;
-      }
-
-      SumPlat->setText(CEGUI::PropertyHelper<int>::toString(sumPlat));
-      SumShills->setText(CEGUI::PropertyHelper<int>::toString(sumShills));
-      SumSouls->setText(CEGUI::PropertyHelper<int>::toString(sumSouls));
+      SumValue->setText(CEGUI::PropertyHelper<int>::toString(sum));
    };
 
    //////////////////////////////////////////////////////////////////////////////////////////////////////////

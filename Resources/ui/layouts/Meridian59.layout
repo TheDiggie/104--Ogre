@@ -431,14 +431,14 @@
          
          <!-- Meridian59 -->
          <Window type="TaharezLook/LabelWhite" name="LoadingBar.Meridian59" >
-            <Property name="Text" value="Loading Game" />
+            <Property name="Text" value="Meridian 59" />
             <Property name="Area" value="{{0,0},{0.4,0},{1,0},{0.4,80}}" />
             <Property name="Font" value="Berenika-48-Bold" />
          </Window>
 
          <!-- Title -->
          <Window type="TaharezLook/LabelWhite" name="LoadingBar.Title" >
-            <Property name="Text" value="One moment..." />
+            <Property name="Text" value="Loading..." />
             <Property name="Area" value="{{0,0},{1,-135},{1,0},{1,-105}}" />
             <Property name="Font" value="Berenika-20-Bold" />
          </Window>
@@ -681,6 +681,81 @@
             <Property name="MaxSize" value="{{1,0},{1,0}}" />
             <Property name="Size" value="{{1,0},{1.0,0}}" />
             <Property name="Position" value="{{0,0},{0,0}}" />
+         </Window>
+      </Window>
+      
+      <!-- RoomObjects -->
+      <Window type="TaharezLook/FrameWindow" name="RoomObjects" >
+         <Property name="Text" value="Entities" />
+         <Property name="MaxSize" value="{{1,0},{1,0}}" />
+         <Property name="MinSize" value="{{0,192},{0,144}}" />
+         
+         <!-- ShowAll -->
+         <Window type="TaharezLook/Checkbox" name="RoomObjects.ShowAll" >
+            <Property name="Text" value="All" />
+            <Property name="Area" value="{{0,0},{0,-3},{0.33,0},{0,14}}" />
+            <Property name="TooltipText" value="Show any object in the room." />
+         </Window>
+         
+         <!-- ShowGuild -->
+         <Window type="TaharezLook/Checkbox" name="RoomObjects.ShowGuild" >
+            <Property name="Text" value="Guild" />
+            <Property name="Area" value="{{0.34,0},{0,-3},{0.66,0},{0,14}}" />
+            <Property name="TooltipText" value="Show objects from your guild." />
+         </Window>
+         
+         <!-- ShowEnemy -->
+         <Window type="TaharezLook/Checkbox" name="RoomObjects.ShowEnemy" >
+            <Property name="Text" value="Enemy" />
+            <Property name="Area" value="{{0.67,0},{0,-3},{1,0},{0,14}}" />
+            <Property name="TooltipText" value="Show enemy objects." />
+         </Window>
+         
+         <!-- ShowFriend -->
+         <Window type="TaharezLook/Checkbox" name="RoomObjects.ShowFriend" >
+            <Property name="Text" value="Friend" />
+            <Property name="Area" value="{{0,0},{0,16},{0.33,0},{0,30}}" />
+            <Property name="TooltipText" value="Show friendly objects." />
+         </Window>
+         
+         <!-- ShowAttack -->
+         <Window type="TaharezLook/Checkbox" name="RoomObjects.ShowAttack" >
+            <Property name="Text" value="Attack" />
+            <Property name="Area" value="{{0.34,0},{0,16},{0.66,0},{0,30}}" />
+            <Property name="TooltipText" value="Show attackable objects." />
+         </Window>
+         
+         <!-- ShowGet -->
+         <Window type="TaharezLook/Checkbox" name="RoomObjects.ShowGet" >
+            <Property name="Text" value="Get" />
+            <Property name="Area" value="{{0.67,0},{0,16},{1,0},{0,30}}" />
+            <Property name="TooltipText" value="Show gettable objects." />
+         </Window>
+         
+         <!-- ShowMinion -->
+         <Window type="TaharezLook/Checkbox" name="RoomObjects.ShowMinion" >
+            <Property name="Text" value="Minion" />
+            <Property name="Area" value="{{0,0},{0,32},{0.33,0},{0,46}}" />
+            <Property name="TooltipText" value="Show minion objects." />
+         </Window>
+         
+         <!-- ShowPK -->
+         <Window type="TaharezLook/Checkbox" name="RoomObjects.ShowPK" >
+            <Property name="Text" value="PK" />
+            <Property name="Area" value="{{0.34,0},{0,32},{0.66,0},{0,46}}" />
+            <Property name="TooltipText" value="Show murderers and outlaws." />
+         </Window>
+         
+         <!-- ShowBuy -->
+         <Window type="TaharezLook/Checkbox" name="RoomObjects.ShowBuy" >
+            <Property name="Text" value="Buy" />
+            <Property name="Area" value="{{0.67,0},{0,32},{1,0},{0,46}}" />
+            <Property name="TooltipText" value="Show objects you can buy from." />
+         </Window>
+         
+         <!-- List -->
+         <Window type="TaharezLook/ItemListbox" name="RoomObjects.List" >
+            <Property name="Area" value="{{0,0},{0,48},{1,0},{1,0}}" />
          </Window>
       </Window>
       
@@ -1223,8 +1298,8 @@
          <Property name="Text" value="Buy" />
          <Property name="Area" value="{{0,0},{0,24},{1,0},{1,0}}" />
          <Property name="MaxSize" value="{{0,512},{1,0}}" />
-         <Property name="Size" value="{{0,350},{0,320}}" />
-         <Property name="MinSize" value="{{0,280},{0,144}}" />
+         <Property name="Size" value="{{0,288},{0,320}}" />
+         <Property name="MinSize" value="{{0,192},{0,144}}" />
          <Property name="Position" value="{{0.5,-144},{0.5,-192}}" />
          
          <!-- List -->
@@ -1238,43 +1313,17 @@
             <Property name="Area" value="{{0,5},{1,-25},{0,40},{1,0}}" />
             <Property name="HorzFormatting" value="LeftAligned" />            
          </Window>
-         <!-- Platinum icon -->
-         <Window type="TaharezLook/StaticImage" name="Buy.SumIconPlat" >
-            <Property name="Area" value="{{0,45},{1,-19},{0,57},{1,-7}}" />
-            <Property name="BackgroundEnabled" value="False" />
-            <Property name="FrameEnabled" value="False" />
-            <Property name="MousePassThroughEnabled" value="True" />
-            <Property name="Image" value="TaharezLook/Plat" />
-         </Window>
-         <Window type="TaharezLook/Label" name="Buy.SumPlat" >
-            <Property name="Text" value="0" />
-            <Property name="Area" value="{{0,65},{1,-25},{0,140},{1,0}}" />
-            <Property name="HorzFormatting" value="LeftAligned" />            
-         </Window>
          <!-- Shilling icon -->
-         <Window type="TaharezLook/StaticImage" name="Buy.SumIconShills" >
-            <Property name="Area" value="{{0,146},{1,-19},{0,158},{1,-7}}" />
+         <Window type="TaharezLook/StaticImage" name="Buy.SumIcon" >
+            <Property name="Area" value="{{0,47},{1,-19},{0,59},{1,-7}}" />
             <Property name="BackgroundEnabled" value="False" />
             <Property name="FrameEnabled" value="False" />
             <Property name="MousePassThroughEnabled" value="True" />
             <Property name="Image" value="TaharezLook/Coin" />
          </Window>
-         <Window type="TaharezLook/Label" name="Buy.SumShills" >
+         <Window type="TaharezLook/Label" name="Buy.SumValue" >
             <Property name="Text" value="0" />
-            <Property name="Area" value="{{0,166},{1,-25},{0,240},{1,0}}" />
-            <Property name="HorzFormatting" value="LeftAligned" />            
-         </Window>
-         <!-- Souls icon -->
-         <Window type="TaharezLook/StaticImage" name="Buy.SumIconSouls" >
-            <Property name="Area" value="{{0,45},{1,-19},{0,57},{1,-7}}" />
-            <Property name="BackgroundEnabled" value="False" />
-            <Property name="FrameEnabled" value="False" />
-            <Property name="MousePassThroughEnabled" value="True" />
-            <Property name="Image" value="TaharezLook/Soul" />
-         </Window>
-         <Window type="TaharezLook/Label" name="Buy.SumSouls" >
-            <Property name="Text" value="0" />
-            <Property name="Area" value="{{0,65},{1,-25},{0,140},{1,0}}" />
+            <Property name="Area" value="{{0,63},{1,-25},{0,150},{1,0}}" />
             <Property name="HorzFormatting" value="LeftAligned" />            
          </Window>
       
@@ -1446,6 +1495,16 @@
          <Property name="BackgroundEnabled" value="False" />
          <Property name="Image" value="TaharezLook/MainButtonsBackground" />
          
+         <!-- RoomObjects -->
+         <Window type="TaharezLook/StaticImage" name="MainButtonsRight.RoomObjects" >
+            <Property name="Area" value="{{0,1},{0,1},{0,29},{0,29}}" />
+            <Property name="FrameEnabled" value="False" />
+            <Property name="BackgroundEnabled" value="False" />
+            <Property name="Image" value="TaharezLook/MainButtonEntities" />
+            <Property name="TooltipText" value="Entities" />
+            <Property name="MouseCursorImage" value="TaharezLook/MouseHand" />
+         </Window>
+         
          <!-- Attributes -->
          <Window type="TaharezLook/StaticImage" name="MainButtonsRight.Attributes" >
             <Property name="Area" value="{{0,30},{0,1},{0,58},{0,29}}" />
@@ -1527,9 +1586,9 @@
          <Property name="Text" value="Trade" />
          <Property name="Area" value="{{0,0},{0,24},{1,0},{1,0}}" />
          <Property name="MaxSize" value="{{1,0},{1,0}}" />
-         <Property name="Size" value="{{0,650},{0,256}}" />
-         <Property name="MinSize" value="{{0,500},{0,144}}" />
-         <Property name="Position" value="{{0.5,-326},{0.5,-192}}" />
+         <Property name="Size" value="{{0,512},{0,256}}" />
+         <Property name="MinSize" value="{{0,256},{0,144}}" />
+         <Property name="Position" value="{{0.5,-256},{0.5,-192}}" />
          
          <!-- NameYou -->
          <Window type="TaharezLook/Label" name="Trade.NameYou" >
@@ -1538,20 +1597,6 @@
             <Property name="HorzFormatting" value="LeftAligned" />            
          </Window>
          
-         <!-- Amount (Quantity) Label -->
-         <Window type="TaharezLook/Label" name="Trade.AmountYou" >
-            <Property name="Text" value="Quantity" />
-            <Property name="Area" value="{{0.18,5},{0,5},{1,-5},{0,25}}" />
-            <Property name="HorzFormatting" value="LeftAligned" />
-         </Window>
-
-         <!-- Amount (Quantity/Plat/Shills) Marketplace Label -->
-         <Window type="TaharezLook/Label" name="Trade.AmountYouMarketplace" >
-            <Property name="Text" value="Quantity / Platinum / Shillings" />
-            <Property name="Area" value="{{0.18,5},{0,5},{1,-5},{0,25}}" />
-            <Property name="HorzFormatting" value="LeftAligned" />
-         </Window>
-
          <!-- ListYou -->
          <Window type="TaharezLook/ItemListbox" name="Trade.ListYou" >
             <Property name="Area" value="{{0,0},{0,30},{0.5,-2},{1,-30}}" />
@@ -1564,7 +1609,7 @@
          <Window type="TaharezLook/Label" name="Trade.NamePartner" >
             <Property name="Text" value="Partner" />
             <Property name="Area" value="{{0.5,5},{0,5},{1,-5},{0,25}}" />
-            <Property name="HorzFormatting" value="LeftAligned" />
+            <Property name="HorzFormatting" value="LeftAligned" />            
          </Window>
          
          <!-- ListPartner -->
@@ -1587,7 +1632,7 @@
             <Property name="Area" value="{{0.5,2},{1,-25},{1,0},{1,0}}" />
          </Window>
       </Window>
-
+      
       <!-- ActionButtons -->
       <Window type="TaharezLook/StaticImage" name="ActionButtons" >	  
          <Property name="AutoRenderingSurface" value="True" />

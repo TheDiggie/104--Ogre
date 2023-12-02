@@ -598,12 +598,7 @@ namespace Meridian59 { namespace Ogre
          static ::CEGUI::ItemListbox* List = nullptr;
          static ::CEGUI::PushButton* OK = nullptr;
          static ::CEGUI::Window* SumDescription = nullptr;
-         static ::CEGUI::Window* SumPlatIcon = nullptr;
-         static ::CEGUI::Window* SumPlat = nullptr;
-         static ::CEGUI::Window* SumShillsIcon = nullptr;
-         static ::CEGUI::Window* SumShills = nullptr;
-         static ::CEGUI::Window* SumSoulsIcon = nullptr;
-         static ::CEGUI::Window* SumSouls = nullptr;
+         static ::CEGUI::Window* SumValue = nullptr;
 
 
          static void Initialize();
@@ -807,8 +802,6 @@ namespace Meridian59 { namespace Ogre
       public:
          static ::CEGUI::FrameWindow* Window = nullptr;
          static ::CEGUI::Window* NameYou = nullptr;
-         static ::CEGUI::Window* AmountYou = nullptr;
-         static ::CEGUI::Window* AmountYouMarketplace = nullptr;
          static ::CEGUI::Window* NamePartner = nullptr;
          static ::CEGUI::ItemListbox* ListYou = nullptr;
          static ::CEGUI::ItemListbox* ListPartner = nullptr;
