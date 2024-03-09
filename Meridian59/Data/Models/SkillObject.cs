@@ -39,11 +39,7 @@ namespace Meridian59.Data.Models
         #region IByteSerializable
         public override int ByteLength { 
             get {
-                return base.ByteLength
-#if !VANILLA && !OPENMERIDIAN
-                    + TypeSizes.BYTE + TypeSizes.BYTE + TypeSizes.BYTE
-#endif
-                    ;
+                return base.ByteLength + TypeSizes.BYTE + TypeSizes.BYTE + TypeSizes.BYTE;
             }
         }
 

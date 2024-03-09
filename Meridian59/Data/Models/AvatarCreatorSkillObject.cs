@@ -39,6 +39,7 @@ namespace Meridian59.Data.Models
         public const string PROPNAME_SKILLNAMEID = "SkillNameID";
         public const string PROPNAME_SKILLDESCRIPTIONID = "SkillDescriptionID";
         public const string PROPNAME_SKILLCOST = "SkillCost";
+        public const string PROPNAME_SCHOOLTYPE = "SchoolType";
         public const string PROPNAME_SKILLNAME = "SkillName";
         public const string PROPNAME_SKILLDESCRIPTION = "SkillDescription";
         #endregion
@@ -58,7 +59,7 @@ namespace Meridian59.Data.Models
         public int ByteLength { 
             get { 
                 // 4 + 4 + 4 + 4
-                return TypeSizes.INT + TypeSizes.INT + TypeSizes.INT + TypeSizes.INT; 
+                return TypeSizes.INT + TypeSizes.INT + TypeSizes.INT + TypeSizes.INT + TypeSizes.BYTE;
             } 
         }      
         public int WriteTo(byte[] Buffer, int StartIndex=0)
@@ -76,6 +77,9 @@ namespace Meridian59.Data.Models
 
             Array.Copy(BitConverter.GetBytes(skillCost), 0, Buffer, cursor, TypeSizes.INT);             // SkillCost (4 bytes)
             cursor += TypeSizes.INT;
+
+            Buffer[cursor] = (byte)schoolType;                                                          // SchoolType (1 bytes)           
+            cursor++;
 
             return cursor - StartIndex;
         }
@@ -95,6 +99,9 @@ namespace Meridian59.Data.Models
             skillCost = BitConverter.ToUInt32(Buffer, cursor);
             cursor += TypeSizes.INT;
 
+            schoolType = (SchoolType)Buffer[cursor];
+            cursor++;
+
             return cursor - StartIndex;
         }
         public unsafe void WriteTo(ref byte* Buffer)
@@ -110,6 +117,9 @@ namespace Meridian59.Data.Models
 
             *((uint*)Buffer) = skillCost;
             Buffer += TypeSizes.INT;
+
+            Buffer[0] = (byte)schoolType;
+            Buffer++;
         }
         public unsafe void ReadFrom(ref byte* Buffer)
         {
@@ -124,6 +134,9 @@ namespace Meridian59.Data.Models
 
             skillCost = *((uint*)Buffer);
             Buffer += TypeSizes.INT;
+
+            schoolType = (SchoolType)Buffer[0];
+            Buffer++;
         }
         public byte[] Bytes
         {
@@ -141,6 +154,7 @@ namespace Meridian59.Data.Models
         protected uint skillNameID;
         protected uint skillDescriptionID;
         protected uint skillCost;
+        protected SchoolType schoolType;
 
         protected string skillName;
         protected string skillDescription;
@@ -228,7 +242,7 @@ namespace Meridian59.Data.Models
 
         public string SkillListDescription
         {
-            get { return SchoolType.WeaponCraft.ToString() + (SkillCost == 10 ? " 1: " : " 2: ") + skillName; }
+            get { return schoolType.ToString() + (SkillCost == 10 ? " 1: " : " 2: ") + skillName; }
         }
         #endregion
 
@@ -238,12 +252,13 @@ namespace Meridian59.Data.Models
             Clear(false);
         }
 
-        public AvatarCreatorSkillObject(uint ExtraID, uint SkillNameID, uint SkillDescriptionID, uint SkillCost)
+        public AvatarCreatorSkillObject(uint ExtraID, uint SkillNameID, uint SkillDescriptionID, uint SkillCost, SchoolType SchoolType)
         {
             this.extraID = ExtraID;
             this.skillNameID = SkillNameID;
             this.skillDescriptionID = SkillDescriptionID;
-            this.skillCost = SkillCost;             
+            this.skillCost = SkillCost;
+            this.schoolType = SchoolType;
         }
 
         public AvatarCreatorSkillObject(byte[] Buffer, int StartIndex = 0)
