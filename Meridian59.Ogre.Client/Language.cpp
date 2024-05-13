@@ -73,20 +73,20 @@ const char* EN_DESCRIPTIONS_STATUSBAR[] =
 
 const char* EN_CHARINFONOTOKERROR_OKDIALOG[] =
 {
-   "No error.",                                                                                                                                                                   // 0
+   "No error.",																																										     // 0
    "Character creation failed due to an unspecified error, please try again and contact an admin in-game or at Meridian 59 Server 104 Discord if you are unable to create a character.", // 1
    "Character slot already in use! Please try a different character slot, and contact an admin in-game or at Meridian 59 Server 104 Discord.",                                           // 2
-   "Character names must be between 3 and 30 characters long.",                                                                                                                   // 3
-   "Invalid character used in name.",                                                                                                                                             // 4
-   "Your character name is already taken by someone else.",                                                                                                                       // 5
-   "You may not pick the name of a Meridian 59 monster.",                                                                                                                         // 6
-   "You may not pick the name of a Meridian 59 NPC.",                                                                                                                             // 7
-   "You may not name your character after an existing Meridian 59 Guild.",                                                                                                        // 8
-   "You may not use offensive language in your character name.",                                                                                                                  // 9
-   "Please pick another name - this one could cause confusion in-game.",                                                                                                          // 10
-   "Please pick another name, this one belongs to a former Meridian 59 developer or staff member and is reserved for their future use.",                                          // 11
-   "Player descriptions cannot be more than 1000 characters.",                                                                                                                    // 12
-   "You must select either male or female when creating your character."                                                                                                          // 13
+   "Character names must be between 3 and 30 characters long, or your name is already in use.",                                                                                          // 3
+   "Invalid character used in name.",																																				     // 4
+   "Your character name is already taken by someone else.",																																 // 5
+   "You may not pick the name of a Meridian 59 monster.",																																 // 6
+   "You may not pick the name of a Meridian 59 NPC.",																																	 // 7
+   "You may not name your character after an existing Meridian 59 Guild.",																												 // 8
+   "You may not use offensive language in your character name.",																														 // 9
+   "Please pick another name - this one could cause confusion in-game.",																											     // 10
+   "Please pick another name, this one belongs to a former Meridian 59 developer or staff member and is reserved for their future use.",												 // 11
+   "Player descriptions cannot be more than 1000 characters.",																															 // 12
+   "You must select either male or female when creating your character."																												 // 13
 };
 const char* EN_CHARSSELECTABILITYERROR[] =
 {
@@ -279,6 +279,133 @@ const char* DE_TOOLTIPS_TARGET[] =
 };
 
 /**************************************************************************************/
+/***************************    Portuguese    *****************************************/
+/**************************************************************************************/
+
+const char* PT[] =
+{
+	"Nome de usuário",    // 0
+	"Senha",              // 1
+	"Conectar",           // 2
+	"Opções",             // 3
+	"Ligado",             // 4
+	"Desligado",          // 5
+	"Chave",              // 6
+};
+
+const char* PT_WINDOW_TITLES[] =
+{
+	"Bem-vindo",     // 0
+	"Feitiços",      // 1
+	"Habilidades",   // 2
+	"Ações",         // 3
+	"Inventário",    // 4
+	"Quantidade",    // 5
+	"Negociar",      // 6
+	"Opções",        // 7
+	"Atributos",     // 8
+	"Correio",       // 9
+	"Guilda",        // 10
+	"Jogadores",     // 11
+};
+
+const char* PT_TOOLTIPS_MOOD[] =
+{
+	"Clique em mim para mudar seu humor para feliz.",      // 0
+	"Clique em mim para mudar seu humor para neutro.",    // 1
+	"Clique em mim para mudar seu humor para triste.",    // 2
+	"Clique em mim para mudar seu humor para irritado.",  // 3
+};
+
+const char* PT_TOOLTIPS_ONLINEPLAYER[] =
+{
+	"Este é um jogador legal.",                                                                 // 0
+	"Este jogador assassinou alguém. Tenha cuidado ao encontrá-lo!",                            // 1
+	"Este jogador é um fora-da-lei e pode ser perigoso!",                                       // 2
+	"Este jogador é um administrador do servidor.",                                             // 3
+	"Este jogador é um guia/bardo ou outro tipo de membro da equipe.",                           // 4
+	"Este jogador é um moderador."                                                              // 5
+};
+
+const char* PT_TOOLTIPS_STATUSBAR[] =
+{
+	"Quadros por segundo - Maior é melhor (jogabilidade mais fluida).",                 // 0
+	"Sua velocidade de conexão com o servidor. Um valor menor significa conexão mais rápida.",   // 1
+	"O número de jogadores online. Clique em mim para mostrar a lista de jogadores online.",     // 2
+	"Mostra o humor atual do seu personagem.",                                          // 3
+	"Se você desativar sua segurança, poderá atacar jogadores inocentes.",               // 4
+	"Aqui você pode ver o horário atual do Meridian 59.",                               // 5
+	"Isto mostra o nome atual da sala/área em que você está atualmente."                 // 6
+};
+
+const char* PT_DESCRIPTIONS_STATUSBAR[] =
+{
+	"FPS",                // 0
+	"Ping",               // 1
+	"Jogadores",          // 2
+	"Humor",              // 3
+	"Segurança",          // 4
+	"Horário do Meridian",// 5
+	"Sala/Área"           // 6
+};
+
+const char* PT_CHARINFONOTOKERROR_OKDIALOG[] =
+{
+	"Sem erro.", // 0
+	"A criação de personagem falhou devido a um erro não especificado, por favor, tente novamente e entre em contato com um administrador in-game ou no Discord do Meridian 59 Server 104 se não conseguir criar um personagem.", // 1
+	"Slot de personagem já em uso! Por favor, tente um slot de personagem diferente e entre em contato com um administrador in-game ou no Discord do Meridian 59 Server 104.", // 2
+	"Os nomes de personagens devem ter entre 3 e 30 caracteres de comprimento, ou seu nome já está em uso.", // 3
+	"Caractere inválido usado no nome.", // 4
+	"O nome do seu personagem já foi escolhido por outra pessoa.", // 5
+	"Você não pode escolher o nome de um monstro do Meridian 59.", // 6
+	"Você não pode escolher o nome de um NPC do Meridian 59.", // 7
+	"Você não pode nomear seu personagem com o nome de uma Guilda existente do Meridian 59.", // 8
+	"Você não pode usar linguagem ofensiva no nome do seu personagem.", // 9
+	"Por favor, escolha outro nome - este pode causar confusão no jogo.", // 10
+	"Por favor, escolha outro nome, este pertence a um ex-desenvolvedor ou membro da equipe do Meridian 59 e está reservado para uso futuro.", // 11
+	"As descrições de jogadores não podem ter mais de 1000 caracteres.", // 12
+	"Você deve selecionar masculino ou feminino ao criar seu personagem." // 13
+};
+
+const char* PT_CHARSSELECTABILITYERROR[] =
+{
+	"Sem erro.", // 0
+	"Você não tem mais pontos de habilidade para gastar!", // 1
+	"Você já selecionou um feitiço de Shal'ille, uma escola diametralmente oposta a Qor.", // 2
+	"Você já selecionou um feitiço de Qor, uma escola diametralmente oposta a Shal'ille.", // 3
+	"Você precisa selecionar pelo menos dois habilidades de primeiro nível em uma escola para desbloquear o segundo nível dela." // 4
+};
+
+const char* PT_NPCQUESTUI[] =
+{
+	"Descrição:", // 0
+	"Requisitos:", // 1
+	"Instruções:", // 2
+	"Aceitar", // 3
+	"Continuar", // 4
+	"Fechar", // 5
+	"Ajuda - Missões", // 6
+	"Clique em uma missão na lista de missões para ver sua descrição.\n\nSe você atender aos requisitos para iniciar uma missão, ela será mostrada em amarelo na lista de missões. As missões atualmente ativas são mostradas em verde se este NPC for o destino da missão. As missões são mostradas em branco se você não atender a todos os requisitos.\n\nOs requisitos são mostrados sob a descrição no lado direito da interface do usuário, com os requisitos atendidos mostrados em verde e os não atendidos em vermelho.\n\nClique em 'Aceitar'/'Continuar' para iniciar uma nova missão ou progredir em uma existente. Completar uma missão onde o NPC requer um item dará esse item ao NPC. Se você tiver várias cópias de um item, a última em seu inventário será dada.\n\nVerifique seu próprio Registro de Missões para obter informações sobre missões atuais e concluídas.\n\nClique com o botão direito do mouse nas caixas de texto Descrição e Requisitos para alternar para o modo 'cópia' onde o texto pode ser copiado da caixa." // 7
+};
+
+const char* PT_MISC[] =
+{
+	" (em uso)"  // 0
+};
+
+const char* PT_TOOLTIPS_TARGET[] =
+{
+	"Inspecionar", // 0
+	"Atacar",      // 1
+	"Ativar",      // 2
+	"Itens",       // 3
+	"Comprar",     // 4
+	"Negociar",    // 5
+	"Saquear",     // 6
+	"Missão"       // 7
+};
+
+/**************************************************************************************/
 /**************************************************************************************/
 
 const char* GetLangLabel(const LANGSTR::Enum ID)
@@ -289,6 +416,7 @@ const char* GetLangLabel(const LANGSTR::Enum ID)
    switch (OgreClient::Singleton->Config->Language)
    {
    case LanguageCode::German: return DE[ID];
+   case LanguageCode::Portuguese: return PT[ID];
    default:                   return EN[ID];
    }
 };
@@ -301,6 +429,7 @@ const char* GetLangWindowTitle(const LANGSTR_WINDOW_TITLE::Enum ID)
    switch (OgreClient::Singleton->Config->Language)
    {
    case LanguageCode::German: return DE_WINDOW_TITLES[ID];
+   case LanguageCode::Portuguese: return PT_WINDOW_TITLES[ID];
    default:                   return EN_WINDOW_TITLES[ID];
    }
 };
@@ -313,6 +442,7 @@ const char* GetLangTooltipMood(const LANGSTR_TOOLTIP_MOOD::Enum ID)
    switch (OgreClient::Singleton->Config->Language)
    {
    case LanguageCode::German: return DE_TOOLTIPS_MOOD[ID];
+   case LanguageCode::Portuguese: return PT_TOOLTIPS_MOOD[ID];
    default:                   return EN_TOOLTIPS_MOOD[ID];
    }
 };
@@ -325,6 +455,7 @@ const char* GetLangTooltipOnlinePlayer(const LANGSTR_TOOLTIP_ONLINEPLAYER::Enum 
    switch (OgreClient::Singleton->Config->Language)
    {
    case LanguageCode::German: return DE_TOOLTIPS_ONLINEPLAYER[ID];
+   case LanguageCode::Portuguese: return PT_TOOLTIPS_ONLINEPLAYER[ID];
    default:                   return EN_TOOLTIPS_ONLINEPLAYER[ID];
    }
 };
@@ -337,6 +468,7 @@ const char* GetLangTooltipStatusBar(const LANGSTR_TOOLTIP_STATUSBAR::Enum ID)
    switch (OgreClient::Singleton->Config->Language)
    {
    case LanguageCode::German: return DE_TOOLTIPS_STATUSBAR[ID];
+   case LanguageCode::Portuguese: return PT_TOOLTIPS_STATUSBAR[ID];
    default:                   return EN_TOOLTIPS_STATUSBAR[ID];
    }
 };
@@ -349,6 +481,7 @@ const char* GetLangDescriptionStatusBar(const LANGSTR_DESCRIPTION_STATUSBAR::Enu
    switch (OgreClient::Singleton->Config->Language)
    {
    case LanguageCode::German: return DE_DESCRIPTIONS_STATUSBAR[ID];
+   case LanguageCode::Portuguese: return PT_DESCRIPTIONS_STATUSBAR[ID];
    default:                   return EN_DESCRIPTIONS_STATUSBAR[ID];
    }
 };
@@ -360,8 +493,9 @@ const char* GetCharInfoNotOKErrorOkDialog(const LANGSTR_CHARINFONOTOKERROR_OKDIA
 
    switch (OgreClient::Singleton->Config->Language)
    {
-   case LanguageCode::German: return DE_CHARINFONOTOKERROR_OKDIALOG[ID];
-   default:                   return EN_CHARINFONOTOKERROR_OKDIALOG[ID];
+   case LanguageCode::German: return DE_CHARINFONOTOKERROR_OKDIALOG[3];
+   case LanguageCode::Portuguese: return PT_CHARINFONOTOKERROR_OKDIALOG[ID];
+   default:                   return EN_CHARINFONOTOKERROR_OKDIALOG[3];
    }
 };
 
@@ -373,6 +507,7 @@ const char* GetLangCharSelectAbilityError(const LANGSTR_CHARSSELECTABILITYERROR:
    switch (OgreClient::Singleton->Config->Language)
    {
    case LanguageCode::German: return DE_CHARSSELECTABILITYERROR[ID];
+   case LanguageCode::Portuguese: return PT_CHARSSELECTABILITYERROR[ID];
    default:                   return EN_CHARSSELECTABILITYERROR[ID];
    }
 };
@@ -385,6 +520,7 @@ const char* GetLangNPCQuestUI(const LANGSTR_NPCQUESTUI::Enum ID)
    switch (OgreClient::Singleton->Config->Language)
    {
    case LanguageCode::German: return DE_NPCQUESTUI[ID];
+   case LanguageCode::Portuguese: return PT_NPCQUESTUI[ID];
    default:                   return EN_NPCQUESTUI[ID];
    }
 };
@@ -397,6 +533,7 @@ const char* GetLangMisc(const LANGSTR_MISC::Enum ID)
    switch (OgreClient::Singleton->Config->Language)
    {
    case LanguageCode::German: return DE_MISC[ID];
+   case LanguageCode::Portuguese: return PT_MISC[ID];
    default:                   return EN_MISC[ID];
    }
 };
@@ -409,6 +546,7 @@ const char* GetLangTooltipTarget(const LANGSTR_TOOLTIP_TARGET::Enum ID)
    switch (OgreClient::Singleton->Config->Language)
    {
    case LanguageCode::German: return DE_TOOLTIPS_TARGET[ID];
+   case LanguageCode::Portuguese: return PT_TOOLTIPS_TARGET[ID];
    default:                   return EN_TOOLTIPS_TARGET[ID];
    }
 };

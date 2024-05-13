@@ -455,6 +455,7 @@ namespace Meridian59 { namespace Ogre
       // add available languages
       Language->addItem(new::CEGUI::ListboxTextItem(StringConvert::CLRToCEGUI(LanguageCode::English.ToString())));
       Language->addItem(new::CEGUI::ListboxTextItem(StringConvert::CLRToCEGUI(LanguageCode::German.ToString())));
+      Language->addItem(new::CEGUI::ListboxTextItem(StringConvert::CLRToCEGUI(LanguageCode::Portuguese.ToString())));
 
       // set the current one from config
       Language->setText(StringConvert::CLRToCEGUI(OgreClient::Singleton->Config->Language.ToString()));

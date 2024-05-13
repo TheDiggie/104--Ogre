@@ -39,7 +39,7 @@ namespace Meridian59.Data.Models
         public const uint ATTRIBUTE_MAXVALUE                = 50; 
         public const uint ATTRIBUTE_DEFAULT                 = 25;        
         public const uint ATTRIBUTE_MAXSUM                  = 220;
-        public const uint SKILLPOINTS_MAXSUM                = 50;
+        public const uint SKILLPOINTS_MAXSUM                = 45;
         public const uint SLOTID_DEFAULT                    = 0;
         public const byte HAIRCOLOR_DEFAULT                 = 0;
         public const byte SKINCOLOR_DEFAULT                 = 0;
