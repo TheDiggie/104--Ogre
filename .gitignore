@@ -1,7 +1,5 @@
 Meridian59-Ogre-Installer
 
-Engine
-
 # File-Type exclusions for Visual Studio
 *.sdf
 *.suo
