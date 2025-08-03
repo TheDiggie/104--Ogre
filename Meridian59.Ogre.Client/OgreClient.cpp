@@ -924,7 +924,7 @@ namespace Meridian59 { namespace Ogre
       ControllerUI::ConfirmPopup::Confirmed +=
          gcnew System::EventHandler(this, &OgreClient::OnLoginErrorConfirmed);
       // tell user about mismatching major/minor version
-      ControllerUI::ConfirmPopup::ShowOK("Your major/minor versions don't match the server.", 0, false);
+      ControllerUI::ConfirmPopup::ShowOK("Update available! Log into to classic client to patch.", 0, false);
    };
 
    void OgreClient::HandleDownloadMessage(DownloadMessage^ Message)
