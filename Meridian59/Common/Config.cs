@@ -567,14 +567,14 @@ namespace Meridian59.Common
 
                 if (!HasConnection(ConnectionInfo.CON104.Host, ConnectionInfo.CON104.Port))
                     connections.Add(ConnectionInfo.CON104);
-                if (!HasConnection(ConnectionInfo.CON127.Host, ConnectionInfo.CON127.Port))
-                    connections.Add(ConnectionInfo.CON127);
+                if (!HasConnection(ConnectionInfo.CON114.Host, ConnectionInfo.CON114.Port))
+                    connections.Add(ConnectionInfo.CON114);
             }
             else
             {
                 SelectedConnectionIndex = DEFAULTVAL_CONNECTIONS_SELECTEDINDEX;
                 connections.Add(ConnectionInfo.CON104);
-                connections.Add(ConnectionInfo.CON127);
+                connections.Add(ConnectionInfo.CON114);
             }
 
             /******************************************************************************/
