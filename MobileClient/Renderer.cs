@@ -143,7 +143,9 @@ public sealed class Renderer
     struct Masked
     {
         public int Sx, Y0, Y1, SpanTopY, SpanBotY;
-        public float Depth, SpanTopH, SpanBotH, U, Fog, Tpp;
+        public float Depth, SpanTopH, SpanBotH, Along, Fog, Tpp;
+        public int XOff, YOff;
+        public bool TopDown;
         public Tex T;
     }
 
@@ -270,15 +272,25 @@ public sealed class Renderer
                 // after the reversal, not reversed with it, or the texture
                 // slides the wrong way along the wall.
                 float along = (HonourBackwards && side != null && side.Flags.IsBackwards) ? -h.Along : h.Along;
-                float u = (along + (h.Right ? h.Wall.RightXOffset : h.Wall.LeftXOffset) * M59Geo.HeightToXY) / M59Geo.Fineness;
+                // The texture's own size and shrink set the scale, so the
+                // UVs cannot be worked out until the texture is known - see
+                // DrawWall. What travels is the distance along the wall and
+                // the sidedef's offsets.
+                int xOff = h.Right ? h.Wall.RightXOffset : h.Wall.LeftXOffset;
+                int yOff = h.Right ? h.Wall.RightYOffset : h.Wall.LeftYOffset;
                 float fog = MathF.Min(1f, FogFar / perp);
-                // Texels one screen pixel spans on this wall, for mip choice.
-                float tpp = (perp / proj) * 128f / M59Geo.Fineness;
+                // World units one screen pixel spans on this wall. Turning
+                // that into texels needs the texture's shrink, so DrawWall
+                // finishes it - the old constant here quietly assumed
+                // shrink 2, which is merely the commonest.
+                float tpp = perp / proj;
 
                 if (far == null)
                 {
                     DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc,
-                             side != null ? _tex.Get(side.MiddleTexture) : null, u, fog, tpp);
+                             side != null ? _tex.Get(side.MiddleTexture) : null,
+                             along, xOff, yOff, side != null && side.Flags.IsNormalTopDown,
+                             fog, tpp);
                     _depth[sx] = perp;
                     closed = true;
                     break;
@@ -302,7 +314,8 @@ public sealed class Renderer
                         Tex mid = _tex.Get(side.MiddleTexture);
                         if (mid != null)
                         {
-                            DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid, u, fog, tpp);
+                            DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid,
+                                     along, xOff, yOff, side.Flags.IsNormalTopDown, fog, tpp);
                             _depth[sx] = perp;
                             closed = true;
                             break;
@@ -315,7 +328,9 @@ public sealed class Renderer
                             sc.Masked.Add(new Masked {
                                 Sx = sx, Depth = perp,
                                 Y0 = yTop, Y1 = yBot, SpanTopY = ceilY, SpanBotY = floorY,
-                                SpanTopH = nc, SpanBotH = nf, U = u, Fog = fog, Tpp = tpp, T = mid });
+                                SpanTopH = nc, SpanBotH = nf, Along = along, XOff = xOff,
+                                YOff = yOff, TopDown = side.Flags.IsNormalTopDown,
+                                Fog = fog, Tpp = tpp, T = mid });
                     }
                 }
 
@@ -325,14 +340,18 @@ public sealed class Renderer
                 {
                     int farCeilY = ScreenY(fc, camZ, horizon, proj, perp);
                     DrawWall(px, W, H, sx, yTop, Math.Min(yBot, farCeilY - 1), ceilY, farCeilY, fc, nc,
-                             side != null ? _tex.Get(side.UpperTexture) : null, u, fog, tpp);
+                             side != null ? _tex.Get(side.UpperTexture) : null,
+                             along, xOff, yOff, side == null || !side.Flags.IsAboveBottomUp,
+                             fog, tpp);
                     yTop = Math.Max(yTop, farCeilY);
                 }
                 if (ff > nf)
                 {
                     int farFloorY = ScreenY(ff, camZ, horizon, proj, perp);
                     DrawWall(px, W, H, sx, Math.Max(yTop, farFloorY), yBot, farFloorY, floorY, nf, ff,
-                             side != null ? _tex.Get(side.LowerTexture) : null, u, fog, tpp);
+                             side != null ? _tex.Get(side.LowerTexture) : null,
+                             along, xOff, yOff, side != null && side.Flags.IsBelowTopDown,
+                             fog, tpp);
                     yBot = Math.Min(yBot, farFloorY);
                 }
 
@@ -376,8 +395,8 @@ public sealed class Renderer
         foreach (Masked m in _order)
         {
             DrawWall(px, W, H, m.Sx, m.Y0, m.Y1, m.SpanTopY, m.SpanBotY,
-                     m.SpanBotH, m.SpanTopH, m.T, m.U, m.Fog, m.Tpp, true,
-                     haveSprites ? _spriteDepth : null, m.Depth, W);
+                     m.SpanBotH, m.SpanTopH, m.T, m.Along, m.XOff, m.YOff, m.TopDown,
+                     m.Fog, m.Tpp, true, haveSprites ? _spriteDepth : null, m.Depth, W);
         }
     }
 
@@ -542,13 +561,49 @@ public sealed class Renderer
 
     static void DrawWall(uint[] px, int W, int H, int sx, int y0, int y1,
                          int spanTopY, int spanBotY, float spanBotH, float spanTopH,
-                         Tex t, float u, float fog, float texelsPerPixel = 1f,
+                         Tex t, float along, int xOffset, int yOffset, bool topDown,
+                         float fog, float texelsPerPixel = 1f,
                          bool masked = false,
                          float[] spriteDepth = null, float depth = 0f, int stride = 0)
     {
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
         float span = Math.Max(1f, spanBotY - spanTopY);
+
+        // Meridian stores room textures with the axes swapped relative to
+        // how they decode as an image: the texture's X axis runs UP the
+        // wall and its Y axis runs ALONG it. The library's own UV code says
+        // the same thing arithmetically - the along-wall coordinate divides
+        // by the texture's HEIGHT and the up-wall one by its WIDTH.
+        //
+        // Scale is the texture's shrink over its size, not a constant: a
+        // 512x512 at shrink 4 covers twice the wall a 128x128 at shrink 2
+        // does. This renderer used a flat 1/1024, which is exactly right
+        // when size/shrink is 64 and wrong for 903 of 8357 wall middles.
+        // Ported from RooWall.GetVertexData, itself a port of the game's
+        // d3drender.c.
+        float u = 0f, vBase = 0f, vPerHeight = 0f;
+        if (t != null)
+        {
+            float shrink = t.Shrink;
+            u = (along / M59Geo.HeightToXY + xOffset) * shrink / t.H;
+
+            float perWorld = shrink / (t.W * M59Geo.HeightToXY);
+            float yOff = yOffset * shrink / t.W;
+            if (topDown)
+            {
+                // Origin at the top of this wall part, texture running down.
+                vBase = spanTopH * perWorld - yOff;
+                vPerHeight = -perWorld;
+            }
+            else
+            {
+                // Origin at the bottom, texture running up.
+                vBase = 1f - yOff + spanBotH * perWorld;
+                vPerHeight = -perWorld;
+            }
+        }
+
         for (int y = y0; y <= y1; y++)
         {
             uint c;
@@ -557,15 +612,9 @@ public sealed class Renderer
             {
                 float f = (y - spanTopY) / span;                 // 0 at top of span
                 float worldH = spanTopH + f * (spanBotH - spanTopH);
-                float v = -worldH / M59Geo.Fineness;             // textures run upward
-                // Meridian stores room textures with the axes swapped
-                // relative to how they decode as an image: the texture's
-                // X axis runs UP the wall and its Y axis runs ALONG it.
-                // Verified against grd11065 (a panelled door) and grd02033
-                // (a hatch in mossy stone) - with u,v the masonry courses
-                // came out vertical and the banner's fleur-de-lis lay on
-                // their sides.
-                uint texel = masked ? t.Sample(v, u) : t.Sample(v, u, texelsPerPixel);
+                float v = vBase + worldH * vPerHeight;
+                uint texel = masked ? t.Sample(v, u)
+                                    : t.Sample(v, u, texelsPerPixel * t.Shrink / M59Geo.HeightToXY);
                 // A see-through wall keeps the palette's transparent index,
                 // which carries alpha 0; those texels are skipped, not
                 // blended, the same as sprites.

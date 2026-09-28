@@ -63,6 +63,14 @@ public sealed class Tex
     public int W, H;
     public uint[] P;
 
+    /// <summary>
+    /// The texture's own shrink factor. Meridian scales wall textures by
+    /// shrink/size rather than at a fixed rate, so a 512x512 at shrink 4
+    /// covers twice the wall a 128x128 at shrink 2 does. See
+    /// RooWall.GetVertexData, which is the game's own d3drender.c.
+    /// </summary>
+    public int Shrink = 1;
+
     /// <summary>Level 0 is P; each subsequent level is half size.</summary>
     int[] _lw, _lh;
     uint[][] _levels;
@@ -141,7 +149,7 @@ public sealed class Tex
         uint[] pal = ColorTransformation.DefaultPalette;
         var p = new uint[w * h];
         for (int i = 0; i < w * h; i++) p[i] = pal[idx[i]] | 0xFF000000u;
-        var t = new Tex { W = w, H = h, P = p };
+        var t = new Tex { W = w, H = h, P = p, Shrink = Math.Max(1, (int)bgf.ShrinkFactor) };
         t.BuildMips();
         return t;
     }
@@ -166,7 +174,7 @@ public sealed class Tex
         uint[] pal = ColorTransformation.DefaultPalette;
         var p = new uint[w * h];
         for (int i = 0; i < w * h; i++) p[i] = pal[idx[i]];   // alpha preserved
-        return new Tex { W = w, H = h, P = p };
+        return new Tex { W = w, H = h, P = p, Shrink = Math.Max(1, (int)bgf.ShrinkFactor) };
     }
 }
 

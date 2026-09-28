@@ -293,4 +293,14 @@ Established by measurement, not documentation - see
 - Wall X/Y are FINENESS units, 1024 per grid square.
 - Sector heights and `ClientLength` are in XY/16 units (measured:
   `xyLength / ClientLength == 16.0` exactly across barinn.roo).
-- One texture tiles across one grid square, so UV = xy / 1024.
+
+The third one used to read "one texture tiles across one grid square, so
+UV = xy / 1024", and it was an over-generalisation from one room. Wall
+textures scale by the texture's own shrink factor over its size:
+`along * shrink / textureHeight` across a wall and
+`height * shrink / (textureWidth * 16)` up it. That reduces to xy/1024
+exactly when size over shrink is 64, which 128x128 shrink 2 and 64x64
+shrink 1 both are, and which is most of what is in the Barloque inn -
+so the measurement was right about the room it was taken in and wrong
+in general. `Tools/Meridian59.Net8Uv` checks the rule against the
+library's own `RooWall.GetVertexData`.
