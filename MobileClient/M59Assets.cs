@@ -126,5 +126,29 @@ public sealed class M59Assets
         return ImageTexture.CreateFromImage(img);
     }
 
+    /// <summary>
+    /// A composed picture as a Godot texture. <see cref="M59Compose"/>
+    /// builds those - a whole object rather than one frame - and this is
+    /// the only step that turns one into something the UI can draw.
+    /// </summary>
+    public static ImageTexture FromTex(Tex t)
+    {
+        if (t == null || t.W <= 0 || t.H <= 0 || t.P == null) return null;
+
+        var rgba = new byte[t.W * t.H * 4];
+        for (int i = 0, n = t.W * t.H; i < n; i++)
+        {
+            uint argb = t.P[i];
+            int o = i * 4;
+            rgba[o]     = (byte)(argb >> 16);
+            rgba[o + 1] = (byte)(argb >> 8);
+            rgba[o + 2] = (byte)argb;
+            rgba[o + 3] = (byte)(argb >> 24);
+        }
+
+        Image img = Image.CreateFromData(t.W, t.H, false, Image.Format.Rgba8, rgba);
+        return ImageTexture.CreateFromImage(img);
+    }
+
     public int CachedTextures => _cache.Count;
 }

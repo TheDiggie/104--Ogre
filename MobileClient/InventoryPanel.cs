@@ -6,19 +6,36 @@ using Meridian59.Data.Models;
 /// <summary>
 /// Your bag: what you are carrying, and what you can do with it.
 ///
+/// Laid out like the game's own, which is specified in
+/// Meridian59.Ogre.Client/UIInventory.cpp rather than guessed at: a grid
+/// five slots across, six rows to begin with and more added as the bag
+/// fills, every slot drawn whether or not it holds anything, the icon 40
+/// pixels square in a slot of 52, and the count printed on the icon. No
+/// labels - the name belongs to the selected item, which on a desktop is
+/// a tooltip and here is the line above the buttons.
+///
 /// Reads the client's own InventoryObjects rather than keeping a copy -
 /// the library maintains that list from the server, including which items
 /// are in use and how many of a name you have.
 ///
 /// Rebuilt only when the list actually changes. An inventory is a few
-/// dozen buttons with a texture each, and rebuilding that every frame
-/// would cost more than the game does.
+/// dozen slots with a texture each, and rebuilding that every frame would
+/// cost more than the game does.
 /// </summary>
 public partial class InventoryPanel : Control
 {
     [Export] public int FontSize = 16;
-    [Export] public int Columns = 3;
-    [Export] public int IconSize = 48;
+    /// <summary>Five, as the game has. UI_INVENTORY_COLS.</summary>
+    [Export] public int Columns = 5;
+    /// <summary>UI_INVENTORYICON_WIDTH/HEIGHT - the icon inside the slot.</summary>
+    [Export] public int IconSize = 40;
+    /// <summary>UI_INVENTORY_MIN_ROWS - the bag is never smaller than this.</summary>
+    [Export] public int MinRows = 6;
+    /// <summary>
+    /// Slots are drawn bigger than the game's 52 pixels because a finger
+    /// is not a mouse pointer; the art inside keeps the game's ratio.
+    /// </summary>
+    [Export] public int SlotSize = 96;
 
     /// <summary>Use, unuse or apply - the library decides which.</summary>
     public event Action<InventoryObject> UseItem;
@@ -124,21 +141,32 @@ public partial class InventoryPanel : Control
     }
 
     /// <summary>
-    /// Widens the item buttons to fill the panel. A GridContainer sizes
-    /// its columns to their contents, so without this the grid huddles at
-    /// the left in a third of the width and every label is clipped.
+    /// Holds the grid to the slot size. A GridContainer sizes its columns
+    /// to their contents, so without this the grid huddles at the left
+    /// and the slots come out whatever size their icon happens to be.
     /// </summary>
     void SizeCells()
     {
         if (_grid == null || _scroll == null) return;
-        const float sep = 8f;
-        float cols = Mathf.Max(1, Columns);
-        float w = (_scroll.Size.X - sep * (cols - 1)) / cols;
-        if (w <= 0f) return;
 
-        _grid.CustomMinimumSize = new Vector2(_scroll.Size.X, 0);
+        // The game's slots are a fixed 52 pixels in a window 284 wide,
+        // which is five of them and no more. A phone is wider than that
+        // and holds no more columns, so the slots grow to fill it rather
+        // than huddling in a corner - five across either way.
+        float side = Cell();
+        if (side <= 0f) return;
+
         foreach (Node n in _grid.GetChildren())
-            if (n is Button b) b.CustomMinimumSize = new Vector2(w, IconSize + 12);
+            if (n is Control c) c.CustomMinimumSize = new Vector2(side, side);
+    }
+
+    /// <summary>How big one slot is drawn, in screen pixels.</summary>
+    float Cell()
+    {
+        if (_scroll == null) return SlotSize;
+        const float sep = 8f;
+        float w = (_scroll.Size.X - sep * (Columns - 1)) / Math.Max(1, Columns);
+        return Mathf.Clamp(w, SlotSize * 0.5f, SlotSize * 2f);
     }
 
     public void Open()
@@ -169,41 +197,106 @@ public partial class InventoryPanel : Control
     {
         if (_grid == null || !IsOpen || items == null) return;
 
-        // Name, count and in-use state are what the buttons show, so they
-        // are what decides whether a rebuild is needed.
+        // Count and in-use state are what a slot shows, so they are what
+        // decides whether a rebuild is needed.
         var sb = new System.Text.StringBuilder();
         foreach (InventoryObject o in items)
-            sb.Append(o?.ID).Append(':').Append(o?.NumOfSameName).Append(o != null && o.IsInUse ? "u" : "-").Append(';');
+            sb.Append(o?.ID).Append(':').Append(o?.Count).Append(o != null && o.IsInUse ? "u" : "-").Append(';');
         string signature = sb.ToString();
         if (signature == _lastSignature && items.Count == _lastCount) return;
         _lastSignature = signature; _lastCount = items.Count;
 
-        foreach (Node n in _grid.GetChildren()) n.QueueFree();
+        foreach (Node n in _grid.GetChildren()) { _grid.RemoveChild(n); n.QueueFree(); }
 
-        foreach (InventoryObject o in items)
+        // Rows grow with the bag and never drop below the minimum, so a
+        // near-empty inventory still looks like an inventory rather than
+        // one lonely icon. AddInventoryRow/RemoveInventoryRow do the same.
+        int rows = Math.Max(MinRows, (items.Count + Columns - 1) / Columns);
+        int slots = rows * Columns;
+
+        for (int i = 0; i < slots; i++)
         {
-            if (o == null) continue;
-            InventoryObject captured = o;
-
-            string label = string.IsNullOrWhiteSpace(o.Name) ? "(unnamed)" : o.Name;
-            if (o.NumOfSameName > 1) label += $"  x{o.NumOfSameName}";
-            if (o.IsInUse) label += "  *";
-
-            var b = new Button
-            {
-                Text = label,
-                Icon = Icon(o),
-                CustomMinimumSize = new Vector2(0, IconSize + 12),
-                Alignment = HorizontalAlignment.Left,
-            };
-            b.AddThemeFontSizeOverride("font_size", FontSize - 2);
-            b.Pressed += () => Pick(captured);
-            _grid.AddChild(b);
+            InventoryObject o = i < items.Count ? items[i] : null;
+            _grid.AddChild(Slot(o));
         }
 
         SizeCells();
-
         _title.Text = items.Count == 0 ? "Carrying nothing" : $"Carrying ({items.Count})";
+    }
+
+    /// <summary>
+    /// One slot: a framed square, the icon centred in it, the count in the
+    /// corner if there is more than one, and a mark if the thing is in
+    /// use. An empty slot is the same square with nothing in it.
+    /// </summary>
+    Control Slot(InventoryObject o)
+    {
+        var slot = new Panel { CustomMinimumSize = new Vector2(SlotSize, SlotSize) };
+
+        var box = new StyleBoxFlat
+        {
+            BgColor = o != null ? new Color(0.13f, 0.13f, 0.16f) : new Color(0.07f, 0.07f, 0.09f),
+            BorderColor = new Color(0.3f, 0.3f, 0.36f),
+        };
+        box.SetBorderWidthAll(1);
+        box.SetCornerRadiusAll(3);
+
+        if (o != null && o.IsInUse)
+        {
+            // The game glows the background of an item in use - the
+            // composer turns its background on for exactly that. A warm
+            // border says the same thing without a second texture.
+            box.BorderColor = new Color(1f, 0.8f, 0.35f);
+            box.SetBorderWidthAll(2);
+        }
+        slot.AddThemeStyleboxOverride("panel", box);
+
+        if (o == null) return slot;
+
+        InventoryObject captured = o;
+
+        var icon = new TextureRect
+        {
+            Texture = Icon(o, IconPixels()),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        icon.SetAnchorsPreset(LayoutPreset.FullRect);
+        icon.OffsetLeft = 6; icon.OffsetTop = 6; icon.OffsetRight = -6; icon.OffsetBottom = -6;
+        slot.AddChild(icon);
+
+        if (o.Count > 1)
+        {
+            var count = new Label
+            {
+                Text = o.Count.ToString(),
+                MouseFilter = MouseFilterEnum.Ignore,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+            };
+            count.AddThemeFontSizeOverride("font_size", FontSize - 2);
+            count.AddThemeColorOverride("font_color", new Color(1, 1, 1));
+            count.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
+            count.AddThemeConstantOverride("outline_size", 4);
+            count.SetAnchorsPreset(LayoutPreset.FullRect);
+            count.OffsetRight = -4; count.OffsetBottom = -2;
+            slot.AddChild(count);
+        }
+
+        // A tap picks the item - the game targets it on a left click -
+        // and a second tap uses it, as a double click does there.
+        var hit = new Button { Flat = true, MouseFilter = MouseFilterEnum.Stop };
+        hit.SetAnchorsPreset(LayoutPreset.FullRect);
+        hit.TooltipText = captured.Name;
+        hit.Pressed += () =>
+        {
+            if (ReferenceEquals(_picked, captured)) UseItem?.Invoke(captured);
+            else Pick(captured);
+        };
+        slot.AddChild(hit);
+
+        return slot;
     }
 
     /// <summary>
@@ -227,15 +320,23 @@ public partial class InventoryPanel : Control
     }
 
     /// <summary>The frame the library says to show for this object.</summary>
-    ImageTexture Icon(InventoryObject o)
+    /// <summary>
+    /// The size to compose an icon at. The game's is 40 pixels in a
+    /// 52-pixel slot; keeping that ratio at whatever size the slot is
+    /// actually drawn means the art is composed sharp rather than
+    /// composed small and stretched.
+    /// </summary>
+    int IconPixels() => Mathf.Max(IconSize, Mathf.RoundToInt(Cell() * IconSize / 52f));
+
+    ImageTexture Icon(InventoryObject o, int size)
     {
         if (o?.Resource == null) return null;
         int frame = o.ViewerFrameIndex >= 0 ? o.ViewerFrameIndex : 0;
-        string key = $"{o.Resource.Filename}:{frame}";
+        string key = $"{o.Resource.Filename}:{frame}:{size}";
         if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
 
         ImageTexture tex = null;
-        try { tex = Shrink(M59Assets.FromBgf(o.Resource, frame)); }
+        try { tex = M59Assets.FromTex(M59Compose.Icon(o, size)); }
         catch (Exception e) { GD.PrintErr($"[Inventory] {o.Name}: {e.Message}"); }
         _icons[key] = tex;
         return tex;

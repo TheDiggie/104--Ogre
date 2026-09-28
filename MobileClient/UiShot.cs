@@ -25,7 +25,7 @@ public partial class UiShot : Node
         var layer = new CanvasLayer();
         AddChild(layer);
 
-        var bag = new InventoryPanel { FontSize = 18, IconSize = 64 };
+        var bag = new InventoryPanel { FontSize = 18 };
         layer.AddChild(bag);
 
         // Open first: the panel ignores a sync while it is closed, which
@@ -70,6 +70,7 @@ public partial class UiShot : Node
             o.ID = id++;
             o.Name = w.name;
             o.NumOfSameName = w.count;
+            o.Count = w.count;          // what the slot prints, as the game does
             o.IsInUse = w.used;
             try { o.Resource = new BgfFile(path); }
             catch (Exception e) { GD.Print($"[UiShot] {w.file}: {e.Message}"); continue; }

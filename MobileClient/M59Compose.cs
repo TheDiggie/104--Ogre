@@ -39,7 +39,43 @@ public static class M59Compose
         // Same arguments the Ogre client's RemoteNode2D passes: the frame
         // for the angle we are looking from, and the Y offset applied.
         var ri = new RenderInfo(o, true, true);
-        if (ri.Bgf == null) return null;
+        Tex t = Raster(ri);
+        if (t == null) return null;
+
+        worldW = ri.WorldSize.X * M59Geo.HeightToXY;
+        worldH = ri.WorldSize.Y * M59Geo.HeightToXY;
+        return t;
+    }
+
+    /// <summary>
+    /// The inventory icon for an object, composed the way the game's own
+    /// inventory composes it - which is not the way a room object is
+    /// composed. UIInventory.cpp sets, per slot: the front frame rather
+    /// than the viewer's, no Y offset, no power-of-two padding, and the
+    /// picture scaled into a 40x40 box and centred both ways. Using the
+    /// world settings instead gives icons that face wherever you happen
+    /// to be standing and sit at the top of a tall empty box.
+    /// </summary>
+    public static Tex Icon(ObjectBase o, int size)
+    {
+        if (o == null || o.Resource == null || size < 1) return null;
+
+        var ri = new RenderInfo(
+            o,
+            false,                 // ApplyYOffset
+            0,                     // RootHotspotIndex
+            RenderInfo.DEFAULTQUALITY,
+            false,                 // ScalePow2
+            (uint)size, (uint)size,
+            true,                  // CenterVertical
+            true);                 // CenterHorizontal
+        return Raster(ri);
+    }
+
+    /// <summary>Draws a laid-out RenderInfo into a picture.</summary>
+    static Tex Raster(RenderInfo ri)
+    {
+        if (ri == null || ri.Bgf == null) return null;
 
         // Rounded, not ceilinged: the library's own composers size the
         // bitmap with Convert.ToInt32, and a dimension of 478.00003 is a
@@ -74,8 +110,6 @@ public static class M59Compose
             }
         }
 
-        worldW = ri.WorldSize.X * M59Geo.HeightToXY;
-        worldH = ri.WorldSize.Y * M59Geo.HeightToXY;
         return new Tex { W = w, H = h, P = p, Shrink = 1 };
     }
 
@@ -89,12 +123,19 @@ public static class M59Compose
     static unsafe void Blit(Meridian59.Files.BGF.BgfBitmap frame, uint* buf, int w, int h,
                             Meridian59.Common.V2 origin, Meridian59.Common.V2 size, byte palette)
     {
-        // The library's scaler cannot place a frame at a negative origin -
-        // its own composers return rather than clamp, and a clamp here
-        // would shift the part sideways relative to the rest. Skipping
-        // loses a limb; drawing it in the wrong place loses the pose.
-        if (origin.X < 0f || origin.Y < 0f) return;
-        if (size.X < 1f || size.Y < 1f) return;
+        // Round first, then judge. The library's scaler cannot place a
+        // frame at a negative origin - its own composers return rather
+        // than clamp, and a clamp would shift the part sideways relative
+        // to the rest, losing the pose to save a limb. But the origin
+        // arrives as a float that has been through a scale and a
+        // translate, and "negative" can mean -0.0000019: the dye bottle's
+        // icon came out that way and vanished entirely. Rounding is what
+        // the library does with these numbers everywhere else, and it
+        // turns that hair into the zero it plainly is.
+        int ox = Convert.ToInt32(origin.X), oy = Convert.ToInt32(origin.Y);
+        int sw = Convert.ToInt32(size.X), sh = Convert.ToInt32(size.Y);
+        if (ox < 0 || oy < 0) return;
+        if (sw < 1 || sh < 1) return;
 
         // Some frames are CRUSH-compressed, and the library can only
         // undo that in an x86 Windows build - it throws everywhere else,
@@ -107,12 +148,11 @@ public static class M59Compose
         }
         catch { return; }
 
-        // Convert rather than cast, again: a cast truncates, and a part
-        // whose width comes out at 453.9998 then loses its last column.
+        // Rounded, not cast: a cast truncates, and a part whose width
+        // comes out at 453.9998 then loses its last column.
         frame.FillPixelDataAsA8R8G8B8TransparencyBlackScaled(
             buf, (uint)w, (uint)h,
-            Convert.ToUInt32(origin.X), Convert.ToUInt32(origin.Y),
-            Convert.ToUInt32(size.X), Convert.ToUInt32(size.Y),
+            (uint)ox, (uint)oy, (uint)sw, (uint)sh,
             palette);
     }
 }

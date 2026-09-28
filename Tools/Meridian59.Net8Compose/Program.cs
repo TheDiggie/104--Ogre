@@ -22,9 +22,10 @@ static class Program
 
     static void Main(string[] args)
     {
-        bool mode = args.Length > 0 && (args[0] == "probe" || args[0] == "crush" || args[0] == "sheet" || args[0] == "items");
+        bool mode = args.Length > 0 && (args[0] == "probe" || args[0] == "crush" || args[0] == "sheet" || args[0] == "items" || args[0] == "icons");
         if (args.Length > 0 && !mode) dir = args[0];
         if (args.Length > 0 && args[0] == "probe") { Probe(); return; }
+        if (args.Length > 0 && args[0] == "icons") { Icons(args.Skip(1).ToArray()); return; }
         if (args.Length > 0 && args[0] == "crush") { Crush(args.Length > 1 ? args[1] : dir); return; }
         if (args.Length > 0 && args[0] == "sheet") { Sheet(args.Length > 1 ? args[1] : "compose.png"); return; }
         if (args.Length > 0 && args[0] == "items")
@@ -206,6 +207,29 @@ static class Program
 
         Png.Write(path, w, h, rgba);
         Console.WriteLine($"wrote {path} ({w}x{h})");
+    }
+
+    static void Icons(string[] files)
+    {
+        if (files.Length == 0)
+            files = new[] { "dyebottle.bgf", "cookie.bgf", "neruaxe.bgf", "icraftlongsword.bgf", "book1.bgf" };
+        foreach (string f in files)
+        {
+            BgfFile bgf;
+            try { bgf = Load(f); } catch { Console.WriteLine($"{f}: missing"); continue; }
+            var o = new InventoryObject();
+            o.Resource = bgf;
+            o.Tick(0, 1);
+            var dbg = new RenderInfo(o, false, 0, RenderInfo.DEFAULTQUALITY, false, 40, 40, true, true);
+            Console.WriteLine($"  {f}: origin {dbg.Origin.X},{dbg.Origin.Y} size {dbg.Size.X}x{dbg.Size.Y} " +
+                              $"dim {dbg.Dimension.X}x{dbg.Dimension.Y} scaling {dbg.Scaling} subs {dbg.SubBgf.Count} " +
+                              $"frame {(dbg.Bgf == null ? "null" : dbg.Bgf.Width + "x" + dbg.Bgf.Height)}");
+            Tex t = M59Compose.Icon(o, 40);
+            if (t == null) { Console.WriteLine($"{f}: no icon"); continue; }
+            int opaque = 0; ulong sum = 0;
+            foreach (uint c in t.P) if ((c >> 24) != 0) { opaque++; sum += (c >> 16 & 0xFF) + (c >> 8 & 0xFF) + (c & 0xFF); }
+            Console.WriteLine($"{f}: {t.W}x{t.H}, {opaque} opaque, mean brightness {(opaque == 0 ? 0 : sum / (ulong)opaque / 3)}");
+        }
     }
 
     static void Probe()

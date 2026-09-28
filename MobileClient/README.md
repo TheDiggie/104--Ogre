@@ -165,15 +165,49 @@ the shot comes out blank. A virtual display is enough - `xvfb-run` above
 runs it on llvmpipe with no GPU. `--pick N` selects an item so the action
 row shows.
 
-The first two runs of this found two things that reading the code had
-not. The panel ignores a `Sync` while it is closed, which is right for
-the live client - `GameView` syncs every frame - and a trap for anything
-that fills it once, so the harness opens first. And the item buttons had
+The first runs of this found things that reading the code had not. The
+panel ignores a `Sync` while it is closed, which is right for the live
+client - `GameView` syncs every frame - and a trap for anything that
+fills it once, so the harness opens first. The item buttons had
 `ExpandIcon` set, which hands the icon whatever width the label leaves
 it: an ear of corn is 860 pixels across and came out a sliver three
-pixels wide, while a 17-pixel ankh towered over everything. Icons are now
-scaled to `IconSize` when the texture is built, and the grid is told the
-panel's width instead of huddling in a third of it.
+pixels wide, while a 17-pixel ankh towered over everything. And the dye
+bottle's icon vanished entirely, because its composed origin comes out at
+-0.0000019 and the composer refuses a negative origin - rounding first,
+the way the library converts these numbers everywhere else, turns that
+hair into the zero it plainly is.
+
+## The inventory is the game's inventory
+
+The first version of this panel was a list of labelled buttons, which is
+not what Meridian 59 has. `Meridian59.Ogre.Client/UIInventory.cpp` and
+`Resources/ui/layouts/Meridian59.layout` say what it is, so the panel now
+follows them rather than my idea of a bag:
+
+- five columns (`UI_INVENTORY_COLS`), six rows to start
+  (`UI_INVENTORY_MIN_ROWS`), rows added as the bag fills and removed as it
+  empties, never below the minimum
+- every slot drawn whether or not it holds anything
+- the icon 40 pixels square (`UI_INVENTORYICON_WIDTH`) in a slot of 52
+- the item's **count** printed on the icon, no labels
+- the name belongs to the selected item - a tooltip there, the line above
+  the buttons here
+- an item in use is marked; the game turns the composer's glowing
+  background on for those
+
+Icons are composed differently from world objects, and that is also from
+`UIInventory.cpp` rather than guessed: the **front** frame rather than the
+viewer's, `ApplyYOffset` off, no power-of-two padding, scaled into the
+icon box and centred both ways. Composing them the world way gives icons
+that face wherever you happen to be standing and sit at the top of a tall
+empty box.
+
+Two things are deliberately not the game's. The slots grow to fill a
+phone's width instead of holding the game's fixed 52 pixels in a window
+284 wide - five across either way. And a tap selects while a second tap
+uses, where the game targets on a left click and uses on a left double
+click; drag-to-rearrange is not built yet, so
+`SendReqInventoryMoveMessage` is still on the list.
 
 ## Known limits
 
