@@ -64,6 +64,13 @@ confirmed byte-identical.
   A phone is several times slower, so 480 wide is still the sensible
   default.
 
+- **Texture aliasing** is handled with mipmaps. Point-sampling a 128x128
+  stone texture across a ceiling at a grazing angle produced heavy radial
+  streaking; each texture now carries a box-filtered mip chain and the
+  sampler picks a level from how much world space a screen pixel covers.
+  It costs nothing measurable - smaller levels are kinder to cache, so
+  the median frame got very slightly faster.
+
 - **No collision.** Movement is rejected if the destination is not
   inside a sector; that is all.
 - **No objects, monsters or players.** Those arrive from the server and

@@ -87,11 +87,13 @@ public sealed class Renderer
 
                 float u = (h.Along + (h.Right ? h.Wall.RightXOffset : h.Wall.LeftXOffset) * M59Geo.HeightToXY) / M59Geo.Fineness;
                 float fog = MathF.Min(1f, FogFar / perp);
+                // Texels one screen pixel spans on this wall, for mip choice.
+                float tpp = (perp / proj) * 128f / M59Geo.Fineness;
 
                 if (far == null)
                 {
                     DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc,
-                             side != null ? _tex.Get(side.MiddleTexture) : null, u, fog);
+                             side != null ? _tex.Get(side.MiddleTexture) : null, u, fog, tpp);
                     closed = true;
                     break;
                 }
@@ -103,7 +105,7 @@ public sealed class Renderer
                     Tex mid = _tex.Get(side.MiddleTexture);
                     if (mid != null)
                     {
-                        DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid, u, fog);
+                        DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid, u, fog, tpp);
                         closed = true;
                         break;
                     }
@@ -115,14 +117,14 @@ public sealed class Renderer
                 {
                     int farCeilY = ScreenY(fc, camZ, horizon, proj, perp);
                     DrawWall(px, W, H, sx, yTop, Math.Min(yBot, farCeilY - 1), ceilY, farCeilY, fc, nc,
-                             side != null ? _tex.Get(side.UpperTexture) : null, u, fog);
+                             side != null ? _tex.Get(side.UpperTexture) : null, u, fog, tpp);
                     yTop = Math.Max(yTop, farCeilY);
                 }
                 if (ff > nf)
                 {
                     int farFloorY = ScreenY(ff, camZ, horizon, proj, perp);
                     DrawWall(px, W, H, sx, Math.Max(yTop, farFloorY), yBot, farFloorY, floorY, nf, ff,
-                             side != null ? _tex.Get(side.LowerTexture) : null, u, fog);
+                             side != null ? _tex.Get(side.LowerTexture) : null, u, fog, tpp);
                     yBot = Math.Min(yBot, farFloorY);
                 }
 
@@ -140,7 +142,7 @@ public sealed class Renderer
 
     static void DrawWall(uint[] px, int W, int H, int sx, int y0, int y1,
                          int spanTopY, int spanBotY, float spanBotH, float spanTopH,
-                         Tex t, float u, float fog)
+                         Tex t, float u, float fog, float texelsPerPixel = 1f)
     {
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
@@ -161,7 +163,7 @@ public sealed class Renderer
                 // (a hatch in mossy stone) - with u,v the masonry courses
                 // came out vertical and the banner's fleur-de-lis lay on
                 // their sides.
-                c = Shade(t.Sample(v, u), fog);
+                c = Shade(t.Sample(v, u, texelsPerPixel), fog);
             }
             px[y * W + sx] = c;
         }
@@ -190,9 +192,14 @@ public sealed class Renderer
             float d = straight / MathF.Max(0.2f, cosFix);
             float wx = camX + rdx * d, wy = camY + rdy * d;
             float fog = MathF.Min(1f, FogFar / MathF.Max(straight, 1f));
+            // How much world space one screen pixel covers here, in texels.
+            // Rows near the horizon cover enormous distances, which is what
+            // made ceilings streak before mipmapping.
+            float texelsPerPixel = (straight / MathF.Max(1f, MathF.Abs(dy))) * t.W / M59Geo.Fineness;
             // Same axis swap as walls - grd02011 is a floor of tall stone
             // slabs and rendered as wide ones until y,x were used.
-            px[y * W + sx] = Shade(t.Sample(wy / M59Geo.Fineness, wx / M59Geo.Fineness), fog);
+            px[y * W + sx] = Shade(
+                t.Sample(wy / M59Geo.Fineness, wx / M59Geo.Fineness, texelsPerPixel), fog);
         }
     }
     static uint Shade(uint c, float f)
