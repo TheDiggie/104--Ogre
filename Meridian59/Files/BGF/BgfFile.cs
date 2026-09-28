@@ -620,6 +620,7 @@ namespace Meridian59.Files.BGF
         {
             Parallel.ForEach<BgfBitmap>(frames, frame => { frame.RevertPixelDataToOriginal(); });
         }
+#if DRAWING
 
         /// <summary>
         /// Outputs a 'storyboard' of the BgfFile's frames. A storyboard is a single bmp containing
@@ -831,6 +832,7 @@ namespace Meridian59.Files.BGF
 
             return true;
         }
+#endif
         #region BUILDDEPENDENT
 
 #if DRAWING

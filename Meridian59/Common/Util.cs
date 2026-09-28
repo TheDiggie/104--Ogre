@@ -32,7 +32,14 @@ namespace Meridian59.Common
         /// <summary>
         /// Default binary string encoding used in Meridian 59 (codepage 1252).
         /// </summary>
-        public static readonly Encoding Encoding = Encoding.GetEncoding(1252);
+        public static readonly Encoding Encoding = GetM59Encoding();
+
+        private static Encoding GetM59Encoding()
+        {
+            try { return Encoding.GetEncoding(1252); }
+            catch (NotSupportedException) { return Encoding.Latin1; }
+            catch (ArgumentException) { return Encoding.Latin1; }
+        }
 
         /// <summary>
         /// Executes a maximum Garbage Collection
