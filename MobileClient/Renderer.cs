@@ -91,6 +91,16 @@ public sealed class Renderer
     public bool Threaded { get; set; } = true;
 
     /// <summary>
+    /// Measurement knobs. Floor and ceiling fill is 25-60% of a frame and
+    /// the sampler is about half of that, which is worth being able to
+    /// re-measure rather than re-derive - see the performance note in the
+    /// README for what that did and did not buy.
+    /// </summary>
+    public bool NoFlats { get; set; } = false;
+    /// <summary>Takes texel 0 instead of sampling. See <see cref="NoFlats"/>.</summary>
+    public bool NoSample { get; set; } = false;
+
+    /// <summary>
     /// Per-thread working state. The wall grid's visit marker lives here
     /// too, so two threads walking the same grid do not overwrite each
     /// other's stamps.
@@ -203,9 +213,11 @@ public sealed class Renderer
                 int floorY = ScreenY(nf, camZ, horizon, proj, perp);
 
                 FillFlat(px, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
-                         near, camX, camY, camZ, horizon, proj, angle, rayA, _tex);
+                         near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
+                         NoFlats, NoSample);
                 FillFlat(px, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
-                         near, camX, camY, camZ, horizon, proj, angle, rayA, _tex);
+                         near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
+                         NoFlats, NoSample);
 
                 yTop = Math.Max(yTop, ceilY);
                 yBot = Math.Min(yBot, floorY);
@@ -452,9 +464,10 @@ public sealed class Renderer
     }
     static void FillFlat(uint[] px, int W, int H, int sx, int y0, int y1, bool ceiling,
                          RooSector sec, float camX, float camY, float camZ,
-                         float horizon, float proj, float angle, float rayA, TexCache tc)
+                         float horizon, float proj, float angle, float rayA, TexCache tc,
+                         bool skip, bool noSample)
     {
-        if (sec == null) return;
+        if (sec == null || skip) return;
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
         if (y0 > y1) return;
@@ -481,7 +494,9 @@ public sealed class Renderer
             // Same axis swap as walls - grd02011 is a floor of tall stone
             // slabs and rendered as wide ones until y,x were used.
             px[y * W + sx] = Shade(
-                t.Sample(wy / M59Geo.Fineness, wx / M59Geo.Fineness, texelsPerPixel), fog);
+                noSample ? t.P[0]
+                         : t.Sample(wy / M59Geo.Fineness, wx / M59Geo.Fineness, texelsPerPixel),
+                fog);
         }
     }
     static uint Shade(uint c, float f)

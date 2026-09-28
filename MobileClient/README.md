@@ -129,6 +129,30 @@ confirmed byte-identical.
   A phone is several times slower per core, so 480 wide is still the
   sensible default.
 
+  Floor and ceiling fill is 25-60% of a frame (the `NoFlats` and
+  `NoSample` knobs on the renderer measure it), and about half of that
+  is the sampler. Two attempts to cut it both made things worse and are
+  recorded here so nobody repeats them.
+
+  Caching the per-row values a floor plane needs - the distance, the mip
+  factor, the fog, which depend on the screen row and the plane height
+  and not on the column - is exact and removes three divisions per
+  pixel. With one cache slot it took barinn from 7.4 ms to 8.7 ms,
+  because the column walk visits several sectors and the height changes
+  on nearly every call, so a 540-row table was rebuilt each time. With a
+  16-slot keyed cache it went to 16 ms: `FillFlat` is called a few
+  hundred thousand times a frame, most calls filling a handful of
+  pixels, so the lookup itself cost more than the arithmetic it saved.
+
+  Hoisting the four trig calls out of `FillFlat` into the caller, which
+  had already computed exactly those values, changed nothing measurable.
+
+  The lesson is that this function's cost is per call, not per pixel.
+  Anything that helps has to draw floors as horizontal spans instead of
+  per column, which is a real restructure of the portal walk, and it
+  should be done with a profiler and a phone rather than guessed at on
+  two noisy cores.
+
 - **Texture aliasing** is handled with mipmaps. Point-sampling a 128x128
   stone texture across a ceiling at a grazing angle produced heavy radial
   streaking; each texture now carries a box-filtered mip chain and the
