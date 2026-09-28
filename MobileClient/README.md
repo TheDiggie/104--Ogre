@@ -83,6 +83,10 @@ Nothing here has been run on a phone yet. What is in place:
   in the `.pck`, not a file on disk. Godot's `FileAccess` can read it;
   `File.ReadAllBytes` cannot.
 
+  It runs on a worker thread with the count on screen, because that is
+  hundreds of megabytes and doing it in `_Ready` would freeze the app
+  long enough on first launch for Android to decide it had hung.
+
 What you have to do:
 
 1. Install a JDK 17 and the Android SDK (Android Studio is the easy

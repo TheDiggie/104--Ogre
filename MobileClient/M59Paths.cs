@@ -120,6 +120,18 @@ public static class M59Paths
     }
 
     /// <summary>
+    /// Whether there is bundled game data still to be copied out. Cheap:
+    /// the caller needs to know before deciding to show a progress screen.
+    /// </summary>
+    public static bool NeedsUnpack()
+    {
+        string dest = ProjectSettings.GlobalizePath(UserResource);
+        if (Directory.Exists(dest) && HasContent(dest)) return false;
+        using var src = DirAccess.Open(PackedResource);
+        return src != null;
+    }
+
+    /// <summary>
     /// Copies res://resource out to user://resource if it shipped in the
     /// export and has not been unpacked yet. Returns the number of files
     /// written, 0 if there was nothing to do, -1 on failure.

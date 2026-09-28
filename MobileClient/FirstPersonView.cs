@@ -73,8 +73,33 @@ public partial class FirstPersonView : Node2D
         _ui.AddChild(_status);
 
         // On Android the game data has to be copied out of the .pck before
-        // the library, which reads with System.IO, can see any of it.
-        M59Paths.UnpackIfNeeded(s => GD.Print("[M59] " + s));
+        // the library, which reads with System.IO, can see any of it. That
+        // is hundreds of megabytes on first run, so it happens off the main
+        // thread - doing it here would freeze the app long enough for
+        // Android to decide it had hung.
+        if (M59Paths.NeedsUnpack())
+        {
+            _status.Text = "Unpacking game data...";
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                // Callable.From rather than a method name: these are
+                // private methods, so the engine has no name for them.
+                M59Paths.UnpackIfNeeded(msg => Callable.From(() => SetStatus(msg)).CallDeferred());
+                Callable.From(FindResources).CallDeferred();
+            });
+            return;
+        }
+
+        FindResources();
+    }
+
+    /// <summary>Status text from a worker thread.</summary>
+    void SetStatus(string text) { if (_status != null) _status.Text = text; }
+
+    /// <summary>Finds the resource folder, or asks. Main thread only.</summary>
+    void FindResources()
+    {
+        _status.Text = "";
         string dir = M59Paths.Resolve(ResourceDir);
 
         if (dir == null)
