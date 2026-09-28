@@ -76,8 +76,19 @@ confirmed byte-identical.
   attempts to walk past the nearest solid wall were blocked, no
   exceptions. There is no sliding along walls yet - a blocked move is
   simply rejected.
-- **No objects, monsters or players.** Those arrive from the server and
-  nothing here is connected yet.
+- **Objects** render as camera-facing billboards, sorted back to front
+  and occluded by a per-column wall depth buffer. Transparent texels
+  (palette index 254) are skipped, and sprite textures deliberately skip
+  the mip chain because averaging across them bleeds the cyan key into
+  the edges. Verified: five sprites in a line at increasing distance
+  scale correctly, and the one placed past the wall is not drawn.
+
+  There is nothing to populate the list yet - real objects come from the
+  server. Set **Demo Sprite Bgf** on the root node (e.g. `duskrat.bgf`)
+  to scatter a few around the room in the meantime.
+
+- **No monsters or players.** Those arrive from the server and nothing
+  here is connected yet.
 - Transparent middle textures on two-sided walls are treated as solid.
 
 ## Unit conventions

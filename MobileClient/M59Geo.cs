@@ -128,6 +128,29 @@ public sealed class Tex
         t.BuildMips();
         return t;
     }
+
+    /// <summary>
+    /// Like <see cref="From"/> but keeps transparency. Palette index 254 is
+    /// Meridian's transparent colour and already carries alpha 0, so object
+    /// sprites must not have alpha forced opaque the way wall and floor
+    /// textures are. No mip chain: averaging across transparent texels
+    /// bleeds the cyan key into the edges.
+    /// </summary>
+    public static Tex FromSprite(BgfFile bgf, int frame = 0)
+    {
+        if (bgf == null || bgf.Frames.Count == 0) return null;
+        if (frame < 0 || frame >= bgf.Frames.Count) frame = 0;
+        BgfBitmap f = bgf.Frames[frame];
+        byte[] idx;
+        try { idx = f.IsCompressed ? f.Decompress(f.PixelData) : f.PixelData; }
+        catch { return null; }
+        int w = (int)f.Width, h = (int)f.Height;
+        if (idx == null || w <= 0 || h <= 0 || idx.Length < w * h) return null;
+        uint[] pal = ColorTransformation.DefaultPalette;
+        var p = new uint[w * h];
+        for (int i = 0; i < w * h; i++) p[i] = pal[idx[i]];   // alpha preserved
+        return new Tex { W = w, H = h, P = p };
+    }
 }
 
 /// <summary>Caches room textures by grd number.</summary>

@@ -44,6 +44,38 @@ static class Fpv
         }
 
         float camZ = M59Geo.FloorXY(r.SectorAtPoint(camX, camY)) + Renderer.EyeHeight;
+
+        // Optional sprite test: --sprite <file.bgf> drops a ring of them
+        // around the camera at known distances, including some that should
+        // end up behind walls.
+        int si = Array.IndexOf(a, "--sprite");
+        if (si >= 0 && si + 1 < a.Length)
+        {
+            var bgf = rm.GetObject(a[si + 1]);
+            Tex st = Tex.FromSprite(bgf);
+            if (st == null) Console.WriteLine($"  ! could not load sprite {a[si + 1]}");
+            else
+            {
+                // A line straight ahead at increasing distance, plus one far
+                // beyond the wall in that direction - that last one must not
+                // be visible if depth occlusion works.
+                float fa = angle;
+                float lx = -MathF.Sin(fa), ly = MathF.Cos(fa);   // left of the camera
+                int n = 0;
+                foreach (float d in new[] { 1500f, 3000f, 5000f, 7000f, 14000f })
+                {
+                    float off = (n++ - 2) * 700f;                 // fan them out sideways
+                    float sxw = camX + MathF.Cos(fa) * d + lx * off;
+                    float syw = camY + MathF.Sin(fa) * d + ly * off;
+                    var sec = r.SectorAtPoint(sxw, syw);
+                    r.Sprites.Add(new Renderer.Sprite {
+                        X = sxw, Y = syw,
+                        BaseZ = sec != null ? M59Geo.FloorXY(sec) : camZ - Renderer.EyeHeight,
+                        Height = 500f, Texture = st });
+                    Console.WriteLine($"  sprite at {d,6:F0}  sector={(sec == null ? "outside room" : "ok")}");
+                }
+            }
+        }
         var px = new uint[W * H];
         int closed = r.Render(px, W, H, camX, camY, camZ, angle);
 

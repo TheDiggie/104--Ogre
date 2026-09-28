@@ -25,10 +25,26 @@ public sealed class Renderer
 
     public struct Hit { public RooWall Wall; public float Dist, Along; public bool Right; }
 
+    /// <summary>A billboarded object standing on the floor at X,Y.</summary>
+    public sealed class Sprite
+    {
+        public float X, Y;
+        /// <summary>World height of the sprite's base (usually the floor).</summary>
+        public float BaseZ;
+        /// <summary>How tall the sprite stands, in world XY units.</summary>
+        public float Height = 700f;
+        public Tex Texture;
+    }
+
+    /// <summary>Objects drawn after the walls, occluded by them.</summary>
+    public readonly List<Sprite> Sprites = new List<Sprite>();
+
     readonly RooFile _roo;
     readonly TexCache _tex;
     readonly List<Hit> _hits = new List<Hit>(64);
     readonly WallGrid _grid;
+    // Per-column distance to whatever closed that column, for sprite depth.
+    float[] _depth = new float[0];
 
     /// <summary>Set false to fall back to testing every wall (reference path).</summary>
     public bool UseGrid { get; set; } = true;
@@ -48,6 +64,9 @@ public sealed class Renderer
         float horizon = H * 0.5f;
         RooSector camSector = SectorAt(_roo, camX, camY);
         int solidCols = 0;
+
+        if (_depth.Length < W) _depth = new float[W];
+        for (int i = 0; i < W; i++) _depth[i] = float.MaxValue;
 
         for (int sx = 0; sx < W; sx++)
         {
@@ -94,6 +113,7 @@ public sealed class Renderer
                 {
                     DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc,
                              side != null ? _tex.Get(side.MiddleTexture) : null, u, fog, tpp);
+                    _depth[sx] = perp;
                     closed = true;
                     break;
                 }
@@ -106,6 +126,7 @@ public sealed class Renderer
                     if (mid != null)
                     {
                         DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid, u, fog, tpp);
+                        _depth[sx] = perp;
                         closed = true;
                         break;
                     }
@@ -134,7 +155,76 @@ public sealed class Renderer
             if (closed) solidCols++;
             else for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0) px[y * W + sx] = 0xFF05050Au;
         }
+
+        DrawSprites(px, W, H, camX, camY, camZ, angle, proj, horizon);
         return solidCols;
+    }
+
+    /// <summary>
+    /// Draws the sprite list as camera-facing billboards, back to front,
+    /// testing each column against the wall depth recorded during the main
+    /// pass. Transparent texels are skipped rather than blended, which is
+    /// what the palette's index 254 means.
+    /// </summary>
+    void DrawSprites(uint[] px, int W, int H, float camX, float camY, float camZ,
+                     float angle, float proj, float horizon)
+    {
+        if (Sprites.Count == 0) return;
+
+        float ca = MathF.Cos(-angle), sa = MathF.Sin(-angle);
+        var order = new List<(float depth, Sprite s, float lateral)>(Sprites.Count);
+
+        foreach (Sprite sp in Sprites)
+        {
+            if (sp.Texture == null) continue;
+            float rx = sp.X - camX, ry = sp.Y - camY;
+            // Into camera space: +depth is straight ahead.
+            float depth = rx * ca - ry * sa;
+            float lateral = rx * sa + ry * ca;
+            if (depth < 32f) continue;                       // behind or on top of us
+            order.Add((depth, sp, lateral));
+        }
+        order.Sort((a, b) => b.depth.CompareTo(a.depth));    // far first
+
+        foreach (var (depth, sp, lateral) in order)
+        {
+            Tex t = sp.Texture;
+            float scale = proj / depth;
+            float cxs = W * 0.5f + lateral * scale;
+
+            float hPx = sp.Height * scale;
+            float wPx = hPx * t.W / MathF.Max(1, t.H);
+            float yBot = horizon - (sp.BaseZ - camZ) * scale;
+            float yTop = yBot - hPx;
+
+            int x0 = (int)MathF.Floor(cxs - wPx * 0.5f);
+            int x1 = (int)MathF.Ceiling(cxs + wPx * 0.5f);
+            if (x1 < 0 || x0 >= W || hPx < 1f) continue;
+
+            float fog = MathF.Min(1f, FogFar / depth);
+
+            for (int sx = Math.Max(0, x0); sx <= Math.Min(W - 1, x1); sx++)
+            {
+                if (depth >= _depth[sx]) continue;           // behind a wall
+                float u = (sx + 0.5f - (cxs - wPx * 0.5f)) / MathF.Max(1f, wPx);
+                if (u < 0f || u >= 1f) continue;
+                int tx = (int)(u * t.W);
+                if (tx < 0) tx = 0; else if (tx >= t.W) tx = t.W - 1;
+
+                int yA = Math.Max(0, (int)MathF.Floor(yTop));
+                int yB = Math.Min(H - 1, (int)MathF.Ceiling(yBot));
+                for (int y = yA; y <= yB; y++)
+                {
+                    float v = (y + 0.5f - yTop) / MathF.Max(1f, hPx);
+                    if (v < 0f || v >= 1f) continue;
+                    int ty = (int)(v * t.H);
+                    if (ty < 0) ty = 0; else if (ty >= t.H) ty = t.H - 1;
+                    uint c = t.P[ty * t.W + tx];
+                    if ((c >> 24) == 0) continue;            // transparent texel
+                    px[y * W + sx] = Shade(c | 0xFF000000u, fog);
+                }
+            }
+        }
     }
 
     static int ScreenY(float worldH, float camZ, float horizon, float proj, float perp)

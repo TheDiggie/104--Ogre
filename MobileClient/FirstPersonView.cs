@@ -30,6 +30,13 @@ public partial class FirstPersonView : Node2D
     [Export] public float TurnSpeed = 2.2f;      // radians per second
     /// <summary>Used by the library's collision for step-height checks.</summary>
     [Export] public float PlayerHeight = 0f;
+    /// <summary>
+    /// Optional: a sprite BGF ("duskrat.bgf") to scatter around the room so
+    /// there is something to look at before the server connection exists.
+    /// Leave empty for an empty room.
+    /// </summary>
+    [Export] public string DemoSpriteBgf = "";
+    [Export] public float DemoSpriteHeight = 500f;
 
     readonly M59Assets _assets = new M59Assets();
     Renderer _renderer;
@@ -78,6 +85,7 @@ public partial class FirstPersonView : Node2D
 
         _renderer = new Renderer(_roo, new TexCache(_assets.Resources));
         PlaceCameraInLargestLeaf();
+        AddDemoSprites();
         Resize();
         GetViewport().SizeChanged += Resize;
         SetProcess(true);
@@ -111,6 +119,34 @@ public partial class FirstPersonView : Node2D
         _camY = sy / best.Vertices.Count;
         _camZ = M59Geo.FloorXY(_renderer.SectorAtPoint(_camX, _camY)) + Renderer.EyeHeight;
         _angle = 0f;
+    }
+
+    /// <summary>
+    /// Scatters a few billboards on the floor so the room is not empty.
+    /// Real objects will come from the server; this is scaffolding.
+    /// </summary>
+    void AddDemoSprites()
+    {
+        if (string.IsNullOrWhiteSpace(DemoSpriteBgf)) return;
+        Tex t = Tex.FromSprite(_assets.Resources.GetObject(DemoSpriteBgf));
+        if (t == null) { GD.PrintErr($"[FirstPersonView] could not load {DemoSpriteBgf}"); return; }
+
+        var rng = new Random(1);
+        int placed = 0, attempts = 0;
+        while (placed < 8 && attempts++ < 400)
+        {
+            float ang = (float)(rng.NextDouble() * Math.PI * 2);
+            float dist = 800f + (float)rng.NextDouble() * 5000f;
+            float x = _camX + MathF.Cos(ang) * dist;
+            float y = _camY + MathF.Sin(ang) * dist;
+            RooSector sec = _renderer.SectorAtPoint(x, y);
+            if (sec == null) continue;
+            _renderer.Sprites.Add(new Renderer.Sprite {
+                X = x, Y = y, BaseZ = M59Geo.FloorXY(sec),
+                Height = DemoSpriteHeight, Texture = t });
+            placed++;
+        }
+        GD.Print($"[FirstPersonView] placed {placed} demo sprites");
     }
 
     void Resize()
