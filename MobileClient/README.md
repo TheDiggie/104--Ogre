@@ -134,6 +134,47 @@ renders the identical code to a PNG, so the output can be checked
 against a reference image rather than eyeballed in motion. The two were
 confirmed byte-identical.
 
+## Seeing the UI without a server
+
+The widgets can be built, opened and photographed with made-up data, so a
+layout bug does not have to wait for a live connection to show itself.
+`UiShot.cs` and `UiShot.tscn` do it; nothing else loads that scene.
+
+Godot's own build of the .NET packages is inside the engine download, so
+no package feed is needed:
+
+    # point the project at the unpacked engine's nupkgs
+    cat > MobileClient/nuget.config <<'EOT'
+    <?xml version="1.0" encoding="utf-8"?>
+    <configuration>
+      <packageSources>
+        <clear />
+        <add key="godot" value="/path/to/Godot_v4.7.2-stable_mono_linux_x86_64/GodotSharp/Tools/nupkgs" />
+      </packageSources>
+    </configuration>
+    EOT
+
+    dotnet build MobileClient
+
+    xvfb-run -a /path/to/Godot_v4.7.2-stable_mono_linux.x86_64 \
+      --path MobileClient --resolution 900x1600 UiShot.tscn -- \
+      --out inventory.png --res /tmp/res --pick 0
+
+`--headless` does **not** work for this: it loads the dummy renderer and
+the shot comes out blank. A virtual display is enough - `xvfb-run` above
+runs it on llvmpipe with no GPU. `--pick N` selects an item so the action
+row shows.
+
+The first two runs of this found two things that reading the code had
+not. The panel ignores a `Sync` while it is closed, which is right for
+the live client - `GameView` syncs every frame - and a trap for anything
+that fills it once, so the harness opens first. And the item buttons had
+`ExpandIcon` set, which hands the icon whatever width the label leaves
+it: an ear of corn is 860 pixels across and came out a sliver three
+pixels wide, while a 17-pixel ankh towered over everything. Icons are now
+scaled to `IconSize` when the texture is built, and the grid is told the
+panel's width instead of huddling in a third of it.
+
 ## Known limits
 
 - **Speed.** A uniform spatial grid (`WallGrid.cs`) means a ray only

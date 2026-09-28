@@ -109,6 +109,7 @@ public partial class InventoryPanel : Control
         _title.Position = new Vector2(side, side);
         _scroll.Position = new Vector2(side, side + FontSize * 2.4f);
         _scroll.Size = new Vector2(v.X - side * 2f, v.Y - _scroll.Position.Y - rowH * 2f - side);
+        SizeCells();
 
         float y = v.Y - rowH - side * 0.5f;
         _selected.Position = new Vector2(side, y - FontSize * 1.6f);
@@ -120,6 +121,24 @@ public partial class InventoryPanel : Control
             row[i].Position = new Vector2(side + i * (w + 8f), y);
             row[i].Size = new Vector2(w, rowH);
         }
+    }
+
+    /// <summary>
+    /// Widens the item buttons to fill the panel. A GridContainer sizes
+    /// its columns to their contents, so without this the grid huddles at
+    /// the left in a third of the width and every label is clipped.
+    /// </summary>
+    void SizeCells()
+    {
+        if (_grid == null || _scroll == null) return;
+        const float sep = 8f;
+        float cols = Mathf.Max(1, Columns);
+        float w = (_scroll.Size.X - sep * (cols - 1)) / cols;
+        if (w <= 0f) return;
+
+        _grid.CustomMinimumSize = new Vector2(_scroll.Size.X, 0);
+        foreach (Node n in _grid.GetChildren())
+            if (n is Button b) b.CustomMinimumSize = new Vector2(w, IconSize + 12);
     }
 
     public void Open()
@@ -175,7 +194,6 @@ public partial class InventoryPanel : Control
                 Text = label,
                 Icon = Icon(o),
                 CustomMinimumSize = new Vector2(0, IconSize + 12),
-                ExpandIcon = true,
                 Alignment = HorizontalAlignment.Left,
             };
             b.AddThemeFontSizeOverride("font_size", FontSize - 2);
@@ -183,8 +201,16 @@ public partial class InventoryPanel : Control
             _grid.AddChild(b);
         }
 
+        SizeCells();
+
         _title.Text = items.Count == 0 ? "Carrying nothing" : $"Carrying ({items.Count})";
     }
+
+    /// <summary>
+    /// Selects an item from outside, as a tap on it would. Only the
+    /// screenshot harness uses this; the panel picks its own otherwise.
+    /// </summary>
+    public void Choose(InventoryObject item) => Pick(item);
 
     void Pick(InventoryObject item)
     {
@@ -209,9 +235,33 @@ public partial class InventoryPanel : Control
         if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
 
         ImageTexture tex = null;
-        try { tex = M59Assets.FromBgf(o.Resource, frame); }
+        try { tex = Shrink(M59Assets.FromBgf(o.Resource, frame)); }
         catch (Exception e) { GD.PrintErr($"[Inventory] {o.Name}: {e.Message}"); }
         _icons[key] = tex;
         return tex;
+    }
+
+    /// <summary>
+    /// Scales an icon to fit the row, keeping its aspect. Letting the
+    /// button do it with ExpandIcon does not work: the icon gets whatever
+    /// width the label leaves it, so a wide picture - an ear of corn is
+    /// 860 pixels across - ends up a sliver a few pixels wide, and a
+    /// 17-pixel ankh towers over it.
+    /// </summary>
+    ImageTexture Shrink(ImageTexture tex)
+    {
+        if (tex == null) return null;
+        Image img = tex.GetImage();
+        if (img == null) return tex;
+
+        float k = Mathf.Min(IconSize / (float)img.GetWidth(), IconSize / (float)img.GetHeight());
+        int w = Mathf.Max(1, Mathf.RoundToInt(img.GetWidth() * k));
+        int h = Mathf.Max(1, Mathf.RoundToInt(img.GetHeight() * k));
+        if (w == img.GetWidth() && h == img.GetHeight()) return tex;
+
+        // Nearest keeps the pixel art crisp; the game's own art is not
+        // drawn to be smoothed.
+        img.Resize(w, h, Image.Interpolation.Nearest);
+        return ImageTexture.CreateFromImage(img);
     }
 }

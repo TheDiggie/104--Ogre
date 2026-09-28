@@ -22,11 +22,13 @@ static class Program
 
     static void Main(string[] args)
     {
-        bool mode = args.Length > 0 && (args[0] == "probe" || args[0] == "crush" || args[0] == "sheet");
+        bool mode = args.Length > 0 && (args[0] == "probe" || args[0] == "crush" || args[0] == "sheet" || args[0] == "items");
         if (args.Length > 0 && !mode) dir = args[0];
         if (args.Length > 0 && args[0] == "probe") { Probe(); return; }
         if (args.Length > 0 && args[0] == "crush") { Crush(args.Length > 1 ? args[1] : dir); return; }
         if (args.Length > 0 && args[0] == "sheet") { Sheet(args.Length > 1 ? args[1] : "compose.png"); return; }
+        if (args.Length > 0 && args[0] == "items")
+        { Items(args.Length > 1 ? args[1] : "items.png", args.Skip(2).ToArray()); return; }
         PlainMatchesFrame();
         PartAppears();
         OverUnder();
@@ -77,6 +79,74 @@ static class Program
     /// kind of thing that passes every count and still looks wrong, so
     /// there is something to put an eye on.
     /// </summary>
+    /// <summary>
+    /// A row of ordinary objects - the things actually lying about a room
+    /// and sitting in a pack - composed and scaled to a common height, so
+    /// the pictures can be compared with what the game shows.
+    /// </summary>
+    static void Items(string path, string[] files)
+    {
+        if (files.Length == 0)
+            files = new[] { "corncob.bgf", "carrot.bgf", "broccoli.bgf", "banana.bgf",
+                            "cookie.bgf", "doubloon.bgf", "ankh.bgf", "dyebottle.bgf",
+                            "book1.bgf", "duskrat.bgf" };
+
+        const int tall = 140, gap = 10;
+        var shots = new List<Tex>();
+        var names = new List<string>();
+
+        foreach (string f in files)
+        {
+            BgfFile bgf;
+            try { bgf = Load(f); } catch { Console.WriteLine($"  {f}: missing"); continue; }
+            RoomObject o = Make(bgf);
+            Tex t = M59Compose.Build(o, out _, out float wh);
+            if (t == null) { Console.WriteLine($"  {f}: nothing to draw"); continue; }
+            shots.Add(Fit(t, tall));
+            names.Add(Path.GetFileNameWithoutExtension(f));
+            Console.WriteLine($"  {f}: {t.W}x{t.H}, {wh:F0} world units tall");
+        }
+
+        int w = gap, h = tall + gap * 2;
+        foreach (Tex t in shots) w += t.W + gap;
+
+        var rgba = new byte[w * h * 4];
+        for (int i = 0; i < w * h; i++)
+        { rgba[i * 4] = 60; rgba[i * 4 + 1] = 60; rgba[i * 4 + 2] = 70; rgba[i * 4 + 3] = 255; }
+
+        int ox = gap;
+        foreach (Tex t in shots)
+        {
+            // sat on a common baseline, the way they stand in the world
+            int oy = gap + (tall - t.H);
+            for (int y = 0; y < t.H; y++)
+                for (int x = 0; x < t.W; x++)
+                {
+                    uint c = t.P[y * t.W + x];
+                    if ((c >> 24) == 0) continue;
+                    int o = ((y + oy) * w + ox + x) * 4;
+                    rgba[o] = (byte)(c >> 16); rgba[o + 1] = (byte)(c >> 8);
+                    rgba[o + 2] = (byte)c; rgba[o + 3] = 255;
+                }
+            ox += t.W + gap;
+        }
+
+        Png.Write(path, w, h, rgba);
+        Console.WriteLine($"wrote {path} ({w}x{h})");
+    }
+
+    /// <summary>Nearest-neighbour shrink to a given height, keeping aspect.</summary>
+    static Tex Fit(Tex t, int height)
+    {
+        if (t.H <= height) return t;
+        int nw = Math.Max(1, t.W * height / t.H);
+        var p = new uint[nw * height];
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < nw; x++)
+                p[y * nw + x] = t.P[(y * t.H / height) * t.W + (x * t.W / nw)];
+        return new Tex { W = nw, H = height, P = p, Shrink = t.Shrink };
+    }
+
     static void Sheet(string path)
     {
         BgfFile body = Load("bri.bgf");   // the first-person arm, which carries hotspots

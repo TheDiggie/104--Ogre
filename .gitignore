@@ -57,3 +57,9 @@ Meridian59-Ogre-Installer
 # Others
 /Meridian59.BgfService/Bin
 /Meridian59.Brain
+
+# .NET build output from the net8 tools
+Tools/*/bin/
+Tools/*/obj/
+# local nuget source pointing at an unpacked Godot's nupkgs, machine-specific
+MobileClient/nuget.config
