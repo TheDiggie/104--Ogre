@@ -87,8 +87,21 @@ confirmed byte-identical.
   server. Set **Demo Sprite Bgf** on the root node (e.g. `duskrat.bgf`)
   to scatter a few around the room in the meantime.
 
-- **No monsters or players.** Those arrive from the server and nothing
-  here is connected yet.
+- **The server connection exists** but has only been exercised against a
+  stub. `M59Client` drives the login handshake; `Game.tscn` / `GameView`
+  connects, follows the avatar, and mirrors the server's object list into
+  the renderer each frame.
+
+  Credentials come from `M59USER` / `M59PASS` in the environment unless
+  set on the node. They are deliberately not stored in the scene.
+
+  Verified over a loopback socket: connects, receives GetLogin, sends
+  credentials, receives LoginOK. Everything past that - the character
+  handshake, rooms, real objects - needs the live server.
+
+  `Tools/Meridian59.Net8Play` runs the same client headlessly and prints
+  what arrives, which separates a networking problem from a rendering
+  one.
 - Transparent middle textures on two-sided walls are treated as solid.
 
 ## Unit conventions

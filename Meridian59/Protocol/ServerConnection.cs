@@ -429,17 +429,37 @@ namespace Meridian59.Protocol
             // try to start tcp socket connection
             try
             {
-                // init a new Socket 
-                socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
+                // Prefer an IPv6 dual-stack socket so one socket serves both
+                // families, but fall back to plain IPv4 where IPv6 is absent.
+                // Creating an InterNetworkV6 socket on a host without IPv6
+                // throws "Address family not supported by protocol" before any
+                // connection is attempted - which makes the client unusable on
+                // IPv4-only machines and networks, mobile included.
+                bool dualStack = Socket.OSSupportsIPv6;
+                if (dualStack)
+                {
+                    try
+                    {
+                        socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
+                        socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
+                        socketUDP = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp);
+                        socketUDP.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
+                    }
+                    catch (SocketException)
+                    {
+                        socket?.Close(); socketUDP?.Close();
+                        socket = null; socketUDP = null;
+                        dualStack = false;
+                    }
+                }
 
-                // set ipv6 socket to dualstack so it can handle our IPv4 connections too
-                // and enable no-delay on send
-                socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
+                if (!dualStack)
+                {
+                    socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    socketUDP = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                }
+
                 socket.NoDelay = true;
-
-                // init a new UDP ipv6 dualstack socket for sending
-                socketUDP = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp);
-                socketUDP.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
 
                 // try connect to server
                 socket.Connect(serverAddress, serverPort);

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Meridian59.Net8Play</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The same client the Godot view uses, so this tests what ships. -->
+    <Compile Include="../../MobileClient/M59Client.cs" Link="M59Client.cs" />
+    <ProjectReference Include="../../Meridian59/net8.csproj" />
+  </ItemGroup>
+</Project>
