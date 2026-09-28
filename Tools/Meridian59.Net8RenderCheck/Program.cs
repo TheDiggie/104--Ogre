@@ -7,6 +7,7 @@ using Meridian59.Files;using Meridian59.Files.ROO;
 //   dotnet run --project . -- threads <resourceDir>
 //   dotnet run --project . -- pick       <resourceDir>
 //   dotnet run --project . -- seethrough <resourceDir>
+//   dotnet run --project . -- grate      <resourceDir>
 //   dotnet run --project . -- all     <resourceDir>
 static class RenderCheck
 {
@@ -29,6 +30,7 @@ static class RenderCheck
         if (mode == "threads" || mode == "all") bad += Threads(dir);
         if (mode == "pick"    || mode == "all") bad += Pick(dir);
         if (mode == "seethrough" || mode == "all") SeeThrough(dir);
+        if (mode == "grate"   || mode == "all") bad += Grate(dir);
         return bad == 0 ? 0 : 1;
     }
 
@@ -209,5 +211,72 @@ static class RenderCheck
  Console.WriteLine($"  columns closed, see-through : {100.0*colsOn /(views*W),5:F2}%   ({views} views)");
  foreach(var b in best.OrderByDescending(x=>x.pct).Take(12))
   Console.WriteLine($"  {b.pct,6:F1}% of pixels  {b.room,-22} {b.x:F0} {b.y:F0} {b.deg:F0}");
+    }
+
+    /// <summary>
+    /// A creature in front of a grate is not behind it.
+    ///
+    /// See-through walls are drawn after the sprites, because a grate has
+    /// to cover what is behind it - so without a per-pixel sprite depth
+    /// they cover everything, including creatures standing in front. This
+    /// walks a test sprite through the crypt fence in toscrypt2 and reads
+    /// how much of it survives.
+    ///
+    /// The measure is against the sprite's own falloff rather than an
+    /// absolute count: an unobstructed billboard shrinks as 1/d^2, so a
+    /// step below that is the fence eating it. Crossing the fence the
+    /// count should fall off a cliff; approaching it, it should not.
+    /// </summary>
+    static int Grate(string dir)
+    {
+        var rm = new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
+        string path = Path.Combine(dir, "toscrypt2.roo");
+        if (!File.Exists(path)) { Console.WriteLine("toscrypt2.roo not present, skipping"); return 0; }
+
+        var roo = new RooFile(path); roo.ResolveResources(rm);
+        var r = new Renderer(roo, new TexCache(rm));
+        float cx = 12060, cy = 12587;
+        var sec = r.SectorAtPoint(cx, cy);
+        if (sec == null) { Console.WriteLine("camera outside the room, skipping"); return 0; }
+        float cz = M59Geo.FloorXY(sec) + Renderer.EyeHeight;
+
+        const int W = 640, H = 360;
+        var tex = new Tex { W = 1, H = 1, P = new uint[]{ 0xFFFF00FFu } };
+        var px = new uint[W*H];
+
+        // The fence sits between 1600 and 1800 units straight ahead.
+        float[] d = { 1400f, 1600f, 1800f };
+        var seen = new int[d.Length];
+        for (int i = 0; i < d.Length; i++)
+        {
+            r.Sprites.Clear();
+            var s2 = r.SectorAtPoint(cx + d[i], cy);
+            r.Sprites.Add(new Renderer.Sprite {
+                X = cx + d[i], Y = cy,
+                BaseZ = s2 != null ? M59Geo.FloorXY(s2) : cz - Renderer.EyeHeight,
+                Height = 700f, Texture = tex });
+            r.Render(px, W, H, cx, cy, cz, 0f);
+            int n = 0;
+            for (int k = 0; k < px.Length; k++)
+            {
+                uint c = px[k];
+                if (((c>>8)&0xFF) == 0 && ((c>>16)&0xFF) == (c&0xFF) && (c&0xFF) > 0) n++;
+            }
+            seen[i] = n;
+        }
+
+        double predictNear = seen[0] * (d[0]/d[1]) * (d[0]/d[1]);   // 1400 -> 1600
+        double predictFar  = seen[1] * (d[1]/d[2]) * (d[1]/d[2]);   // 1600 -> 1800
+        double nearRatio = seen[1] / predictNear;
+        double farRatio  = seen[2] / predictFar;
+
+        Console.WriteLine($"  in front of the fence : {seen[1],6} px, {nearRatio*100,5:F0}% of the 1/d^2 prediction");
+        Console.WriteLine($"  behind it             : {seen[2],6} px, {farRatio*100,5:F0}% of the 1/d^2 prediction");
+
+        int bad = 0;
+        if (nearRatio < 0.95) { Console.WriteLine("  FAIL the fence is eating a sprite in front of it"); bad++; }
+        if (farRatio > 0.80)  { Console.WriteLine("  FAIL the fence is not covering a sprite behind it"); bad++; }
+        Console.WriteLine(bad == 0 ? "OK" : "PROBLEM");
+        return bad;
     }
 }

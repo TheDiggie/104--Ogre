@@ -76,6 +76,8 @@ public sealed class Renderer
     readonly TexCache _tex;
     readonly WallGrid _grid;
     Scratch[] _scratch = Array.Empty<Scratch>();
+    readonly List<Masked> _order = new List<Masked>(256);
+    float[] _spriteDepth;
     // Per-column distance to whatever closed that column, for sprite depth.
     float[] _depth = new float[0];
 
@@ -133,8 +135,8 @@ public sealed class Renderer
     /// </summary>
     struct Masked
     {
-        public int Y0, Y1, SpanTopY, SpanBotY;
-        public float SpanTopH, SpanBotH, U, Fog, Tpp;
+        public int Sx, Y0, Y1, SpanTopY, SpanBotY;
+        public float Depth, SpanTopH, SpanBotH, U, Fog, Tpp;
         public Tex T;
     }
 
@@ -169,6 +171,14 @@ public sealed class Renderer
         int bands = Threaded ? Math.Min(System.Environment.ProcessorCount, Math.Max(1, W / 48)) : 1;
         EnsureScratch(bands);
 
+        // Where a sprite is, and how far away, so see-through walls drawn
+        // afterwards know which pixels they must not cover.
+        if (Sprites.Count > 0)
+        {
+            if (_spriteDepth == null || _spriteDepth.Length < W * H) _spriteDepth = new float[W * H];
+            Array.Clear(_spriteDepth, 0, W * H);
+        }
+
         if (bands <= 1)
         {
             RenderBand(_scratch[0], px, W, H, 0, W, camX, camY, camZ, angle,
@@ -188,6 +198,7 @@ public sealed class Renderer
         for (int b = 0; b < bands; b++) solidCols += _scratch[b].SolidCols;
 
         DrawSprites(px, W, H, camX, camY, camZ, angle, proj, horizon);
+        DrawMasked(px, W, H, bands);
         return solidCols;
     }
 
@@ -201,7 +212,7 @@ public sealed class Renderer
                 next[i] = new Scratch { Stamp = new int[_grid != null ? _grid.WallCount : 0] };
             _scratch = next;
         }
-        for (int i = 0; i < bands; i++) _scratch[i].SolidCols = 0;
+        for (int i = 0; i < bands; i++) { _scratch[i].SolidCols = 0; _scratch[i].Masked.Clear(); }
     }
 
     /// <summary>Renders columns [x0, x1) - the body of the old single loop.</summary>
@@ -217,7 +228,6 @@ public sealed class Renderer
             float rdx = MathF.Cos(rayA), rdy = MathF.Sin(rayA);
 
             CollectHits(_roo, camX, camY, rdx, rdy, sc);
-            sc.Masked.Clear();
 
             int yTop = 0, yBot = H - 1;
             RooSector cur = camSector;
@@ -291,6 +301,7 @@ public sealed class Renderer
                         Tex mid = _tex.GetMasked(side.MiddleTexture);
                         if (mid != null)
                             sc.Masked.Add(new Masked {
+                                Sx = sx, Depth = perp,
                                 Y0 = yTop, Y1 = yBot, SpanTopY = ceilY, SpanBotY = floorY,
                                 SpanTopH = nc, SpanBotH = nf, U = u, Fog = fog, Tpp = tpp, T = mid });
                     }
@@ -318,14 +329,43 @@ public sealed class Renderer
 
             if (closed) sc.SolidCols++;
             else for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0) px[y * W + sx] = 0xFF05050Au;
+        }
+    }
 
-            // Back to front, so a near grate covers a far one.
-            for (int i = sc.Masked.Count - 1; i >= 0; i--)
-            {
-                Masked m = sc.Masked[i];
-                DrawWall(px, W, H, sx, m.Y0, m.Y1, m.SpanTopY, m.SpanBotY,
-                         m.SpanBotH, m.SpanTopH, m.T, m.U, m.Fog, m.Tpp, true);
-            }
+    /// <summary>
+    /// Draws the see-through walls the column walk collected, after the
+    /// sprites, far to near.
+    ///
+    /// It has to be after the sprites and it has to know where they are:
+    /// a grate is drawn over whatever is behind it, and a creature standing
+    /// in front of one is not behind it. So the sprite pass records a depth
+    /// per pixel and a grate skips any pixel a nearer sprite already owns.
+    /// Doing this per column at the end of the walk, before sprites, drew
+    /// every grate over every creature regardless of which was nearer.
+    /// </summary>
+    void DrawMasked(uint[] px, int W, int H, int bands)
+    {
+        int total = 0;
+        for (int b = 0; b < bands; b++) total += _scratch[b].Masked.Count;
+        if (total == 0) return;
+
+        _order.Clear();
+        if (_order.Capacity < total) _order.Capacity = total;
+        for (int b = 0; b < bands; b++) _order.AddRange(_scratch[b].Masked);
+        // Far first, so a near grate covers a far one. Ties broken on the
+        // column to keep the order independent of how the bands were split.
+        _order.Sort((p, q) =>
+        {
+            int c = q.Depth.CompareTo(p.Depth);
+            return c != 0 ? c : p.Sx.CompareTo(q.Sx);
+        });
+
+        bool haveSprites = _spriteDepth != null && Sprites.Count > 0;
+        foreach (Masked m in _order)
+        {
+            DrawWall(px, W, H, m.Sx, m.Y0, m.Y1, m.SpanTopY, m.SpanBotY,
+                     m.SpanBotH, m.SpanTopH, m.T, m.U, m.Fog, m.Tpp, true,
+                     haveSprites ? _spriteDepth : null, m.Depth, W);
         }
     }
 
@@ -379,6 +419,7 @@ public sealed class Renderer
                     uint c = p.T.P[ty * p.T.W + tx];
                     if ((c >> 24) == 0) continue;            // transparent texel
                     px[y * W + sx] = Shade(c | 0xFF000000u, p.Fog);
+                    if (_spriteDepth != null) _spriteDepth[y * W + sx] = depth;
                 }
             }
         }
@@ -490,7 +531,8 @@ public sealed class Renderer
     static void DrawWall(uint[] px, int W, int H, int sx, int y0, int y1,
                          int spanTopY, int spanBotY, float spanBotH, float spanTopH,
                          Tex t, float u, float fog, float texelsPerPixel = 1f,
-                         bool masked = false)
+                         bool masked = false,
+                         float[] spriteDepth = null, float depth = 0f, int stride = 0)
     {
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
@@ -516,6 +558,13 @@ public sealed class Renderer
                 // which carries alpha 0; those texels are skipped, not
                 // blended, the same as sprites.
                 if (masked && (texel >> 24) == 0) continue;
+                // A sprite nearer than this wall keeps its pixel: a creature
+                // standing in front of a grate is not behind it.
+                if (spriteDepth != null)
+                {
+                    float sd = spriteDepth[y * stride + sx];
+                    if (sd > 0f && sd < depth) continue;
+                }
                 c = Shade(texel | 0xFF000000u, fog);
             }
             px[y * W + sx] = c;

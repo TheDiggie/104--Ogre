@@ -251,12 +251,20 @@ confirmed byte-identical.
   cyan. `Tools/Meridian59.Net8Fpv --solid` renders the old way if you
   want to see it.
 
-  They are collected during the column walk and drawn in reverse at the
-  end of it, because the walk goes front to back and something you can
-  see through has to be painted over what is behind it. Sprites are
-  still tested only against the wall depth, so a creature standing
-  behind a grate draws over it - that wants the two merged into one
-  depth-sorted pass, and has not been done.
+  They are collected during the column walk and drawn after the sprites,
+  far to near, because the walk goes front to back and something you can
+  see through has to be painted over what is behind it. "Behind it" is
+  the whole difficulty: drawn after the sprites with no further
+  information, a grate covers creatures standing *in front* of it too.
+  So the sprite pass records a depth per pixel and a grate skips any
+  pixel a nearer sprite already owns.
+
+  `Tools/Meridian59.Net8RenderCheck -- grate` walks a test sprite
+  through the crypt fence in toscrypt2 and measures what survives,
+  against the sprite's own 1/d^2 falloff rather than an absolute count.
+  In front of the fence it keeps 102% of the prediction; behind it, 56%.
+  Removing the depth test drops the front one to 87% and the check
+  fails, which is how the check was confirmed to test anything.
 
   `Tools/Meridian59.Net8RenderCheck -- seethrough` measures it: 14 of
   362 rooms change from the camera positions it samples, by up to 46% of
