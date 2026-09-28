@@ -3,6 +3,9 @@
     <TargetFramework>net8.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <Nullable>disable</Nullable>
+    <!-- The composer writes pixels through the library's own scaler, which
+         takes a uint* buffer. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>MobileClient</RootNamespace>
   </PropertyGroup>
   <ItemGroup>

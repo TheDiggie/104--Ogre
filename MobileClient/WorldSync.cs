@@ -40,6 +40,18 @@ public sealed class WorldSync
     /// </summary>
     public bool Sliding = true;
 
+    /// <summary>
+    /// Draw objects as the game composes them, with their suboverlays and
+    /// per-part colours, instead of the main frame alone. Off falls back
+    /// to the single frame, which is what this client did before and what
+    /// the reference renders were taken with.
+    /// </summary>
+    public bool Composed = true;
+
+    readonly ComposeCache _compose = new ComposeCache();
+    /// <summary>Composed pictures held, for a test to look at.</summary>
+    public int ComposedCount => _compose.Count;
+
     public WorldSync(ResourceManager rm) { _rm = rm; }
 
     /// <summary>
@@ -68,25 +80,50 @@ public sealed class WorldSync
         Renderer.Sprites.Clear();
         if (objects == null) return;
 
+        V2 eye = avatar != null ? avatar.Position2D : new V2(0f, 0f);
+
         foreach (RoomObject o in objects)
         {
             if (o == null || o.Resource == null) continue;
             if (avatar != null && ReferenceEquals(o, avatar)) continue;
 
-            Renderer.Sprites.Add(new Renderer.Sprite
+            var sp = new Renderer.Sprite
             {
                 X = M59Geo.KodToWorld(o.Position3D.X),
                 Y = M59Geo.KodToWorld(o.Position3D.Z),   // world Y is Position3D.Z
                 BaseZ = M59Geo.KodHeightToXY(o.Position3D.Y),
                 Height = SpriteHeight,
+                // Hanging objects are pinned by their top, not their base.
+                // The flag overlaps some player types in the original
+                // server, which is why the Ogre client excludes players
+                // from it in its vanilla build - so do we, rather than
+                // leave a player dangling.
+                Hanging = o.Flags != null && o.Flags.IsHanging && !o.Flags.IsPlayer,
+                Tag = o,
+            };
+
+            // The whole object - body, clothes, weapon, shield - rather
+            // than the body's frame alone. Falls back to the plain frame
+            // if the compose comes back empty, because a Knight with no
+            // sword still beats no Knight.
+            ComposeCache.Entry c = Composed ? _compose.Get(o, eye) : null;
+            if (c != null)
+            {
+                sp.Texture = c.Tex;
+                sp.Width = c.WorldW;
+                if (SpriteHeight <= 0f) sp.Height = c.WorldH;
+            }
+            else
+            {
                 // The BGF rather than one frame: the renderer picks the
                 // frame per view from the facing, so creatures turn as you
                 // walk around them.
-                Bgf = o.Resource,
-                AngleUnits = o.AngleUnits,
-                Group = o.Animation != null && o.Animation.CurrentGroup > 0 ? o.Animation.CurrentGroup : 1,
-                Tag = o,
-            });
+                sp.Bgf = o.Resource;
+                sp.AngleUnits = o.AngleUnits;
+                sp.Group = o.Animation != null && o.Animation.CurrentGroup > 0 ? o.Animation.CurrentGroup : 1;
+            }
+
+            Renderer.Sprites.Add(sp);
         }
     }
 

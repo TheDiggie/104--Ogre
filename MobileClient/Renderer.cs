@@ -64,6 +64,25 @@ public sealed class Renderer
         public Tex Texture;
 
         /// <summary>
+        /// How wide the sprite stands, in world XY units. Zero means take
+        /// it from the art's aspect, which is right for a lone frame. A
+        /// composed object carries its own width because the compose pads
+        /// the picture sideways to keep the main overlay centred - see
+        /// RenderInfo, which widens the box by the centring move - so its
+        /// aspect is not the art's.
+        /// </summary>
+        public float Width = 0f;
+
+        /// <summary>
+        /// Hangs from <see cref="BaseZ"/> instead of standing on it. The
+        /// game marks lamps, signs and the like as hanging and anchors
+        /// them at the top; RemoteNode2D picks BBO_TOP_CENTER for exactly
+        /// these. Standing them on the floor instead puts a chandelier in
+        /// a puddle.
+        /// </summary>
+        public bool Hanging;
+
+        /// <summary>
         /// Caller's handle on whatever this sprite stands for - the live
         /// view puts the server's RoomObject here so a tap can be turned
         /// back into a thing to look at or attack.
@@ -564,13 +583,14 @@ public sealed class Renderer
             : t.H / (float)Math.Max(1, t.Shrink) * M59Geo.HeightToXY;
         float hPx = worldH * scale;
         if (hPx < 1f) return false;
-        float wPx = hPx * t.W / MathF.Max(1, t.H);
-        float yBot = horizon - (sp.BaseZ - camZ) * scale;
+        float wPx = sp.Width > 0f ? sp.Width * scale : hPx * t.W / MathF.Max(1, t.H);
+        float anchor = horizon - (sp.BaseZ - camZ) * scale;
+        float yTop = sp.Hanging ? anchor : anchor - hPx;
 
         p = new Placed {
             S = sp, T = t, Depth = depth,
             Left = cxs - wPx * 0.5f, WPx = wPx, HPx = hPx,
-            YTop = yBot - hPx, YBot = yBot,
+            YTop = yTop, YBot = yTop + hPx,
             Fog = MathF.Min(1f, FogFar / depth),
         };
         return true;
