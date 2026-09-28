@@ -145,7 +145,7 @@ public sealed class Renderer
         public int Sx, Y0, Y1, SpanTopY, SpanBotY;
         public float Depth, SpanTopH, SpanBotH, Along, Fog, Tpp;
         public int XOff, YOff;
-        public bool TopDown;
+        public bool TopDown, NoVTile;
         public Tex T;
     }
 
@@ -290,7 +290,7 @@ public sealed class Renderer
                     DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc,
                              side != null ? _tex.Get(side.MiddleTexture) : null,
                              along, xOff, yOff, side != null && side.Flags.IsNormalTopDown,
-                             fog, tpp);
+                             fog, tpp, false, null, 0f, 0, side != null && side.Flags.IsNoVTile);
                     _depth[sx] = perp;
                     closed = true;
                     break;
@@ -315,7 +315,8 @@ public sealed class Renderer
                         if (mid != null)
                         {
                             DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid,
-                                     along, xOff, yOff, side.Flags.IsNormalTopDown, fog, tpp);
+                                     along, xOff, yOff, side.Flags.IsNormalTopDown, fog, tpp,
+                                     false, null, 0f, 0, side.Flags.IsNoVTile);
                             _depth[sx] = perp;
                             closed = true;
                             break;
@@ -330,6 +331,7 @@ public sealed class Renderer
                                 Y0 = yTop, Y1 = yBot, SpanTopY = ceilY, SpanBotY = floorY,
                                 SpanTopH = nc, SpanBotH = nf, Along = along, XOff = xOff,
                                 YOff = yOff, TopDown = side.Flags.IsNormalTopDown,
+                                NoVTile = side.Flags.IsNoVTile,
                                 Fog = fog, Tpp = tpp, T = mid });
                     }
                 }
@@ -396,7 +398,8 @@ public sealed class Renderer
         {
             DrawWall(px, W, H, m.Sx, m.Y0, m.Y1, m.SpanTopY, m.SpanBotY,
                      m.SpanBotH, m.SpanTopH, m.T, m.Along, m.XOff, m.YOff, m.TopDown,
-                     m.Fog, m.Tpp, true, haveSprites ? _spriteDepth : null, m.Depth, W);
+                     m.Fog, m.Tpp, true, haveSprites ? _spriteDepth : null, m.Depth, W,
+                     m.NoVTile);
         }
     }
 
@@ -564,7 +567,8 @@ public sealed class Renderer
                          Tex t, float along, int xOffset, int yOffset, bool topDown,
                          float fog, float texelsPerPixel = 1f,
                          bool masked = false,
-                         float[] spriteDepth = null, float depth = 0f, int stride = 0)
+                         float[] spriteDepth = null, float depth = 0f, int stride = 0,
+                         bool noVTile = false)
     {
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
@@ -613,6 +617,19 @@ public sealed class Renderer
                 float f = (y - spanTopY) / span;                 // 0 at top of span
                 float worldH = spanTopH + f * (spanBotH - spanTopH);
                 float v = vBase + worldH * vPerHeight;
+                // WF_NO_VTILE: the texture does not repeat up the wall. The
+                // library gets there by clipping the geometry so the UV
+                // never goes negative; a column renderer just declines to
+                // draw above the first tile. Middle parts only - the game's
+                // own comment says it makes strange holes anywhere else.
+                //
+                // Only on walls actually drawn see-through. The flag's
+                // comment says it "must be transparent", but 235 of the
+                // 2301 sidedefs carrying it are not flagged so, and
+                // clipping a solid wall would leave a hole you can see the
+                // void through. A tiled texture is the better of the two
+                // wrongs.
+                if (noVTile && masked && v < 0f) continue;
                 uint texel = masked ? t.Sample(v, u)
                                     : t.Sample(v, u, texelsPerPixel * t.Shrink / M59Geo.HeightToXY);
                 // A see-through wall keeps the palette's transparent index,

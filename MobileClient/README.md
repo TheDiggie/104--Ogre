@@ -279,11 +279,19 @@ confirmed byte-identical.
   result cannot be confirmed here against anything. `Net8Fpv --noflip`
   and `Renderer.HonourBackwards` turn it off.
 
-  Still ignored, and a known gap: `WF_NO_VTILE` (2301 sidedefs),
-  `WF_NORMAL_TOPDOWN` (924), `WF_ABOVE_BOTTOMUP` and `WF_BELOW_TOPDOWN`.
-  These are all vertical alignment, and they interact - doing one without
-  the others means guessing where a texture is anchored, which is how
-  you make things worse rather than better. They want doing together.
+  `WF_NORMAL_TOPDOWN`, `WF_ABOVE_BOTTOMUP` and `WF_BELOW_TOPDOWN` are
+  honoured too - they choose whether a wall part's texture is anchored
+  at its top or its bottom, and they came with the UV port rather than
+  as guesses.
+
+  `WF_NO_VTILE` stops a middle texture repeating up the wall, and is
+  applied only where the wall is actually drawn see-through. The flag's
+  own comment says it "must be transparent", but 235 of the 2301
+  sidedefs carrying it are not flagged so, and clipping a solid wall
+  would leave a hole you can see the void through. A tiled texture is
+  the better of those two wrongs. Not visually confirmed: the rooms
+  using it here want textures that are not in the resource folder this
+  was developed against.
 
 ## Unit conventions
 
