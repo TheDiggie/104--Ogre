@@ -44,7 +44,9 @@ public partial class RoomView : Node2D
         string dir = ResourceDir;
         if (string.IsNullOrWhiteSpace(dir))
         {
-            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            // System.Environment, not Godot.Environment (the 3D world one)
+            string local = System.Environment.GetFolderPath(
+                System.Environment.SpecialFolder.LocalApplicationData);
             dir = Path.Combine(local, "Meridian-104", "resource");
         }
 
