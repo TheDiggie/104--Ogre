@@ -356,7 +356,10 @@ public partial class GameView : Node2D
     {
         RoomObject avatar = _client.Data?.AvatarObject;
         if (avatar == null || _world.Room == null) return;
-        if ((_chat != null && _chat.Capturing) || (_bag != null && _bag.IsOpen))
+        // Anything covering the screen or owning the keyboard stops
+        // movement, so a drag meant for a list does not also walk you.
+        if ((_chat != null && (_chat.Capturing || _chat.ShowingHistory))
+            || (_bag != null && _bag.IsOpen))
         { avatar.HorizontalSpeed = 0f; return; }
 
         float turn = 0f, fwd = 0f, strafe = 0f;

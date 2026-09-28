@@ -40,8 +40,17 @@ public partial class ChatOverlay : Control
 
     RichTextLabel _log;
     LineEdit _entry;
-    Button _open;
+    Button _open, _history;
     int _seen;
+
+    // The full log, behind a button. The corner shows the last few lines
+    // because that is what you want while walking; the whole thing is what
+    // you want when you missed something, and the library keeps 200.
+    ColorRect _fullBack;
+    ScrollContainer _fullScroll;
+    RichTextLabel _full;
+    Button _fullClose;
+    readonly List<string> _lines = new List<string>();
 
     public override void _Ready()
     {
@@ -77,6 +86,33 @@ public partial class ChatOverlay : Control
         _open.Pressed += Open;
         AddChild(_open);
 
+        _history = new Button { Text = "Log" };
+        _history.AddThemeFontSizeOverride("font_size", FontSize);
+        _history.Pressed += ShowHistory;
+        AddChild(_history);
+
+        _fullBack = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.95f), Visible = false };
+        _fullBack.SetAnchorsPreset(LayoutPreset.FullRect);
+        AddChild(_fullBack);
+
+        _full = new RichTextLabel
+        {
+            BbcodeEnabled = true,
+            FitContent = true,
+            ScrollActive = false,
+        };
+        _full.AddThemeFontSizeOverride("normal_font_size", FontSize);
+        _full.SizeFlagsHorizontal = SizeFlags.Fill | SizeFlags.Expand;
+
+        _fullScroll = new ScrollContainer { Visible = false };
+        _fullScroll.AddChild(_full);
+        AddChild(_fullScroll);
+
+        _fullClose = new Button { Text = "Close", Visible = false };
+        _fullClose.AddThemeFontSizeOverride("font_size", FontSize);
+        _fullClose.Pressed += HideHistory;
+        AddChild(_fullClose);
+
         GetViewport().SizeChanged += Layout;
         Layout();
     }
@@ -94,9 +130,37 @@ public partial class ChatOverlay : Control
         _open.Position = new Vector2(pad, v.Y - entryH - pad);
         _open.Size = new Vector2(btnW, entryH);
 
+        _history.Position = new Vector2(pad + btnW + 8f, v.Y - entryH - pad);
+        _history.Size = new Vector2(btnW, entryH);
+
+        float side = Mathf.Max(16f, v.X * 0.05f);
+        _fullScroll.Position = new Vector2(side, side);
+        _fullScroll.Size = new Vector2(v.X - side * 2f, v.Y - side * 2f - entryH - 8f);
+        _fullClose.Position = new Vector2(side, v.Y - entryH - side * 0.5f);
+        _fullClose.Size = new Vector2(v.X - side * 2f, entryH);
+
         float logH = (FontSize + 6) * Lines;
         _log.Position = new Vector2(pad, v.Y - entryH - pad * 2 - logH);
         _log.Size = new Vector2(v.X - pad * 2, logH);
+    }
+
+    /// <summary>True while the full log is covering the screen.</summary>
+    public bool ShowingHistory => _fullBack != null && _fullBack.Visible;
+
+    void ShowHistory()
+    {
+        _full.Text = string.Join("\n", _lines);
+        _fullBack.Visible = true; _fullScroll.Visible = true; _fullClose.Visible = true;
+        Layout();
+        // Newest at the bottom, which is where you were looking. Deferred
+        // because the scrollbar does not know its range until the label
+        // has been laid out.
+        Callable.From(() => _fullScroll.ScrollVertical = (int)_fullScroll.GetVScrollBar().MaxValue).CallDeferred();
+    }
+
+    void HideHistory()
+    {
+        _fullBack.Visible = false; _fullScroll.Visible = false; _fullClose.Visible = false;
     }
 
     public void Open()
@@ -150,19 +214,20 @@ public partial class ChatOverlay : Control
         if (messages.Count == _seen) return;
         _seen = messages.Count;
 
-        var sb = new System.Text.StringBuilder();
-        int from = Math.Max(0, messages.Count - Lines);
-        for (int i = from; i < messages.Count; i++)
+        _lines.Clear();
+        foreach (ServerString m in messages)
         {
-            string s = messages[i]?.FullString;
+            string s = m?.FullString;
             if (string.IsNullOrEmpty(s)) continue;
             // The server's own text can contain [ and ], which BBCode would
             // eat as a tag.
-            sb.Append("[color=#").Append(Tint(messages[i].ChatMessageType)).Append(']');
-            sb.Append(s.Replace("[", "[lb]"));
-            sb.Append("[/color]\n");
+            _lines.Add($"[color=#{Tint(m.ChatMessageType)}]{s.Replace("[", "[lb]")}[/color]");
         }
-        _log.Text = sb.ToString();
+
+        int from = Math.Max(0, _lines.Count - Lines);
+        _log.Text = string.Join("\n", _lines.GetRange(from, _lines.Count - from));
+
+        if (ShowingHistory) _full.Text = string.Join("\n", _lines);
     }
 
     static string Tint(ChatMessageType t) => t switch
@@ -176,6 +241,8 @@ public partial class ChatOverlay : Control
     public void Local(string text)
     {
         if (_log == null) return;
-        _log.Text += $"[color=#8fe08f]{text.Replace("[", "[lb]")}[/color]\n";
+        string line = $"[color=#8fe08f]{text.Replace("[", "[lb]")}[/color]";
+        _lines.Add(line);
+        _log.Text += line + "\n";
     }
 }
