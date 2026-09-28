@@ -56,6 +56,7 @@ public partial class RoomPicker : Control
         _scroll = new ScrollContainer { Visible = false };
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 8);
+        _rows.SizeFlagsHorizontal = SizeFlags.Fill | SizeFlags.Expand;
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
@@ -85,8 +86,9 @@ public partial class RoomPicker : Control
         float pad = 12f;
         float h = FontSize * 2.6f;
 
-        _open.Position = new Vector2(v.X - FontSize * 6f - pad, pad);
-        _open.Size = new Vector2(FontSize * 6f, h);
+        // Bottom right, left of the map toggle. The top right is the map.
+        _open.Size = new Vector2(FontSize * 5f, 40f);
+        _open.Position = new Vector2(v.X - 70f - pad - _open.Size.X - 8f, v.Y - 40f - pad);
 
         _title.Position = new Vector2(pad, pad);
         _search.Position = new Vector2(pad, pad + FontSize * 2.6f);

@@ -126,6 +126,7 @@ public partial class GameView : Node2D
             _actions.AttackTarget += () => Act(() => _client.SendReqAttackMessage());
             _actions.UseTarget    += () => Act(() => _client.SendReqUseMessage(_client.Data.TargetID));
             _ui.AddChild(_actions);
+            if (_chat != null) _actions.BottomReserve = _chat.BlockHeight;
         });
 
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });

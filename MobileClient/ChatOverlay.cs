@@ -26,6 +26,12 @@ public partial class ChatOverlay : Control
     [Export] public int Lines = 8;
     [Export] public int FontSize = 16;
 
+    /// <summary>
+    /// How much of the bottom of the screen this occupies, so other
+    /// widgets can stay clear of it rather than each guessing.
+    /// </summary>
+    public float BlockHeight => FontSize * 2.4f + 12f * 2f + (FontSize + 6) * Lines + 12f;
+
     /// <summary>True while the text field has focus and owns the keyboard.</summary>
     public bool Capturing => _entry != null && _entry.Visible;
 

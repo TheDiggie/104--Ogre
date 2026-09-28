@@ -16,6 +16,18 @@ public partial class ActionBar : Control
 {
     [Export] public int FontSize = 16;
 
+    /// <summary>
+    /// Pixels at the bottom of the screen already spoken for - the chat
+    /// log and its input line. The row sits above them. Widgets that each
+    /// picked their own corner ended up on top of each other.
+    /// </summary>
+    public float BottomReserve
+    {
+        get => _reserve;
+        set { _reserve = value; Layout(); }
+    }
+    float _reserve;
+
     // Named away from Godot's own members: a plain "Get" hides
     // GodotObject.Get, and "Show" would sit alongside CanvasItem.Show.
     public event Action LookAt, PickUp, AttackTarget, UseTarget;
@@ -56,13 +68,14 @@ public partial class ActionBar : Control
 
     void Layout()
     {
+        if (_name == null) return;
         Vector2 v = GetViewportRect().Size;
         float pad = 12f;
         float h = FontSize * 2.6f;
         float w = (v.X - pad * 5) / 4f;
-        float y = pad + FontSize * 2.4f;
+        float y = v.Y - _reserve - pad - h;
 
-        _name.Position = new Vector2(pad, pad);
+        _name.Position = new Vector2(pad, y - FontSize * 1.8f);
         Button[] all = { _look, _get, _attack, _use };
         for (int i = 0; i < all.Length; i++)
         {
