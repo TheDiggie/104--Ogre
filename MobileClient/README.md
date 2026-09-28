@@ -273,6 +273,12 @@ confirmed byte-identical.
   Credentials come from `M59USER` / `M59PASS` in the environment unless
   set on the node. They are deliberately not stored in the scene.
 
+  Health, mana and vigor sit above the chat as three bars, read from
+  the client's own `AvatarCondition` stats rather than copied - the
+  library keeps those current from the server, maxima included. They
+  draw nothing until the server has sent something, so they stay out of
+  the way while connecting, and only redraw when a number moves.
+
   A **Loot** button in the bottom right calls the library's `LootAll`,
   which picks up everything gettable within close distance in one go.
   Tapping each item individually is exactly the sort of thing a phone is

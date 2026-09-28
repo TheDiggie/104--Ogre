@@ -39,6 +39,7 @@ public partial class GameView : Node2D
     CharacterPicker _picker;
     MiniMap _map;
     Button _loot;
+    Vitals _vitals;
 
     /// <summary>
     /// Controls live under a CanvasLayer, not directly under this Node2D.
@@ -197,6 +198,13 @@ public partial class GameView : Node2D
 
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
 
+        Widget("vitals", () =>
+        {
+            _vitals = new Vitals();
+            _ui.AddChild(_vitals);
+            if (_chat != null) _vitals.BottomReserve = _chat.BlockHeight + 60f;
+        });
+
         // Picking things up one at a time by tapping each is exactly the
         // sort of thing a phone is bad at, and the library already has
         // LootAll: everything gettable within close distance, in one go.
@@ -268,6 +276,8 @@ public partial class GameView : Node2D
             _world.Renderer.Time = _clock;     // scrolling water and lava
             _world.Renderer.Pitch = _pitch;
         }
+
+        _vitals?.Follow(_client.Data);
 
         RoomObject me = _client.Data?.AvatarObject;
         if (me != null && _map != null)
