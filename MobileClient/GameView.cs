@@ -38,6 +38,15 @@ public partial class GameView : Node2D
     ActionBar _actions;
     CharacterPicker _picker;
     MiniMap _map;
+
+    /// <summary>
+    /// Controls live under a CanvasLayer, not directly under this Node2D.
+    /// A Control resolves its anchors against its parent's rect, and a
+    /// Node2D has none, so a full-rect backdrop or a bottom-anchored log
+    /// collapses to nothing. A CanvasLayer gives them the viewport, and
+    /// draws above the rendered frame whatever order things were added in.
+    /// </summary>
+    CanvasLayer _ui;
     readonly List<string> _log = new List<string>();
 
     M59Client _client;
@@ -56,11 +65,14 @@ public partial class GameView : Node2D
 
     public override void _Ready()
     {
+        _ui = new CanvasLayer();
+        AddChild(_ui);
+
         _status = new Label { Position = new Vector2(12, 8) };
         _status.AddThemeColorOverride("font_color", new Color(1, 1, 1));
         _status.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
         _status.AddThemeConstantOverride("outline_size", 4);
-        AddChild(_status);
+        _ui.AddChild(_status);
 
         // On Android the game data has to be copied out of the .pck before
         // the library, which reads with System.IO, can see any of it.
@@ -103,7 +115,7 @@ public partial class GameView : Node2D
                 try { _client.SendSayToMessage(type, text); }
                 catch (Exception ex) { _chat.Local($"could not send: {ex.Message}"); }
             };
-            AddChild(_chat);
+            _ui.AddChild(_chat);
         });
 
         Widget("actions", () =>
@@ -113,16 +125,16 @@ public partial class GameView : Node2D
             _actions.PickUp       += () => Act(() => _client.SendReqGetMessage());
             _actions.AttackTarget += () => Act(() => _client.SendReqAttackMessage());
             _actions.UseTarget    += () => Act(() => _client.SendReqUseMessage(_client.Data.TargetID));
-            AddChild(_actions);
+            _ui.AddChild(_actions);
         });
 
-        Widget("map", () => { _map = new MiniMap(); AddChild(_map); });
+        Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
 
         Widget("character picker", () =>
         {
             _picker = new CharacterPicker();
             _picker.Chosen += c => _client.UseCharacter(c);
-            AddChild(_picker);
+            _ui.AddChild(_picker);
             _client.ChooseCharacter += chars => _picker.Offer(chars);
         });
 

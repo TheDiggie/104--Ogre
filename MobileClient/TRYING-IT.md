@@ -44,6 +44,17 @@ the engine layer.
 
 ## 2. The offline view, on the desktop
 
+Worth knowing what is most likely to be wrong here. Six widgets - the
+chat box, the action row, the character picker, the room list, the map
+and the touch stick - have never executed anywhere. What is proven about
+them is that they compile against the real `GodotSharp`, which has
+caught three accidental shadowings of Godot's own members (`Get`,
+`Show`, `Size`) and a `Godot.FileAccess` / `System.IO.FileAccess`
+ambiguity. What that cannot catch is lifecycle and layout. Each widget
+is built inside a try/catch so one that throws costs you that widget
+rather than the view, and the failure goes into the status text.
+
+
 Open `MobileClient` in the Godot **.NET** editor and press play.
 `FirstPerson.tscn` is the main scene and needs no server or account.
 

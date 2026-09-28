@@ -42,6 +42,8 @@ public partial class FirstPersonView : Node2D
     readonly TouchControls _touch = new TouchControls();
     RoomPicker _picker;
     MiniMap _map;
+    /// <summary>See the note in GameView: Controls need a CanvasLayer.</summary>
+    CanvasLayer _ui;
     Renderer _renderer;
     RooFile _roo;
 
@@ -60,11 +62,14 @@ public partial class FirstPersonView : Node2D
 
     public override void _Ready()
     {
+        _ui = new CanvasLayer();
+        AddChild(_ui);
+
         _status = new Label { Position = new Vector2(12, 8) };
         _status.AddThemeColorOverride("font_color", new Color(1, 1, 1));
         _status.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
         _status.AddThemeConstantOverride("outline_size", 4);
-        AddChild(_status);
+        _ui.AddChild(_status);
 
         // On Android the game data has to be copied out of the .pck before
         // the library, which reads with System.IO, can see any of it.
@@ -74,7 +79,7 @@ public partial class FirstPersonView : Node2D
 
         if (!_assets.Init(dir)) { Fail(_assets.Error); return; }
 
-        try { _map = new MiniMap(); AddChild(_map); }
+        try { _map = new MiniMap(); _ui.AddChild(_map); }
         catch (Exception e) { GD.PrintErr($"[FirstPersonView] map unavailable: {e.Message}"); }
 
         // The room list is a convenience; if it throws you should still get
@@ -83,7 +88,7 @@ public partial class FirstPersonView : Node2D
         {
             _picker = new RoomPicker();
             _picker.Chosen += f => LoadRoom(f);
-            AddChild(_picker);
+            _ui.AddChild(_picker);
             _picker.Load(dir);
         }
         catch (Exception e)
