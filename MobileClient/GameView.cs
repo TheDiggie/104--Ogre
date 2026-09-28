@@ -35,6 +35,7 @@ public partial class GameView : Node2D
     readonly M59Assets _assets = new M59Assets();
     readonly TouchControls _touch = new TouchControls();
     ChatOverlay _chat;
+    ActionBar _actions;
     readonly List<string> _log = new List<string>();
 
     M59Client _client;
@@ -96,6 +97,13 @@ public partial class GameView : Node2D
         };
         AddChild(_chat);
 
+        _actions = new ActionBar();
+        _actions.LookAt       += () => Act(() => _client.SendReqLookMessage());
+        _actions.PickUp       += () => Act(() => _client.SendReqGetMessage());
+        _actions.AttackTarget += () => Act(() => _client.SendReqAttackMessage());
+        _actions.UseTarget    += () => Act(() => _client.SendReqUseMessage(_client.Data.TargetID));
+        AddChild(_actions);
+
         _client.Init();
         _client.Config.ResourcesPath = dir;
         _client.Config.Connections.Add(new ConnectionInfo(
@@ -135,6 +143,7 @@ public partial class GameView : Node2D
         _chat?.Sync(_client.Data?.ChatMessages);
         ApplyInput(delta);
         SyncSprites();
+        ApplyTap();
 
         _fpsAccum += delta; _frames++;
         if (_fpsAccum >= 0.5) { _fps = $"{_frames / _fpsAccum:F0} fps"; _fpsAccum = 0; _frames = 0; }
@@ -222,6 +231,50 @@ public partial class GameView : Node2D
         _client.SendReqMoveMessage();
     }
 
+    void Act(Action send)
+    {
+        try { send(); }
+        catch (Exception e) { _chat?.Local($"{e.GetType().Name}: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// Turns a tap into a target. The renderer picks the sprite under the
+    /// pixel - opaque texels only, and never through a wall - and the
+    /// object it stands for becomes the library's target, which is what
+    /// every no-argument Send* overload acts on.
+    /// </summary>
+    void ApplyTap()
+    {
+        if (_renderer == null || _client?.Data == null) return;
+        if (!_touch.TakeTap(out Vector2 screen)) return;
+
+        // Screen is the stretched viewport; the renderer works in its own
+        // smaller buffer.
+        Vector2 view = GetViewportRect().Size;
+        if (view.X < 1f || view.Y < 1f) return;
+        int bx = (int)(screen.X / view.X * _w);
+        int by = (int)(screen.Y / view.Y * _h);
+
+        RoomObject avatar = _client.Data.AvatarObject;
+        if (avatar == null) return;
+        float cx = M59Geo.KodToWorld(avatar.Position3D.X);
+        float cy = M59Geo.KodToWorld(avatar.Position3D.Z);
+        float cz = M59Geo.KodHeightToXY(avatar.Position3D.Y) + Renderer.EyeHeight;
+
+        Renderer.Sprite hit = _renderer.Pick(bx, by, _w, _h, cx, cy, cz, avatar.Angle);
+        var obj = hit?.Tag as RoomObject;
+
+        if (obj == null)
+        {
+            _client.Data.TargetID = uint.MaxValue;      // tapped nothing: clear
+            _actions?.SetTarget(null);
+            return;
+        }
+
+        _client.Data.TargetID = obj.ID;
+        _actions?.SetTarget(string.IsNullOrWhiteSpace(obj.Name) ? "something" : obj.Name);
+    }
+
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>
     void SyncRoom()
     {
@@ -263,7 +316,8 @@ public partial class GameView : Node2D
                 Height = 640f,
                 Bgf = o.Resource,
                 AngleUnits = o.AngleUnits,
-                Group = o.Animation != null && o.Animation.CurrentGroup > 0 ? o.Animation.CurrentGroup : 1
+                Group = o.Animation != null && o.Animation.CurrentGroup > 0 ? o.Animation.CurrentGroup : 1,
+                Tag = o
             });
         }
     }

@@ -21,12 +21,29 @@ public sealed class TouchControls
     /// <summary>Radians to turn this frame, consumed by reading it.</summary>
     public float TakeTurn() { float t = _turn; _turn = 0f; return t; }
 
+    /// <summary>
+    /// A tap on the look half - a finger put down and lifted without
+    /// really moving. Used to target what you touched. Consumed by reading.
+    /// </summary>
+    public bool TakeTap(out Vector2 position)
+    {
+        position = _tapAt;
+        bool had = _tapped;
+        _tapped = false;
+        return had;
+    }
+
+    /// <summary>Pixels a finger may wander and still count as a tap.</summary>
+    public float TapSlop = 16f;
+
     public float StickRadius = 120f;
     public float LookSensitivity = 0.006f;
 
     float _turn;
     int _moveFinger = -1, _lookFinger = -1;
     Vector2 _moveOrigin, _moveCurrent;
+    Vector2 _lookOrigin, _tapAt, _mouseDownAt;
+    bool _lookMoved, _tapped;
     bool _mouseLook;
 
     public bool StickActive => _moveFinger != -1;
@@ -48,12 +65,18 @@ public sealed class TouchControls
                 else if (t.Position.X >= mid && _lookFinger == -1)
                 {
                     _lookFinger = t.Index;
+                    _lookOrigin = t.Position;
+                    _lookMoved = false;
                 }
                 break;
 
             case InputEventScreenTouch t:                       // released
                 if (t.Index == _moveFinger) { _moveFinger = -1; Move = Vector2.Zero; }
-                if (t.Index == _lookFinger) _lookFinger = -1;
+                if (t.Index == _lookFinger)
+                {
+                    if (!_lookMoved) { _tapped = true; _tapAt = t.Position; }
+                    _lookFinger = -1;
+                }
                 break;
 
             case InputEventScreenDrag d when d.Index == _moveFinger:
@@ -63,15 +86,19 @@ public sealed class TouchControls
 
             case InputEventScreenDrag d when d.Index == _lookFinger:
                 _turn += d.Relative.X * LookSensitivity;
+                if ((d.Position - _lookOrigin).Length() > TapSlop) _lookMoved = true;
                 break;
 
             // Desktop: right mouse button or drag to look.
             case InputEventMouseButton mb when mb.ButtonIndex == MouseButton.Left:
                 _mouseLook = mb.Pressed;
+                if (mb.Pressed) { _mouseDownAt = mb.Position; _lookMoved = false; }
+                else if (!_lookMoved) { _tapped = true; _tapAt = mb.Position; }
                 break;
 
             case InputEventMouseMotion mm when _mouseLook:
                 _turn += mm.Relative.X * LookSensitivity;
+                if ((mm.Position - _mouseDownAt).Length() > TapSlop) _lookMoved = true;
                 break;
         }
     }

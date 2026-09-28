@@ -41,6 +41,15 @@ your thumb lands. Right half is look: drag to turn. Each tracks its own
 finger, so moving and turning at once works, which is why the screen is
 split rather than given fixed on-screen buttons.
 
+Tap - a finger down and up without moving - targets whatever you touched.
+The renderer picks the sprite under that pixel, opaque texels only and
+never through a wall, and that object becomes the library's own target,
+which is what the Look / Get / Attack / Use row acts on. Tapping nothing
+clears the target and hides the row.
+
+Enter opens the chat line, Escape closes it. ':' emote, '!' yell,
+'^' broadcast, '#' guild, anything else say.
+
 On desktop: WASD to move, arrow keys or left-drag to turn, Shift to run.
 
 ## Android
@@ -145,6 +154,15 @@ confirmed byte-identical.
   fixed object - cyclopsX resolves 8 distinct frames around the circle,
   Knight 8, duskrat 6 - and the exported frames are visibly different
   views of the same creature.
+
+  Tap targeting shares the projection with drawing rather than repeating
+  it, and is checked against what was actually drawn: 36 scenes across 3
+  rooms, 3 creatures and 4 headings, 8.3 million pixels, and every pixel
+  a sprite painted is pickable and no pixel it did not paint is. The
+  sprites are drawn in a colour the rooms cannot produce for that run, so
+  the mask is exact - comparing colours against a bare render had counted
+  a sprite pixel as unpainted whenever it happened to match the wall
+  behind it.
 
   Set **Demo Sprite Bgf** on the root node (e.g. `duskrat.bgf`) to
   scatter a few around the room before the server is connected.

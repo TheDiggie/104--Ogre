@@ -49,6 +49,21 @@ public sealed class Renderer
 
         /// <summary>Fixed art, used when Bgf is null. Never turns.</summary>
         public Tex Texture;
+
+        /// <summary>
+        /// Caller's handle on whatever this sprite stands for - the live
+        /// view puts the server's RoomObject here so a tap can be turned
+        /// back into a thing to look at or attack.
+        /// </summary>
+        public object Tag;
+    }
+
+    /// <summary>A sprite worked out in screen space: where it lands and how big.</summary>
+    struct Placed
+    {
+        public Sprite S;
+        public Tex T;
+        public float Depth, Left, WPx, HPx, YTop, YBot, Fog;
     }
 
     /// <summary>Objects drawn after the walls, occluded by them.</summary>
@@ -277,54 +292,131 @@ public sealed class Renderer
 
         foreach (var (depth, sp, lateral) in order)
         {
-            Tex t = sp.Texture;
-            if (sp.Bgf != null)
-            {
-                // Which side of the object we are looking at: its facing,
-                // minus the direction from it to us.
-                float toViewer = MathF.Atan2(camY - sp.Y, camX - sp.X);
-                int viewerUnits = (int)(toViewer / (2f * MathF.PI) * GeometryConstants.MAXANGLE);
-                int rel = (sp.AngleUnits - viewerUnits) % GeometryConstants.MAXANGLE;
-                if (rel < 0) rel += GeometryConstants.MAXANGLE;
-                t = SpriteFrames.Get(sp.Bgf, sp.Group, (ushort)rel);
-            }
-            if (t == null) continue;
-            float scale = proj / depth;
-            float cxs = W * 0.5f + lateral * scale;
+            if (!Place(sp, depth, lateral, W, camX, camY, camZ, proj, horizon, out Placed p))
+                continue;
 
-            float hPx = sp.Height * scale;
-            float wPx = hPx * t.W / MathF.Max(1, t.H);
-            float yBot = horizon - (sp.BaseZ - camZ) * scale;
-            float yTop = yBot - hPx;
-
-            int x0 = (int)MathF.Floor(cxs - wPx * 0.5f);
-            int x1 = (int)MathF.Ceiling(cxs + wPx * 0.5f);
-            if (x1 < 0 || x0 >= W || hPx < 1f) continue;
-
-            float fog = MathF.Min(1f, FogFar / depth);
+            int x0 = (int)MathF.Floor(p.Left);
+            int x1 = (int)MathF.Ceiling(p.Left + p.WPx);
+            if (x1 < 0 || x0 >= W) continue;
 
             for (int sx = Math.Max(0, x0); sx <= Math.Min(W - 1, x1); sx++)
             {
                 if (depth >= _depth[sx]) continue;           // behind a wall
-                float u = (sx + 0.5f - (cxs - wPx * 0.5f)) / MathF.Max(1f, wPx);
-                if (u < 0f || u >= 1f) continue;
-                int tx = (int)(u * t.W);
-                if (tx < 0) tx = 0; else if (tx >= t.W) tx = t.W - 1;
+                int tx = TexelX(p, sx);
+                if (tx < 0) continue;
 
-                int yA = Math.Max(0, (int)MathF.Floor(yTop));
-                int yB = Math.Min(H - 1, (int)MathF.Ceiling(yBot));
+                int yA = Math.Max(0, (int)MathF.Floor(p.YTop));
+                int yB = Math.Min(H - 1, (int)MathF.Ceiling(p.YBot));
                 for (int y = yA; y <= yB; y++)
                 {
-                    float v = (y + 0.5f - yTop) / MathF.Max(1f, hPx);
-                    if (v < 0f || v >= 1f) continue;
-                    int ty = (int)(v * t.H);
-                    if (ty < 0) ty = 0; else if (ty >= t.H) ty = t.H - 1;
-                    uint c = t.P[ty * t.W + tx];
+                    int ty = TexelY(p, y);
+                    if (ty < 0) continue;
+                    uint c = p.T.P[ty * p.T.W + tx];
                     if ((c >> 24) == 0) continue;            // transparent texel
-                    px[y * W + sx] = Shade(c | 0xFF000000u, fog);
+                    px[y * W + sx] = Shade(c | 0xFF000000u, p.Fog);
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Works out where a sprite lands on screen. Shared by drawing and by
+    /// picking so the two cannot disagree about what is under a finger.
+    /// </summary>
+    bool Place(Sprite sp, float depth, float lateral, int W,
+               float camX, float camY, float camZ, float proj, float horizon,
+               out Placed p)
+    {
+        p = default;
+        Tex t = sp.Texture;
+        if (sp.Bgf != null)
+        {
+            // Which side of the object we are looking at: its facing,
+            // minus the direction from it to us.
+            float toViewer = MathF.Atan2(camY - sp.Y, camX - sp.X);
+            int viewerUnits = (int)(toViewer / (2f * MathF.PI) * GeometryConstants.MAXANGLE);
+            int rel = (sp.AngleUnits - viewerUnits) % GeometryConstants.MAXANGLE;
+            if (rel < 0) rel += GeometryConstants.MAXANGLE;
+            t = SpriteFrames.Get(sp.Bgf, sp.Group, (ushort)rel);
+        }
+        if (t == null) return false;
+
+        float scale = proj / depth;
+        float cxs = W * 0.5f + lateral * scale;
+        float hPx = sp.Height * scale;
+        if (hPx < 1f) return false;
+        float wPx = hPx * t.W / MathF.Max(1, t.H);
+        float yBot = horizon - (sp.BaseZ - camZ) * scale;
+
+        p = new Placed {
+            S = sp, T = t, Depth = depth,
+            Left = cxs - wPx * 0.5f, WPx = wPx, HPx = hPx,
+            YTop = yBot - hPx, YBot = yBot,
+            Fog = MathF.Min(1f, FogFar / depth),
+        };
+        return true;
+    }
+
+    /// <summary>Texture column under a screen column, or -1 if outside.</summary>
+    static int TexelX(in Placed p, int sx)
+    {
+        float u = (sx + 0.5f - p.Left) / MathF.Max(1f, p.WPx);
+        if (u < 0f || u >= 1f) return -1;
+        int tx = (int)(u * p.T.W);
+        return tx < 0 ? 0 : (tx >= p.T.W ? p.T.W - 1 : tx);
+    }
+
+    /// <summary>Texture row under a screen row, or -1 if outside.</summary>
+    static int TexelY(in Placed p, int y)
+    {
+        float v = (y + 0.5f - p.YTop) / MathF.Max(1f, p.HPx);
+        if (v < 0f || v >= 1f) return -1;
+        int ty = (int)(v * p.T.H);
+        return ty < 0 ? 0 : (ty >= p.T.H ? p.T.H - 1 : ty);
+    }
+
+    /// <summary>
+    /// The sprite under a screen pixel, nearest first, or null. Only counts
+    /// a hit on an opaque texel - tapping through the gap under a rat's
+    /// belly should reach whatever is behind it - and respects the wall
+    /// depth from the last frame, so you cannot target through a wall.
+    ///
+    /// Call after Render with the same camera: it reads the depth buffer
+    /// that Render filled.
+    /// </summary>
+    public Sprite Pick(int px_, int py_, int W, int H,
+                       float camX, float camY, float camZ, float angle)
+    {
+        if (Sprites.Count == 0 || px_ < 0 || px_ >= W || py_ < 0 || py_ >= H) return null;
+        if (_depth.Length < W) return null;
+
+        float proj = (W * 0.5f) / MathF.Tan(Fov * 0.5f);
+        float horizon = H * 0.5f;
+        float ca = MathF.Cos(-angle), sa = MathF.Sin(-angle);
+
+        Sprite best = null;
+        float bestDepth = float.MaxValue;
+
+        foreach (Sprite sp in Sprites)
+        {
+            if (sp.Bgf == null && sp.Texture == null) continue;
+            float rx = sp.X - camX, ry = sp.Y - camY;
+            float depth = rx * ca - ry * sa;
+            if (depth < 32f || depth >= bestDepth || depth >= _depth[px_]) continue;
+            float lateral = rx * sa + ry * ca;
+
+            if (!Place(sp, depth, lateral, W, camX, camY, camZ, proj, horizon, out Placed p))
+                continue;
+
+            int tx = TexelX(p, px_);
+            if (tx < 0) continue;
+            int ty = TexelY(p, py_);
+            if (ty < 0) continue;
+            if ((p.T.P[ty * p.T.W + tx] >> 24) == 0) continue;   // saw straight through
+
+            best = sp; bestDepth = depth;
+        }
+        return best;
     }
 
     static int ScreenY(float worldH, float camZ, float horizon, float proj, float perp)
