@@ -97,7 +97,7 @@ static class Fpv
                     r.Sprites.Add(new Renderer.Sprite {
                         X = sxw, Y = syw,
                         BaseZ = sec != null ? M59Geo.FloorXY(sec) : camZ - Renderer.EyeHeight,
-                        Height = 500f, Bgf = bgf, AngleUnits = 0, Group = 1 });
+                        Height = 0f, Bgf = bgf, AngleUnits = 0, Group = 1 });
                     Console.WriteLine($"  sprite at {d,6:F0}  sector={(sec == null ? "outside room" : "ok")}");
                 }
             }

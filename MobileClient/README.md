@@ -195,6 +195,19 @@ confirmed byte-identical.
   of the inn gets further on 115 of 120 headings, never shorter, and
   never ends up outside the room. Both views share the same
   `WorldSync.TryMove`.
+- **Object size** comes from the art, not a constant. The library sizes
+  an object as its frame's pixels over the file's shrink factor
+  (`RenderInfo`), and one of those units is 16 world units - the same
+  relation the wall textures give, where size over shrink of 64 spans a
+  1024-unit grid square. With the fixed height this used before, a
+  duskrat and a cyclops were the same size.
+
+  Measured: a duskrat is 0.57 grid squares tall, a Knight 0.88, a
+  cyclops 3.92. The corroboration for the constant is that a Knight's
+  eyes then land at 68% of its height, which is about where eyes go.
+  Setting `Sprite.Height` above zero still overrides it, which is what
+  the checks in `Tools/` do so their numbers stay comparable.
+
 - **Objects** render as camera-facing billboards, sorted back to front
   and occluded by a per-column wall depth buffer. Transparent texels
   (palette index 254) are skipped, and sprite textures deliberately skip

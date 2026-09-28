@@ -28,8 +28,11 @@ public sealed class WorldSync
     /// <summary>Counts rebuilds, so a test can tell one from a no-op.</summary>
     public int RoomChanges { get; private set; }
 
-    /// <summary>Default sprite height when the object does not say.</summary>
-    public float SpriteHeight = 640f;
+    /// <summary>
+    /// Override for sprite height in world units. Zero, the default, means
+    /// each object is sized from its own art - see Renderer.Sprite.Height.
+    /// </summary>
+    public float SpriteHeight = 0f;
 
     /// <summary>
     /// Scrape along a wall instead of stopping dead against it. Off is the

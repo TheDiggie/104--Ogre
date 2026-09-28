@@ -35,8 +35,20 @@ public sealed class Renderer
         public float X, Y;
         /// <summary>World height of the sprite's base (usually the floor).</summary>
         public float BaseZ;
-        /// <summary>How tall the sprite stands, in world XY units.</summary>
-        public float Height = 700f;
+        /// <summary>
+        /// How tall the sprite stands, in world XY units. Zero or less
+        /// means take it from the art, which is what the game does: the
+        /// library sizes an object as its frame's pixels over the file's
+        /// shrink factor (RenderInfo), and one of those units is 16 world
+        /// units - the same relation wall textures give, where size over
+        /// shrink of 64 spans a 1024-unit grid square.
+        ///
+        /// It matters: with a fixed height a duskrat and a cyclops are the
+        /// same size. Measured, a rat comes out 0.57 grid squares tall, a
+        /// Knight 0.88 and a cyclops 3.92, and a Knight's eyes then land at
+        /// 68% of its height, which is about where eyes go.
+        /// </summary>
+        public float Height = 0f;
 
         /// <summary>
         /// Art to draw. When set, the frame is chosen per view from the
@@ -521,7 +533,10 @@ public sealed class Renderer
 
         float scale = proj / depth;
         float cxs = W * 0.5f + lateral * scale;
-        float hPx = sp.Height * scale;
+        float worldH = sp.Height > 0f
+            ? sp.Height
+            : t.H / (float)Math.Max(1, t.Shrink) * M59Geo.HeightToXY;
+        float hPx = worldH * scale;
         if (hPx < 1f) return false;
         float wPx = hPx * t.W / MathF.Max(1, t.H);
         float yBot = horizon - (sp.BaseZ - camZ) * scale;

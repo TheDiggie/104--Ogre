@@ -36,7 +36,8 @@ public partial class FirstPersonView : Node2D
     /// Leave empty for an empty room.
     /// </summary>
     [Export] public string DemoSpriteBgf = "";
-    [Export] public float DemoSpriteHeight = 500f;
+    /// <summary>Zero means size each one from its own art.</summary>
+    [Export] public float DemoSpriteHeight = 0f;
 
     readonly M59Assets _assets = new M59Assets();
     readonly TouchControls _touch = new TouchControls();
