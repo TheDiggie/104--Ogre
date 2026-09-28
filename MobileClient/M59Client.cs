@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Meridian59.Client;
 using Meridian59.Common;
+using Meridian59.Common.Constants;
 using Meridian59.Data;
 using Meridian59.Data.Models;
 using Meridian59.Files;
@@ -84,6 +85,35 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
         }
 
         ResourceManager.Init(root, root, root, root, root, root, root);
+    }
+
+    /// <summary>
+    /// The string file to use for a connection.
+    ///
+    /// This was hardcoded to rsc0000.rsb, which is the usual name and not
+    /// a guarantee. Connect() selects the dictionary by that name and gets
+    /// nothing back if it is wrong, after which the server's room and
+    /// object names resolve to nothing - a silent failure of the same
+    /// shape as the resource layout one. Looking in the folder costs
+    /// nothing and is right more often than a guess.
+    /// </summary>
+    public static string FindStringDictionary(string resourceDir)
+    {
+        foreach (string dir in new[]
+        {
+            Path.Combine(resourceDir ?? "", Meridian59.Files.ResourceManager.SUBPATHSTRINGS),
+            resourceDir ?? "",
+        })
+        {
+            try
+            {
+                string found = Directory.EnumerateFiles(dir, "*" + FileExtensions.RSB)
+                                        .OrderBy(x => x).FirstOrDefault();
+                if (found != null) return Path.GetFileName(found);
+            }
+            catch { }
+        }
+        return "rsc0000.rsb";
     }
 
     static bool HasFiles(string dir, string pattern)

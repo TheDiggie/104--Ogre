@@ -201,6 +201,19 @@ static class World
         Check(probe.ResourceManager.GetRoomTexture(2011) != null,
               "the client's own resource manager finds a room texture");
 
+        // The string file was hardcoded to the usual name. Finding the one
+        // that is actually there beats guessing, and guessing wrong makes
+        // every room and object name from the server resolve to nothing.
+        string strings = M59Client.FindStringDictionary(dir);
+        // Files, not folders - an earlier run with the wrong layout can
+        // have left an empty 'strings' directory behind.
+        bool anyRsb = Directory.EnumerateFiles(dir, "*.rsb").Any()
+                   || (Directory.Exists(Path.Combine(dir, "strings"))
+                       && Directory.EnumerateFiles(Path.Combine(dir, "strings"), "*.rsb").Any());
+        Check(strings.EndsWith(".rsb", StringComparison.OrdinalIgnoreCase),
+              $"string file resolves to something plausible ({strings})");
+        Console.WriteLine($"  (string file: {strings}{(anyRsb ? "" : ", none present here so this is the fallback")})");
+
         Console.WriteLine(fail == 0 ? "OK" : $"{fail} FAILURES");
         return fail == 0 ? 0 : 1;
     }

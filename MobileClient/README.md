@@ -483,6 +483,14 @@ it, which makes it the better test.
 Getting this wrong does not produce an error. It produces a world with
 no textures in it.
 
+The string file is found the same way rather than assumed.
+`BaseClient.Connect` selects a string dictionary by the name in the
+connection entry, and this hardcoded `rsc0000.rsb` - the usual name, not
+a guarantee. Get it wrong and every room and object name the server
+sends resolves to nothing, again with no error. `M59Client.FindStringDictionary`
+looks in the strings folder and then the resource folder, and falls back
+to the usual name only if there is nothing to find.
+
 ## A note on case
 
 Asking the resource manager for a file by a different casing than the

@@ -236,8 +236,10 @@ public partial class GameView : Node2D
         // ResourcesPath before Init, not after: Init is what reads it.
         _client.Config.ResourcesPath = dir;
         _client.Init();
+        string strings = M59Client.FindStringDictionary(dir);
+        GD.Print($"[M59] string file: {strings}");
         _client.Config.Connections.Add(new ConnectionInfo(
-            "server", Host, (ushort)Port, "rsc0000.rsb", user, pass, Character, null));
+            "server", Host, (ushort)Port, strings, user, pass, Character, null));
         _client.Config.SelectedConnectionIndex = _client.Config.Connections.Count - 1;
 
         Resize();
