@@ -227,7 +227,9 @@ public partial class GameView : Node2D
         {
             _hotbar = new ActionButtons();
             ActionButtons.Seed(_client.Data);
-            if (_chat != null) _hotbar.BottomReserve = _chat.BlockHeight + 56f;
+            // Above the target row, which is itself above the chat block:
+            // the row is one button tall plus the name label over it.
+            if (_chat != null) _hotbar.BottomReserve = _chat.BlockHeight + 16f * 2.6f + 16f * 1.8f + 24f;
             _ui.AddChild(_hotbar);
         });
         Widget("face", () =>
