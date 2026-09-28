@@ -217,11 +217,8 @@ public partial class ChatOverlay : Control
         _lines.Clear();
         foreach (ServerString m in messages)
         {
-            string s = m?.FullString;
-            if (string.IsNullOrEmpty(s)) continue;
-            // The server's own text can contain [ and ], which BBCode would
-            // eat as a tag.
-            _lines.Add($"[color=#{Tint(m.ChatMessageType)}]{s.Replace("[", "[lb]")}[/color]");
+            string line = Markup(m);
+            if (line != null) _lines.Add(line);
         }
 
         int from = Math.Max(0, _lines.Count - Lines);
@@ -229,6 +226,67 @@ public partial class ChatOverlay : Control
 
         if (ShowingHistory) _full.Text = string.Join("\n", _lines);
     }
+
+    /// <summary>
+    /// One message as the game renders it: a run of styles over the text,
+    /// each with its own colour and weight, rather than one tint for the
+    /// whole line.
+    ///
+    /// The server does not send a coloured string - it sends the text plus
+    /// a list of styles, each naming a start, a length, a colour and
+    /// whether it is bold, italic or underlined. The Ogre client's
+    /// Util::GetChatString walks exactly this list to build its markup,
+    /// and a message with no styles at all is drawn plain.
+    /// </summary>
+    static string Markup(ServerString m)
+    {
+        string text = m?.FullString;
+        if (string.IsNullOrEmpty(text)) return null;
+
+        // Nothing styled: the whole line in the colour its kind gets.
+        if (m.Styles == null || m.Styles.Count == 0)
+            return $"[color=#{Tint(m.ChatMessageType)}]{Escape(text)}[/color]";
+
+        var sb = new System.Text.StringBuilder();
+        foreach (ChatStyle style in m.Styles)
+        {
+            if (style == null) continue;
+            int start = Math.Clamp(style.StartIndex, 0, text.Length);
+            int len = Math.Clamp(style.Length, 0, text.Length - start);
+            if (len == 0) continue;
+
+            string part = Escape(text.Substring(start, len));
+
+            if (style.IsBold) part = $"[b]{part}[/b]";
+            if (style.IsCursive) part = $"[i]{part}[/i]";
+            if (style.IsUnderline) part = $"[u]{part}[/u]";
+            if (style.IsStrikeout) part = $"[s]{part}[/s]";
+
+            sb.Append($"[color=#{Tint(style.Color)}]{part}[/color]");
+        }
+
+        return sb.Length > 0 ? sb.ToString()
+                             : $"[color=#{Tint(m.ChatMessageType)}]{Escape(text)}[/color]";
+    }
+
+    /// <summary>The server's own text can contain [, which BBCode eats.</summary>
+    static string Escape(string s) => s.Replace("[", "[lb]");
+
+    /// <summary>
+    /// Vanilla's six chat colours, as the client defines them in
+    /// Constants.h. They are not the obvious ones: chat red is 0x800000
+    /// and chat green 0x006400, both dark, and purple is 0x8F26AA.
+    /// </summary>
+    static string Tint(ChatColor c) => c switch
+    {
+        ChatColor.Black => "000000",
+        ChatColor.Blue => "0000ff",
+        ChatColor.Green => "006400",
+        ChatColor.Purple => "8f26aa",
+        ChatColor.Red => "800000",
+        ChatColor.White => "ffffff",
+        _ => "ffffff",
+    };
 
     static string Tint(ChatMessageType t) => t switch
     {

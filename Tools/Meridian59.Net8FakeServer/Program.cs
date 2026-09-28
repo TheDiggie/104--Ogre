@@ -95,7 +95,12 @@ static class FakeServer
             new RsbResourceID(RID_RATNAME,    "a duskrat",   4),
             new RsbResourceID(RID_PLAYERBGF,  "bri.bgf",     4),
             new RsbResourceID(RID_RATBGF,     "duskrat.bgf", 4),
-            new RsbResourceID(RID_GREETING,   "The duskrat regards you with mild contempt.", 4),
+            // Inline styles, the way the server really sends them: ~B is
+            // bold, ~n back to normal, and a colour letter picks one of
+            // vanilla's six - r red, g green, b blue, q purple, k black,
+            // w white. The client parses these out of the string and
+            // hands the view a list of styled runs.
+            new RsbResourceID(RID_GREETING,   "~BThe duskrat~n regards you with ~rmild contempt~w.", 4),
             new RsbResourceID(RID_ECHO,       "The duskrat has nothing to say about that.", 4),
         };
 

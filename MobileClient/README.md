@@ -207,6 +207,28 @@ See that tool's README for what the handshake actually needs - in short,
 mode, the client verifies no CRC on what it receives, and chat on the
 wire is a string resource id rather than text.
 
+## Chat is styled, not tinted
+
+The server does not send a coloured line. It sends text plus a list of
+**styles** - each a start, a length, a colour and whether that run is
+bold, italic, underlined or struck - and the Ogre client's
+`Util::GetChatString` walks that list to build its markup. This client
+used to throw the list away and tint the whole message by its kind.
+
+The styles come out of inline markers in the string itself: `~B` for
+bold, `~n` back to normal, and a colour letter for one of vanilla's six.
+`ChatStyle.GetStyles` parses them and `RemoveInlineStyles` takes them back
+out of the text, so the view never sees the markers - only runs.
+
+Vanilla's six colours are not the obvious ones: chat red is `0x800000`
+and chat green `0x006400`, both dark, purple is `0x8F26AA`. The default
+colour of a message depends on its kind - a server message starts purple,
+a system message blue, someone talking white.
+
+They are dark because the game puts them in a chat window with a
+background. Over a bright floor, dark red on red is hard to read; the
+lines carry an outline here for that reason, which the game does not need.
+
 ## The condition bars are the game's condition bars
 
 `UIAvatar::ConditionChange` in the Ogre client is the spec, and it
