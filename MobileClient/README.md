@@ -177,6 +177,36 @@ bottle's icon vanished entirely, because its composed origin comes out at
 the way the library converts these numbers everywhere else, turns that
 hair into the zero it plainly is.
 
+## Running the live view without a server
+
+The live half - login, character select, room entry, the object list,
+chat - was written from reading the library and had never been run, since
+the real server is not reachable from this machine.
+`Tools/Meridian59.Net8FakeServer` answers enough of the protocol to get a
+real client into a room, on loopback, with no account:
+
+    dotnet run -c Release --project Tools/Meridian59.Net8FakeServer -- 15999 /tmp/res barinn.roo
+
+    M59USER=tester M59PASS=x xvfb-run -a <godot> --path MobileClient \
+      --resolution 900x1600 SceneShot.tscn -- \
+      --out live.png --res /tmp/res --host 127.0.0.1 --port 15999 --wait 300
+
+It reached the world on the first honest attempt and then found things:
+
+- `Tools/Meridian59.Net8Play` called `Init()` before setting
+  `ResourcesPath`, which is the same ordering bug `GameView` had - `Init`
+  reads that path, so setting it afterwards means `Init` ran against
+  nothing. It crashed on a null path the moment there was a server to
+  connect to.
+- The first objects the server sent stood a few units from the camera and
+  filled the screen with one duskrat. Those are the server's own units:
+  one of them is sixteen room units, and a grid square is 64 of them.
+
+See that tool's README for what the handshake actually needs - in short,
+`GameState` is the hinge that moves the client's parser out of login
+mode, the client verifies no CRC on what it receives, and chat on the
+wire is a string resource id rather than text.
+
 ## The inventory is the game's inventory
 
 The first version of this panel was a list of labelled buttons, which is

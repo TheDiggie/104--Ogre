@@ -46,8 +46,11 @@ static class Play
         var client = new M59Client { PreferredCharacter = chr };
         client.Notice += s => Console.WriteLine("  " + s);
 
-        client.Init();
+        // Order matters, and the same order bit GameView: Init reads
+        // ResourcesPath, so setting it afterwards means Init runs against
+        // nothing at all.
         client.Config.ResourcesPath = dir;
+        client.Init();
         client.Config.Connections.Add(new ConnectionInfo(
             "probe", host, port, "rsc0000.rsb", user, pass, chr, null));
         client.Config.SelectedConnectionIndex = client.Config.Connections.Count - 1;

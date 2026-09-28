@@ -20,13 +20,34 @@ public partial class SceneShot : Node
         string room = Arg("--room", "barinn.roo");
         int wait = int.TryParse(Arg("--wait", "30"), out int w) ? w : 30;
 
-        var view = new FirstPersonView
+        int width = int.TryParse(Arg("--width", "480"), out int rw) ? rw : 480;
+
+        // --host turns this into a shot of the live view instead of the
+        // offline one, pointed wherever you say - which in practice means
+        // Tools/Meridian59.Net8FakeServer on loopback.
+        string host = Arg("--host", null);
+        if (host != null)
         {
-            ResourceDir = res,
-            RoomFile = room,
-            RenderWidth = int.TryParse(Arg("--width", "480"), out int rw) ? rw : 480,
-        };
-        AddChild(view);
+            var live = new GameView
+            {
+                ResourceDir = res,
+                Host = host,
+                Port = int.TryParse(Arg("--port", "15999"), out int pt) ? pt : 15999,
+                RenderWidth = width,
+                AutoConnect = true,
+            };
+            AddChild(live);
+        }
+        else
+        {
+            var view = new FirstPersonView
+            {
+                ResourceDir = res,
+                RoomFile = room,
+                RenderWidth = width,
+            };
+            AddChild(view);
+        }
 
         Shoot(outPath, wait);
     }
