@@ -24,6 +24,33 @@ public static class M59Geo
     public static float FloorXY(RooSector s) => s == null ? 0f : (float)s.FloorHeight * HeightToXY;
     public static float CeilingXY(RooSector s) => s == null ? 0f : (float)s.CeilingHeight * HeightToXY;
 
+    // --- sloped floors and ceilings --------------------------------------
+    //
+    // 4674 of the 30806 sectors carry a plane rather than a single height.
+    // RooSector.CalculateSlopeHeight is z = (-Ax - By - D)/C, in the same
+    // FINENESS units as FloorXY, and the flat case there is
+    // FloorHeight * KODFINETOCLIENTFINE, which is FloorHeight * 16 - so
+    // these are the same function, one of them just varies.
+
+    /// <summary>Floor height at a point, following the slope if there is one.</summary>
+    public static float FloorXY(RooSector s, float x, float y)
+    {
+        if (s == null) return 0f;
+        var sl = s.SlopeInfoFloor;
+        return sl == null ? (float)s.FloorHeight * HeightToXY : Plane(sl, x, y);
+    }
+
+    /// <summary>Ceiling height at a point, following the slope if there is one.</summary>
+    public static float CeilingXY(RooSector s, float x, float y)
+    {
+        if (s == null) return 0f;
+        var sl = s.SlopeInfoCeiling;
+        return sl == null ? (float)s.CeilingHeight * HeightToXY : Plane(sl, x, y);
+    }
+
+    public static float Plane(RooSectorSlopeInfo sl, float x, float y)
+        => (float)((-sl.A * x - sl.B * y - sl.D) / sl.C);
+
     // --- kod (server) coordinates <-> room coordinates -------------------
     //
     // RoomObject.Position3D is in the server's own units, NOT room units.

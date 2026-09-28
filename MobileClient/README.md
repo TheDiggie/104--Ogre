@@ -300,15 +300,23 @@ confirmed byte-identical.
 
   Two gaps remain, both with numbers so they can be judged:
 
-  **Sloped floors and ceilings are drawn flat.** 4674 of 30806 sectors
-  have a slope. The fill works out a horizontal plane's distance per
-  screen row, which is what makes it fast, and a sloped plane needs a
-  ray/plane intersection instead - not expensive in itself, but the
-  portal walk also takes each sector's floor and ceiling as a single
-  height when it decides where a wall ends, and that is the real work.
-  Note that collision already handles slopes, because it uses the
-  library's own `GetHeightAt`, so geometry and picture currently
-  disagree on those sectors.
+  **Sloped floors and ceilings** - 4674 of the 30806 sectors - are drawn
+  as slopes. A sector's plane is `Ax + By + Cz + D = 0`
+  (`RooSector.CalculateSlopeHeight`), and a column renderer turns out to
+  be a good fit for it: each column already has its own ray, so the
+  wall's top and bottom come from the sector's height *at that column's
+  hit point*, and the fill solves the ray against the plane for one
+  division per pixel, the same cost as the flat case.
+
+  The algebra is the part that could be quietly wrong - a sign error
+  there puts a slope's texture somewhere plausible but not where the
+  geometry is - so `Net8RenderCheck -- slope` checks the closed form
+  against a bisection that just walks the ray until it crosses the
+  plane: 134887 rays, none disagreeing, worst relative error 1.5e-4.
+
+  Still approximate: a flat span between two hits takes its screen
+  extent from the heights at the hits, so a slope can show a small seam
+  where the span ends. Per-leaf flats would remove it.
 
   **Texture anchoring in negative coordinates.** The library measures
   flat UVs from the most top-left vertex of each BSP leaf, which is

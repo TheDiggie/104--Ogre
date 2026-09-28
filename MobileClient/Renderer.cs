@@ -252,7 +252,12 @@ public sealed class Renderer
                 RooSideDef side = M59Geo.Side(_roo, h.Right ? h.Wall.RightSideNum : h.Wall.LeftSideNum);
                 if (near == null) near = cur;
 
-                float nf = M59Geo.FloorXY(near), nc = M59Geo.CeilingXY(near);
+                // Heights at the point this column's ray meets the wall, so
+                // a sloped sector's floor and ceiling meet the wall where
+                // they actually do. A column renderer gets this almost free:
+                // every column already has its own hit point.
+                float hx = camX + rdx * h.Dist, hy = camY + rdy * h.Dist;
+                float nf = M59Geo.FloorXY(near, hx, hy), nc = M59Geo.CeilingXY(near, hx, hy);
                 int ceilY  = ScreenY(nc, camZ, horizon, proj, perp);
                 int floorY = ScreenY(nf, camZ, horizon, proj, perp);
 
@@ -336,7 +341,7 @@ public sealed class Renderer
                     }
                 }
 
-                float ff = M59Geo.FloorXY(far), fc = M59Geo.CeilingXY(far);
+                float ff = M59Geo.FloorXY(far, hx, hy), fc = M59Geo.CeilingXY(far, hx, hy);
 
                 if (fc < nc)
                 {
@@ -559,6 +564,32 @@ public sealed class Renderer
         return best;
     }
 
+    /// <summary>
+    /// Where a screen row's ray meets a sloped plane, as a horizontal
+    /// distance from the camera.
+    ///
+    /// A sloped floor is Ax + By + Cz + D = 0. Down a screen column the ray
+    /// through row y drops by <paramref name="sSlope"/> per unit of
+    /// perpendicular distance, so the point at horizontal distance d is
+    /// (camX + rdx*d, camY + rdy*d, camZ - sSlope*cosFix*d). Substituting
+    /// and solving for d costs one division, the same as the flat case.
+    ///
+    /// Public because the closed form is the part worth checking, and
+    /// Net8RenderCheck checks it against a bisection.
+    /// </summary>
+    public static bool SolveSlope(RooSectorSlopeInfo slope,
+                                  float camX, float camY, float camZ,
+                                  float rdx, float rdy, float sSlope, float cosFix,
+                                  out float d)
+    {
+        d = 0f;
+        float num = -(float)(slope.A * camX + slope.B * camY + slope.C * camZ + slope.D);
+        float den = (float)(slope.A * rdx + slope.B * rdy) - (float)slope.C * sSlope * cosFix;
+        if (MathF.Abs(den) < 1e-6f) return false;
+        d = num / den;
+        return d > 0f;
+    }
+
     static int ScreenY(float worldH, float camZ, float horizon, float proj, float perp)
         => (int)MathF.Round(horizon - (worldH - camZ) * proj / perp);
 
@@ -586,10 +617,15 @@ public sealed class Renderer
         // when size/shrink is 64 and wrong for 903 of 8357 wall middles.
         // Ported from RooWall.GetVertexData, itself a port of the game's
         // d3drender.c.
-        float u = 0f, vBase = 0f, vPerHeight = 0f;
+        float u = 0f, vBase = 0f, vPerHeight = 0f, tpp = texelsPerPixel;
         if (t != null)
         {
             float shrink = t.Shrink;
+            // Texels per screen pixel: the caller hands over world units per
+            // pixel, which only becomes texels once the texture's shrink is
+            // known. Hoisted out of the row loop - it does not vary down a
+            // column and it was costing a multiply and a divide per pixel.
+            tpp = texelsPerPixel * shrink / M59Geo.HeightToXY;
             u = (along / M59Geo.HeightToXY + xOffset) * shrink / t.H;
 
             float perWorld = shrink / (t.W * M59Geo.HeightToXY);
@@ -630,8 +666,7 @@ public sealed class Renderer
                 // void through. A tiled texture is the better of the two
                 // wrongs.
                 if (noVTile && masked && v < 0f) continue;
-                uint texel = masked ? t.Sample(v, u)
-                                    : t.Sample(v, u, texelsPerPixel * t.Shrink / M59Geo.HeightToXY);
+                uint texel = masked ? t.Sample(v, u) : t.Sample(v, u, tpp);
                 // A see-through wall keeps the palette's transparent index,
                 // which carries alpha 0; those texels are skipped, not
                 // blended, the same as sprites.
@@ -658,6 +693,7 @@ public sealed class Renderer
         if (y1 > H - 1) y1 = H - 1;
         if (y0 > y1) return;
 
+        RooSectorSlopeInfo slope = ceiling ? sec.SlopeInfoCeiling : sec.SlopeInfoFloor;
         float planeH = ceiling ? M59Geo.CeilingXY(sec) : M59Geo.FloorXY(sec);
         Tex t = tc.Get(ceiling ? sec.CeilingTexture : sec.FloorTexture);
         uint flat = ceiling ? 0xFF0B0B10u : 0xFF141418u;
@@ -666,13 +702,31 @@ public sealed class Renderer
         float cosFix = MathF.Cos(rayA - angle);
         float rdx = MathF.Cos(rayA), rdy = MathF.Sin(rayA);
 
+        // A sloped plane is Ax + By + Cz + D = 0. Walking a screen column,
+        // the ray through row y drops by s = (y - horizon)/proj per unit of
+        // perpendicular distance, so the point at horizontal distance d is
+        // (camX + rdx*d, camY + rdy*d, camZ - s*cosFix*d). Substituting and
+        // solving for d costs one division, the same as the flat case.
+        float cosFixMax = MathF.Max(0.2f, cosFix);
+
         for (int y = y0; y <= y1; y++)
         {
             if (t == null) { px[y * W + sx] = flat; continue; }
             float dy = y - horizon;
             if (MathF.Abs(dy) < 0.5f) { px[y * W + sx] = flat; continue; }
-            float straight = MathF.Abs((camZ - planeH) * proj / dy);
-            float d = straight / MathF.Max(0.2f, cosFix);
+
+            float straight, d;
+            if (slope != null)
+            {
+                if (!SolveSlope(slope, camX, camY, camZ, rdx, rdy, dy / proj, cosFixMax, out d))
+                { px[y * W + sx] = flat; continue; }
+                straight = d * cosFixMax;
+            }
+            else
+            {
+                straight = MathF.Abs((camZ - planeH) * proj / dy);
+                d = straight / cosFixMax;
+            }
             float wx = camX + rdx * d, wy = camY + rdy * d;
             float fog = MathF.Min(1f, FogFar / MathF.Max(straight, 1f));
             // How much world space one screen pixel covers here, in texels.

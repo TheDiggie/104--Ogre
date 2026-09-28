@@ -8,6 +8,7 @@ using Meridian59.Files;using Meridian59.Files.ROO;
 //   dotnet run --project . -- pick       <resourceDir>
 //   dotnet run --project . -- seethrough <resourceDir>
 //   dotnet run --project . -- grate      <resourceDir>
+//   dotnet run --project . -- slope      <resourceDir>
 //   dotnet run --project . -- all     <resourceDir>
 static class RenderCheck
 {
@@ -31,6 +32,7 @@ static class RenderCheck
         if (mode == "pick"    || mode == "all") bad += Pick(dir);
         if (mode == "seethrough" || mode == "all") SeeThrough(dir);
         if (mode == "grate"   || mode == "all") bad += Grate(dir);
+        if (mode == "slope"   || mode == "all") bad += SlopeMath(dir);
         return bad == 0 ? 0 : 1;
     }
 
@@ -276,6 +278,70 @@ static class RenderCheck
         int bad = 0;
         if (nearRatio < 0.95) { Console.WriteLine("  FAIL the fence is eating a sprite in front of it"); bad++; }
         if (farRatio > 0.80)  { Console.WriteLine("  FAIL the fence is not covering a sprite behind it"); bad++; }
+        Console.WriteLine(bad == 0 ? "OK" : "PROBLEM");
+        return bad;
+    }
+
+    /// <summary>
+    /// The closed form for where a screen row meets a sloped floor, against
+    /// a bisection that just walks the ray until it crosses the plane.
+    ///
+    /// The plumbing around it is ordinary; the algebra is the part that
+    /// could be quietly wrong, and a wrong sign there would put a slope's
+    /// texture somewhere plausible-looking but not where the geometry is.
+    /// </summary>
+    static int SlopeMath(string dir)
+    {
+        var rm = new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
+        int tested = 0, bad = 0;
+        double worst = 0;
+
+        foreach (string path in Directory.GetFiles(dir, "*.roo").OrderBy(x=>x))
+        {
+            RooFile roo;
+            try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
+            foreach (RooSector sec in roo.Sectors)
+            {
+                var slope = sec.SlopeInfoFloor;
+                if (slope == null) continue;
+
+                // A camera somewhere above the plane, looking about.
+                float cx = 10000f, cy = 12000f;
+                float planeAt = M59Geo.Plane(slope, cx, cy);
+                float camZ = planeAt + 800f;
+
+                for (int k = 0; k < 6; k++)
+                {
+                    float ang = k * MathF.PI / 3f;
+                    float rdx = MathF.Cos(ang), rdy = MathF.Sin(ang);
+                    for (float sSlope = 0.05f; sSlope < 1.2f; sSlope += 0.17f)
+                    {
+                        if (!Renderer.SolveSlope(slope, cx, cy, camZ, rdx, rdy, sSlope, 1f, out float d))
+                            continue;
+                        if (d > 1e6f) continue;
+                        tested++;
+
+                        // Bisection: the height the ray is at, minus the
+                        // plane's height, changes sign at the answer.
+                        Func<float,float> gap = dd =>
+                            (camZ - sSlope*dd) - M59Geo.Plane(slope, cx + rdx*dd, cy + rdy*dd);
+                        float lo = 0f, hi = d * 2f;
+                        if (gap(lo) * gap(hi) > 0f) continue;      // no crossing bracketed
+                        for (int i = 0; i < 80; i++)
+                        {
+                            float mid = 0.5f*(lo+hi);
+                            if (gap(lo) * gap(mid) <= 0f) hi = mid; else lo = mid;
+                        }
+                        float found = 0.5f*(lo+hi);
+                        double err = Math.Abs(found - d) / Math.Max(1.0, Math.Abs(found));
+                        if (err > worst) worst = err;
+                        if (err > 1e-3) bad++;
+                    }
+                }
+            }
+        }
+        Console.WriteLine($"  slope solve: {tested} rays, {bad} disagree with a bisection");
+        Console.WriteLine($"  worst relative error: {worst:E2}");
         Console.WriteLine(bad == 0 ? "OK" : "PROBLEM");
         return bad;
     }
