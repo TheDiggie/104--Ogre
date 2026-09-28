@@ -51,6 +51,15 @@ your thumb lands. Right half is look: drag to turn. Each tracks its own
 finger, so moving and turning at once works, which is why the screen is
 split rather than given fixed on-screen buttons.
 
+Dragging up and down on the look half looks up and down. A column
+renderer cannot rotate the camera about its own X axis without giving up
+the thing that makes it fast - that every wall is vertical on screen -
+so it shifts the horizon instead, the same trick Doom used. That is a
+shear rather than a rotation, so it exaggerates the further you push it
+and is clamped at about 31 degrees. At zero the renderer is unchanged
+to the byte, which is what keeps the checks in `Tools/` comparable.
+`Net8Fpv --pitch <radians>` renders it.
+
 Tap - a finger down and up without moving - targets whatever you touched.
 The renderer picks the sprite under that pixel, opaque texels only and
 never through a wall, and that object becomes the library's own target,

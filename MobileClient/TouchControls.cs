@@ -22,6 +22,13 @@ public sealed class TouchControls
     public float TakeTurn() { float t = _turn; _turn = 0f; return t; }
 
     /// <summary>
+    /// Radians to look up or down this frame, consumed by reading it.
+    /// Dragging up and down doing nothing is the sort of thing that makes
+    /// a control scheme feel broken rather than limited.
+    /// </summary>
+    public float TakePitch() { float t = _pitch; _pitch = 0f; return t; }
+
+    /// <summary>
     /// A tap on the look half - a finger put down and lifted without
     /// really moving. Used to target what you touched. Consumed by reading.
     /// </summary>
@@ -39,7 +46,7 @@ public sealed class TouchControls
     public float StickRadius = 120f;
     public float LookSensitivity = 0.006f;
 
-    float _turn;
+    float _turn, _pitch;
     int _moveFinger = -1, _lookFinger = -1;
     Vector2 _moveOrigin, _moveCurrent;
     Vector2 _lookOrigin, _tapAt, _mouseDownAt;
@@ -85,7 +92,8 @@ public sealed class TouchControls
                 break;
 
             case InputEventScreenDrag d when d.Index == _lookFinger:
-                _turn += d.Relative.X * LookSensitivity;
+                _turn  += d.Relative.X * LookSensitivity;
+                _pitch -= d.Relative.Y * LookSensitivity;   // drag up, look up
                 if ((d.Position - _lookOrigin).Length() > TapSlop) _lookMoved = true;
                 break;
 
@@ -97,7 +105,8 @@ public sealed class TouchControls
                 break;
 
             case InputEventMouseMotion mm when _mouseLook:
-                _turn += mm.Relative.X * LookSensitivity;
+                _turn  += mm.Relative.X * LookSensitivity;
+                _pitch -= mm.Relative.Y * LookSensitivity;
                 if ((mm.Position - _mouseDownAt).Length() > TapSlop) _lookMoved = true;
                 break;
         }

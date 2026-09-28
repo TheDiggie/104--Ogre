@@ -139,6 +139,29 @@ public sealed class Renderer
     public float Time { get; set; } = 0f;
 
     /// <summary>
+    /// Looking up and down, in radians. Zero is level, and the whole
+    /// renderer stays exactly as it was at zero.
+    ///
+    /// A column renderer cannot rotate the camera about its own X axis
+    /// without giving up the one thing that makes it fast - that every
+    /// wall is vertical on screen. What it can do is shift the horizon,
+    /// which is the same trick Doom used: geometrically it is a sheared
+    /// projection rather than a rotation, so it exaggerates as you look
+    /// further, and it is clamped for that reason.
+    /// </summary>
+    public float Pitch { get; set; } = 0f;
+
+    /// <summary>The most you can look up or down. Beyond this the shear shows.</summary>
+    public const float MaxPitch = 0.55f;
+
+    /// <summary>Screen row the horizon falls on, given the pitch.</summary>
+    float Horizon(int H, float proj)
+    {
+        float p = Math.Clamp(Pitch, -MaxPitch, MaxPitch);
+        return H * 0.5f + MathF.Tan(p) * proj;
+    }
+
+    /// <summary>
     /// Per-thread working state. The wall grid's visit marker lives here
     /// too, so two threads walking the same grid do not overwrite each
     /// other's stamps.
@@ -190,7 +213,7 @@ public sealed class Renderer
     public int Render(uint[] px, int W, int H, float camX, float camY, float camZ, float angle)
     {
         float proj = (W * 0.5f) / MathF.Tan(Fov * 0.5f);
-        float horizon = H * 0.5f;
+        float horizon = Horizon(H, proj);
         RooSector camSector = SectorAt(_roo, camX, camY);
         int solidCols = 0;
 
@@ -587,7 +610,7 @@ public sealed class Renderer
         if (_depth.Length < W) return null;
 
         float proj = (W * 0.5f) / MathF.Tan(Fov * 0.5f);
-        float horizon = H * 0.5f;
+        float horizon = Horizon(H, proj);      // Pick must agree with Render
         float ca = MathF.Cos(-angle), sa = MathF.Sin(-angle);
 
         Sprite best = null;

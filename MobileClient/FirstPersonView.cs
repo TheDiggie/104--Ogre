@@ -57,6 +57,7 @@ public partial class FirstPersonView : Node2D
 
     float _camX, _camY, _camZ, _angle;
     float _clock;
+    float _pitch;
     Label _status;
     double _fpsAccum;
     int _frames;
@@ -285,8 +286,13 @@ public partial class FirstPersonView : Node2D
         }
 
         // Scrolling water, lava and moving walls run off this.
+        // Looking up and down, clamped: the horizon shear exaggerates the
+        // further you push it.
+        _pitch = Math.Clamp(_pitch + _touch.TakePitch(), -Renderer.MaxPitch, Renderer.MaxPitch);
+
         _clock += (float)delta;
         _renderer.Time = _clock;
+        _renderer.Pitch = _pitch;
         // No server here, so this view drives the room's own animations -
         // the flicker of an animated wall texture, and any lift. The live
         // view gets this from BaseClient.Update, which ticks the room.

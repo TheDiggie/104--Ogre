@@ -20,7 +20,7 @@ static class Fpv
         {
             if (a[i].StartsWith("--"))
             {
-                if (a[i] == "--sprite" || a[i] == "--time") i++;   // takes a value
+                if (a[i] == "--sprite" || a[i] == "--time" || a[i] == "--pitch") i++;   // takes a value
                 continue;
             }
             pos.Add(a[i]);
@@ -44,6 +44,9 @@ static class Fpv
         // --time <seconds> advances scrolling floors and walls.
         int ti = Array.IndexOf(flags, "--time");
         if (ti >= 0 && ti + 1 < flags.Length) r.Time = float.Parse(flags[ti + 1]);
+        // --pitch <radians> looks up or down.
+        int pi = Array.IndexOf(flags, "--pitch");
+        if (pi >= 0 && pi + 1 < flags.Length) r.Pitch = float.Parse(flags[pi + 1]);
 
         float camX, camY, angle;
         if (a.Length >= 6)

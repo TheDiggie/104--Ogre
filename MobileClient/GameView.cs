@@ -63,6 +63,7 @@ public partial class GameView : Node2D
     string _state = "starting";
     double _fpsAccum; int _frames; string _fps = "";
     float _clock;
+    float _pitch;
 
     public override void _Ready()
     {
@@ -222,8 +223,16 @@ public partial class GameView : Node2D
         SyncSprites();
         ApplyTap();
 
+        // Looking up and down, clamped: the horizon shear exaggerates the
+        // further you push it.
+        _pitch = Math.Clamp(_pitch + _touch.TakePitch(), -Renderer.MaxPitch, Renderer.MaxPitch);
+
         _clock += (float)delta;
-        if (_world.Renderer != null) _world.Renderer.Time = _clock;   // scrolling water and lava
+        if (_world.Renderer != null)
+        {
+            _world.Renderer.Time = _clock;     // scrolling water and lava
+            _world.Renderer.Pitch = _pitch;
+        }
 
         RoomObject me = _client.Data?.AvatarObject;
         if (me != null && _map != null)
