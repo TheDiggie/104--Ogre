@@ -28,8 +28,16 @@ public sealed class Renderer
     readonly RooFile _roo;
     readonly TexCache _tex;
     readonly List<Hit> _hits = new List<Hit>(64);
+    readonly WallGrid _grid;
 
-    public Renderer(RooFile roo, TexCache tex) { _roo = roo; _tex = tex; }
+    /// <summary>Set false to fall back to testing every wall (reference path).</summary>
+    public bool UseGrid { get; set; } = true;
+
+    public Renderer(RooFile roo, TexCache tex)
+    {
+        _roo = roo; _tex = tex;
+        _grid = new WallGrid(roo);
+    }
 
     public RooSector SectorAtPoint(float x, float y) => SectorAt(_roo, x, y);
 
@@ -194,24 +202,40 @@ public sealed class Renderer
         uint r = (uint)(((c >> 16) & 0xFF) * f), g = (uint)(((c >> 8) & 0xFF) * f), b = (uint)((c & 0xFF) * f);
         return 0xFF000000u | (r << 16) | (g << 8) | b;
     }
-    static void CollectHits(RooFile roo, float ox, float oy, float dx, float dy, List<Hit> outHits)
+    void CollectHits(RooFile roo, float ox, float oy, float dx, float dy, List<Hit> outHits)
     {
         outHits.Clear();
-        foreach (RooWall w in roo.Walls)
+        if (UseGrid && _grid != null)
+            _grid.ForEachCandidate(ox, oy, dx, dy, w => TestWall(w, ox, oy, dx, dy, outHits));
+        else
+            foreach (RooWall w in roo.Walls) TestWall(w, ox, oy, dx, dy, outHits);
+        // Sort by distance, then by wall number. List.Sort is unstable, so
+        // without the second key two walls at exactly equal distance - a
+        // corner, or coincident walls - get ordered by however they were
+        // iterated, and the renderer picks a different one depending on
+        // whether the grid or the full wall list fed it. That made grid and
+        // brute-force output differ on 5 of 362 rooms. The tiebreak makes
+        // the result independent of iteration order.
+        outHits.Sort((p, q) =>
         {
-            float x1 = w.X1, y1 = w.Y1, x2 = w.X2, y2 = w.Y2;
-            float ex = x2 - x1, ey = y2 - y1;
-            float den = dx * ey - dy * ex;
-            if (MathF.Abs(den) < 1e-6f) continue;
-            float t = ((x1 - ox) * ey - (y1 - oy) * ex) / den;
-            float s = ((x1 - ox) * dy - (y1 - oy) * dx) / den;
-            if (t <= 1f || s < 0f || s > 1f) continue;
-            outHits.Add(new Hit {
-                Wall = w, Dist = t, Along = s * MathF.Sqrt(ex * ex + ey * ey),
-                Right = (ex * (oy - y1) - ey * (ox - x1)) > 0f
-            });
-        }
-        outHits.Sort((p, q) => p.Dist.CompareTo(q.Dist));
+            int c = p.Dist.CompareTo(q.Dist);
+            return c != 0 ? c : p.Wall.Num.CompareTo(q.Wall.Num);
+        });
+    }
+
+    static void TestWall(RooWall w, float ox, float oy, float dx, float dy, List<Hit> outHits)
+    {
+        float x1 = w.X1, y1 = w.Y1, x2 = w.X2, y2 = w.Y2;
+        float ex = x2 - x1, ey = y2 - y1;
+        float den = dx * ey - dy * ex;
+        if (MathF.Abs(den) < 1e-6f) return;
+        float t = ((x1 - ox) * ey - (y1 - oy) * ex) / den;
+        float s = ((x1 - ox) * dy - (y1 - oy) * dx) / den;
+        if (t <= 1f || s < 0f || s > 1f) return;
+        outHits.Add(new Hit {
+            Wall = w, Dist = t, Along = s * MathF.Sqrt(ex * ex + ey * ey),
+            Right = (ex * (oy - y1) - ey * (ox - x1)) > 0f
+        });
     }
     static float Area(RooSubSector l)
     {

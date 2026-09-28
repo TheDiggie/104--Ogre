@@ -10,6 +10,7 @@
          that actually ships, not a copy of it. -->
     <Compile Include="../../MobileClient/Renderer.cs" Link="Renderer.cs" />
     <Compile Include="../../MobileClient/M59Geo.cs" Link="M59Geo.cs" />
+    <Compile Include="../../MobileClient/WallGrid.cs" Link="WallGrid.cs" />
     <ProjectReference Include="../../Meridian59/net8.csproj" />
   </ItemGroup>
 </Project>

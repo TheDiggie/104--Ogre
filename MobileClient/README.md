@@ -43,20 +43,27 @@ confirmed byte-identical.
 
 ## Known limits
 
-- **Speed.** Wall casting is brute force over every wall in the room, so
-  the internal resolution is low (`RenderWidth`, default 480) and scaled
-  up. The BSP tree is already loaded and is the obvious fix.
+- **Speed.** A uniform spatial grid (`WallGrid.cs`) means a ray only
+  tests walls in the cells it crosses. Verified exhaustively: all 362
+  rooms render **pixel-identical** to testing every wall, 12 camera
+  angles each.
 
-  Measured on desktop x64, release build, renderer only:
+  Desktop x64, release, renderer only:
 
-  | room     | walls | 480x270 | 960x540 |
-  |----------|-------|---------|---------|
-  | barinn   |   158 |  77 fps |  85 fps |
-  | kc4      |   682 | 277 fps |  69 fps |
-  | dvalley1 |  1699 |  73 fps |  35 fps |
+  | | median | worst | worst room |
+  |---|--------|-------|------------|
+  | 480x270 | 0.81 ms | 4.6 ms (218 fps) | a5 |
+  | 960x540 | 2.86 ms | 13.4 ms (75 fps) | d6e6ulake |
 
-  A phone is several times slower than this, so expect the worst case to
-  be uncomfortable at 480 wide and to need the BSP before it is smooth.
+  The grid is worth 3-14x on wall-heavy rooms - GreenPlantation's 6540
+  walls went 38.1 ms to 2.8 ms. At 960x540 the bottleneck has moved off
+  walls entirely and onto per-pixel floor and ceiling filling, which is
+  why a 195-wall guild hall is now among the slowest. That is where the
+  next optimisation belongs, not in the caster.
+
+  A phone is several times slower, so 480 wide is still the sensible
+  default.
+
 - **No collision.** Movement is rejected if the destination is not
   inside a sector; that is all.
 - **No objects, monsters or players.** Those arrive from the server and
