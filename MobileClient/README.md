@@ -27,8 +27,12 @@ lists the paths it tried.
 
 ## Scenes
 
-- `FirstPerson.tscn` (the main scene) - first-person textured view.
-  WASD to move, arrows or drag to turn.
+- `FirstPerson.tscn` (the main scene) - first-person textured view, no
+  server needed. The **Rooms** button lists every `.roo` in the resource
+  folder with a filter box, so all 362 rooms are walkable from inside
+  the app rather than by editing the scene. This is the build worth
+  sideloading first: Meridian on a phone with no account and nothing to
+  connect to.
 - `Game.tscn` - the live view: connects to the server and renders the
   room the avatar is in. Moves and turns are sent to the server.
 - `Main.tscn` - top-down map: textured floors per BSP leaf, walls over

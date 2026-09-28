@@ -40,6 +40,7 @@ public partial class FirstPersonView : Node2D
 
     readonly M59Assets _assets = new M59Assets();
     readonly TouchControls _touch = new TouchControls();
+    RoomPicker _picker;
     Renderer _renderer;
     RooFile _roo;
 
@@ -71,22 +72,43 @@ public partial class FirstPersonView : Node2D
 
         if (!_assets.Init(dir)) { Fail(_assets.Error); return; }
 
-        string path = Path.Combine(dir, RoomFile);
-        if (!File.Exists(path)) { Fail($"Room not found:\n{path}"); return; }
+        _picker = new RoomPicker();
+        _picker.Chosen += f => LoadRoom(f);
+        AddChild(_picker);
+        _picker.Load(dir);
 
-        try
-        {
-            _roo = new RooFile(path);
-            _roo.ResolveResources(_assets.Resources);
-        }
-        catch (Exception e) { Fail($"{RoomFile}: {e.GetType().Name}: {e.Message}"); return; }
+        if (!LoadRoom(RoomFile)) return;
 
-        _renderer = new Renderer(_roo, new TexCache(_assets.Resources));
-        PlaceCameraInLargestLeaf();
-        AddDemoSprites();
         Resize();
         GetViewport().SizeChanged += Resize;
         SetProcess(true);
+    }
+
+    /// <summary>
+    /// Swaps in a room by file name. Everything derived from the old one -
+    /// renderer, textures, camera, demo sprites - is rebuilt, so this is
+    /// also what the room picker calls.
+    /// </summary>
+    public bool LoadRoom(string file)
+    {
+        string path = Path.Combine(_assets.ResourceDir, file);
+        if (!File.Exists(path)) { Fail($"Room not found:\n{path}"); return false; }
+
+        try
+        {
+            var roo = new RooFile(path);
+            roo.ResolveResources(_assets.Resources);
+            _roo = roo;
+        }
+        catch (Exception e) { Fail($"{file}: {e.GetType().Name}: {e.Message}"); return false; }
+
+        RoomFile = file;
+        _renderer = new Renderer(_roo, new TexCache(_assets.Resources));
+        PlaceCameraInLargestLeaf();
+        AddDemoSprites();
+        SetProcess(true);
+        if (_status != null) _status.Text = "";
+        return true;
     }
 
     void Fail(string msg)
