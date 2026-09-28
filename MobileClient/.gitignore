@@ -1,6 +1,8 @@
 .godot/
 .mono/
+.vs/
 bin/
 obj/
 *.user
 export_presets.cfg
+*.uid
