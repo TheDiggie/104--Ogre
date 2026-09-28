@@ -287,6 +287,10 @@ public partial class FirstPersonView : Node2D
         // Scrolling water, lava and moving walls run off this.
         _clock += (float)delta;
         _renderer.Time = _clock;
+        // No server here, so this view drives the room's own animations -
+        // the flicker of an animated wall texture, and any lift. The live
+        // view gets this from BaseClient.Update, which ticks the room.
+        try { _roo.Tick(_clock * 1000.0, delta * 1000.0); } catch { }
         _map?.SetPlayer(_camX, _camY, _angle);
 
         _fpsAccum += delta; _frames++;

@@ -388,6 +388,26 @@ confirmed byte-identical.
   directions onto texture axes is a sign convention, and nothing here
   can check it. If a river runs backwards in game it is one line.
 
+- **Animated wall textures.** 55 rooms have a sidedef with an animation
+  on it, and this renderer showed frame 0 of every one - a torch that
+  never flickers. The library drives these by moving the sidedef's
+  animation to another group and picking a different frame of the *same*
+  file (`RooSideDef` does `GetFrameIndex(animation.CurrentGroup, 0)`),
+  so the texture cache is now keyed on file and frame rather than file
+  alone. The live view gets the animation ticked by
+  `BaseClient.Update`; the offline view ticks the room itself, since
+  there is no server to do it.
+
+  `Net8RenderCheck -- anim` reports honestly that none of those 55
+  rooms' art is in the resource folder here, so it cannot show a room
+  animating. It checks the mechanism directly instead: of the 6
+  multi-frame textures that *are* present, all 6 hand back a different
+  picture for a different animation group.
+
+  Sector animations are heights, not textures - lifts and moving floors.
+  Those already work in the live view, because the renderer reads a
+  sector's height fresh every frame.
+
 - **Sector lighting is not implemented**, and shading is distance fog
   alone. The data is there: `RooSector.Light1`, where 0-127 means the
   sector lights itself (brightness `Light1 / 128`, so 0 is black and 127

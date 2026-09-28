@@ -319,14 +319,24 @@ public sealed class TexCache
     // Read from several render threads at once; the fast path has to be
     // lock-free, and decoding is serialised because ResourceManager is not
     // itself known to be thread-safe.
-    readonly ConcurrentDictionary<ushort, Tex> _c = new ConcurrentDictionary<ushort, Tex>();
+    readonly ConcurrentDictionary<long, Tex> _c = new ConcurrentDictionary<long, Tex>();
     readonly object _buildLock = new object();
     public TexCache(ResourceManager rm) { _rm = rm; }
     public int Count => _c.Count;
 
-    readonly ConcurrentDictionary<ushort, Tex> _masked = new ConcurrentDictionary<ushort, Tex>();
+    readonly ConcurrentDictionary<long, Tex> _masked = new ConcurrentDictionary<long, Tex>();
 
-    public Tex Get(ushort num) => Get(num, _c, false);
+    /// <summary>The still texture, which is what floors and ceilings use.</summary>
+    public Tex Get(ushort num) => Get(num, 1, _c, false);
+
+    /// <summary>
+    /// A wall texture at its current animation group. 118 sidedefs across
+    /// the rooms carry WF_HAS_ANIMATED, and the library drives them by
+    /// picking a different frame of the same file - see RooSideDef, which
+    /// does GetFrameIndex(animation.CurrentGroup, 0). Frame 0 every time
+    /// is a torch that never flickers.
+    /// </summary>
+    public Tex Get(ushort num, ushort group) => Get(num, group, _c, false);
 
     /// <summary>
     /// Same texture with its transparency kept, for the walls that are
@@ -337,23 +347,41 @@ public sealed class TexCache
     /// No mip chain, for the same reason sprites have none: averaging
     /// across transparent texels bleeds the key colour into the edges.
     /// </summary>
-    public Tex GetMasked(ushort num) => Get(num, _masked, true);
+    public Tex GetMasked(ushort num, ushort group = 1) => Get(num, group, _masked, true);
 
-    Tex Get(ushort num, ConcurrentDictionary<ushort, Tex> cache, bool masked)
+    Tex Get(ushort num, ushort group, ConcurrentDictionary<long, Tex> cache, bool masked)
     {
         if (num == 0) return null;
-        if (cache.TryGetValue(num, out Tex t)) return t;
+
+        // Keyed on the file and the frame, so an animated wall does not
+        // rebuild its texture every time the group comes round again.
+        BgfFile bgf = null;
+        int frame = 0;
+        if (group > 1)
+        {
+            try
+            {
+                bgf = _rm.GetRoomTexture(num);
+                if (bgf != null) frame = bgf.GetFrameIndex(group, 0);
+                if (frame < 0) frame = 0;
+            }
+            catch { }
+        }
+
+        long key = ((long)num << 20) | (uint)frame;
+        if (cache.TryGetValue(key, out Tex t)) return t;
         lock (_buildLock)
         {
-            if (cache.TryGetValue(num, out t)) return t;
+            if (cache.TryGetValue(key, out t)) return t;
             Tex built = null;
             try
             {
-                var bgf = _rm.GetRoomTexture(num);
-                built = masked ? Tex.FromSprite(bgf) : Tex.From(bgf);
+                bgf ??= _rm.GetRoomTexture(num);
+                if (frame >= (bgf?.Frames.Count ?? 0)) frame = 0;
+                built = masked ? Tex.FromSprite(bgf, frame) : Tex.From(bgf, frame);
             }
             catch { }
-            cache[num] = built;
+            cache[key] = built;
             return built;
         }
     }

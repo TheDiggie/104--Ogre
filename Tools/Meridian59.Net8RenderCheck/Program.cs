@@ -10,6 +10,7 @@ using Meridian59.Files;using Meridian59.Files.ROO;using Meridian59.Common.Enums;
 //   dotnet run --project . -- grate      <resourceDir>
 //   dotnet run --project . -- slope      <resourceDir>
 //   dotnet run --project . -- scroll     <resourceDir>
+//   dotnet run --project . -- anim       <resourceDir>
 //   dotnet run --project . -- all     <resourceDir>
 static class RenderCheck
 {
@@ -35,6 +36,7 @@ static class RenderCheck
         if (mode == "grate"   || mode == "all") bad += Grate(dir);
         if (mode == "slope"   || mode == "all") bad += SlopeMath(dir);
         if (mode == "scroll"  || mode == "all") bad += Scrolling(dir);
+        if (mode == "anim"    || mode == "all") bad += Animated(dir);
         return bad == 0 ? 0 : 1;
     }
 
@@ -420,5 +422,109 @@ static class RenderCheck
         // exists, not that it moves everywhere.
         Console.WriteLine(roomsMoving > 0 ? "OK" : "PROBLEM");
         return roomsMoving > 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Animated wall textures. The library drives these by moving the
+    /// sidedef's animation to another group and picking a different frame
+    /// of the same file; this renderer used frame 0 every time, which is a
+    /// torch that never flickers.
+    ///
+    /// Renders a room, ticks it forward, renders again, and counts the
+    /// rooms whose picture changes.
+    /// </summary>
+    static int Animated(string dir)
+    {
+        var rm = new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
+        const int W = 320, H = 180;
+        int roomsWith = 0, roomsWithArt = 0, roomsMoving = 0;
+
+        foreach (string path in Directory.GetFiles(dir, "*.roo").OrderBy(x=>x))
+        {
+            RooFile roo;
+            try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
+
+            var animated = roo.SideDefs.Where(sd => sd.Animation != null).ToList();
+            if (animated.Count == 0) continue;
+            roomsWith++;
+
+            var tcx = new TexCache(rm);
+            bool haveArt = false;
+            foreach (var sd in animated)
+                foreach (ushort n in new[]{ sd.MiddleTexture, sd.UpperTexture, sd.LowerTexture })
+                {
+                    if (n == 0) continue;
+                    try { var b = rm.GetRoomTexture(n); if (b != null && b.Frames.Count > 1) haveArt = true; }
+                    catch { }
+                }
+            if (haveArt) roomsWithArt++;
+
+            var r = new Renderer(roo, tcx);
+            bool moved = false;
+
+            foreach (var leaf in roo.BSPTreeLeaves
+                     .Where(l=>l.Vertices!=null&&l.Vertices.Count>=3&&l.Sector!=null)
+                     .OrderByDescending(l=>{double s3=0;var v=l.Vertices;
+                        for(int i=0,j=v.Count-1;i<v.Count;j=i++) s3+=(double)v[j].X*v[i].Y-(double)v[i].X*v[j].Y;
+                        return Math.Abs(s3*.5);}).Take(10))
+            {
+                if (moved) break;
+                float cx = leaf.Vertices.Average(v=>(float)v.X), cy = leaf.Vertices.Average(v=>(float)v.Y);
+                var sec = r.SectorAtPoint(cx, cy);
+                if (sec == null) continue;
+                float cz = M59Geo.FloorXY(sec) + Renderer.EyeHeight;
+
+                for (int k = 0; k < 8 && !moved; k++)
+                {
+                    float ang = k * MathF.PI / 4f;
+                    var a0 = new uint[W*H]; r.Render(a0, W,H, cx,cy,cz, ang);
+                    // Walk the room's clock forward past any plausible
+                    // animation period.
+                    for (int step = 1; step <= 40; step++)
+                        try { roo.Tick(step * 250.0, 250.0); } catch { }
+                    var a1 = new uint[W*H]; r.Render(a1, W,H, cx,cy,cz, ang);
+                    for (int i = 0; i < a0.Length; i++)
+                        if (a0[i] != a1[i]) { moved = true; break; }
+                }
+            }
+            if (moved) roomsMoving++;
+        }
+
+        // The rooms that animate mostly want art that is not in a partial
+        // resource folder, so the mechanism is also checked directly: a
+        // multi-frame texture must give a different picture for a
+        // different animation group. That is this renderer's own code
+        // path, independent of which rooms happen to be installed.
+        int multi = 0, distinct = 0;
+        var tc2 = new TexCache(rm);
+        foreach (string f in Directory.GetFiles(dir, "grd*.bgf").OrderBy(x=>x))
+        {
+            if (!ushort.TryParse(Path.GetFileNameWithoutExtension(f).Substring(3), out ushort num)) continue;
+            Meridian59.Files.BGF.BgfFile b;
+            try { b = rm.GetRoomTexture(num); } catch { continue; }
+            if (b == null || b.Frames.Count < 2 || b.FrameSets.Count < 2) continue;
+            multi++;
+
+            var byGroup = new HashSet<string>();
+            for (ushort g = 1; g <= Math.Min(4, b.FrameSets.Count); g++)
+            {
+                Tex t = tc2.Get(num, g);
+                if (t == null) continue;
+                // A cheap signature of the frame actually handed back.
+                long sum = 0;
+                for (int i = 0; i < t.P.Length; i += 37) sum += t.P[i];
+                byGroup.Add($"{t.W}x{t.H}:{sum}");
+            }
+            if (byGroup.Count > 1) distinct++;
+        }
+        Console.WriteLine($"  multi-frame textures present       : {multi}, of which {distinct} give a different picture per group");
+
+        Console.WriteLine($"  rooms with an animated sidedef     : {roomsWith}");
+        Console.WriteLine($"  of those, whose art has frames here: {roomsWithArt}");
+        Console.WriteLine($"  rooms where the picture changes    : {roomsMoving}");
+        bool roomsOk = roomsWithArt == 0 || roomsMoving > 0;
+        bool mechOk = multi == 0 || distinct > 0;
+        Console.WriteLine(roomsOk && mechOk ? "OK" : "PROBLEM");
+        return roomsOk && mechOk ? 0 : 1;
     }
 }

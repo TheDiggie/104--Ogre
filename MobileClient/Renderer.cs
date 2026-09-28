@@ -314,6 +314,9 @@ public sealed class Renderer
                 // UVs cannot be worked out until the texture is known - see
                 // DrawWall. What travels is the distance along the wall and
                 // the sidedef's offsets.
+                // Animated wall textures are a different frame of the same
+                // file, and the library keeps the group on the sidedef.
+                ushort texGroup = side?.Animation != null ? side.Animation.CurrentGroup : (ushort)1;
                 int xOff = h.Right ? h.Wall.RightXOffset : h.Wall.LeftXOffset;
                 int yOff = h.Right ? h.Wall.RightYOffset : h.Wall.LeftYOffset;
                 float fog = MathF.Min(1f, FogFar / perp);
@@ -326,7 +329,7 @@ public sealed class Renderer
                 if (far == null)
                 {
                     DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc,
-                             side != null ? _tex.Get(side.MiddleTexture) : null,
+                             side != null ? _tex.Get(side.MiddleTexture, texGroup) : null,
                              along, xOff, yOff, side != null && side.Flags.IsNormalTopDown,
                              fog, tpp, false, null, 0f, 0, side != null && side.Flags.IsNoVTile,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
@@ -352,7 +355,7 @@ public sealed class Renderer
 
                     if (!seeThrough)
                     {
-                        Tex mid = _tex.Get(side.MiddleTexture);
+                        Tex mid = _tex.Get(side.MiddleTexture, texGroup);
                         if (mid != null)
                         {
                             DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid,
@@ -366,7 +369,7 @@ public sealed class Renderer
                     }
                     else
                     {
-                        Tex mid = _tex.GetMasked(side.MiddleTexture);
+                        Tex mid = _tex.GetMasked(side.MiddleTexture, texGroup);
                         if (mid != null)
                             sc.Masked.Add(new Masked {
                                 Sx = sx, Depth = perp,
@@ -386,7 +389,7 @@ public sealed class Renderer
                 {
                     int farCeilY = ScreenY(fc, camZ, horizon, proj, perp);
                     DrawWall(px, W, H, sx, yTop, Math.Min(yBot, farCeilY - 1), ceilY, farCeilY, fc, nc,
-                             side != null ? _tex.Get(side.UpperTexture) : null,
+                             side != null ? _tex.Get(side.UpperTexture, texGroup) : null,
                              along, xOff, yOff, side == null || !side.Flags.IsAboveBottomUp,
                              fog, tpp, false, null, 0f, 0, false,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
@@ -398,7 +401,7 @@ public sealed class Renderer
                 {
                     int farFloorY = ScreenY(ff, camZ, horizon, proj, perp);
                     DrawWall(px, W, H, sx, Math.Max(yTop, farFloorY), yBot, farFloorY, floorY, nf, ff,
-                             side != null ? _tex.Get(side.LowerTexture) : null,
+                             side != null ? _tex.Get(side.LowerTexture, texGroup) : null,
                              along, xOff, yOff, side != null && side.Flags.IsBelowTopDown,
                              fog, tpp, false, null, 0f, 0, false,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
