@@ -37,6 +37,7 @@ static class RenderCheck
         if (mode == "slope"   || mode == "all") bad += SlopeMath(dir);
         if (mode == "scroll"  || mode == "all") bad += Scrolling(dir);
         if (mode == "anim"    || mode == "all") bad += Animated(dir);
+        if (mode == "anchor"  || mode == "all") Anchor(dir);
         return bad == 0 ? 0 : 1;
     }
 
@@ -181,6 +182,97 @@ static class RenderCheck
     /// pass/fail, and the number that matters alongside it is that letting
     /// people see through fences does not leave columns unclosed.
     /// </summary>
+    /// <summary>
+    /// What per-leaf flat anchoring is actually worth, in pixels.
+    ///
+    /// The library measures a floor's texture from the leaf's own top-left
+    /// corner rather than from the world origin, which only differs for a
+    /// leaf reaching into negative coordinates - 8573 leaves of 162787,
+    /// and 5404 of those by a fraction of a texture. Counting leaves says
+    /// nothing about whether you can see it, so this stands on each
+    /// anchored leaf and renders the room both ways.
+    /// </summary>
+    static void Anchor(string dir)
+    {
+ var rm=new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
+ const int W=480,H=270;
+ var best=new List<(double pct,string room,float x,float y,float deg)>();
+ int roomsWith=0, roomsChecked=0, views=0; double totalPct=0;
+
+ foreach(string p in Directory.GetFiles(dir,"*.roo").OrderBy(x=>x)){
+  RooFile roo; try{ roo=new RooFile(p); roo.ResolveResources(rm);}catch{continue;}
+  var anchors=new FlatAnchors(roo);
+  if(anchors.Empty) continue;
+  roomsChecked++;
+
+  var r=new Renderer(roo,new TexCache(rm));
+
+  // stand on the leaves that actually anchor elsewhere
+  var stand=new List<(float x,float y)>();
+  foreach(var leaf in roo.BSPTreeLeaves){
+   if(leaf.Vertices==null||leaf.Vertices.Count<3) continue;
+   float left=0f,top=0f;
+   foreach(var v in leaf.Vertices){ if(v.X<left) left=(int)v.X; if(v.Y<top) top=(int)v.Y; }
+   if(left==0f&&top==0f) continue;
+   if(MathF.Abs(left%1024f)<0.5f&&MathF.Abs(top%1024f)<0.5f) continue;   // whole textures do not move
+   stand.Add((leaf.Vertices.Average(v=>(float)v.X), leaf.Vertices.Average(v=>(float)v.Y)));
+   if(stand.Count>=8) break;
+  }
+  if(stand.Count==0) continue;
+
+  double worst=0; float bx=0,by=0,bd=0;
+  foreach(var (cx,cy) in stand){
+   var sec=r.SectorAtPoint(cx,cy); if(sec==null) continue;
+   float cz=M59Geo.FloorXY(sec)+Renderer.EyeHeight;
+   for(int k=0;k<8;k++){
+    float ang=k*MathF.PI/4f;
+    var off=new uint[W*H]; r.LeafAnchoredFlats=false; r.Render(off,W,H,cx,cy,cz,ang);
+    var on =new uint[W*H]; r.LeafAnchoredFlats=true;  r.Render(on ,W,H,cx,cy,cz,ang);
+    views++;
+    int d=0; for(int i=0;i<off.Length;i++) if(off[i]!=on[i]) d++;
+    double pct=100.0*d/off.Length;
+    totalPct+=pct;
+    if(pct>worst){ worst=pct; bx=cx; by=cy; bd=ang*180f/MathF.PI; }
+   }
+  }
+  if(worst>0.01){ roomsWith++; best.Add((worst,Path.GetFileName(p),bx,by,bd)); }
+ }
+
+ // What it costs. A bbox test per flat pixel everywhere, and a point in
+ // polygon test only inside the anchored leaves' own bounding box, so the
+ // rooms to time are the ones that actually have some.
+ {
+  // The worst case rather than the first case: the room and spot where
+  // the anchoring changed the most pixels, so the lookup is running on
+  // nearly every flat pixel drawn.
+  RooFile timed=null; float tx=0,ty=0;
+  var hot=best.OrderByDescending(x=>x.pct).FirstOrDefault();
+  if(hot.room!=null){
+   try{ timed=new RooFile(Path.Combine(dir,hot.room)); timed.ResolveResources(rm);
+        tx=hot.x; ty=hot.y; }catch{ timed=null; }
+  }
+  if(timed!=null){
+   var r2=new Renderer(timed,new TexCache(rm));
+   var px=new uint[W*H];
+   var sec2=r2.SectorAtPoint(tx,ty);
+   float cz2=(sec2!=null?M59Geo.FloorXY(sec2):0f)+Renderer.EyeHeight;
+   for(int w2=0;w2<20;w2++){ r2.LeafAnchoredFlats=false; r2.Render(px,W,H,tx,ty,cz2,0f);
+                             r2.LeafAnchoredFlats=true;  r2.Render(px,W,H,tx,ty,cz2,0f); }
+   var sw=System.Diagnostics.Stopwatch.StartNew();
+   for(int i2=0;i2<60;i2++){ r2.LeafAnchoredFlats=false; r2.Render(px,W,H,tx,ty,cz2,0f); }
+   double offMs=sw.Elapsed.TotalMilliseconds/60.0; sw.Restart();
+   for(int i2=0;i2<60;i2++){ r2.LeafAnchoredFlats=true; r2.Render(px,W,H,tx,ty,cz2,0f); }
+   double onMs=sw.Elapsed.TotalMilliseconds/60.0;
+   Console.WriteLine($"  cost in {hot.room} at its worst view: {offMs:F2} ms at the origin, {onMs:F2} ms per leaf ({(onMs/Math.Max(0.0001,offMs)-1)*100:F0}% more)");
+  }
+ }
+
+ Console.WriteLine($"{roomsChecked} rooms have leaves anchored away from the origin; {roomsWith} where it changes the picture");
+ Console.WriteLine($"  {views} views, {totalPct/Math.Max(1,views):F2}% of pixels different on average");
+ foreach(var b in best.OrderByDescending(x=>x.pct).Take(10))
+  Console.WriteLine($"  {b.pct,6:F1}% of pixels  {b.room,-22} {b.x:F0} {b.y:F0} {b.deg:F0}");
+    }
+
     static void SeeThrough(string dir)
     {
  var rm=new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);

@@ -34,6 +34,12 @@ static class Fpv
         rm.Init(dir, dir, dir, dir, dir, dir, dir);
         var roo = new RooFile(Path.Combine(dir, roomFile));
         roo.ResolveResources(rm);
+        if (flags.Contains("--anchordbg"))
+        {
+            var fa = new FlatAnchors(roo);
+            Console.WriteLine($"anchored leaves in this room: {fa.Count}");
+            for (int i = 0; i < 5 && i + 3 < a.Length; i++) { }
+        }
         var tc = new TexCache(rm);
         var r = new Renderer(roo, tc);
         // --solid renders grates and railings as solid walls, which is what
@@ -41,6 +47,10 @@ static class Fpv
         if (flags.Contains("--solid")) r.SeeThroughWalls = false;
         // --noflip ignores WF_BACKWARDS, for comparing.
         if (flags.Contains("--noflip")) r.HonourBackwards = false;
+        // --worldflats anchors floors and ceilings at the world origin,
+        // which is what this renderer did before it read
+        // RooSubSector.UpdateVertexUV. For comparing.
+        if (flags.Contains("--worldflats")) r.LeafAnchoredFlats = false;
         // --time <seconds> advances scrolling floors and walls.
         int ti = Array.IndexOf(flags, "--time");
         if (ti >= 0 && ti + 1 < flags.Length) r.Time = float.Parse(flags[ti + 1]);

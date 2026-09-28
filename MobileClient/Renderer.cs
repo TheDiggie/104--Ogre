@@ -107,6 +107,14 @@ public sealed class Renderer
     readonly RooFile _roo;
     readonly TexCache _tex;
     readonly WallGrid _grid;
+    readonly FlatAnchors _anchors;
+
+    /// <summary>
+    /// Anchor floor and ceiling textures per leaf, as the game does, and
+    /// not at the world origin. Off reproduces what this renderer did
+    /// before, which is what the reference renders were taken with.
+    /// </summary>
+    public bool LeafAnchoredFlats { get; set; } = true;
     Scratch[] _scratch = Array.Empty<Scratch>();
     readonly List<Masked> _order = new List<Masked>(256);
     float[] _spriteDepth;
@@ -224,6 +232,7 @@ public sealed class Renderer
     {
         _roo = roo; _tex = tex;
         _grid = new WallGrid(roo);
+        _anchors = new FlatAnchors(roo);
     }
 
     public RooSector SectorAtPoint(float x, float y) => SectorAt(_roo, x, y);
@@ -338,10 +347,10 @@ public sealed class Renderer
 
                 FillFlat(px, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
-                         NoFlats, NoSample, Time);
+                         NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null);
                 FillFlat(px, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
-                         NoFlats, NoSample, Time);
+                         NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null);
 
                 yTop = Math.Max(yTop, ceilY);
                 yBot = Math.Min(yBot, floorY);
@@ -794,7 +803,7 @@ public sealed class Renderer
     static void FillFlat(uint[] px, int W, int H, int sx, int y0, int y1, bool ceiling,
                          RooSector sec, float camX, float camY, float camZ,
                          float horizon, float proj, float angle, float rayA, TexCache tc,
-                         bool skip, bool noSample, float time)
+                         bool skip, bool noSample, float time, FlatAnchors anchors)
     {
         if (sec == null || skip) return;
         if (y0 < 0) y0 = 0;
@@ -861,10 +870,18 @@ public sealed class Renderer
             // The per-sector offset comes from there too, and was ignored:
             // 1420 of the 30806 sectors carry one, and their floors and
             // ceilings were sliding by up to a texture's width.
+            // The leaf's own corner, when it has one. See FlatAnchors:
+            // the library measures from there, not from the origin, and
+            // for a leaf sitting in positive coordinates the two are the
+            // same thing.
+            float anchorX = 0f, anchorY = 0f;
+            if (anchors != null && !anchors.Empty)
+                anchors.TryAnchor(wx, wy, out anchorX, out anchorY);
+
             px[y * W + sx] = Shade(
                 noSample ? t.P[0]
-                         : t.Sample((wy - texOffY) / M59Geo.Fineness + scrollU,
-                                    (wx - texOffX) / M59Geo.Fineness + scrollV, texelsPerPixel),
+                         : t.Sample((wy - anchorY - texOffY) / M59Geo.Fineness + scrollU,
+                                    (wx - anchorX - texOffX) / M59Geo.Fineness + scrollV, texelsPerPixel),
                 fog);
         }
     }

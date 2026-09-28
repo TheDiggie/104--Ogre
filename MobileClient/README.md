@@ -363,6 +363,43 @@ click; drag-to-rearrange is not built yet, so
   the original server - this does the same, so lamps and signs hang and
   no player dangles.
 
+- **Floors and ceilings anchor per leaf**, not at the world origin, which
+  is what `RooSubSector.UpdateVertexUV` does:
+
+      uv.X = |vertex.Y - top| - (TextureY << 4)
+      uv.Y = |vertex.X - left| - (TextureX << 4)
+      uv *= 1/1024
+
+  Two things worth keeping straight. The scale is a flat 1/1024 with no
+  shrink and no texture size in it - floors do **not** scale the way walls
+  do, and generalising the wall rule to them would have been wrong. And
+  `left` and `top` start at zero and are only ever lowered by a vertex, so
+  they are zero unless the leaf reaches into negative coordinates; that is
+  why anchoring at the origin looked right nearly everywhere.
+
+  Measured over the 362 rooms: 8573 leaves of 162787 anchor elsewhere, and
+  5404 of those - 3.32%, in 188 rooms - move by a fraction of a texture,
+  which is the only kind that shows. A whole texture's shift on a tiling
+  texture is no shift at all. Standing on each of those leaves and
+  rendering the room both ways, 44 rooms change: the valleys and sewers
+  worst, up to 80% of the pixels in `dvalley3`.
+
+  `FlatAnchors.cs` stores only the leaves that differ, in a grid over
+  their own bounding box, so a room entirely in positive coordinates costs
+  one comparison per pixel and nothing else. Even at the worst view in the
+  worst room the cost is inside the noise - 3.91 ms against 3.84.
+
+  Verified against the library's own numbers: 604,901 flat vertices in
+  154,001 unsloped leaves, all agreeing, 28,981 of them on leaves anchored
+  away from the origin; and the lookup by position - which is what the
+  renderer actually does, rather than being handed the leaf - finds the
+  right corner for all 7369 anchored leaves. `Tools/Meridian59.Net8Uv`
+  checks the arithmetic, `Tools/Meridian59.Net8RenderCheck anchor` counts
+  the pixels.
+
+  Sloped leaves are built from three points on the plane instead of a
+  corner and are left alone.
+
 - **Nine files of art cannot be decoded at all.** Frames come in two
   compressions: one the library undoes with .NET's own inflate, and
   CRUSH, which it can only undo by calling a proprietary `crush32.dll`

@@ -6,6 +6,7 @@
     <AssemblyName>Meridian59.Net8Uv</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../MobileClient/FlatAnchors.cs" Link="FlatAnchors.cs" />
     <ProjectReference Include="../../Meridian59/net8.csproj" />
   </ItemGroup>
 </Project>

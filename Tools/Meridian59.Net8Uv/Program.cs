@@ -71,4 +71,78 @@ static class Oracle{ static void Main(string[] a){
  Console.WriteLine($"  skipped, WF_NO_VTILE    : {vNoTile}");
  foreach(var kv in vBadBy.OrderByDescending(x=>x.Value).Take(6))
   Console.WriteLine($"   {kv.Value,6}  vertical {kv.Key}");
-}}
+
+ Flats(dir);
+}
+
+// RooSubSector.UpdateVertexUV is the authority on floor and ceiling UVs.
+// It fills FloorUV per leaf vertex, so every vertex of every leaf is a
+// place where this renderer's arithmetic can be checked outright rather
+// than argued about. What is checked is the whole rule: the fixed 1/1024
+// scale, the swap of X and Y, the sector offsets, and the per-leaf corner
+// that FlatAnchors exists to supply.
+static void Flats(string dir){
+ int leaves=0, verts=0, ok=0, bad=0, anchoredLeaves=0, anchoredVerts=0;
+ int lookups=0, lookupOk=0, lookupMiss=0;
+ string worst=""; double worstErr=0; string lookupWorst="";
+
+ foreach(string f in Directory.GetFiles(dir,"*.roo").OrderBy(x=>x)){
+  RooFile roo; try{ roo=new RooFile(f); }catch{ continue; }
+  var anchors=new FlatAnchors(roo);
+
+  foreach(RooSubSector leaf in roo.BSPTreeLeaves){
+   if(leaf.Vertices==null||leaf.Vertices.Count<3||leaf.Sector==null) continue;
+   // Sloped leaves are built from three points on the plane rather than
+   // a corner, which is a different construction and not what
+   // FlatAnchors is about.
+   if(leaf.Sector.SlopeInfoFloor!=null) continue;
+
+   leaf.UpdateVertexUV(true);
+   if(leaf.FloorUV==null||leaf.FloorUV.Length!=leaf.Vertices.Count) continue;
+   leaves++;
+
+   // the leaf's own corner, by the library's arithmetic
+   float left=0f, top=0f;
+   foreach(var v in leaf.Vertices){ if(v.X<left) left=(int)v.X; if(v.Y<top) top=(int)v.Y; }
+   bool off0 = left!=0f||top!=0f;
+   if(off0) anchoredLeaves++;
+
+   // 1. the rule itself, at every vertex
+   float texOffX=leaf.Sector.TextureX*16f, texOffY=leaf.Sector.TextureY*16f;
+   for(int i=0;i<leaf.Vertices.Count;i++){
+    float vx=leaf.Vertices[i].X, vy=leaf.Vertices[i].Y;
+    float u=(vy-top-texOffY)/1024f;
+    float v=(vx-left-texOffX)/1024f;
+
+    verts++; if(off0) anchoredVerts++;
+    double du=Math.Abs(u-leaf.FloorUV[i].X), dv=Math.Abs(v-leaf.FloorUV[i].Y);
+    double err=Math.Max(du,dv);
+    if(err<0.001) ok++;
+    else{ bad++; if(err>worstErr){ worstErr=err; worst=$"{Path.GetFileName(f)} vertex ({vx},{vy}) mine {u:F3},{v:F3} library {leaf.FloorUV[i].X:F3},{leaf.FloorUV[i].Y:F3}"; } }
+   }
+
+   // 2. the lookup, at a point inside the leaf rather than on its edge -
+   //    a vertex is exactly where a crossing count is undecided, and the
+   //    renderer never asks about one.
+   if(!off0) continue;
+   double cx=0, cy=0;
+   foreach(var v in leaf.Vertices){ cx+=v.X; cy+=v.Y; }
+   cx/=leaf.Vertices.Count; cy/=leaf.Vertices.Count;
+
+   lookups++;
+   if(anchors.TryAnchor((float)cx,(float)cy,out float ax,out float ay) && ax==left && ay==top) lookupOk++;
+   else{ lookupMiss++; if(lookupWorst=="") lookupWorst=$"{Path.GetFileName(f)} leaf centred ({cx:F0},{cy:F0}) wants {left},{top}"; }
+  }
+ }
+
+ Console.WriteLine($"{verts} flat vertices in {leaves} unsloped leaves compared against the library's own UVs");
+ Console.WriteLine($"  agrees                  : {ok}");
+ Console.WriteLine($"  disagrees               : {bad}");
+ Console.WriteLine($"  on leaves anchored away from the origin: {anchoredVerts} vertices in {anchoredLeaves} leaves");
+ if(bad>0) Console.WriteLine($"  worst: {worst} (off by {worstErr:F3})");
+ Console.WriteLine($"{lookups} anchored leaves looked up by position, as the renderer does");
+ Console.WriteLine($"  found the right corner  : {lookupOk}");
+ Console.WriteLine($"  missed                  : {lookupMiss}");
+ if(lookupMiss>0) Console.WriteLine($"  first miss: {lookupWorst}");
+}
+}

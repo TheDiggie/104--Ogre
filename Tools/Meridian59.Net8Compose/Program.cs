@@ -6,6 +6,7 @@ using Meridian59.Common;
 using Meridian59.Data.Models;
 using Meridian59.Drawing2D;
 using Meridian59.Files.BGF;
+using Meridian59.Files.ROO;
 
 /// <summary>
 /// Checks the object composer against things that can be known without a
@@ -22,10 +23,11 @@ static class Program
 
     static void Main(string[] args)
     {
-        bool mode = args.Length > 0 && (args[0] == "probe" || args[0] == "crush" || args[0] == "sheet" || args[0] == "items" || args[0] == "icons");
+        bool mode = args.Length > 0 && (args[0] == "probe" || args[0] == "crush" || args[0] == "sheet" || args[0] == "items" || args[0] == "icons" || args[0] == "anchors");
         if (args.Length > 0 && !mode) dir = args[0];
         if (args.Length > 0 && args[0] == "probe") { Probe(); return; }
         if (args.Length > 0 && args[0] == "icons") { Icons(args.Skip(1).ToArray()); return; }
+        if (args.Length > 0 && args[0] == "anchors") { Anchors(args.Length > 1 ? args[1] : "/tmp/res"); return; }
         if (args.Length > 0 && args[0] == "crush") { Crush(args.Length > 1 ? args[1] : dir); return; }
         if (args.Length > 0 && args[0] == "sheet") { Sheet(args.Length > 1 ? args[1] : "compose.png"); return; }
         if (args.Length > 0 && args[0] == "items")
@@ -207,6 +209,77 @@ static class Program
 
         Png.Write(path, w, h, rgba);
         Console.WriteLine($"wrote {path} ({w}x{h})");
+    }
+
+    /// <summary>
+    /// How much the per-leaf flat anchoring actually matters. The library
+    /// measures a floor's UVs from the leaf's own top-left vertex
+    /// (RooSubSector.UpdateVertexUV), where this renderer measures from
+    /// the world origin. The two agree exactly when that corner is 0,0 -
+    /// and the library's own "left" and "top" start at zero and are only
+    /// ever lowered, so a leaf whose vertices are all positive anchors at
+    /// the origin like ours. Only leaves reaching into negative
+    /// coordinates differ. This counts them.
+    /// </summary>
+    static void Anchors(string where)
+    {
+        int rooms = 0, leaves = 0, off = 0, frac = 0, roomsAffected = 0;
+        var worst = new List<string>();
+
+        foreach (string f in Directory.GetFiles(where, "*.roo").OrderBy(x => x))
+        {
+            RooFile roo;
+            try { roo = new RooFile(f); } catch { continue; }
+            rooms++;
+            int roomOff = 0, roomFrac = 0, roomLeaves = 0;
+            float biggest = 0f; string stand = "";
+
+            foreach (RooSubSector leaf in roo.BSPTreeLeaves)
+            {
+                if (leaf.Vertices == null || leaf.Vertices.Count == 0) continue;
+                roomLeaves++;
+
+                // exactly the library's own arithmetic
+                float left = 0f, top = 0f;
+                foreach (var v in leaf.Vertices)
+                {
+                    if (v.X < left) left = (int)v.X;
+                    if (v.Y < top) top = (int)v.Y;
+                }
+                if (left == 0f && top == 0f) continue;
+                roomOff++;
+
+                // A shift of a whole texture is no shift at all: the
+                // pattern tiles every 1024 units, so only the remainder
+                // can move the picture.
+                float fx = MathF.Abs(left % 1024f), fy = MathF.Abs(top % 1024f);
+                if (fx > 0.5f || fy > 0.5f)
+                {
+                    roomFrac++;
+                    float shift = MathF.Max(fx, fy);
+                    if (shift > biggest)
+                    {
+                        biggest = shift;
+                        double cx = 0, cy = 0;
+                        foreach (var v in leaf.Vertices) { cx += v.X; cy += v.Y; }
+                        stand = $" stand at {cx / leaf.Vertices.Count:F0} {cy / leaf.Vertices.Count:F0}";
+                    }
+                }
+            }
+
+            leaves += roomLeaves; off += roomOff; frac += roomFrac;
+            if (roomFrac > 0)
+            {
+                roomsAffected++;
+                if (worst.Count < 8)
+                    worst.Add($"{Path.GetFileName(f)}: {roomFrac} of {roomOff} shifted leaves move the picture, by up to {biggest:F0} units ({biggest / 1024f:F2} of a texture),{stand}");
+            }
+        }
+
+        Console.WriteLine($"{rooms} rooms, {leaves} leaves");
+        Console.WriteLine($"{off} leaves ({100.0 * off / Math.Max(1, leaves):F2}%) anchor somewhere other than the origin");
+        Console.WriteLine($"of those, {frac} ({100.0 * frac / Math.Max(1, leaves):F2}% of all leaves) in {roomsAffected} rooms shift by a fraction of a texture, which is the only kind that shows");
+        foreach (string w in worst) Console.WriteLine("  " + w);
     }
 
     static void Icons(string[] files)
