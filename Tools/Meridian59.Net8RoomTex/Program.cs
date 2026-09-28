@@ -65,8 +65,9 @@ static class RoomTex
                 if (tex == null) return 0xFF2A2A30;
                 float wx = (fx - pad) / fit + minX + offX;
                 float wy = (fy - pad) / fit + minY + offY;
-                float u = wx / FINENESS, v = wy / FINENESS;
-                return tex.Sample(u, v);
+                // Axes swapped - Meridian's room textures run Y along
+                // world X. See MobileClient/Renderer.cs.
+                return tex.Sample(wy / FINENESS, wx / FINENESS);
             });
         }
 

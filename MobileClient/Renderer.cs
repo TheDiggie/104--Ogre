@@ -146,7 +146,14 @@ public sealed class Renderer
                 float f = (y - spanTopY) / span;                 // 0 at top of span
                 float worldH = spanTopH + f * (spanBotH - spanTopH);
                 float v = -worldH / M59Geo.Fineness;             // textures run upward
-                c = Shade(t.Sample(u, v), fog);
+                // Meridian stores room textures with the axes swapped
+                // relative to how they decode as an image: the texture's
+                // X axis runs UP the wall and its Y axis runs ALONG it.
+                // Verified against grd11065 (a panelled door) and grd02033
+                // (a hatch in mossy stone) - with u,v the masonry courses
+                // came out vertical and the banner's fleur-de-lis lay on
+                // their sides.
+                c = Shade(t.Sample(v, u), fog);
             }
             px[y * W + sx] = c;
         }
@@ -175,7 +182,9 @@ public sealed class Renderer
             float d = straight / MathF.Max(0.2f, cosFix);
             float wx = camX + rdx * d, wy = camY + rdy * d;
             float fog = MathF.Min(1f, FogFar / MathF.Max(straight, 1f));
-            px[y * W + sx] = Shade(t.Sample(wx / M59Geo.Fineness, wy / M59Geo.Fineness), fog);
+            // Same axis swap as walls - grd02011 is a floor of tall stone
+            // slabs and rendered as wide ones until y,x were used.
+            px[y * W + sx] = Shade(t.Sample(wy / M59Geo.Fineness, wx / M59Geo.Fineness), fog);
         }
     }
     static uint Shade(uint c, float f)

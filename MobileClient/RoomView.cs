@@ -150,8 +150,10 @@ public partial class RoomView : Node2D
                 {
                     V2 v = poly[i];
                     pts[i] = ToScreen(v.X, v.Y);
-                    uvs[i] = new Vector2((v.X + offX) / TextureScale,
-                                         (v.Y + offY) / TextureScale);
+                    // Axes swapped: Meridian's room textures run Y along
+                    // world X. See Renderer.cs for how this was pinned down.
+                    uvs[i] = new Vector2((v.Y + offY) / TextureScale,
+                                         (v.X + offX) / TextureScale);
                 }
 
                 Texture2D tex = sector != null ? _assets.RoomTexture(sector.FloorTexture) : null;
