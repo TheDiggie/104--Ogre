@@ -16,6 +16,9 @@ using Godot;
 /// </summary>
 public static class M59Paths
 {
+    /// <summary>A folder the player pointed us at, remembered between runs.</summary>
+    public const string SavedPathFile = "user://resource-path.txt";
+
     /// <summary>Where resources are unpacked to when they ship in the export.</summary>
     public const string UserResource = "user://resource";
     /// <summary>Where they sit inside the export, if bundled.</summary>
@@ -47,8 +50,43 @@ public static class M59Paths
         return false;
     }
 
+    /// <summary>
+    /// Remembers a folder the player chose, so being told once is enough.
+    /// Returns false if it does not look like a resource folder.
+    /// </summary>
+    public static bool Remember(string dir)
+    {
+        if (string.IsNullOrWhiteSpace(dir)) return false;
+        dir = dir.Trim().Trim('"');
+        if (!Directory.Exists(dir) || !HasContent(dir)) return false;
+
+        try
+        {
+            using Godot.FileAccess f = Godot.FileAccess.Open(SavedPathFile, Godot.FileAccess.ModeFlags.Write);
+            if (f == null) return true;          // usable now, just not remembered
+            f.StoreString(dir);
+        }
+        catch (Exception e) { GD.PrintErr($"[M59Paths] could not remember {dir}: {e.Message}"); }
+        return true;
+    }
+
+    static string Saved()
+    {
+        try
+        {
+            using Godot.FileAccess f = Godot.FileAccess.Open(SavedPathFile, Godot.FileAccess.ModeFlags.Read);
+            return f?.GetAsText()?.Trim();
+        }
+        catch { return null; }
+    }
+
     static IEnumerable<string> Candidates()
     {
+        // A folder the player pointed us at on an earlier run wins: they
+        // know where their install is and we evidently did not.
+        string saved = Saved();
+        if (!string.IsNullOrWhiteSpace(saved)) yield return saved;
+
         // Unpacked or user-supplied copy, on every platform.
         yield return ProjectSettings.GlobalizePath(UserResource);
 
@@ -134,8 +172,9 @@ public static class M59Paths
         sb.AppendLine("No Meridian resource folder found. Looked in:");
         foreach (string c in Candidates()) sb.AppendLine("  " + c);
         sb.AppendLine();
-        sb.AppendLine("Copy an installed client's 'resource' folder to:");
+        sb.AppendLine("Either copy an installed client's 'resource' folder to:");
         sb.AppendLine("  " + ProjectSettings.GlobalizePath(UserResource));
+        sb.AppendLine("or type where yours is below.");
         return sb.ToString();
     }
 }

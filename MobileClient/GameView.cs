@@ -47,6 +47,7 @@ public partial class GameView : Node2D
     /// draws above the rendered frame whatever order things were added in.
     /// </summary>
     CanvasLayer _ui;
+    ResourcePrompt _prompt;
     readonly List<string> _log = new List<string>();
 
     M59Client _client;
@@ -78,7 +79,23 @@ public partial class GameView : Node2D
         // the library, which reads with System.IO, can see any of it.
         M59Paths.UnpackIfNeeded(s => GD.Print("[M59] " + s));
         string dir = M59Paths.Resolve(ResourceDir);
-        if (dir == null) { Fail(M59Paths.NotFoundMessage()); return; }
+
+        if (dir == null)
+        {
+            // Asking beats stopping - see the note in FirstPersonView.
+            _prompt = new ResourcePrompt();
+            _prompt.Accepted += Start;
+            _ui.AddChild(_prompt);
+            _prompt.Ask(M59Paths.NotFoundMessage());
+            return;
+        }
+
+        Start(dir);
+    }
+
+    /// <summary>Everything that needs the resource folder, once it is known.</summary>
+    void Start(string dir)
+    {
         if (!_assets.Init(dir)) { Fail(_assets.Error); return; }
 
         string user = !string.IsNullOrWhiteSpace(Username)

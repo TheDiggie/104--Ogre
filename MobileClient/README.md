@@ -22,8 +22,14 @@ Assets are found by `M59Paths.Resolve`, which tries, in order:
 `%LOCALAPPDATA%\Meridian-104\resource`, `%LOCALAPPDATA%\Meridian59\resource`,
 `~/.meridian-104/resource`, and a `resource` folder next to the
 executable. Setting **Resource Dir** on the root node overrides all of
-it. If none of them has any `.roo` or `.bgf` in it the view says so and
-lists the paths it tried.
+it. A folder you typed on an earlier run wins over all of them.
+
+If none of them has any `.roo` or `.bgf` in it, the view asks rather
+than stopping: it lists the places it looked and gives you a box to type
+where yours actually is. What you type is checked for real room and
+bitmap files before it is accepted, and remembered in `user://` so the
+question is asked once. The places we look are guesses - installs move,
+and people keep them on other drives.
 
 ## Scenes
 
