@@ -15,10 +15,25 @@ folder:
 
     dotnet run -c Release --project Tools/Meridian59.Net8Units       -- <res>
     dotnet run -c Release --project Tools/Meridian59.Net8World       -- <res>
+    dotnet run -c Release --project Tools/Meridian59.Net8Uv          -- <res>
     dotnet run -c Release --project Tools/Meridian59.Net8RenderCheck -- all <res>
 
 Each ends in `OK`. The last one takes a few minutes; it renders all 362
-rooms twice and then 8.3 million pixels of sprite picking.
+rooms twice, then 8.3 million pixels of sprite picking, then the grate
+ordering and the slope algebra.
+
+What each is for, briefly:
+
+- **Units** - the height chain and the server-to-room coordinate
+  conversion, against the library's own second implementation.
+- **World** - the live client's data-model-to-renderer half, driven by
+  hand-built objects with no socket and no engine.
+- **Uv** - wall texture coordinates against `RooWall.GetVertexData`,
+  which is a port of the game's own `d3drender.c`.
+- **RenderCheck** - threaded output identical to single-threaded, tap
+  picking identical to what was drawn, grates covering what is behind
+  them and not what is in front, and the sloped-floor solve against a
+  bisection.
 
     dotnet run -c Release --project Tools/Meridian59.Net8Fpv \
         -- <res> barinn.roo shot.png --sprite duskrat.bgf
