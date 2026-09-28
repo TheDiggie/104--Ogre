@@ -128,8 +128,8 @@ public partial class FirstPersonView : Node2D
     void AddDemoSprites()
     {
         if (string.IsNullOrWhiteSpace(DemoSpriteBgf)) return;
-        Tex t = Tex.FromSprite(_assets.Resources.GetObject(DemoSpriteBgf));
-        if (t == null) { GD.PrintErr($"[FirstPersonView] could not load {DemoSpriteBgf}"); return; }
+        var bgf = _assets.Resources.GetObject(DemoSpriteBgf);
+        if (bgf == null) { GD.PrintErr($"[FirstPersonView] could not load {DemoSpriteBgf}"); return; }
 
         var rng = new Random(1);
         int placed = 0, attempts = 0;
@@ -143,7 +143,8 @@ public partial class FirstPersonView : Node2D
             if (sec == null) continue;
             _renderer.Sprites.Add(new Renderer.Sprite {
                 X = x, Y = y, BaseZ = M59Geo.FloorXY(sec),
-                Height = DemoSpriteHeight, Texture = t });
+                Height = DemoSpriteHeight, Bgf = bgf,
+                AngleUnits = (ushort)rng.Next(0, 4096), Group = 1 });
             placed++;
         }
         GD.Print($"[FirstPersonView] placed {placed} demo sprites");

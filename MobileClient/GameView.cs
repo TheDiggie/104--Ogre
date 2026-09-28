@@ -30,7 +30,6 @@ public partial class GameView : Node2D
 
     readonly M59Assets _assets = new M59Assets();
     readonly List<string> _log = new List<string>();
-    readonly Dictionary<BgfFile, Tex> _spriteCache = new Dictionary<BgfFile, Tex>();
 
     M59Client _client;
     Renderer _renderer;
@@ -134,7 +133,7 @@ public partial class GameView : Node2D
         _room = current;
         _roomTextures = new TexCache(_client.ResourceManager);
         _renderer = new Renderer(_room, _roomTextures);
-        _spriteCache.Clear();
+        _renderer.SpriteFrames.Clear();
         _state = $"in room {_client.Data.RoomInformation.RoomID}";
         GD.Print($"[M59] room -> {_room.Filename} ({_room.Walls.Count} walls)");
     }
@@ -155,20 +154,18 @@ public partial class GameView : Node2D
             if (o == null || o.Resource == null) continue;
             if (avatar != null && ReferenceEquals(o, avatar)) continue;   // don't draw ourselves
 
-            if (!_spriteCache.TryGetValue(o.Resource, out Tex t))
-            {
-                t = Tex.FromSprite(o.Resource);
-                _spriteCache[o.Resource] = t;
-            }
-            if (t == null) continue;
-
+            // Hand over the BGF rather than one frame: the renderer picks
+            // the frame per view from the object's facing, so creatures turn
+            // as you walk around them.
             _renderer.Sprites.Add(new Renderer.Sprite
             {
                 X = o.Position3D.X,
                 Y = o.Position3D.Z,          // world Y is Position3D.Z; Y is height
                 BaseZ = o.Position3D.Y,
                 Height = 640f,
-                Texture = t
+                Bgf = o.Resource,
+                AngleUnits = o.AngleUnits,
+                Group = o.Animation != null && o.Animation.CurrentGroup > 0 ? o.Animation.CurrentGroup : 1
             });
         }
     }

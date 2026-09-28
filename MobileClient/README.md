@@ -83,9 +83,15 @@ confirmed byte-identical.
   the edges. Verified: five sprites in a line at increasing distance
   scale correctly, and the one placed past the wall is not drawn.
 
-  There is nothing to populate the list yet - real objects come from the
-  server. Set **Demo Sprite Bgf** on the root node (e.g. `duskrat.bgf`)
-  to scatter a few around the room in the meantime.
+  The frame is chosen per view from the object's facing, so creatures
+  turn as you walk around them: a BGF holds a frame set per animation
+  group and one frame per direction inside it. Verified by orbiting a
+  fixed object - cyclopsX resolves 8 distinct frames around the circle,
+  Knight 8, duskrat 6 - and the exported frames are visibly different
+  views of the same creature.
+
+  Set **Demo Sprite Bgf** on the root node (e.g. `duskrat.bgf`) to
+  scatter a few around the room before the server is connected.
 
 - **The server connection exists** but has only been exercised against a
   stub. `M59Client` drives the login handshake; `Game.tscn` / `GameView`

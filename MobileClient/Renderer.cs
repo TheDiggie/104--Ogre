@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Meridian59.Common;
+using Meridian59.Common.Constants;
+using Meridian59.Files.BGF;
 using Meridian59.Files.ROO;
 
 /// <summary>
@@ -33,11 +35,26 @@ public sealed class Renderer
         public float BaseZ;
         /// <summary>How tall the sprite stands, in world XY units.</summary>
         public float Height = 700f;
+
+        /// <summary>
+        /// Art to draw. When set, the frame is chosen per view from the
+        /// object's facing, so it turns as you walk around it.
+        /// </summary>
+        public BgfFile Bgf;
+        /// <summary>Which way the object is facing, 0..4095.</summary>
+        public ushort AngleUnits;
+        /// <summary>Animation group, 1-based.</summary>
+        public int Group = 1;
+
+        /// <summary>Fixed art, used when Bgf is null. Never turns.</summary>
         public Tex Texture;
     }
 
     /// <summary>Objects drawn after the walls, occluded by them.</summary>
     public readonly List<Sprite> Sprites = new List<Sprite>();
+
+    /// <summary>Per-direction sprite frames, resolved as the view changes.</summary>
+    public readonly SpriteCache SpriteFrames = new SpriteCache();
 
     readonly RooFile _roo;
     readonly TexCache _tex;
@@ -176,7 +193,7 @@ public sealed class Renderer
 
         foreach (Sprite sp in Sprites)
         {
-            if (sp.Texture == null) continue;
+            if (sp.Bgf == null && sp.Texture == null) continue;
             float rx = sp.X - camX, ry = sp.Y - camY;
             // Into camera space: +depth is straight ahead.
             float depth = rx * ca - ry * sa;
@@ -189,6 +206,17 @@ public sealed class Renderer
         foreach (var (depth, sp, lateral) in order)
         {
             Tex t = sp.Texture;
+            if (sp.Bgf != null)
+            {
+                // Which side of the object we are looking at: its facing,
+                // minus the direction from it to us.
+                float toViewer = MathF.Atan2(camY - sp.Y, camX - sp.X);
+                int viewerUnits = (int)(toViewer / (2f * MathF.PI) * GeometryConstants.MAXANGLE);
+                int rel = (sp.AngleUnits - viewerUnits) % GeometryConstants.MAXANGLE;
+                if (rel < 0) rel += GeometryConstants.MAXANGLE;
+                t = SpriteFrames.Get(sp.Bgf, sp.Group, (ushort)rel);
+            }
+            if (t == null) continue;
             float scale = proj / depth;
             float cxs = W * 0.5f + lateral * scale;
 

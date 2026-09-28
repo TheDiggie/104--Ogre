@@ -153,6 +153,51 @@ public sealed class Tex
     }
 }
 
+/// <summary>
+/// Caches object sprite frames by (file, group, frame index).
+///
+/// A BGF holds a frame set per animation group and, inside each, one frame
+/// per facing direction. Which one to draw depends on where the viewer is
+/// standing relative to the object, so the same creature needs a different
+/// frame as you walk around it - resolving that per object per frame is
+/// what makes them turn.
+/// </summary>
+public sealed class SpriteCache
+{
+    readonly Dictionary<BgfFile, Dictionary<int, Tex>> _c =
+        new Dictionary<BgfFile, Dictionary<int, Tex>>();
+
+    public int Count
+    {
+        get { int n = 0; foreach (var d in _c.Values) n += d.Count; return n; }
+    }
+
+    /// <summary>
+    /// Frame for an object drawn from a given viewing angle.
+    /// <paramref name="viewAngle"/> is in Meridian angle units (0..4095)
+    /// and is the object's facing relative to the viewer.
+    /// </summary>
+    public Tex Get(BgfFile bgf, int group, ushort viewAngle)
+    {
+        if (bgf == null || bgf.Frames.Count == 0) return null;
+
+        int idx = bgf.GetFrameIndex(group < 1 ? 1 : group, viewAngle);
+        if (idx < 0 || idx >= bgf.Frames.Count) idx = 0;
+
+        if (!_c.TryGetValue(bgf, out var byFrame))
+            _c[bgf] = byFrame = new Dictionary<int, Tex>();
+
+        if (!byFrame.TryGetValue(idx, out Tex t))
+        {
+            t = Tex.FromSprite(bgf, idx);
+            byFrame[idx] = t;
+        }
+        return t;
+    }
+
+    public void Clear() => _c.Clear();
+}
+
 /// <summary>Caches room textures by grd number.</summary>
 public sealed class TexCache
 {
