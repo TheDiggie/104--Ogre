@@ -661,6 +661,8 @@ public sealed class Renderer
         float planeH = ceiling ? M59Geo.CeilingXY(sec) : M59Geo.FloorXY(sec);
         Tex t = tc.Get(ceiling ? sec.CeilingTexture : sec.FloorTexture);
         uint flat = ceiling ? 0xFF0B0B10u : 0xFF141418u;
+        float texOffX = sec.TextureX * M59Geo.HeightToXY;
+        float texOffY = sec.TextureY * M59Geo.HeightToXY;
         float cosFix = MathF.Cos(rayA - angle);
         float rdx = MathF.Cos(rayA), rdy = MathF.Sin(rayA);
 
@@ -678,10 +680,17 @@ public sealed class Renderer
             // made ceilings streak before mipmapping.
             float texelsPerPixel = (straight / MathF.Max(1f, MathF.Abs(dy))) * t.W / M59Geo.Fineness;
             // Same axis swap as walls - grd02011 is a floor of tall stone
-            // slabs and rendered as wide ones until y,x were used.
+            // slabs and rendered as wide ones until y,x were used. The
+            // library says the same thing: RooSubSector.UpdateVertexUV
+            // takes the texture's X from the world Y and vice versa.
+            //
+            // The per-sector offset comes from there too, and was ignored:
+            // 1420 of the 30806 sectors carry one, and their floors and
+            // ceilings were sliding by up to a texture's width.
             px[y * W + sx] = Shade(
                 noSample ? t.P[0]
-                         : t.Sample(wy / M59Geo.Fineness, wx / M59Geo.Fineness, texelsPerPixel),
+                         : t.Sample((wy - texOffY) / M59Geo.Fineness,
+                                    (wx - texOffX) / M59Geo.Fineness, texelsPerPixel),
                 fog);
         }
     }

@@ -293,6 +293,31 @@ confirmed byte-identical.
   using it here want textures that are not in the resource folder this
   was developed against.
 
+- **Floors and ceilings.** The scale here really is a flat 1/1024 with no
+  shrink involved - `RooSubSector.UpdateVertexUV` confirms it - and the
+  axis swap is the same as walls. The per-sector texture offset is now
+  applied; it had been ignored, and 1420 of the 30806 sectors carry one.
+
+  Two gaps remain, both with numbers so they can be judged:
+
+  **Sloped floors and ceilings are drawn flat.** 4674 of 30806 sectors
+  have a slope. The fill works out a horizontal plane's distance per
+  screen row, which is what makes it fast, and a sloped plane needs a
+  ray/plane intersection instead - not expensive in itself, but the
+  portal walk also takes each sector's floor and ceiling as a single
+  height when it decides where a wall ends, and that is the real work.
+  Note that collision already handles slopes, because it uses the
+  library's own `GetHeightAt`, so geometry and picture currently
+  disagree on those sectors.
+
+  **Texture anchoring in negative coordinates.** The library measures
+  flat UVs from the most top-left vertex of each BSP leaf, which is
+  (0, 0) for any leaf that sits entirely in positive space - so this
+  renderer's world coordinates match it exactly there. 199 of 362 rooms
+  have geometry at negative coordinates, and in those regions the
+  anchoring differs. Doing it properly means per-leaf flats rather than
+  per-sector, which is the same restructure the slopes want.
+
 ## Unit conventions
 
 Established by measurement, not documentation - see
