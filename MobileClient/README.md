@@ -207,6 +207,12 @@ confirmed byte-identical.
   Credentials come from `M59USER` / `M59PASS` in the environment unless
   set on the node. They are deliberately not stored in the scene.
 
+  An account with more than one character gets a full-screen picker and
+  nothing is sent until you choose; one character, or a **Character**
+  set on the node, goes straight in. Picking the first silently would
+  log you in as the wrong character, which is not a thing to discover
+  after the fact.
+
   Verified over a loopback socket: connects, receives GetLogin, sends
   credentials, receives LoginOK. Everything past that - the character
   handshake, rooms, real objects - needs the live server.

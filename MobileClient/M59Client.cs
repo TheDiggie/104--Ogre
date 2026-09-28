@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Meridian59.Client;
 using Meridian59.Common;
@@ -36,6 +37,13 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
     /// <summary>Raised once a character has been sent and play begins.</summary>
     public event Action<string> EnteredGame;
 
+    /// <summary>
+    /// Raised when the account has several characters and nothing said
+    /// which one to use. Nothing is sent until <see cref="UseCharacter"/>
+    /// is called with one of them, so the UI has as long as it needs.
+    /// </summary>
+    public event Action<IList<CharSelectItem>> ChooseCharacter;
+
     void Say(string s) => Notice?.Invoke(s);
 
     protected override void HandleGetLoginMessage(GetLoginMessage Message)
@@ -63,9 +71,29 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
                 !c.IsEmptySlot &&
                 string.Equals(c.Name, PreferredCharacter, StringComparison.OrdinalIgnoreCase));
 
-        pick ??= chars.FirstOrDefault(c => !c.IsEmptySlot);
-        if (pick == null) { Say("All character slots are empty."); return; }
+        if (pick == null)
+        {
+            var real = chars.Where(c => !c.IsEmptySlot).ToList();
+            if (real.Count == 0) { Say("All character slots are empty."); return; }
 
+            // One character is not a choice; several is, and picking the
+            // first silently would log you in as the wrong one.
+            if (real.Count > 1 && ChooseCharacter != null)
+            {
+                Say($"{real.Count} characters on this account.");
+                ChooseCharacter(real);
+                return;
+            }
+            pick = real[0];
+        }
+
+        UseCharacter(pick);
+    }
+
+    /// <summary>Enters the world as this character.</summary>
+    public void UseCharacter(CharSelectItem pick)
+    {
+        if (pick == null) return;
         Say($"Entering the world as {pick.Name}...");
         SendUseCharacterMessage(pick, true, pick.Name);
         EnteredGame?.Invoke(pick.Name);

@@ -36,6 +36,7 @@ public partial class GameView : Node2D
     readonly TouchControls _touch = new TouchControls();
     ChatOverlay _chat;
     ActionBar _actions;
+    CharacterPicker _picker;
     readonly List<string> _log = new List<string>();
 
     M59Client _client;
@@ -102,6 +103,11 @@ public partial class GameView : Node2D
         _actions.AttackTarget += () => Act(() => _client.SendReqAttackMessage());
         _actions.UseTarget    += () => Act(() => _client.SendReqUseMessage(_client.Data.TargetID));
         AddChild(_actions);
+
+        _picker = new CharacterPicker();
+        _picker.Chosen += c => _client.UseCharacter(c);
+        AddChild(_picker);
+        _client.ChooseCharacter += chars => _picker.Offer(chars);
 
         _client.Init();
         _client.Config.ResourcesPath = dir;
