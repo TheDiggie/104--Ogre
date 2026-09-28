@@ -326,6 +326,23 @@ confirmed byte-identical.
   anchoring differs. Doing it properly means per-leaf flats rather than
   per-sector, which is the same restructure the slopes want.
 
+- **Sector lighting is not implemented**, and shading is distance fog
+  alone. The data is there: `RooSector.Light1`, where 0-127 means the
+  sector lights itself (brightness `Light1 / 128`, so 0 is black and 127
+  is full) and 128-255 means it takes the room's ambient light scaled by
+  `(Light1 - 128) / 64`. Of the 30806 sectors, 26257 take ambient light -
+  17005 of them at the 192-207 that scales it by 1.0 - and 4549 light
+  themselves, 557 of those at almost nothing, which is how a cave is
+  meant to be dark.
+
+  Not done on purpose. Nothing in this repo consumes that model - the
+  Ogre client did its lighting in the C++ part, through Ogre's own
+  lights - so there is no formula to port and nothing to check a guess
+  against, and the ambient level itself only arrives from the server.
+  Inventing a curve here would be the third time today I built on a
+  premise I could not test. It wants the server's ambient value and
+  somebody who knows what these rooms are supposed to look like.
+
 ## Unit conventions
 
 Established by measurement, not documentation - see
