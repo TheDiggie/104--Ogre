@@ -45,6 +45,7 @@ public partial class GameView : Node2D
     LootPanel _lootList;
     NameTags _names;
     ActionButtons _hotbar;
+    LookPanel _look;
     Vitals _vitals;
     AvatarPanel _face;
     InventoryPanel _bag;
@@ -212,6 +213,7 @@ public partial class GameView : Node2D
 
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
         Widget("names", () => { _names = new NameTags(); _ui.AddChild(_names); });
+        Widget("look", () => { _look = new LookPanel(); _ui.AddChild(_look); });
         Widget("hotbar", () =>
         {
             _hotbar = new ActionButtons();
@@ -363,6 +365,7 @@ public partial class GameView : Node2D
         // stay empty.
         ActionButtons.Seed(_client.Data);
         _hotbar?.Sync(_client.Data);
+        _look?.Sync(_client.Data);
 
         if (_names != null && _world.Renderer != null && _w > 0 && _h > 0)
         {
@@ -411,7 +414,8 @@ public partial class GameView : Node2D
         // movement, so a drag meant for a list does not also walk you.
         if ((_chat != null && (_chat.Capturing || _chat.ShowingHistory))
             || (_bag != null && _bag.IsOpen)
-            || (_lootList != null && _lootList.IsOpen))
+            || (_lootList != null && _lootList.IsOpen)
+            || (_look != null && _look.IsOpen))
         { avatar.HorizontalSpeed = 0f; return; }
 
         float turn = 0f, fwd = 0f, strafe = 0f;

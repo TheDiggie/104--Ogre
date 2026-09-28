@@ -207,6 +207,30 @@ See that tool's README for what the handshake actually needs - in short,
 mode, the client verifies no CRC on what it receives, and chat on the
 wire is a string resource id rather than text.
 
+## Looking at something
+
+`UIObjectDetails.cpp` is a window with four things in it: a picture of
+the thing, its name in the colour the server gives it, the description
+the server sent, and an inscription underneath when it carries one. This
+client could send a look and had nowhere to put the answer.
+
+None of it is the view's decision. `Data.LookObject` is an `ObjectInfo`
+the library fills from the reply - the object, the message, the
+inscription, the look type, and whether the window is up - and the panel
+follows it.
+
+One difference from the inventory's icons, and it is deliberate in the
+game: the picture is composed with the **viewer's** frame rather than the
+front one, so a creature in the look window faces the way it faces in the
+world.
+
+A protocol trap found building the fake server's reply: `ObjectInfo`
+reads its object back with `new ObjectBase(...)`, so the object in a look
+must be an `ObjectBase`. Writing a `RoomObject` - which also carries a
+position, an angle and a motion animation - leaves the reader mid-object,
+and everything after it is garbage: the description came back empty with
+a resource id in the billions.
+
 ## Action buttons
 
 The game keeps a grid of them - `UIActionButtons.cpp`, twelve across and

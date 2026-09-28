@@ -55,6 +55,7 @@ static class FakeServer
     const uint RID_AXEBGF = 60035;
     const uint RID_ALICE = 60040;
     const uint RID_BORIS = 60041;
+    const uint RID_RATLOOK = 60050;
 
     /// <summary>The server's own copy of what it wrote to the string file.</summary>
     static readonly StringDictionary strings = new StringDictionary();
@@ -118,6 +119,8 @@ static class FakeServer
             new RsbResourceID(RID_AXEBGF,     "neruaxe.bgf",     4),
             new RsbResourceID(RID_ALICE,      "Alice",           4),
             new RsbResourceID(RID_BORIS,      "Boris the Outlaw", 4),
+            new RsbResourceID(RID_RATLOOK,
+                "A duskrat, grey-brown and unbothered. Its tail is longer than the rest of it.", 4),
         };
 
         foreach (RsbResourceID r in stringList)
@@ -188,6 +191,15 @@ static class FakeServer
                     Say(ns, ctrl, RID_GREETING);
                     break;
 
+                case MessageTypeGameMode.ReqLook:
+                    // The look reply: the object, what kind of look it is,
+                    // the description, and an inscription if it has one.
+                    // The client's own LookObject is what goes up on
+                    // screen, so this is all the window needs.
+                    Console.WriteLine("  <- ReqLook");
+                    SendLook(ns, ctrl);
+                    break;
+
                 case MessageTypeGameMode.ReqGet:
                     // The first get opens the pile; each one after takes
                     // something out of it. This server tracks nothing, so
@@ -240,6 +252,27 @@ static class FakeServer
         };
 
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Condition, stats));
+    }
+
+    static void SendLook(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        // An ObjectBase, not a RoomObject. ObjectInfo reads one back with
+        // `new ObjectBase(...)`, so writing the bigger thing - which also
+        // carries a position, an angle and a motion animation - leaves the
+        // reader mid-object and everything after it garbage. The first
+        // attempt did that and the description came back as an empty
+        // string with a resource id in the billions.
+        ObjectBase rat = Item(2001, RID_RATBGF, RID_RATNAME, 1);
+
+        // Like chat, a description is a string resource id plus whatever
+        // it needs substituted - the text itself never goes on the wire.
+        var description = new ServerString(
+            ChatMessageType.SystemMessage, strings, RID_RATLOOK,
+            new List<InlineVariable>(), new List<ChatStyle>());
+
+        var info = new ObjectInfo(rat, new LookTypeFlags(0), description,
+                                  new ServerString(ChatMessageType.SystemMessage));
+        Send(ns, ctrl, new LookMessage(info, strings));
     }
 
     static int lootLeft = 3;
