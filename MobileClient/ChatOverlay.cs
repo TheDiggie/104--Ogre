@@ -49,7 +49,8 @@ public partial class ChatOverlay : Control
             FitContent = true,
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        _log.SetAnchorsPreset(LayoutPreset.BottomWide);
+        // No anchor preset: Layout() places this explicitly, and an anchor
+        // would fight it. The root Control is the anchored one.
         _log.AddThemeFontSizeOverride("normal_font_size", FontSize);
         _log.AddThemeColorOverride("default_color", new Color(1, 1, 1));
         _log.AddThemeConstantOverride("outline_size", 4);
@@ -62,7 +63,6 @@ public partial class ChatOverlay : Control
             Visible = false,
             CaretBlink = true,
         };
-        _entry.SetAnchorsPreset(LayoutPreset.BottomWide);
         _entry.AddThemeFontSizeOverride("font_size", FontSize + 2);
         _entry.TextSubmitted += OnSubmitted;
         AddChild(_entry);
