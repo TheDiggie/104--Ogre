@@ -194,6 +194,11 @@ static class World
         // missing folders as it goes - so getting this wrong shows up as
         // a world with no textures rather than as an error.
         var probe = new M59Client();
+        // Config.Load clears the connection list, so anything that adds a
+        // connection has to come after it. Checked here because getting
+        // that order wrong leaves a client with nothing to connect to.
+        try { probe.Config.Load(Meridian59.Common.Config.CONFIGFILE,
+                                Meridian59.Common.Config.CONFIGFILE_ALT); } catch { }
         probe.Config.ResourcesPath = dir;
         probe.Init();
         Check(probe.ResourceManager.GetRoom("barinn.roo") != null,
@@ -219,6 +224,12 @@ static class World
         // _Process does - leaves Span at zero for ever. Span is what every
         // timed thing in the library multiplies by, including the step in
         // BaseClient.TryMove, so a client that never ticks cannot move.
+        probe.Config.Connections.Add(new ConnectionInfo(
+            "t", "127.0.0.1", 5959, "rsc0000.rsb", "u", "p", "", null));
+        probe.Config.SelectedConnectionIndex = probe.Config.Connections.Count - 1;
+        Check(probe.Config.SelectedConnectionInfo != null,
+              "the connection survives config loading");
+
         Check(probe.GameTick.Span == 0.0, "a fresh client has not ticked yet");
         probe.GameTick.Tick();
         System.Threading.Thread.Sleep(5);

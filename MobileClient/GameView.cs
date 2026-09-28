@@ -233,6 +233,20 @@ public partial class GameView : Node2D
             _client.ChooseCharacter += chars => _picker.Offer(chars);
         });
 
+        // RootClient.Start loads the config before calling Init, and this
+        // did not load it at all. It is where the player's aliases, ignore
+        // list and language come from, it falls back to defaults when
+        // there is no file, and it writes nothing. It also CLEARS the
+        // connection list, so it has to happen before the connection is
+        // added rather than after - and before ResourcesPath, which a
+        // configuration.xml is allowed to set.
+        try
+        {
+            _client.Config.Load(Meridian59.Common.Config.CONFIGFILE,
+                                Meridian59.Common.Config.CONFIGFILE_ALT);
+        }
+        catch (Exception e) { GD.Print($"[M59] no configuration loaded: {e.Message}"); }
+
         // ResourcesPath before Init, not after: Init is what reads it.
         _client.Config.ResourcesPath = dir;
         _client.Init();
