@@ -10,6 +10,7 @@
     <Compile Include="../../MobileClient/Renderer.cs" Link="Renderer.cs" />
     <Compile Include="../../MobileClient/WallGrid.cs" Link="WallGrid.cs" />
     <Compile Include="../../MobileClient/WorldSync.cs" Link="WorldSync.cs" />
+    <Compile Include="../../MobileClient/M59Client.cs" Link="M59Client.cs" />
     <ProjectReference Include="../../Meridian59/net8.csproj" />
   </ItemGroup>
 </Project>

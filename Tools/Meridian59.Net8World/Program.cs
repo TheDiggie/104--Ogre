@@ -188,6 +188,19 @@ static class World
         Console.WriteLine($"  collision elevation: {tried} moves, {same} unchanged, " +
                           $"{nowAllowed} now allowed, {nowBlocked} now blocked");
 
+        // The live client's own resource wiring, with no socket involved.
+        // BaseClient.Init assumes subfolders (strings, rooms, bgfobjects,
+        // ...) while an installed client is flat, and it creates the
+        // missing folders as it goes - so getting this wrong shows up as
+        // a world with no textures rather than as an error.
+        var probe = new M59Client();
+        probe.Config.ResourcesPath = dir;
+        probe.Init();
+        Check(probe.ResourceManager.GetRoom("barinn.roo") != null,
+              "the client's own resource manager finds a room");
+        Check(probe.ResourceManager.GetRoomTexture(2011) != null,
+              "the client's own resource manager finds a room texture");
+
         Console.WriteLine(fail == 0 ? "OK" : $"{fail} FAILURES");
         return fail == 0 ? 0 : 1;
     }

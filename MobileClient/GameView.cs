@@ -233,8 +233,9 @@ public partial class GameView : Node2D
             _client.ChooseCharacter += chars => _picker.Offer(chars);
         });
 
-        _client.Init();
+        // ResourcesPath before Init, not after: Init is what reads it.
         _client.Config.ResourcesPath = dir;
+        _client.Init();
         _client.Config.Connections.Add(new ConnectionInfo(
             "server", Host, (ushort)Port, "rsc0000.rsb", user, pass, Character, null));
         _client.Config.SelectedConnectionIndex = _client.Config.Connections.Count - 1;

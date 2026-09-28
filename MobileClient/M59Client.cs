@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Meridian59.Client;
 using Meridian59.Common;
@@ -54,6 +55,47 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
     public event Action<IList<CharSelectItem>> ChooseCharacter;
 
     void Say(string s) => Notice?.Invoke(s);
+
+    /// <summary>
+    /// Points the resource manager at the game files.
+    ///
+    /// BaseClient.Init assumes this project's own layout, with strings,
+    /// rooms, bgftextures, bgfobjects, sounds, music and mails as
+    /// subfolders of the resource path. An installed Meridian client is
+    /// flat: everything sits in 'resource' together. Handing the library
+    /// the subfolder layout against a flat install finds nothing, and
+    /// ResourceManager.Init creates the missing folders on the way past,
+    /// so it fails quietly with empty directories rather than an error.
+    ///
+    /// So look before assuming - and look for FILES, not just for the
+    /// folder. ResourceManager.Init creates whatever is missing, so one
+    /// run with the wrong layout leaves empty subfolders behind, and a
+    /// check for the folder alone would then pick the wrong layout for
+    /// ever afterwards. That is not hypothetical: it is what happened
+    /// while testing this.
+    /// </summary>
+    public override void Init()
+    {
+        string root = Config.ResourcesPath;
+        if (HasFiles(Path.Combine(root ?? "", Meridian59.Files.ResourceManager.SUBPATHOBJECTS), "*.bgf"))
+        {
+            base.Init();
+            return;
+        }
+
+        ResourceManager.Init(root, root, root, root, root, root, root);
+    }
+
+    static bool HasFiles(string dir, string pattern)
+    {
+        try
+        {
+            if (!Directory.Exists(dir)) return false;
+            foreach (string _ in Directory.EnumerateFiles(dir, pattern)) return true;
+        }
+        catch { }
+        return false;
+    }
 
     protected override void HandleGetLoginMessage(GetLoginMessage Message)
     {

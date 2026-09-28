@@ -464,6 +464,25 @@ confirmed byte-identical.
   premise I could not test. It wants the server's ambient value and
   somebody who knows what these rooms are supposed to look like.
 
+## A note on the resource layout
+
+`BaseClient.Init` expects this project's own layout - `strings`,
+`rooms`, `bgftextures`, `bgfobjects`, `sounds`, `music`, `mails` as
+subfolders of the resource path. An installed Meridian client is flat:
+everything sits in `resource` together. `M59Client.Init` looks before
+assuming, and falls back to flat.
+
+It looks for *files*, not for the folder, and that matters:
+`ResourceManager.Init` creates whatever is missing as it goes, so one
+run with the wrong layout leaves seven empty subfolders behind, and a
+check for the folder alone would then pick the wrong layout for ever
+afterwards. That is not hypothetical - it is what happened while
+testing this, and the test folder here still has the empty folders in
+it, which makes it the better test.
+
+Getting this wrong does not produce an error. It produces a world with
+no textures in it.
+
 ## A note on case
 
 Asking the resource manager for a file by a different casing than the
