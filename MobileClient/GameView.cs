@@ -329,8 +329,12 @@ public partial class GameView : Node2D
 
         RoomObject me = _client.Data?.AvatarObject;
         if (me != null && _map != null)
-            _map.SetPlayer(M59Geo.KodToWorld(me.Position3D.X),
-                           M59Geo.KodToWorld(me.Position3D.Z), me.Angle);
+        {
+            // The map works in the server's own units, as the game's does -
+            // it is drawing the same numbers the objects arrive in.
+            _map.SetObjects(_client.Data?.RoomObjects);
+            _map.SetPlayer(me.Position3D.X, me.Position3D.Z, me.Angle);
+        }
 
         _fpsAccum += delta; _frames++;
         if (_fpsAccum >= 0.5) { _fps = $"{_frames / _fpsAccum:F0} fps"; _fpsAccum = 0; _frames = 0; }

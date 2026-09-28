@@ -207,6 +207,45 @@ See that tool's README for what the handshake actually needs - in short,
 mode, the client verifies no CRC on what it receives, and chat on the
 wire is a string resource id rather than text.
 
+## The minimap is the game's minimap
+
+The first version drew the whole room squeezed into a box, all walls, a
+gold wedge for you. The game does something quite different, and both
+`Meridian59/Drawing2D/MiniMap.cs` and the Ogre client's `MiniMapCEGUI`
+say what:
+
+- it is a **window onto the room centred on you**, at a zoom, not the
+  whole room. Half the view's width and height times the zoom is how far
+  it reaches, so zooming out shows more room at the same size. The
+  library's default zoom is 4; the wheel in the Ogre client moves between
+  1 and 32.
+- a wall with no sides at all, or whose every side is flagged
+  `IsMapNever`, is **not drawn** - that flag is how the game hides scenery
+  it does not want you navigating by.
+- objects are dots, and in vanilla only four kinds get one, in this
+  order: enemy red, guildmate green, other players blue, anything else
+  attackable red. An ordinary item on the floor gets nothing. Invisible
+  objects are skipped.
+- you are a **triangle**, in the player colour, built from your facing
+  direction and two copies of it rotated by half a turn less half a
+  radian - a wide arrowhead rather than a needle.
+- it is **round, on a wooden dial**. The CEGUI layout puts
+  `TaharezLook/MiniMapBackground` behind the map and draws the map over it
+  at nine tenths alpha. That art is in this repo, in
+  `Resources/ui/imagesets/TaharezLook.png` at 257,256 - it is cut out of
+  there into `MobileClient/art/minimap-bg.png` rather than drawn from
+  scratch.
+
+Coordinates are the server's own, because that is what the library's
+minimap works in: a wall vertex becomes `X * 0.0625 + 64`, which is room
+units over 16 offset by 64. Both views convert before handing anything
+over.
+
+One deliberate difference: walls are cut to a circle inside the rim. The
+game's map texture fills its square window, so its walls run under the
+frame; it only uses a circle for hit-testing. A map that stops at the
+frame looks like a map rather than a leak.
+
 ## The inventory is the game's inventory
 
 The first version of this panel was a list of labelled buttons, which is

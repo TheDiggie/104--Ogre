@@ -223,10 +223,13 @@ static class FakeServer
         // one duskrat.
         var objects = new[]
         {
-            Obj(avatarId, RID_PLAYERBGF, RID_PLAYERNAME, 752, 672, 0f),
-            Obj(2001, RID_RATBGF, RID_RATNAME, 816, 672, 1f),   // straight ahead
-            Obj(2002, RID_RATBGF, RID_RATNAME, 848, 688, 3f),
-            Obj(2003, RID_RATBGF, RID_RATNAME, 880, 656, 2f),
+            Obj(avatarId, RID_PLAYERBGF, RID_PLAYERNAME, 752, 672, 0f, OF_PLAYER),
+            // OF_ATTACKABLE, so the minimap has something to colour: the
+            // game only puts a dot on things you could fight, players and
+            // guildmates. An ordinary item on the floor gets none.
+            Obj(2001, RID_RATBGF, RID_RATNAME, 816, 672, 1f, OF_ATTACKABLE),
+            Obj(2002, RID_RATBGF, RID_RATNAME, 848, 688, 3f, OF_ATTACKABLE),
+            Obj(2003, RID_RATBGF, RID_RATNAME, 880, 656, 2f, OF_ATTACKABLE),
         };
         foreach (var o in objects)
             Console.WriteLine($"     object {o.ID} byteLength {o.ByteLength}");
@@ -258,10 +261,14 @@ static class FakeServer
         Send(ns, ctrl, new SaidMessage(chat, strings));
     }
 
-    static RoomObject Obj(uint id, uint bgfRid, uint nameRid, float x, float y, float angleRadians)
+    const uint OF_PLAYER = 0x00000004;
+    const uint OF_ATTACKABLE = 0x00000008;
+
+    static RoomObject Obj(uint id, uint bgfRid, uint nameRid, float x, float y,
+                          float angleRadians, uint flags = 0)
     {
         return new RoomObject(
-            id, 1, bgfRid, nameRid, 0,
+            id, 1, bgfRid, nameRid, flags,
             new LightingInfo(),
             AnimationType.NONE, 0, 0,
             new AnimationNone(),

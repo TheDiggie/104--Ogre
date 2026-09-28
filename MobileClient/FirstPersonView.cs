@@ -297,7 +297,9 @@ public partial class FirstPersonView : Node2D
         // the flicker of an animated wall texture, and any lift. The live
         // view gets this from BaseClient.Update, which ticks the room.
         try { _roo.Tick(_clock * 1000.0, delta * 1000.0); } catch { }
-        _map?.SetPlayer(_camX, _camY, _angle);
+        // The offline view thinks in room units; the map, like the game's,
+        // thinks in the server's.
+        _map?.SetPlayer(M59Geo.WorldToKod(_camX), M59Geo.WorldToKod(_camY), _angle);
 
         _fpsAccum += delta; _frames++;
         if (_fpsAccum >= 0.5)

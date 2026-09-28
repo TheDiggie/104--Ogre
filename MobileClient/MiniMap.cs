@@ -1,19 +1,37 @@
 using System;
+using System.Collections.Generic;
 using Godot;
+using Meridian59.Data.Models;
 using Meridian59.Files.ROO;
 
 /// <summary>
-/// A corner map of the room you are in, with you on it.
+/// The corner map, drawn the way the game draws it.
 ///
-/// Walking 362 rooms with no idea which way you came in is the main thing
-/// that makes the offline build tiring to use. This draws the room's walls
-/// once into a texture when the room loads - some rooms have six thousand
-/// walls and redrawing those every frame would cost more than the game
-/// does - and then only the marker moves.
+/// The rules come from the library's own <c>Drawing2D/MiniMap</c> and the
+/// Ogre client's <c>MiniMapCEGUI</c>, not from taste:
 ///
-/// Room X and Y map to image columns and rows, which is the convention the
-/// top-down map tool uses and which was checked against the wiki's own
-/// map for dvalley1.
+///  - it is a window onto the room centred on you, at a zoom, rather than
+///    the whole room squeezed into a box. Half the width and height of the
+///    view, times the zoom, is how far it reaches - so zooming out shows
+///    more room at the same size.
+///  - a wall with no sides at all, or whose only sides are flagged
+///    <c>IsMapNever</c>, is not drawn. Map-never is how the game hides the
+///    scenery it does not want you navigating by.
+///  - objects are dots, ten pixels across, coloured by what they are to
+///    you: enemy red, guildmate green, other players blue, anything else
+///    attackable red. Nothing else is drawn - an ordinary item on the
+///    floor does not appear.
+///  - you are a triangle pointing where you face, not a dot.
+///  - the whole thing is round, on the game's own dial: the CEGUI layout
+///    puts "TaharezLook/MiniMapBackground" behind it, which is the wooden
+///    rim and pale face in Resources/ui/imagesets, and draws the map over
+///    it at nine tenths alpha. That picture is cut out of the repo's own
+///    imageset into art/minimap-bg.png rather than invented.
+///
+/// Coordinates are the server's own - the same units the objects arrive in
+/// - because that is what the library's minimap works in: a wall vertex
+/// becomes <c>X * 0.0625 + 64</c>, which is exactly room units over 16,
+/// offset by 64.
 /// </summary>
 public partial class MiniMap : Control
 {
@@ -21,16 +39,35 @@ public partial class MiniMap : Control
     [Export] public int MapSize = 220;
     [Export] public float Margin = 12f;
 
-    ImageTexture _tex;
-    Button _toggle;
-    float _minX, _minY, _scale;
-    bool _shown = true;
+    /// <summary>
+    /// Server units per pixel. The library's default is 4; its own limits
+    /// are 0.05 to 20, and the Ogre client's wheel moves between 1 and 32.
+    /// </summary>
+    [Export] public float Zoom = 4f;
 
-    // Solid walls, walls you can walk through, and you.
-    static readonly Color Solid  = new Color(0.85f, 0.85f, 0.90f, 0.95f);
-    static readonly Color Portal = new Color(0.45f, 0.48f, 0.55f, 0.80f);
-    static readonly Color Back   = new Color(0.04f, 0.04f, 0.06f, 0.72f);
-    static readonly Color You    = new Color(1.00f, 0.82f, 0.35f);
+    public const float MinZoom = 1f;
+    public const float MaxZoom = 32f;
+
+    // The game's own colours, from MiniMapCEGUI, on the game's own dial.
+    static readonly Color Wall   = new Color(0f, 0f, 0f);                 // COLOR_MAP_WALL
+    static readonly Color Player = new Color(0f, 0f, 1f);                 // 0,0,255
+    static readonly Color Enemy  = new Color(1f, 0f, 0f);                 // 255,0,0
+    static readonly Color Friend = new Color(0f, 1f, 120f / 255f);        // 0,255,120
+    // The drawsurface sits at alpha 0.9 over the background image.
+    static readonly Color Ink    = new Color(1f, 1f, 1f, 0.9f);
+    // Fallback face, for when the dial cannot be loaded.
+    static readonly Color Back   = new Color(0.82f, 0.82f, 0.80f, 0.92f);
+
+    Button _toggle;
+    bool _shown = true;
+    Texture2D _dial;
+
+    RooFile _room;
+    // Walls worth drawing, in server units, filtered once per room.
+    readonly List<Vector2> _walls = new List<Vector2>();
+
+    IEnumerable<RoomObject> _objects;
+    float _px, _py, _angle;
 
     public override void _Ready()
     {
@@ -40,6 +77,15 @@ public partial class MiniMap : Control
         _toggle = new Button { Text = "Map" };
         _toggle.Pressed += () => { _shown = !_shown; QueueRedraw(); };
         AddChild(_toggle);
+
+        // The game's own minimap face. Missing art is not worth a crash -
+        // the map falls back to a plain disc.
+        try
+        {
+            Image img = Image.LoadFromFile("res://art/minimap-bg.png");
+            if (img != null) _dial = ImageTexture.CreateFromImage(img);
+        }
+        catch (Exception e) { GD.PrintErr($"[MiniMap] no dial: {e.Message}"); }
 
         GetViewport().SizeChanged += Layout;
         Layout();
@@ -53,92 +99,162 @@ public partial class MiniMap : Control
         _toggle.Position = new Vector2(v.X - 70 - Margin, v.Y - 40 - Margin);
     }
 
-    /// <summary>Draws a room's walls into the map texture. Call on room change.</summary>
+    /// <summary>
+    /// Takes the room's walls. Called on a room change: the filtering and
+    /// the unit conversion are per room, and what moves per frame is only
+    /// where the window onto them sits.
+    /// </summary>
     public void Build(RooFile roo)
     {
-        _tex = null;
-        if (roo == null || roo.Walls.Count == 0) return;
-
-        float maxX = float.MinValue, maxY = float.MinValue;
-        _minX = float.MaxValue; _minY = float.MaxValue;
-        foreach (RooWall w in roo.Walls)
-        {
-            _minX = MathF.Min(_minX, MathF.Min(w.X1, w.X2));
-            maxX  = MathF.Max(maxX,  MathF.Max(w.X1, w.X2));
-            _minY = MathF.Min(_minY, MathF.Min(w.Y1, w.Y2));
-            maxY  = MathF.Max(maxY,  MathF.Max(w.Y1, w.Y2));
-        }
-
-        float spanX = MathF.Max(1f, maxX - _minX), spanY = MathF.Max(1f, maxY - _minY);
-        const float pad = 6f;
-        _scale = (MapSize - 2f * pad) / MathF.Max(spanX, spanY);
-
-        var img = Image.CreateEmpty(MapSize, MapSize, false, Image.Format.Rgba8);
-        img.Fill(Back);
+        _room = roo;
+        _walls.Clear();
+        if (roo == null) return;
 
         foreach (RooWall w in roo.Walls)
         {
-            bool passable = w.RightSectorNum != 0 && w.LeftSectorNum != 0;
-            Line(img,
-                 (int)((w.X1 - _minX) * _scale + pad), (int)((w.Y1 - _minY) * _scale + pad),
-                 (int)((w.X2 - _minX) * _scale + pad), (int)((w.Y2 - _minY) * _scale + pad),
-                 passable ? Portal : Solid);
-        }
+            RooSideDef left = w.LeftSide, right = w.RightSide;
 
-        _tex = ImageTexture.CreateFromImage(img);
+            // The library's own four cases: no sides at all, or every side
+            // there is flagged map-never.
+            if ((left == null && right == null) ||
+                (left != null && right == null && left.Flags.IsMapNever) ||
+                (left == null && right != null && right.Flags.IsMapNever) ||
+                (left != null && right != null && left.Flags.IsMapNever && right.Flags.IsMapNever))
+                continue;
+
+            _walls.Add(new Vector2(w.X1 * 0.0625f + 64f, w.Y1 * 0.0625f + 64f));
+            _walls.Add(new Vector2(w.X2 * 0.0625f + 64f, w.Y2 * 0.0625f + 64f));
+        }
         QueueRedraw();
     }
 
-    /// <summary>Where the map puts a world point, in this control's space.</summary>
-    Vector2 ToMap(float wx, float wy, Vector2 origin)
-        => origin + new Vector2((wx - _minX) * _scale + 6f, (wy - _minY) * _scale + 6f);
+    /// <summary>Objects to show. The avatar among them is skipped.</summary>
+    public void SetObjects(IEnumerable<RoomObject> objects) => _objects = objects;
 
-    float _px, _py, _angle;
-
-    /// <summary>Moves the marker. Cheap - no texture work.</summary>
-    public void SetPlayer(float worldX, float worldY, float angle)
+    /// <summary>
+    /// Where you are, in server units, and which way you face. Cheap: the
+    /// map redraws from the wall list rather than rebuilding anything.
+    /// </summary>
+    public void SetPlayer(float kodX, float kodY, float angle)
     {
-        _px = worldX; _py = worldY; _angle = angle;
+        _px = kodX; _py = kodY; _angle = angle;
         if (_shown) QueueRedraw();
     }
 
     public override void _Draw()
     {
-        if (_tex == null || !_shown) return;
+        if (!_shown || _walls.Count == 0) return;
 
         Vector2 v = GetViewportRect().Size;
         var origin = new Vector2(v.X - MapSize - Margin, Margin);
-        DrawTexture(_tex, origin);
+        float half = MapSize * 0.5f;
+        Vector2 centre = origin + new Vector2(half, half);
+        // The dial's rim is about a twelfth of its width, so the map is
+        // cut inside it. The game does not bother - its map texture fills
+        // the square window and walls run under the rim - but it hit-tests
+        // the map against a circle, and a map that stops at the frame
+        // looks like a map rather than a leak.
+        float radius = half * 0.88f;
 
-        Vector2 me = ToMap(_px, _py, origin);
-        // Clamped, so standing just outside the room's bounds still shows.
-        me = new Vector2(Mathf.Clamp(me.X, origin.X, origin.X + MapSize),
-                         Mathf.Clamp(me.Y, origin.Y, origin.Y + MapSize));
+        if (_dial != null)
+            DrawTextureRect(_dial, new Rect2(origin, new Vector2(MapSize, MapSize)), false);
+        else
+            DrawCircle(centre, radius, Back);
 
-        // A wedge rather than a dot: which way you are facing is most of
-        // what a map is for.
-        float c = MathF.Cos(_angle), s = MathF.Sin(_angle);
-        var tip  = me + new Vector2(c, s) * 9f;
-        var left = me + new Vector2(c * -0.5f - s * 0.5f, s * -0.5f + c * 0.5f) * 9f;
-        var right= me + new Vector2(c * -0.5f + s * 0.5f, s * -0.5f - c * 0.5f) * 9f;
-        DrawColoredPolygon(new[] { tip, left, right }, You);
+        // The window onto the room, in server units, centred on you.
+        float zoom = Mathf.Clamp(Zoom, MinZoom, MaxZoom);
+        float reach = half * zoom;
+        float minX = _px - reach, minY = _py - reach;
+        float inv = 1f / zoom;
+
+        Vector2 Place(float kx, float ky)
+            => origin + new Vector2((kx - minX) * inv, (ky - minY) * inv);
+
+        // Round, so each wall is cut to the circle rather than merely
+        // tested against it. Without the cut, walls run out across the
+        // room behind the map, which is not a map, it is a scribble.
+        var clipped = new List<Vector2>();
+        for (int i = 0; i + 1 < _walls.Count; i += 2)
+        {
+            Vector2 a = Place(_walls[i].X, _walls[i].Y);
+            Vector2 b = Place(_walls[i + 1].X, _walls[i + 1].Y);
+            if (!Clip(ref a, ref b, centre, radius)) continue;
+            clipped.Add(a); clipped.Add(b);
+        }
+        if (clipped.Count > 0)
+            DrawMultiline(clipped.ToArray(), new Color(Wall, Ink.A), 1f);
+
+        if (_objects != null)
+        {
+            foreach (RoomObject o in _objects)
+            {
+                if (o == null || o.IsAvatar || o.Flags == null) continue;
+                if (o.Flags.Drawing == ObjectFlags.DrawingType.Invisible) continue;
+
+                Color? c = DotColour(o.Flags);
+                if (c == null) continue;
+
+                Vector2 p = Place(o.Position3D.X, o.Position3D.Z);
+                if (p.DistanceTo(centre) > radius) continue;
+                DrawCircle(p, 5f, c.Value);
+            }
+        }
+
+        // You, as a triangle, in the player colour. The library builds it
+        // from the facing direction and two copies of it rotated by half a
+        // turn less a half radian, which is a wide arrowhead rather than a
+        // needle.
+        Vector2 me = Place(_px, _py);
+        var dir = new Vector2(MathF.Cos(_angle), MathF.Sin(_angle)) * 8f;
+        Vector2 left = dir.Rotated(MathF.PI - 0.5f);
+        Vector2 right = dir.Rotated(-MathF.PI + 0.5f);
+        DrawColoredPolygon(new[] { me + dir, me + left, me + right }, Player);
     }
 
-    /// <summary>Bresenham, because Image has no line drawing.</summary>
-    static void Line(Image img, int x0, int y0, int x1, int y1, Color c)
+    /// <summary>
+    /// Vanilla's colour rule, in its order: enemy, then guildmate, then
+    /// any other player, then anything attackable. Null means the game
+    /// draws nothing for it - which is most things.
+    /// </summary>
+    static Color? DotColour(ObjectFlags f)
     {
-        int w = img.GetWidth(), h = img.GetHeight();
-        int dx = Math.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-        int dy = -Math.Abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-        int err = dx + dy;
-        int guard = (dx - dy) + 4;
-        while (guard-- > 0)
-        {
-            if (x0 >= 0 && x0 < w && y0 >= 0 && y0 < h) img.SetPixel(x0, y0, c);
-            if (x0 == x1 && y0 == y1) break;
-            int e2 = 2 * err;
-            if (e2 >= dy) { err += dy; x0 += sx; }
-            if (e2 <= dx) { err += dx; y0 += sy; }
-        }
+        if (f.IsMinimapEnemy) return Enemy;
+        if (f.IsMinimapGuildMate) return Friend;
+        if (f.IsPlayer) return Player;
+        if (f.IsAttackable) return Enemy;
+        return null;
+    }
+
+    /// <summary>
+    /// Cuts a segment to the circle, returning false if it misses
+    /// entirely. Solves |a + t(b-a) - centre| = radius for the two
+    /// crossings and keeps the part of 0..1 between them.
+    /// </summary>
+    static bool Clip(ref Vector2 a, ref Vector2 b, Vector2 centre, float radius)
+    {
+        Vector2 d = b - a;
+        Vector2 f = a - centre;
+
+        float A = d.LengthSquared();
+        if (A < 1e-6f) return f.LengthSquared() <= radius * radius;
+
+        float B = 2f * f.Dot(d);
+        float C = f.LengthSquared() - radius * radius;
+
+        float disc = B * B - 4f * A * C;
+        if (disc < 0f) return false;                 // the line misses the circle
+
+        disc = MathF.Sqrt(disc);
+        float t0 = (-B - disc) / (2f * A);
+        float t1 = (-B + disc) / (2f * A);
+
+        // the overlap between the segment and the chord
+        float lo = MathF.Max(0f, t0), hi = MathF.Min(1f, t1);
+        if (hi <= lo) return false;
+
+        Vector2 a0 = a;
+        a = a0 + d * lo;
+        b = a0 + d * hi;
+        return true;
     }
 }
