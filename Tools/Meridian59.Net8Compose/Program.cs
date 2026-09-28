@@ -22,10 +22,11 @@ static class Program
 
     static void Main(string[] args)
     {
-        bool mode = args.Length > 0 && (args[0] == "probe" || args[0] == "crush");
+        bool mode = args.Length > 0 && (args[0] == "probe" || args[0] == "crush" || args[0] == "sheet");
         if (args.Length > 0 && !mode) dir = args[0];
         if (args.Length > 0 && args[0] == "probe") { Probe(); return; }
         if (args.Length > 0 && args[0] == "crush") { Crush(args.Length > 1 ? args[1] : dir); return; }
+        if (args.Length > 0 && args[0] == "sheet") { Sheet(args.Length > 1 ? args[1] : "compose.png"); return; }
         PlainMatchesFrame();
         PartAppears();
         OverUnder();
@@ -68,6 +69,68 @@ static class Program
         Console.WriteLine($"{files} files, {frames} frames, {uncompressed} stored uncompressed");
         Console.WriteLine($"{bad} frames ({100.0 * bad / Math.Max(1, frames):F2}%) in {badFiles} files cannot be decoded here");
         foreach (string w in worst) Console.WriteLine("  " + w);
+    }
+
+    /// <summary>
+    /// A picture to look at: a body bare, the same body wearing a part
+    /// over a hotspot, and the same underneath one. Composition is the
+    /// kind of thing that passes every count and still looks wrong, so
+    /// there is something to put an eye on.
+    /// </summary>
+    static void Sheet(string path)
+    {
+        BgfFile body = Load("bri.bgf");
+        BgfFile part = Load("bri.bgf");
+
+        var shots = new List<Tex>();
+        var names = new List<string>();
+
+        RoomObject plain = Make(body);
+        shots.Add(M59Compose.Build(plain, out _, out _)); names.Add("bare");
+
+        if (Dress(body, part, true, out _, out RoomObject over, out _))
+        { shots.Add(M59Compose.Build(over, out _, out _)); names.Add("over"); }
+
+        if (Dress(body, part, false, out _, out RoomObject under, out _))
+        { shots.Add(M59Compose.Build(under, out _, out _)); names.Add("under"); }
+
+        // An object whose art floats above its anchor: the box is mostly
+        // empty and the art sits at the bottom of it.
+        RoomObject arrow = Make(Load("arrowfir.bgf"));
+        shots.Add(M59Compose.Build(arrow, out _, out _)); names.Add("arrowfir");
+
+        int gap = 8;
+        int w = gap, h = 0;
+        foreach (Tex t in shots) { if (t == null) continue; w += t.W + gap; h = Math.Max(h, t.H); }
+        h += gap * 2;
+
+        var rgba = new byte[w * h * 4];
+        for (int i = 0; i < w * h; i++)
+        {
+            // a mid grey, so both the art and the empty parts of a box show
+            rgba[i * 4] = 60; rgba[i * 4 + 1] = 60; rgba[i * 4 + 2] = 70; rgba[i * 4 + 3] = 255;
+        }
+
+        int ox = gap;
+        for (int n = 0; n < shots.Count; n++)
+        {
+            Tex t = shots[n];
+            if (t == null) continue;
+            for (int y = 0; y < t.H; y++)
+                for (int x = 0; x < t.W; x++)
+                {
+                    uint c = t.P[y * t.W + x];
+                    if ((c >> 24) == 0) continue;
+                    int o = ((y + gap) * w + ox + x) * 4;
+                    rgba[o] = (byte)(c >> 16); rgba[o + 1] = (byte)(c >> 8);
+                    rgba[o + 2] = (byte)c; rgba[o + 3] = 255;
+                }
+            Console.WriteLine($"  {names[n]}: {t.W}x{t.H} at x={ox}");
+            ox += t.W + gap;
+        }
+
+        Png.Write(path, w, h, rgba);
+        Console.WriteLine($"wrote {path} ({w}x{h})");
     }
 
     static void Probe()

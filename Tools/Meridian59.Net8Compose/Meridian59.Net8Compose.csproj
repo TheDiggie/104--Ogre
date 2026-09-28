@@ -7,6 +7,7 @@
     <AssemblyName>Meridian59.Net8Compose</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Meridian59.Net8Fpv/Png.cs" Link="Png.cs" />
     <Compile Include="../../MobileClient/M59Geo.cs" Link="M59Geo.cs" />
     <Compile Include="../../MobileClient/M59Compose.cs" Link="M59Compose.cs" />
     <ProjectReference Include="../../Meridian59/net8.csproj" />

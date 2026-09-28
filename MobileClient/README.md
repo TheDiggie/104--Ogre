@@ -238,8 +238,11 @@ confirmed byte-identical.
   height. Reading `RenderInfo` says why: the offset is not a nudge, it
   is part of the picture's box. An arrow's art carries a Y offset of
   -200 at shrink 5, and the composed picture is 208 pixels tall with the
-  art sitting at the bottom of it - the empty space above is how far
-  above its anchor the arrow floats. Measured over the 558 object files
+  art in the top 8 rows and 200 rows of nothing below it. Anchored at the
+  bottom like everything else, that lifts the arrow some 640 world units
+  off the floor, which is what the offset was always for. The picture in
+  `Tools/Meridian59.Net8Compose`'s `sheet` mode shows it: the arrow is a
+  fleck at the top of a tall empty box. Measured over the 558 object files
   to hand, 142 carry an offset or are clamped by the quality cap, which
   is how many objects the single-frame path sized or placed wrongly.
 
