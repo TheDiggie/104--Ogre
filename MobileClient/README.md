@@ -6,8 +6,8 @@ editor is just where it gets developed.
 
 ## Requirements
 
-- Godot **.NET** build (the download labelled "Windows - .NET", file
-  name `Godot_v<version>-stable_mono_win64.zip`). The standard build
+- Godot **.NET** build - the download labelled "Windows - .NET", file
+  name `Godot_v<version>-stable_mono_win64.zip`. The standard build
   cannot run C# at all.
 - .NET 8 SDK.
 
@@ -17,22 +17,47 @@ Open this folder as a project in the Godot .NET editor and press play.
 It builds `MobileClient.csproj`, which references
 `../Meridian59/net8.csproj`.
 
-On first run it looks for rooms in
-`%LOCALAPPDATA%\Meridian-104\resource`. To point somewhere else, select
-the RoomView node and set **Resource Dir** in the inspector.
+Assets are read from `%LOCALAPPDATA%\Meridian-104\resource` unless you
+set **Resource Dir** on the root node.
 
-## Current state
+## Scenes
 
-One milestone only: load a ROO and draw its walls top-down. Dark lines
-are one-sided walls, blue lines have a sector on both sides. Drag to
-pan, wheel or pinch to zoom.
+- `FirstPerson.tscn` (the main scene) - first-person textured view.
+  WASD to move, arrows or drag to turn.
+- `Main.tscn` - top-down map: textured floors per BSP leaf, walls over
+  the top. T toggles textures, W walls, F refits.
 
-The output should look **identical** to the PNG from
+## How the renderer works
 
-    dotnet run --project Tools/Meridian59.Net8Room -- <resource dir> <out> 900
+`Renderer.cs` is plain C# with no Godot types. Per screen column it
+collects every wall the ray crosses, sorts by distance and walks them
+like a Doom-style portal renderer: a one-sided wall - or a two-sided one
+that still carries a middle texture - closes the column; otherwise only
+the upper and lower steps are drawn, the window narrows, and the ray
+carries on. Floors and ceilings fill the rest.
 
-for the same room. That PNG was checked against the wiki map, so it is
-the reference - if Godot draws something different, the bug is in this
-project, not the library.
+It has no Godot dependency on purpose: `Tools/Meridian59.Net8Fpv`
+renders the identical code to a PNG, so the output can be checked
+against a reference image rather than eyeballed in motion. The two were
+confirmed byte-identical.
 
-Nothing here talks to a server yet.
+## Known limits
+
+- **Speed.** Wall casting is brute force over every wall in the room, so
+  the internal resolution is low (`RenderWidth`, default 480) and scaled
+  up. The BSP tree is already loaded and is the obvious fix.
+- **No collision.** Movement is rejected if the destination is not
+  inside a sector; that is all.
+- **No objects, monsters or players.** Those arrive from the server and
+  nothing here is connected yet.
+- Transparent middle textures on two-sided walls are treated as solid.
+
+## Unit conventions
+
+Established by measurement, not documentation - see
+`Tools/Meridian59.Net8RoomTex/README.md`:
+
+- Wall X/Y are FINENESS units, 1024 per grid square.
+- Sector heights and `ClientLength` are in XY/16 units (measured:
+  `xyLength / ClientLength == 16.0` exactly across barinn.roo).
+- One texture tiles across one grid square, so UV = xy / 1024.

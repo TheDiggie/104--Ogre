@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Meridian59.Net8Fpv</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The renderer is shared with MobileClient so this checks the code
+         that actually ships, not a copy of it. -->
+    <Compile Include="../../MobileClient/Renderer.cs" Link="Renderer.cs" />
+    <Compile Include="../../MobileClient/M59Geo.cs" Link="M59Geo.cs" />
+    <ProjectReference Include="../../Meridian59/net8.csproj" />
+  </ItemGroup>
+</Project>
