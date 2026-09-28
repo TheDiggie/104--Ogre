@@ -517,12 +517,12 @@ public partial class GameView : Node2D
         if (obj == null)
         {
             _client.Data.TargetID = uint.MaxValue;      // tapped nothing: clear
-            _actions?.SetTarget(null);
+            _actions?.SetTarget((RoomObject)null);
             return;
         }
 
         _client.Data.TargetID = obj.ID;
-        _actions?.SetTarget(string.IsNullOrWhiteSpace(obj.Name) ? "something" : obj.Name);
+        _actions?.SetTarget(obj);
     }
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>

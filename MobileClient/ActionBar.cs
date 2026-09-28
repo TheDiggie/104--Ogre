@@ -1,5 +1,7 @@
 using System;
 using Godot;
+using Meridian59.Data.Models;
+using Meridian59.Drawing2D;
 
 /// <summary>
 /// What you can do to the thing you tapped.
@@ -54,7 +56,7 @@ public partial class ActionBar : Control
 
         GetViewport().SizeChanged += Layout;
         Layout();
-        SetTarget(null);
+        SetTarget((RoomObject)null);
     }
 
     Button Make(string text, Action pressed)
@@ -84,11 +86,30 @@ public partial class ActionBar : Control
         }
     }
 
-    /// <summary>Shows the row for a named target, or hides it when null.</summary>
-    public void SetTarget(string targetName)
+    /// <summary>
+    /// Shows the row for a target, or hides it when there is none.
+    ///
+    /// The name is drawn in the colour the server gives that object -
+    /// `NameColors.GetColorFor`, the same function the loot list, the look
+    /// window and the labels over people's heads use. The game's own
+    /// target window does exactly this, and hides itself when the target
+    /// has no name or is flagged invisible.
+    /// </summary>
+    public void SetTarget(RoomObject target)
     {
-        bool on = !string.IsNullOrEmpty(targetName);
+        bool on = target != null
+            && !string.IsNullOrWhiteSpace(target.Name)
+            && (target.Flags == null || target.Flags.Drawing != ObjectFlags.DrawingType.Invisible);
+
         Visible = on;
-        if (on) _name.Text = targetName;
+        if (!on) return;
+
+        _name.Text = target.Name;
+
+        uint argb = target.Flags != null ? NameColors.GetColorFor(target.Flags) : NameColors.NORMAL;
+        _name.AddThemeColorOverride("font_color", new Color(
+            ((argb >> 16) & 0xFF) / 255f,
+            ((argb >> 8) & 0xFF) / 255f,
+            (argb & 0xFF) / 255f));
     }
 }
