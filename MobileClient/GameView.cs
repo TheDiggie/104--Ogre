@@ -51,6 +51,7 @@ public partial class GameView : Node2D
     Label _status;
     string _state = "starting";
     double _fpsAccum; int _frames; string _fps = "";
+    float _clock;
 
     public override void _Ready()
     {
@@ -162,6 +163,9 @@ public partial class GameView : Node2D
         ApplyInput(delta);
         SyncSprites();
         ApplyTap();
+
+        _clock += (float)delta;
+        if (_world.Renderer != null) _world.Renderer.Time = _clock;   // scrolling water and lava
 
         _fpsAccum += delta; _frames++;
         if (_fpsAccum >= 0.5) { _fps = $"{_frames / _fpsAccum:F0} fps"; _fpsAccum = 0; _frames = 0; }

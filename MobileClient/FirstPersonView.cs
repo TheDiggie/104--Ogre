@@ -51,6 +51,7 @@ public partial class FirstPersonView : Node2D
     int _w, _h;
 
     float _camX, _camY, _camZ, _angle;
+    float _clock;
     Label _status;
     double _fpsAccum;
     int _frames;
@@ -229,6 +230,10 @@ public partial class FirstPersonView : Node2D
                 if (dest != null) _camZ = M59Geo.FloorXY(dest) + Renderer.EyeHeight;
             }
         }
+
+        // Scrolling water, lava and moving walls run off this.
+        _clock += (float)delta;
+        _renderer.Time = _clock;
 
         _fpsAccum += delta; _frames++;
         if (_fpsAccum >= 0.5)

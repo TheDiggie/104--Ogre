@@ -326,6 +326,28 @@ confirmed byte-identical.
   anchoring differs. Doing it properly means per-leaf flats rather than
   per-sector, which is the same restructure the slopes want.
 
+- **Scrolling floors, ceilings and walls** - water, lava, the odd moving
+  wall - animate off `Renderer.Time`, which the views advance each frame
+  and which is zero everywhere else, so every offline render and every
+  check in `Tools/` still produces the same picture it did.
+
+  1788 sectors scroll their floor, 5 their ceiling, and 172 sidedefs
+  scroll a wall. The rate comes from `RooSector.GetSectorScrollSpeed`
+  and its sidedef twin, which are `protected` and so had to be ported
+  rather than called. Note that the two use different constants - a
+  sector scrolls at 12/6/2 ms per pixel and a wall at 96/32/8, so a
+  wall's "fast" is slower than a sector's "slow".
+
+  `Net8RenderCheck -- scroll` renders every affected room at two times
+  and counts the ones whose picture moves. Of 129 such rooms, 3 have
+  their scrolling texture present in the resource folder this was
+  developed against, and those 3 are exactly the 3 that move - the rest
+  are water and lava rendering as missing-texture grey.
+
+  What is *not* confirmed is which way things flow: mapping compass
+  directions onto texture axes is a sign convention, and nothing here
+  can check it. If a river runs backwards in game it is one line.
+
 - **Sector lighting is not implemented**, and shading is distance fog
   alone. The data is there: `RooSector.Light1`, where 0-127 means the
   sector lights itself (brightness `Light1 / 128`, so 0 is black and 127

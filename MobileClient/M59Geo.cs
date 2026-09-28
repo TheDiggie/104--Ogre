@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using Meridian59.Drawing2D;
+using Meridian59.Common.Enums;
 using Meridian59.Files;
 using Meridian59.Files.BGF;
 using Meridian59.Files.ROO;
@@ -50,6 +51,67 @@ public static class M59Geo
 
     public static float Plane(RooSectorSlopeInfo sl, float x, float y)
         => (float)((-sl.A * x - sl.B * y - sl.D) / sl.C);
+
+    // --- scrolling textures ----------------------------------------------
+    //
+    // 1788 sectors scroll their floor (water, lava), 5 their ceiling, and
+    // 172 sidedefs scroll a wall. Ported from RooSector.GetSectorScrollSpeed
+    // and its sidedef twin, which are protected so they cannot be called.
+    //
+    // Note the two use different constants: a sector scrolls at 12/6/2 ms
+    // per pixel and a wall at 96/32/8, so a wall's "fast" is a sector's
+    // "slow" and then some. Getting that backwards would be invisible in
+    // one room and wrong everywhere else.
+
+    /// <summary>Floor and ceiling scroll, in textures per second.</summary>
+    public static void SectorScroll(TextureScrollSpeed speed, TextureScrollDirection dir,
+                                    int texW, int texH, out float sx, out float sy)
+        => ScrollRate(speed, dir, texW, texH, 12, 6, 2, out sx, out sy);
+
+    /// <summary>Wall scroll, in textures per second.</summary>
+    public static void WallScroll(TextureScrollSpeed speed, TextureScrollDirection dir,
+                                  int texW, int texH, out float sx, out float sy)
+        => ScrollRate(speed, dir, texW, texH, 96, 32, 8, out sx, out sy);
+
+    static void ScrollRate(TextureScrollSpeed speed, TextureScrollDirection dir,
+                           int texW, int texH, int slow, int medium, int fast,
+                           out float sx, out float sy)
+    {
+        sx = 0f; sy = 0f;
+        if (texW <= 0 || texH <= 0 || speed == TextureScrollSpeed.NONE) return;
+
+        float diag = MathF.Sqrt((float)texW * texW + (float)texH * texH);
+        float length;
+        switch (dir)
+        {
+            case TextureScrollDirection.N:  sx =  0f; sy = -1f; length = texH; break;
+            case TextureScrollDirection.S:  sx =  0f; sy =  1f; length = texH; break;
+            case TextureScrollDirection.E:  sx =  1f; sy =  0f; length = texW; break;
+            case TextureScrollDirection.W:  sx = -1f; sy =  0f; length = texW; break;
+            case TextureScrollDirection.NE: sx =  1f; sy = -1f; length = diag; break;
+            case TextureScrollDirection.SE: sx =  1f; sy =  1f; length = diag; break;
+            case TextureScrollDirection.SW: sx = -1f; sy =  1f; length = diag; break;
+            case TextureScrollDirection.NW: sx = -1f; sy = -1f; length = diag; break;
+            default: return;
+        }
+
+        switch (speed)
+        {
+            case TextureScrollSpeed.SLOW:   length *= slow; break;
+            case TextureScrollSpeed.MEDIUM: length *= medium; break;
+            case TextureScrollSpeed.FAST:   length *= fast; break;
+            default: sx = 0f; sy = 0f; return;
+        }
+
+        // The library scales the direction to this length: one unit is one
+        // whole texture scrolled in one second.
+        if (length <= 0f) { sx = 0f; sy = 0f; return; }
+        float target = 1000f / length;
+        float have = MathF.Sqrt(sx * sx + sy * sy);
+        if (have <= 0f) { sx = 0f; sy = 0f; return; }
+        float k = target / have;
+        sx *= k; sy *= k;
+    }
 
     // --- kod (server) coordinates <-> room coordinates -------------------
     //

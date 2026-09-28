@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Meridian59.Common;
 using Meridian59.Common.Constants;
+using Meridian59.Common.Enums;
 using Meridian59.Files.BGF;
 using Meridian59.Files.ROO;
 
@@ -118,6 +119,14 @@ public sealed class Renderer
     public bool HonourBackwards { get; set; } = true;
 
     /// <summary>
+    /// Seconds of animation time, for scrolling floors and walls - water,
+    /// lava, the odd moving wall. Zero by default so every offline render
+    /// and every check in Tools/ still produces the same picture; the live
+    /// views set it each frame.
+    /// </summary>
+    public float Time { get; set; } = 0f;
+
+    /// <summary>
     /// Per-thread working state. The wall grid's visit marker lives here
     /// too, so two threads walking the same grid do not overwrite each
     /// other's stamps.
@@ -146,6 +155,8 @@ public sealed class Renderer
         public float Depth, SpanTopH, SpanBotH, Along, Fog, Tpp;
         public int XOff, YOff;
         public bool TopDown, NoVTile;
+        public TextureScrollSpeed ScrollSpeed;
+        public TextureScrollDirection ScrollDir;
         public Tex T;
     }
 
@@ -250,7 +261,17 @@ public sealed class Renderer
                 RooSector near = M59Geo.Sector(_roo, h.Right ? h.Wall.RightSectorNum : h.Wall.LeftSectorNum);
                 RooSector far  = M59Geo.Sector(_roo, h.Right ? h.Wall.LeftSectorNum  : h.Wall.RightSectorNum);
                 RooSideDef side = M59Geo.Side(_roo, h.Right ? h.Wall.RightSideNum : h.Wall.LeftSideNum);
-                if (near == null) near = cur;
+                // The space this column's ray is travelling through is what
+                // the visible floor and ceiling belong to, and the walk has
+                // been tracking that all along - it starts at the camera's
+                // own sector, which comes from the BSP, and follows portals.
+                // Deriving it instead from which side of the wall the camera
+                // is on agrees 110397 times out of 110871 and is a geometric
+                // test that gives way at boundaries and coincident walls.
+                // Trust the walk; keep the side test for which sidedef's
+                // textures to use.
+                if (cur != null) near = cur;
+                else if (near == null) near = cur;
 
                 // Heights at the point this column's ray meets the wall, so
                 // a sloped sector's floor and ceiling meet the wall where
@@ -263,10 +284,10 @@ public sealed class Renderer
 
                 FillFlat(px, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
-                         NoFlats, NoSample);
+                         NoFlats, NoSample, Time);
                 FillFlat(px, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
-                         NoFlats, NoSample);
+                         NoFlats, NoSample, Time);
 
                 yTop = Math.Max(yTop, ceilY);
                 yBot = Math.Min(yBot, floorY);
@@ -295,7 +316,10 @@ public sealed class Renderer
                     DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc,
                              side != null ? _tex.Get(side.MiddleTexture) : null,
                              along, xOff, yOff, side != null && side.Flags.IsNormalTopDown,
-                             fog, tpp, false, null, 0f, 0, side != null && side.Flags.IsNoVTile);
+                             fog, tpp, false, null, 0f, 0, side != null && side.Flags.IsNoVTile,
+                             side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
+                             side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
+                             Time);
                     _depth[sx] = perp;
                     closed = true;
                     break;
@@ -321,7 +345,8 @@ public sealed class Renderer
                         {
                             DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid,
                                      along, xOff, yOff, side.Flags.IsNormalTopDown, fog, tpp,
-                                     false, null, 0f, 0, side.Flags.IsNoVTile);
+                                     false, null, 0f, 0, side.Flags.IsNoVTile,
+                                     side.Flags.ScrollSpeed, side.Flags.ScrollDirection, Time);
                             _depth[sx] = perp;
                             closed = true;
                             break;
@@ -337,6 +362,8 @@ public sealed class Renderer
                                 SpanTopH = nc, SpanBotH = nf, Along = along, XOff = xOff,
                                 YOff = yOff, TopDown = side.Flags.IsNormalTopDown,
                                 NoVTile = side.Flags.IsNoVTile,
+                                ScrollSpeed = side.Flags.ScrollSpeed,
+                                ScrollDir = side.Flags.ScrollDirection,
                                 Fog = fog, Tpp = tpp, T = mid });
                     }
                 }
@@ -349,7 +376,10 @@ public sealed class Renderer
                     DrawWall(px, W, H, sx, yTop, Math.Min(yBot, farCeilY - 1), ceilY, farCeilY, fc, nc,
                              side != null ? _tex.Get(side.UpperTexture) : null,
                              along, xOff, yOff, side == null || !side.Flags.IsAboveBottomUp,
-                             fog, tpp);
+                             fog, tpp, false, null, 0f, 0, false,
+                             side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
+                             side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
+                             Time);
                     yTop = Math.Max(yTop, farCeilY);
                 }
                 if (ff > nf)
@@ -358,7 +388,10 @@ public sealed class Renderer
                     DrawWall(px, W, H, sx, Math.Max(yTop, farFloorY), yBot, farFloorY, floorY, nf, ff,
                              side != null ? _tex.Get(side.LowerTexture) : null,
                              along, xOff, yOff, side != null && side.Flags.IsBelowTopDown,
-                             fog, tpp);
+                             fog, tpp, false, null, 0f, 0, false,
+                             side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
+                             side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
+                             Time);
                     yBot = Math.Min(yBot, farFloorY);
                 }
 
@@ -404,7 +437,7 @@ public sealed class Renderer
             DrawWall(px, W, H, m.Sx, m.Y0, m.Y1, m.SpanTopY, m.SpanBotY,
                      m.SpanBotH, m.SpanTopH, m.T, m.Along, m.XOff, m.YOff, m.TopDown,
                      m.Fog, m.Tpp, true, haveSprites ? _spriteDepth : null, m.Depth, W,
-                     m.NoVTile);
+                     m.NoVTile, m.ScrollSpeed, m.ScrollDir, Time);
         }
     }
 
@@ -599,7 +632,10 @@ public sealed class Renderer
                          float fog, float texelsPerPixel = 1f,
                          bool masked = false,
                          float[] spriteDepth = null, float depth = 0f, int stride = 0,
-                         bool noVTile = false)
+                         bool noVTile = false,
+                         TextureScrollSpeed scrollSpeed = TextureScrollSpeed.NONE,
+                         TextureScrollDirection scrollDir = TextureScrollDirection.N,
+                         float time = 0f)
     {
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
@@ -641,6 +677,17 @@ public sealed class Renderer
                 // Origin at the bottom, texture running up.
                 vBase = 1f - yOff + spanBotH * perWorld;
                 vPerHeight = -perWorld;
+            }
+
+            // A moving wall. The rate is whole textures per second, and the
+            // axes are the texture's own: its X runs up the wall (v here)
+            // and its Y along it (u).
+            if (time != 0f && scrollSpeed != TextureScrollSpeed.NONE)
+            {
+                M59Geo.WallScroll(scrollSpeed, scrollDir, t.W, t.H,
+                                  out float sxr, out float syr);
+                vBase += sxr * time;
+                u     += syr * time;
             }
         }
 
@@ -686,7 +733,7 @@ public sealed class Renderer
     static void FillFlat(uint[] px, int W, int H, int sx, int y0, int y1, bool ceiling,
                          RooSector sec, float camX, float camY, float camZ,
                          float horizon, float proj, float angle, float rayA, TexCache tc,
-                         bool skip, bool noSample)
+                         bool skip, bool noSample, float time)
     {
         if (sec == null || skip) return;
         if (y0 < 0) y0 = 0;
@@ -699,6 +746,18 @@ public sealed class Renderer
         uint flat = ceiling ? 0xFF0B0B10u : 0xFF141418u;
         float texOffX = sec.TextureX * M59Geo.HeightToXY;
         float texOffY = sec.TextureY * M59Geo.HeightToXY;
+
+        // Scrolling water and lava. The rate is in whole textures per
+        // second, so it adds straight onto the sampled coordinates.
+        float scrollU = 0f, scrollV = 0f;
+        if (time != 0f && t != null &&
+            (ceiling ? sec.Flags.IsScrollCeiling : sec.Flags.IsScrollFloor))
+        {
+            M59Geo.SectorScroll(sec.Flags.ScrollSpeed, sec.Flags.ScrollDirection,
+                                t.W, t.H, out float sxr, out float syr);
+            scrollU = sxr * time;
+            scrollV = syr * time;
+        }
         float cosFix = MathF.Cos(rayA - angle);
         float rdx = MathF.Cos(rayA), rdy = MathF.Sin(rayA);
 
@@ -743,8 +802,8 @@ public sealed class Renderer
             // ceilings were sliding by up to a texture's width.
             px[y * W + sx] = Shade(
                 noSample ? t.P[0]
-                         : t.Sample((wy - texOffY) / M59Geo.Fineness,
-                                    (wx - texOffX) / M59Geo.Fineness, texelsPerPixel),
+                         : t.Sample((wy - texOffY) / M59Geo.Fineness + scrollU,
+                                    (wx - texOffX) / M59Geo.Fineness + scrollV, texelsPerPixel),
                 fog);
         }
     }

@@ -1,4 +1,4 @@
-using System;using System.IO;using System.Linq;
+using System;using System.Collections.Generic;using System.IO;using System.Linq;
 using Meridian59.Files;using Meridian59.Files.ROO;
 
 // Renders a first-person view to PNG using the SAME Renderer the game
@@ -9,7 +9,23 @@ static class Fpv
 {
     static int Main(string[] a)
     {
-        if (a.Length < 3) { Console.WriteLine("usage: <resourceDir> <room.roo> <out.png> [x y angleDeg] [w h]"); return 2; }
+        if (a.Length < 3) { Console.WriteLine("usage: <resourceDir> <room.roo> <out.png> [x y angleDeg] [w h] [--sprite f.bgf] [--time s] [--solid] [--noflip]"); return 2; }
+
+        // Options and their values are pulled out first: the positional
+        // arguments below count on their own positions, and --time 3.0 used
+        // to be read as the render width.
+        string[] flags = a;
+        var pos = new List<string>();
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (a[i].StartsWith("--"))
+            {
+                if (a[i] == "--sprite" || a[i] == "--time") i++;   // takes a value
+                continue;
+            }
+            pos.Add(a[i]);
+        }
+        a = pos.ToArray();
         string dir = a[0], roomFile = a[1], outPath = a[2];
         int W = a.Length > 7 ? int.Parse(a[6]) : 960;
         int H = a.Length > 7 ? int.Parse(a[7]) : 540;
@@ -22,9 +38,12 @@ static class Fpv
         var r = new Renderer(roo, tc);
         // --solid renders grates and railings as solid walls, which is what
         // this renderer did before it read WF_TRANSPARENT. For comparing.
-        if (a.Contains("--solid")) r.SeeThroughWalls = false;
+        if (flags.Contains("--solid")) r.SeeThroughWalls = false;
         // --noflip ignores WF_BACKWARDS, for comparing.
-        if (a.Contains("--noflip")) r.HonourBackwards = false;
+        if (flags.Contains("--noflip")) r.HonourBackwards = false;
+        // --time <seconds> advances scrolling floors and walls.
+        int ti = Array.IndexOf(flags, "--time");
+        if (ti >= 0 && ti + 1 < flags.Length) r.Time = float.Parse(flags[ti + 1]);
 
         float camX, camY, angle;
         if (a.Length >= 6)
@@ -53,14 +72,14 @@ static class Fpv
         // Optional sprite test: --sprite <file.bgf> drops a ring of them
         // around the camera at known distances, including some that should
         // end up behind walls.
-        int si = Array.IndexOf(a, "--sprite");
-        if (si >= 0 && si + 1 < a.Length)
+        int si = Array.IndexOf(flags, "--sprite");
+        if (si >= 0 && si + 1 < flags.Length)
         {
-            var bgf = rm.GetObject(a[si + 1]);
-            if (bgf == null) Console.WriteLine($"  ! could not load sprite {a[si + 1]}");
-            else Console.WriteLine($"  {a[si + 1]}: {bgf.Frames.Count} frames, {bgf.FrameSets.Count} groups");
+            var bgf = rm.GetObject(flags[si + 1]);
+            if (bgf == null) Console.WriteLine($"  ! could not load sprite {flags[si + 1]}");
+            else Console.WriteLine($"  {flags[si + 1]}: {bgf.Frames.Count} frames, {bgf.FrameSets.Count} groups");
             Tex st = Tex.FromSprite(bgf);
-            if (st == null) Console.WriteLine($"  ! could not decode {a[si + 1]}");
+            if (st == null) Console.WriteLine($"  ! could not decode {flags[si + 1]}");
             else
             {
                 // A line straight ahead at increasing distance, plus one far

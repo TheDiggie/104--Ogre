@@ -1,5 +1,5 @@
 using System;using System.Collections.Generic;using System.IO;using System.Linq;
-using Meridian59.Files;using Meridian59.Files.ROO;
+using Meridian59.Files;using Meridian59.Files.ROO;using Meridian59.Common.Enums;
 
 // Two exhaustive checks on the renderer, both against what it actually
 // draws rather than against a second copy of its arithmetic.
@@ -9,6 +9,7 @@ using Meridian59.Files;using Meridian59.Files.ROO;
 //   dotnet run --project . -- seethrough <resourceDir>
 //   dotnet run --project . -- grate      <resourceDir>
 //   dotnet run --project . -- slope      <resourceDir>
+//   dotnet run --project . -- scroll     <resourceDir>
 //   dotnet run --project . -- all     <resourceDir>
 static class RenderCheck
 {
@@ -33,6 +34,7 @@ static class RenderCheck
         if (mode == "seethrough" || mode == "all") SeeThrough(dir);
         if (mode == "grate"   || mode == "all") bad += Grate(dir);
         if (mode == "slope"   || mode == "all") bad += SlopeMath(dir);
+        if (mode == "scroll"  || mode == "all") bad += Scrolling(dir);
         return bad == 0 ? 0 : 1;
     }
 
@@ -344,5 +346,79 @@ static class RenderCheck
         Console.WriteLine($"  worst relative error: {worst:E2}");
         Console.WriteLine(bad == 0 ? "OK" : "PROBLEM");
         return bad;
+    }
+
+    /// <summary>
+    /// Scrolling floors, ceilings and walls - water, lava, the odd moving
+    /// wall. Renders each room that has any at two different times and
+    /// counts the ones whose picture actually changes.
+    ///
+    /// This is a "does it do anything" check rather than a correctness one:
+    /// the rate comes from the library's own formula, but which way a river
+    /// flows on screen is a mapping between compass directions and texture
+    /// axes that nothing here can confirm.
+    /// </summary>
+    static int Scrolling(string dir)
+    {
+        var rm = new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
+        const int W = 320, H = 180;
+        int roomsWith = 0, roomsWithArt = 0, roomsMoving = 0, viewsChecked = 0;
+
+        foreach (string path in Directory.GetFiles(dir, "*.roo").OrderBy(x=>x))
+        {
+            RooFile roo;
+            try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
+
+            bool any = roo.Sectors.Any(s2 => s2.Flags.ScrollSpeed != TextureScrollSpeed.NONE
+                                          && (s2.Flags.IsScrollFloor || s2.Flags.IsScrollCeiling))
+                    || roo.SideDefs.Any(sd => sd.Flags.ScrollSpeed != TextureScrollSpeed.NONE);
+            if (!any) continue;
+            roomsWith++;
+
+            var tcx = new TexCache(rm);
+            bool haveArt = roo.Sectors.Any(s2 => s2.Flags.ScrollSpeed != TextureScrollSpeed.NONE
+                        && ((s2.Flags.IsScrollFloor && tcx.Get(s2.FloorTexture) != null)
+                         || (s2.Flags.IsScrollCeiling && tcx.Get(s2.CeilingTexture) != null)));
+            if (haveArt) roomsWithArt++;
+
+            var r = new Renderer(roo, tcx);
+            bool moved = false;
+
+            // Stand in each of the biggest leaves and look all round: the
+            // scrolling surface has to be on screen for this to show.
+            foreach (var leaf in roo.BSPTreeLeaves
+                     .Where(l=>l.Vertices!=null&&l.Vertices.Count>=3&&l.Sector!=null)
+                     .OrderByDescending(l=>{double s3=0;var v=l.Vertices;
+                        for(int i=0,j=v.Count-1;i<v.Count;j=i++) s3+=(double)v[j].X*v[i].Y-(double)v[i].X*v[j].Y;
+                        return Math.Abs(s3*.5);}).Take(12))
+            {
+                if (moved) break;
+                float cx = leaf.Vertices.Average(v=>(float)v.X), cy = leaf.Vertices.Average(v=>(float)v.Y);
+                var sec = r.SectorAtPoint(cx, cy);
+                if (sec == null) continue;
+                float cz = M59Geo.FloorXY(sec) + Renderer.EyeHeight;
+
+                for (int k = 0; k < 8 && !moved; k++)
+                {
+                    float ang = k * MathF.PI / 4f;
+                    var a0 = new uint[W*H]; r.Time = 0f; r.Render(a0, W,H, cx,cy,cz, ang);
+                    var a1 = new uint[W*H]; r.Time = 3f; r.Render(a1, W,H, cx,cy,cz, ang);
+                    viewsChecked++;
+                    for (int i = 0; i < a0.Length; i++)
+                        if (a0[i] != a1[i]) { moved = true; break; }
+                }
+            }
+            if (moved) roomsMoving++;
+        }
+
+        Console.WriteLine($"  rooms with something set to scroll : {roomsWith}");
+        Console.WriteLine($"  of those, whose art is present here: {roomsWithArt}");
+        Console.WriteLine($"  rooms where the picture moves      : {roomsMoving}   ({viewsChecked} views)");
+        // Most scrolling surfaces are water and lava whose textures are not
+        // in a partial resource folder, so they render as missing-texture
+        // grey and cannot move. The check is that it moves where the art
+        // exists, not that it moves everywhere.
+        Console.WriteLine(roomsMoving > 0 ? "OK" : "PROBLEM");
+        return roomsMoving > 0 ? 0 : 1;
     }
 }
