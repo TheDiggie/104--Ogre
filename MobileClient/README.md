@@ -238,7 +238,31 @@ confirmed byte-identical.
   `Tools/Meridian59.Net8Play` runs the same client headlessly and prints
   what arrives, which separates a networking problem from a rendering
   one.
-- Transparent middle textures on two-sided walls are treated as solid.
+- **See-through walls** - grates, railings, fences, open doorways - are
+  drawn with their transparency and you can look past them. The room
+  says which walls those are: `WF_TRANSPARENT` means "has some
+  transparency" and `WF_NOLOOKTHROUGH` means "even so, you cannot see
+  past it". 33788 of the 40586 two-sided walls carrying a middle texture
+  across all 362 rooms are the see-through kind.
+
+  They used to be drawn as solid walls, and not even quietly: room
+  textures have their alpha forced opaque, because a floor has no holes
+  in it, so the palette's transparent index came out as a sheet of bright
+  cyan. `Tools/Meridian59.Net8Fpv --solid` renders the old way if you
+  want to see it.
+
+  They are collected during the column walk and drawn in reverse at the
+  end of it, because the walk goes front to back and something you can
+  see through has to be painted over what is behind it. Sprites are
+  still tested only against the wall depth, so a creature standing
+  behind a grate draws over it - that wants the two merged into one
+  depth-sorted pass, and has not been done.
+
+  `Tools/Meridian59.Net8RenderCheck -- seethrough` measures it: 14 of
+  362 rooms change from the camera positions it samples, by up to 46% of
+  the pixels, and the share of columns that close goes from 94.24% to
+  94.22% over 17184 views - so letting people see through fences does
+  not leave holes in the picture.
 
 ## Unit conventions
 

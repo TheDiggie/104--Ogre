@@ -20,6 +20,9 @@ static class Fpv
         roo.ResolveResources(rm);
         var tc = new TexCache(rm);
         var r = new Renderer(roo, tc);
+        // --solid renders grates and railings as solid walls, which is what
+        // this renderer did before it read WF_TRANSPARENT. For comparing.
+        if (a.Contains("--solid")) r.SeeThroughWalls = false;
 
         float camX, camY, angle;
         if (a.Length >= 6)

@@ -5,7 +5,8 @@ using Meridian59.Files;using Meridian59.Files.ROO;
 // draws rather than against a second copy of its arithmetic.
 //
 //   dotnet run --project . -- threads <resourceDir>
-//   dotnet run --project . -- pick    <resourceDir>
+//   dotnet run --project . -- pick       <resourceDir>
+//   dotnet run --project . -- seethrough <resourceDir>
 //   dotnet run --project . -- all     <resourceDir>
 static class RenderCheck
 {
@@ -27,6 +28,7 @@ static class RenderCheck
         int bad = 0;
         if (mode == "threads" || mode == "all") bad += Threads(dir);
         if (mode == "pick"    || mode == "all") bad += Pick(dir);
+        if (mode == "seethrough" || mode == "all") SeeThrough(dir);
         return bad == 0 ? 0 : 1;
     }
 
@@ -163,5 +165,49 @@ static class RenderCheck
         Console.WriteLine($"  pickable but not painted : {phantom}");
         Console.WriteLine(missed==0 && phantom==0 ? "OK" : "MISMATCH");
         return missed + phantom;
+    }
+
+    /// <summary>
+    /// What honouring WF_TRANSPARENT on two-sided walls actually changes.
+    /// Reports rather than fails: this is a fidelity measurement, not a
+    /// pass/fail, and the number that matters alongside it is that letting
+    /// people see through fences does not leave columns unclosed.
+    /// </summary>
+    static void SeeThrough(string dir)
+    {
+ var rm=new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
+ const int W=480,H=270;
+ var best=new List<(double pct,string room,float x,float y,float deg)>();
+ int roomsWith=0, roomsChecked=0; long colsOff=0, colsOn=0, views=0;
+ foreach(string p in Directory.GetFiles(dir,"*.roo").OrderBy(x=>x)){
+  RooFile roo; try{ roo=new RooFile(p); roo.ResolveResources(rm);}catch{continue;}
+  roomsChecked++;
+  var r=new Renderer(roo,new TexCache(rm));
+  var leaves=roo.BSPTreeLeaves.Where(l=>l.Vertices!=null&&l.Vertices.Count>=3).ToList();
+  if(leaves.Count==0) continue;
+  double worst=0; float bx=0,by=0,bd=0;
+  foreach(var leaf in leaves.OrderByDescending(l=>{double s=0;var v=l.Vertices;
+      for(int i=0,j=v.Count-1;i<v.Count;j=i++) s+=(double)v[j].X*v[i].Y-(double)v[i].X*v[j].Y;
+      return Math.Abs(s*.5);}).Take(6)){
+   float cx=leaf.Vertices.Average(v=>(float)v.X), cy=leaf.Vertices.Average(v=>(float)v.Y);
+   var sec=r.SectorAtPoint(cx,cy); if(sec==null) continue;
+   float cz=M59Geo.FloorXY(sec)+Renderer.EyeHeight;
+   for(int k=0;k<8;k++){
+    float ang=k*MathF.PI/4f;
+    var off=new uint[W*H]; r.SeeThroughWalls=false; int co=r.Render(off,W,H,cx,cy,cz,ang);
+    var on =new uint[W*H]; r.SeeThroughWalls=true;  int cn=r.Render(on ,W,H,cx,cy,cz,ang);
+    colsOff+=co; colsOn+=cn; views++;
+    int d=0; for(int i=0;i<off.Length;i++) if(off[i]!=on[i]) d++;
+    double pct=100.0*d/off.Length;
+    if(pct>worst){ worst=pct; bx=cx; by=cy; bd=ang*180f/MathF.PI; }
+   }
+  }
+  if(worst>0.01){ roomsWith++; best.Add((worst,Path.GetFileName(p),bx,by,bd)); }
+ }
+ Console.WriteLine($"{roomsChecked} rooms, {roomsWith} where see-through walls change the picture");
+ Console.WriteLine($"  columns closed, solid walls : {100.0*colsOff/(views*W),5:F2}%");
+ Console.WriteLine($"  columns closed, see-through : {100.0*colsOn /(views*W),5:F2}%   ({views} views)");
+ foreach(var b in best.OrderByDescending(x=>x.pct).Take(12))
+  Console.WriteLine($"  {b.pct,6:F1}% of pixels  {b.room,-22} {b.x:F0} {b.y:F0} {b.deg:F0}");
     }
 }

@@ -101,6 +101,14 @@ public sealed class Renderer
     public bool NoSample { get; set; } = false;
 
     /// <summary>
+    /// Honour WF_TRANSPARENT on two-sided walls: grates, railings and
+    /// doorways are drawn with their transparency and you see past them.
+    /// Off treats them as solid, which is what this renderer did before,
+    /// and is how the difference gets measured.
+    /// </summary>
+    public bool SeeThroughWalls { get; set; } = true;
+
+    /// <summary>
     /// Per-thread working state. The wall grid's visit marker lives here
     /// too, so two threads walking the same grid do not overwrite each
     /// other's stamps.
@@ -112,6 +120,22 @@ public sealed class Renderer
         public int[] Stamp;
         public int Tick;
         public int SolidCols;
+        public readonly List<Masked> Masked = new List<Masked>(8);
+    }
+
+    /// <summary>
+    /// A see-through wall met during the column walk, to be drawn once the
+    /// walk has passed it.
+    ///
+    /// The walk goes front to back, and a wall you can see through has to
+    /// be painted over whatever is behind it, so these are collected and
+    /// drawn in reverse at the end of the column.
+    /// </summary>
+    struct Masked
+    {
+        public int Y0, Y1, SpanTopY, SpanBotY;
+        public float SpanTopH, SpanBotH, U, Fog, Tpp;
+        public Tex T;
     }
 
     static readonly Comparison<Hit> ByDistanceThenWall = (p, q) =>
@@ -193,6 +217,7 @@ public sealed class Renderer
             float rdx = MathF.Cos(rayA), rdy = MathF.Sin(rayA);
 
             CollectHits(_roo, camX, camY, rdx, rdy, sc);
+            sc.Masked.Clear();
 
             int yTop = 0, yBot = H - 1;
             RooSector cur = camSector;
@@ -237,17 +262,37 @@ public sealed class Renderer
                     break;
                 }
 
-                // A two-sided wall that still carries a middle texture is a
-                // solid wall stored with sectors on both sides.
+                // A two-sided wall carrying a middle texture is either a
+                // solid wall stored with sectors on both sides, or a grate,
+                // railing or doorway you are meant to see through. The room
+                // says which: WF_TRANSPARENT means "has some transparency"
+                // and WF_NOLOOKTHROUGH means "even so, you cannot see
+                // past it". 33788 of the 40586 such walls across all 362
+                // rooms are the see-through kind, and every one of them
+                // used to be a solid wall.
                 if (side != null && side.MiddleTexture != 0)
                 {
-                    Tex mid = _tex.Get(side.MiddleTexture);
-                    if (mid != null)
+                    bool seeThrough = SeeThroughWalls
+                                   && side.Flags.IsTransparent && !side.Flags.IsNoLookThrough;
+
+                    if (!seeThrough)
                     {
-                        DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid, u, fog, tpp);
-                        _depth[sx] = perp;
-                        closed = true;
-                        break;
+                        Tex mid = _tex.Get(side.MiddleTexture);
+                        if (mid != null)
+                        {
+                            DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid, u, fog, tpp);
+                            _depth[sx] = perp;
+                            closed = true;
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        Tex mid = _tex.GetMasked(side.MiddleTexture);
+                        if (mid != null)
+                            sc.Masked.Add(new Masked {
+                                Y0 = yTop, Y1 = yBot, SpanTopY = ceilY, SpanBotY = floorY,
+                                SpanTopH = nc, SpanBotH = nf, U = u, Fog = fog, Tpp = tpp, T = mid });
                     }
                 }
 
@@ -273,6 +318,14 @@ public sealed class Renderer
 
             if (closed) sc.SolidCols++;
             else for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0) px[y * W + sx] = 0xFF05050Au;
+
+            // Back to front, so a near grate covers a far one.
+            for (int i = sc.Masked.Count - 1; i >= 0; i--)
+            {
+                Masked m = sc.Masked[i];
+                DrawWall(px, W, H, sx, m.Y0, m.Y1, m.SpanTopY, m.SpanBotY,
+                         m.SpanBotH, m.SpanTopH, m.T, m.U, m.Fog, m.Tpp, true);
+            }
         }
     }
 
@@ -436,7 +489,8 @@ public sealed class Renderer
 
     static void DrawWall(uint[] px, int W, int H, int sx, int y0, int y1,
                          int spanTopY, int spanBotY, float spanBotH, float spanTopH,
-                         Tex t, float u, float fog, float texelsPerPixel = 1f)
+                         Tex t, float u, float fog, float texelsPerPixel = 1f,
+                         bool masked = false)
     {
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
@@ -457,7 +511,12 @@ public sealed class Renderer
                 // (a hatch in mossy stone) - with u,v the masonry courses
                 // came out vertical and the banner's fleur-de-lis lay on
                 // their sides.
-                c = Shade(t.Sample(v, u, texelsPerPixel), fog);
+                uint texel = masked ? t.Sample(v, u) : t.Sample(v, u, texelsPerPixel);
+                // A see-through wall keeps the palette's transparent index,
+                // which carries alpha 0; those texels are skipped, not
+                // blended, the same as sprites.
+                if (masked && (texel >> 24) == 0) continue;
+                c = Shade(texel | 0xFF000000u, fog);
             }
             px[y * W + sx] = c;
         }

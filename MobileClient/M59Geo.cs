@@ -227,16 +227,36 @@ public sealed class TexCache
     public TexCache(ResourceManager rm) { _rm = rm; }
     public int Count => _c.Count;
 
-    public Tex Get(ushort num)
+    readonly ConcurrentDictionary<ushort, Tex> _masked = new ConcurrentDictionary<ushort, Tex>();
+
+    public Tex Get(ushort num) => Get(num, _c, false);
+
+    /// <summary>
+    /// Same texture with its transparency kept, for the walls that are
+    /// meant to be seen through. Room textures normally have alpha forced
+    /// opaque - a floor has no holes in it - so a grate drawn with
+    /// <see cref="Get"/> is a solid sheet of cyan.
+    ///
+    /// No mip chain, for the same reason sprites have none: averaging
+    /// across transparent texels bleeds the key colour into the edges.
+    /// </summary>
+    public Tex GetMasked(ushort num) => Get(num, _masked, true);
+
+    Tex Get(ushort num, ConcurrentDictionary<ushort, Tex> cache, bool masked)
     {
         if (num == 0) return null;
-        if (_c.TryGetValue(num, out Tex t)) return t;
+        if (cache.TryGetValue(num, out Tex t)) return t;
         lock (_buildLock)
         {
-            if (_c.TryGetValue(num, out t)) return t;
+            if (cache.TryGetValue(num, out t)) return t;
             Tex built = null;
-            try { built = Tex.From(_rm.GetRoomTexture(num)); } catch { }
-            _c[num] = built;
+            try
+            {
+                var bgf = _rm.GetRoomTexture(num);
+                built = masked ? Tex.FromSprite(bgf) : Tex.From(bgf);
+            }
+            catch { }
+            cache[num] = built;
             return built;
         }
     }
