@@ -12,6 +12,18 @@
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
     <NoWarn>CS0618;CS0612;CS1591;SYSLIB0011</NoWarn>
   </PropertyGroup>
+  <!--
+    DRAWING is deliberately not defined. System.Drawing.Common is
+    Windows-only from .NET 6 on - it compiles anywhere and throws
+    PlatformNotSupportedException everywhere else - and every use of it in
+    this library sits behind that symbol: the GDI helpers in Drawing2D,
+    four methods on BgfBitmap, and one debug export on RooGrids. Leaving
+    it undefined is what makes this assembly safe to ship to Android.
+    Checked rather than assumed: the built assembly references no
+    System.Drawing assembly at all. The System.Drawing namespace still
+    appears in a few usings, which resolve against
+    System.Drawing.Primitives in the shared framework and are harmless.
+  -->
   <ItemGroup>
     <Compile Include="**/*.cs" Exclude="**/obj/**;**/bin/**;Properties/Resources.Designer.cs" />
     <EmbeddedResource Include="colortable.hex" LogicalName="Meridian59.colortable.hex" />
