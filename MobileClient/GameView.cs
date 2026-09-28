@@ -29,6 +29,9 @@ public partial class GameView : Node2D
     [Export] public string ResourceDir = "";
     [Export] public int RenderWidth = 480;
     [Export] public bool AutoConnect = true;
+    /// <summary>Client version reported at login; see M59Client.</summary>
+    [Export] public int VersionMajor = 5;
+    [Export] public int VersionMinor = 0;
     [Export] public float TurnSpeed = 2.2f;      // radians per second, keyboard
     [Export] public bool Run = false;
 
@@ -147,7 +150,12 @@ public partial class GameView : Node2D
             return;
         }
 
-        _client = new M59Client { PreferredCharacter = Character };
+        _client = new M59Client
+        {
+            PreferredCharacter = Character,
+            VersionMajor = (byte)Math.Clamp(VersionMajor, 0, 255),
+            VersionMinor = (byte)Math.Clamp(VersionMinor, 0, 255),
+        };
         _world = new WorldSync(_client.ResourceManager);
         _client.Notice += s =>
         {

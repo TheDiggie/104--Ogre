@@ -25,8 +25,17 @@ using Meridian59.Protocol.GameMessages;
 /// </summary>
 public class M59Client : BaseClient<GameTick, ResourceManager, DataController, Config>
 {
-    public override byte AppVersionMajor => 5;
-    public override byte AppVersionMinor => 0;
+    /// <summary>
+    /// The client version reported at login. If the server wants a
+    /// different one it answers with GetClient and asks us to patch, so
+    /// this is settable rather than compiled in - guessing wrong should
+    /// cost a config change, not a rebuild.
+    /// </summary>
+    public byte VersionMajor { get; set; } = 5;
+    public byte VersionMinor { get; set; } = 0;
+
+    public override byte AppVersionMajor => VersionMajor;
+    public override byte AppVersionMinor => VersionMinor;
 
     /// <summary>Character to use. Empty means the first non-empty slot.</summary>
     public string PreferredCharacter { get; set; } = "";
@@ -102,9 +111,10 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
     protected override void HandleGetClientMessage(GetClientMessage Message)
     {
         // The server wants a different client build than we claim to be.
-        Say("Server reports a client version mismatch - it wants a patch. " +
-            "Log in with the classic client once to update, or adjust " +
-            "AppVersionMajor/Minor.");
+        Say($"Server refused version {VersionMajor}.{VersionMinor} and wants a patch. " +
+            "Either log in once with the classic client to update, or set " +
+            "Version Major / Version Minor on the node to match what the " +
+            "server expects.");
     }
 
     protected override void HandleLoginModeMessageMessage(LoginModeMessageMessage Message)

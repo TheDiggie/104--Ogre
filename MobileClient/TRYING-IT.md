@@ -70,6 +70,12 @@ should scrape along it rather than stop dead.
 Set the main scene to `Game.tscn`, put `M59USER` and `M59PASS` in the
 environment, and play.
 
+The first thing likely to stop you is the version. The client reports
+5.0, and if Server 104 wants something else it answers with GetClient
+and asks for a patch - the status text says so, with the version it
+offered. **Version Major** and **Version Minor** on the node change it
+without a rebuild.
+
 This is the part that has only ever been run against a stub, and it
 stops being guesswork the moment you run it. Everything after `LoginOK`
 is untested: the character handshake, the room arriving, real objects,
