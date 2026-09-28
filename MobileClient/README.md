@@ -66,8 +66,12 @@ never through a wall, and that object becomes the library's own target,
 which is what the Look / Get / Attack / Use row acts on. Tapping nothing
 clears the target and hides the row.
 
-Enter opens the chat line, Escape closes it. ':' emote, '!' yell,
-'^' broadcast, '#' guild, anything else say.
+Enter opens the chat line, Escape closes it. What you type goes through
+the game's own command parser - `tell`, `cast`, `perform`, `rest`,
+`guild`, `invite`, `group`, `deposit`, `appeal`, `time` and twenty more,
+with the aliases from your config and the command history the library
+keeps. Commands are word-based, as in `tell bob hi`; anything that is
+not one is said.
 
 **Map** in the bottom right corner toggles a map of the room with a
 wedge showing where you are and which way you are pointing. Walking 362

@@ -36,7 +36,7 @@ public partial class ChatOverlay : Control
     public bool Capturing => _entry != null && _entry.Visible;
 
     /// <summary>Raised with the text the player submitted, already trimmed.</summary>
-    public event Action<ChatTransmissionType, string> Submitted;
+    public event Action<string> Submitted;
 
     RichTextLabel _log;
     LineEdit _entry;
@@ -137,17 +137,7 @@ public partial class ChatOverlay : Control
     {
         string t = text.Trim();
         Close();
-        if (t.Length == 0) return;
-
-        // Prefixes match what the original client's chat bar accepts, so
-        // muscle memory carries over.
-        ChatTransmissionType type = ChatTransmissionType.Normal;
-        if (t.StartsWith(":")) { type = ChatTransmissionType.Emote; t = t.Substring(1).TrimStart(); }
-        else if (t.StartsWith("!")) { type = ChatTransmissionType.Yell; t = t.Substring(1).TrimStart(); }
-        else if (t.StartsWith("^")) { type = ChatTransmissionType.Everyone; t = t.Substring(1).TrimStart(); }
-        else if (t.StartsWith("#")) { type = ChatTransmissionType.Guild; t = t.Substring(1).TrimStart(); }
-
-        if (t.Length > 0) Submitted?.Invoke(type, t);
+        if (t.Length > 0) Submitted?.Invoke(t);
     }
 
     /// <summary>

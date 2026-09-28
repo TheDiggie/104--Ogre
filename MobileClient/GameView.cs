@@ -153,9 +153,22 @@ public partial class GameView : Node2D
         Widget("chat", () =>
         {
             _chat = new ChatOverlay();
-            _chat.Submitted += (type, text) =>
+            _chat.Submitted += text =>
             {
-                try { _client.SendSayToMessage(type, text); }
+                try
+                {
+                    // The game's own command parser, which knows tell,
+                    // cast, perform, rest, guild, invite, group, deposit,
+                    // appeal, time and twenty more, and keeps the command
+                    // history. It is word-based - "tell bob hi" - and
+                    // returns nothing for text that is not a command, so
+                    // plain text falls through to a say. This used to be
+                    // four prefixes I made up.
+                    if (ChatCommand.Parse(text, _client.Data, _client.Config) != null)
+                        _client.ExecChatCommand(text);
+                    else
+                        _client.SendSayToMessage(ChatTransmissionType.Normal, text);
+                }
                 catch (Exception ex) { _chat.Local($"could not send: {ex.Message}"); }
             };
             _ui.AddChild(_chat);
