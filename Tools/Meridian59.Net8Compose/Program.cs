@@ -79,8 +79,7 @@ static class Program
     /// </summary>
     static void Sheet(string path)
     {
-        BgfFile body = Load("bri.bgf");
-        BgfFile part = Load("bri.bgf");
+        BgfFile body = Load("bri.bgf");   // the first-person arm, which carries hotspots
 
         var shots = new List<Tex>();
         var names = new List<string>();
@@ -88,14 +87,20 @@ static class Program
         RoomObject plain = Make(body);
         shots.Add(M59Compose.Build(plain, out _, out _)); names.Add("bare");
 
-        if (Dress(body, part, true, out _, out RoomObject over, out _))
-        { shots.Add(M59Compose.Build(over, out _, out _)); names.Add("over"); }
-
-        if (Dress(body, part, false, out _, out RoomObject under, out _))
-        { shots.Add(M59Compose.Build(under, out _, out _)); names.Add("under"); }
+        // The real thing: the "ov" files are the held-item overlays the
+        // server pins to a body's hand hotspot - an axe, a sword, a wand.
+        // Nothing else in the game is composed onto a body.
+        foreach (string held in new[] { "neruaxeov.bgf", "spirswordov.bgf", "wandov.bgf" })
+        {
+            BgfFile part;
+            try { part = Load(held); } catch { continue; }
+            if (!Dress(body, part, true, out _, out RoomObject armed, out _)) continue;
+            shots.Add(M59Compose.Build(armed, out _, out _));
+            names.Add(Path.GetFileNameWithoutExtension(held));
+        }
 
         // An object whose art floats above its anchor: the box is mostly
-        // empty and the art sits at the bottom of it.
+        // empty and the art sits at the top of it.
         RoomObject arrow = Make(Load("arrowfir.bgf"));
         shots.Add(M59Compose.Build(arrow, out _, out _)); names.Add("arrowfir");
 
@@ -326,7 +331,7 @@ static class Program
     {
         Console.WriteLine("a part lands where RenderInfo puts it");
 
-        BgfFile body = Load("bri.bgf");
+        BgfFile body = Load("bri.bgf");   // the first-person arm, which carries hotspots
         BgfFile part = Load("icraftleatha.bgf");
 
         if (!Dress(body, part, true, out RoomObject bare, out RoomObject dressed, out RenderInfo ri))
@@ -364,12 +369,17 @@ static class Program
     {
         Console.WriteLine("overlays win the overlap, underlays lose it");
 
-        BgfFile body = Load("bri.bgf");
+        BgfFile body = Load("bri.bgf");   // the first-person arm, which carries hotspots
         // The body wearing a copy of itself: a synthetic pairing, but the
         // only one guaranteed to overlap heavily enough that the draw
         // order is measurable. A real sword covers a few dozen pixels of
         // a body; that is too few to tell "drawn behind" from "drawn a
         // little to the left".
+        // The arm wearing a copy of itself: a fixture, not anything the
+        // game composes, and the only pairing guaranteed to overlap
+        // heavily enough that the draw order is measurable. A real weapon
+        // covers a few dozen pixels of a hand; that is too few to tell
+        // "drawn behind" from "drawn a little to the left".
         BgfFile part = Load("bri.bgf");
 
         float over = Overlap(body, part, true, out int overPixels);

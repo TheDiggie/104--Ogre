@@ -20,17 +20,22 @@ wrongly.
 
 **A part lands where RenderInfo puts it.** A part hung on a hotspot must
 appear, with pixels, inside the box the library gives for it, and the
-picture must grow to hold it rather than clip it. The body and angle are
-searched for rather than assumed - not every frame of a body carries
-every hotspot, and a hand behind the body has none.
+picture must grow to hold it rather than clip it. The frame and angle are
+searched for rather than assumed - not every frame carries every hotspot,
+and an arm turned away from you has none.
 
 **Overlays win the overlap, underlays lose it.** The sign of the hotspot
-decides whether a part is drawn over the body or behind it, and this
-tests the outcome rather than the flag: in the overlap, where the body is
-already opaque, an underlay must change *nothing at all*, which is the
-exact half of the test. The overlay half cannot be exact, because the
-part used is a copy of the body's own art and repaints a good share of
-what it covers in the same colour.
+decides whether a part is drawn over the main frame or behind it, and
+this tests the outcome rather than the flag: in the overlap, where the
+main frame is already opaque, an underlay must change *nothing at all*,
+which is the exact half of the test. The part used there is a copy of the
+main frame's own art - a fixture, not anything the game composes - purely
+because a real weapon covers too few pixels of a hand to tell "behind"
+from "slightly to the left". That also makes the overlay half inexact,
+since it repaints a good share of what it covers in the same colour.
+
+`sheet` draws the real pairings instead: the arm alone, then the arm
+holding an axe, a sword and a maul.
 
 `crush` counts what this client cannot draw. Frames are compressed one of
 two ways, and CRUSH can only be undone by a proprietary `crush32.dll` on

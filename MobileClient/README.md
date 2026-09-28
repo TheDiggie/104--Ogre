@@ -247,12 +247,14 @@ confirmed byte-identical.
   is how many objects the single-frame path sized or placed wrongly.
 
 - **Objects are composed**, not drawn as one frame. `M59Compose.cs`
-  builds the picture out of the main overlay and its suboverlays: a
-  player is a body plus what they are wearing and holding, each its own
-  BGF pinned to a hotspot on the frame below it, and a good many
-  monsters are put together the same way. Drawing the main frame alone
-  showed a Knight with no sword and no shield, and threw away the
-  per-part colour translation that dyes them.
+  builds the picture out of the main overlay and its suboverlays: parts
+  pinned to hotspots on the frame below them, each its own BGF. The
+  clearest case in the art to hand is the first-person arm - `bri.bgf`
+  and its siblings - which is a sleeve and a hand, and the `*ov` files,
+  which are the weapons that pin into it: `neruaxeov`, `spirswordov`,
+  `wandov`. Bodies and creatures are assembled the same way. Drawing the
+  main frame alone dropped every part, and with it the per-part colour
+  translation that dyes them.
 
   None of the arithmetic is guessed. The layout comes from the library's
   own `RenderInfo`, which is called rather than copied; the draw order
@@ -269,7 +271,11 @@ confirmed byte-identical.
   path drew, pixel for pixel, so composition did not quietly resize
   everything that was already right; a part hung on a hotspot lands
   inside the box the library gives for it; and in the overlap, an
-  underlay changes nothing behind the body while an overlay repaints it.
+  underlay changes nothing behind the main frame while an overlay
+  repaints it. That last one is measured with a part pinned to a copy of
+  the main frame's own art, purely because a weapon covers too few pixels
+  of a hand for the difference between "behind" and "slightly left" to be
+  countable - it is a test fixture, not anything the game composes.
 
   Two rounding bugs came out of that check, both from casting where the
   library converts. `Convert.ToInt32` rounds and a cast truncates, so a
@@ -293,7 +299,7 @@ confirmed byte-identical.
   `rbeetle`, `ranu` and their `X` variants. Every frame in each, so
   those creatures are simply invisible rather than patchy. The composer
   skips an undecodable part instead of losing the whole object, which
-  matters for a body wearing one bad item but does nothing for a file
+  matters for an object with one bad part but does nothing for a file
   that is bad throughout.
 
   Two ways out, neither doable from here: re-save the nine files with

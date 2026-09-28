@@ -8,12 +8,12 @@ using Meridian59.Drawing2D;
 /// Builds the picture of a room object the way the game builds it: the
 /// main overlay with its suboverlays laid on top of and underneath it.
 ///
-/// Why this exists: an object's art is not one frame. A player is a body
-/// plus whatever they are wearing and holding, each its own BGF pinned to
-/// a hotspot on the frame below it, and a good many monsters are put
-/// together the same way. Drawing only the main frame - which is what this
-/// client did before - shows a Knight with no sword and no shield, and
-/// misses the colour translation that dyes the parts.
+/// Why this exists: an object's art is not one frame. It is a main frame
+/// with parts pinned to hotspots on it, each part its own BGF - the
+/// player's own arm gripping whichever weapon they are holding, a body
+/// with what it wears, a creature assembled from pieces. Drawing only the
+/// main frame - which is what this client did before - drops every part,
+/// and with it the per-part colour translation that dyes them.
 ///
 /// Nothing here is invented. The layout arithmetic lives in the library's
 /// RenderInfo, which is called rather than copied; the draw order and the
@@ -61,7 +61,7 @@ public static class M59Compose
             {
                 // Underlays first, in the library's pass order, then the
                 // main frame, then the overlays. Getting this wrong puts a
-                // shield in front of the body it hangs behind.
+                // weapon in front of the hand it belongs behind.
                 Pass(ri, buf, w, h, HotSpotType.HOTSPOT_UNDERUNDER);
                 Pass(ri, buf, w, h, HotSpotType.HOTSPOT_UNDER);
                 Pass(ri, buf, w, h, HotSpotType.HOTSPOT_UNDEROVER);
@@ -100,7 +100,7 @@ public static class M59Compose
         // undo that in an x86 Windows build - it throws everywhere else,
         // including here and on a phone. One undecodable part must not
         // cost the whole object its picture, so the part is skipped and
-        // the rest of the body is still drawn.
+        // the rest of the object is still drawn.
         try
         {
             if (frame.IsCompressed) frame.IsCompressed = false;
