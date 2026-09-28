@@ -43,6 +43,7 @@ public partial class GameView : Node2D
     MiniMap _map;
     Button _loot;
     Vitals _vitals;
+    InventoryPanel _bag;
 
     /// <summary>
     /// Controls live under a CanvasLayer, not directly under this Node2D.
@@ -206,6 +207,16 @@ public partial class GameView : Node2D
 
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
 
+        Widget("inventory", () =>
+        {
+            _bag = new InventoryPanel();
+            _bag.Opened      += () => Act(() => _client.SendReqInventoryMessage());
+            _bag.UseItem     += item => Act(() => _client.UseUnuseApply(item));
+            _bag.DropItem    += item => Act(() => _client.SendReqDropMessage(new ObjectID(item.ID)));
+            _bag.LookItem    += item => Act(() => _client.SendReqLookMessage(item.ID));
+            _ui.AddChild(_bag);
+        });
+
         Widget("vitals", () =>
         {
             _vitals = new Vitals();
@@ -314,6 +325,7 @@ public partial class GameView : Node2D
         }
 
         _vitals?.Follow(_client.Data);
+        _bag?.Sync(_client.Data?.InventoryObjects);
 
         RoomObject me = _client.Data?.AvatarObject;
         if (me != null && _map != null)
@@ -344,7 +356,8 @@ public partial class GameView : Node2D
     {
         RoomObject avatar = _client.Data?.AvatarObject;
         if (avatar == null || _world.Room == null) return;
-        if (_chat != null && _chat.Capturing) { avatar.HorizontalSpeed = 0f; return; }
+        if ((_chat != null && _chat.Capturing) || (_bag != null && _bag.IsOpen))
+        { avatar.HorizontalSpeed = 0f; return; }
 
         float turn = 0f, fwd = 0f, strafe = 0f;
         if (Input.IsKeyPressed(Key.Left)) turn -= 1f;

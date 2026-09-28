@@ -279,6 +279,25 @@ confirmed byte-identical.
   draw nothing until the server has sent something, so they stay out of
   the way while connecting, and only redraw when a number moves.
 
+  A **Bag** button opens the inventory: what you are carrying, with the
+  icon the library says to show for each object (`ViewerFrameIndex` on
+  its own art), the count where several share a name, and a mark on
+  anything in use. Tapping an item offers Use, Drop and Look - and the
+  Use button says Apply or Unuse instead where that is what will
+  happen, because `BaseClient.UseUnuseApply` decides between the three
+  from the item's own flags rather than from a guess here.
+
+  It reads the client's `InventoryObjects` rather than copying them, and
+  rebuilds only when the list actually changes - a signature over id,
+  count and in-use state - because an inventory is a few dozen buttons
+  with a texture each. Opening it asks the server for a fresh list.
+  Movement is suspended while it is open, the same as while typing.
+
+  Drop uses `ObjectID(id)` with the default count, which is the
+  convention the library's own `LootAll` uses for picking things up.
+  Containers and moving things between them (`IsContainer`,
+  `SendReqInventoryMoveMessage`) are not done.
+
   A **Loot** button in the bottom right calls the library's `LootAll`,
   which picks up everything gettable within close distance in one go.
   Tapping each item individually is exactly the sort of thing a phone is
