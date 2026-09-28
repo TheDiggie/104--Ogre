@@ -34,6 +34,7 @@ public partial class GameView : Node2D
 
     readonly M59Assets _assets = new M59Assets();
     readonly TouchControls _touch = new TouchControls();
+    ChatOverlay _chat;
     readonly List<string> _log = new List<string>();
 
     M59Client _client;
@@ -79,8 +80,21 @@ public partial class GameView : Node2D
         }
 
         _client = new M59Client { PreferredCharacter = Character };
-        _client.Notice += s => { _log.Add(s); GD.Print("[M59] " + s); if (_log.Count > 6) _log.RemoveAt(0); };
+        _client.Notice += s =>
+        {
+            _log.Add(s); GD.Print("[M59] " + s);
+            if (_log.Count > 6) _log.RemoveAt(0);
+            _chat?.Local(s);
+        };
         _client.EnteredGame += name => _state = $"playing as {name}";
+
+        _chat = new ChatOverlay();
+        _chat.Submitted += (type, text) =>
+        {
+            try { _client.SendSayToMessage(type, text); }
+            catch (Exception ex) { _chat.Local($"could not send: {ex.Message}"); }
+        };
+        AddChild(_chat);
 
         _client.Init();
         _client.Config.ResourcesPath = dir;
@@ -118,6 +132,7 @@ public partial class GameView : Node2D
         catch (Exception e) { Fail($"Update: {e.GetType().Name}: {e.Message}"); return; }
 
         SyncRoom();
+        _chat?.Sync(_client.Data?.ChatMessages);
         ApplyInput(delta);
         SyncSprites();
 
@@ -128,7 +143,10 @@ public partial class GameView : Node2D
         QueueRedraw();
     }
 
-    public override void _Input(InputEvent e) => _touch.Handle(e, GetViewportRect().Size);
+    // Unhandled, not _Input: the chat box is a Control and has to see keys
+    // and taps first, or typing walks you into a wall.
+    public override void _UnhandledInput(InputEvent e)
+        => _touch.Handle(e, GetViewportRect().Size);
 
     /// <summary>
     /// Turns touch and keyboard into avatar movement, then tells the server.
@@ -142,6 +160,7 @@ public partial class GameView : Node2D
     {
         RoomObject avatar = _client.Data?.AvatarObject;
         if (avatar == null || _room == null) return;
+        if (_chat != null && _chat.Capturing) { avatar.HorizontalSpeed = 0f; return; }
 
         float turn = 0f, fwd = 0f, strafe = 0f;
         if (Input.IsKeyPressed(Key.Left)) turn -= 1f;
