@@ -29,7 +29,7 @@ if /i "%CUR%"=="net8-core" (
 
 echo.
 echo == offline checks
-dotnet run --project Tools\Meridian59.Net8Verify -- resource
+dotnet run --project Tools\Meridian59.Net8Verify -- "%LOCALAPPDATA%\Meridian-104\resource"
 if errorlevel 1 echo (offline checks reported a failure)
 
 echo.

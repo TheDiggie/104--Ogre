@@ -2,7 +2,7 @@
 
 Smoke test for the core library running on .NET 8 (non-Windows).
 
-    dotnet run --project Tools/Meridian59.Net8Verify [path-to-resource-dir]
+    dotnet run --project Tools/Meridian59.Net8Verify -- "%LOCALAPPDATA%\Meridian-104\resource"
 
 Checks two things the Ogre client never exercised off Windows:
 

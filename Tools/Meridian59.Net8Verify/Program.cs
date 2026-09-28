@@ -16,7 +16,11 @@ static class Verify
 
     static int Main(string[] args)
     {
-        if (args.Length > 0) Assets(args[0]);
+        if (args.Length > 0)
+        {
+            if (Directory.Exists(args[0])) Assets(args[0]);
+            else { Console.WriteLine($"assets: no such directory: {args[0]}\n"); fail++; }
+        }
         else Console.WriteLine("assets: skipped (no resource path given)\n");
         Protocol();
         Console.WriteLine($"\n{pass} passed, {fail} failed");
