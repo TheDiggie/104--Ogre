@@ -207,6 +207,26 @@ See that tool's README for what the handshake actually needs - in short,
 mode, the client verifies no CRC on what it receives, and chat on the
 wire is a string resource id rather than text.
 
+## The loot list
+
+The game has a loot window - `UILootList.cpp` - and it is a list rather
+than a grid: one row per item, each an icon, the item's name and how many
+there are, with Get for the one you picked and Get All underneath. This
+client had the Get All button and no way to see what you were about to
+take.
+
+The name's colour is `NameColors.GetColorFor(flags)`, which is the
+library's own function and is called rather than copied. In vanilla that
+is white normally, orange for an outlaw, red for a killer, yellow for a
+creator, green for a super-DM, cyan for a DM, purple for an event
+character, and black for anything flagged to draw black.
+
+The window is the server's decision, not the view's:
+`ObjectContents.IsVisible` goes up when the server sends the contents of
+something and down when it takes them away, so the panel follows that
+rather than a button. The fake server sends a pile on room entry, since
+there is nothing here to open.
+
 ## Chat is styled, not tinted
 
 The server does not send a coloured line. It sends text plus a list of

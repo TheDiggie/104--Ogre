@@ -47,6 +47,12 @@ static class FakeServer
     const uint RID_RATBGF = 60011;
     const uint RID_GREETING = 60020;
     const uint RID_ECHO = 60021;
+    const uint RID_COIN = 60030;
+    const uint RID_COINBGF = 60031;
+    const uint RID_BOOK = 60032;
+    const uint RID_BOOKBGF = 60033;
+    const uint RID_AXE = 60034;
+    const uint RID_AXEBGF = 60035;
 
     /// <summary>The server's own copy of what it wrote to the string file.</summary>
     static readonly StringDictionary strings = new StringDictionary();
@@ -102,6 +108,12 @@ static class FakeServer
             // hands the view a list of styled runs.
             new RsbResourceID(RID_GREETING,   "~BThe duskrat~n regards you with ~rmild contempt~w.", 4),
             new RsbResourceID(RID_ECHO,       "The duskrat has nothing to say about that.", 4),
+            new RsbResourceID(RID_COIN,       "a gold doubloon", 4),
+            new RsbResourceID(RID_COINBGF,    "doubloon.bgf",    4),
+            new RsbResourceID(RID_BOOK,       "a tattered book", 4),
+            new RsbResourceID(RID_BOOKBGF,    "book1.bgf",       4),
+            new RsbResourceID(RID_AXE,        "a nerudite axe",  4),
+            new RsbResourceID(RID_AXEBGF,     "neruaxe.bgf",     4),
         };
 
         foreach (RsbResourceID r in stringList)
@@ -172,6 +184,15 @@ static class FakeServer
                     Say(ns, ctrl, RID_GREETING);
                     break;
 
+                case MessageTypeGameMode.ReqGet:
+                    // A get takes the thing. This server has nothing to
+                    // track, so it simply says what happened and sends the
+                    // shortened pile back.
+                    Console.WriteLine("  <- ReqGet");
+                    SendLoot(ns, ctrl, --lootLeft);
+                    Say(ns, ctrl, RID_ECHO);
+                    break;
+
                 case MessageTypeGameMode.SendStats:
                     // The client asks for its stats once it is in the
                     // world. The condition group is the one behind the
@@ -215,6 +236,38 @@ static class FakeServer
         };
 
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Condition, stats));
+    }
+
+    static int lootLeft = 3;
+
+    /// <summary>
+    /// The contents of something on the floor. The client puts its loot
+    /// window up when this arrives and takes it down when the list is
+    /// empty, which is the server's decision rather than the view's.
+    /// </summary>
+    static void SendLoot(NetworkStream ns, MessageControllerClient ctrl, int count)
+    {
+        var all = new[]
+        {
+            Item(3001, RID_COINBGF, RID_COIN, 17),
+            Item(3002, RID_BOOKBGF, RID_BOOK, 1),
+            Item(3003, RID_AXEBGF,  RID_AXE,  1),
+        };
+
+        var left = new List<ObjectBase>();
+        for (int i = 0; i < Math.Clamp(count, 0, all.Length); i++) left.Add(all[i]);
+
+        Send(ns, ctrl, new ObjectContentsMessage(new ObjectID(2001, 0), left.ToArray()));
+    }
+
+    static ObjectBase Item(uint id, uint bgfRid, uint nameRid, uint count)
+    {
+        return new ObjectBase(
+            id, count, bgfRid, nameRid, 0,
+            new LightingInfo(),
+            AnimationType.NONE, 0, 0,
+            new AnimationNone(),
+            new List<SubOverlay>());
     }
 
     static void SendCharacters(NetworkStream ns, MessageControllerClient ctrl)
@@ -265,12 +318,14 @@ static class FakeServer
             Obj(2002, RID_RATBGF, RID_RATNAME, 848, 688, 3f, OF_ATTACKABLE),
             Obj(2003, RID_RATBGF, RID_RATNAME, 880, 656, 2f, OF_ATTACKABLE),
         };
-        foreach (var o in objects)
-            Console.WriteLine($"     object {o.ID} byteLength {o.ByteLength}");
-        var rc = new RoomContentsMessage(new ObjectID(1, 0), objects);
-        Console.WriteLine($"     RoomContents byteLength {rc.ByteLength}");
-        Send(ns, ctrl, rc);
+        Send(ns, ctrl, new RoomContentsMessage(new ObjectID(1, 0), objects));
         Console.WriteLine($"  -> room {room} with {objects.Length} objects");
+
+        // Something to loot, so the loot list has contents to show. A real
+        // server sends this when you open a corpse or a chest; there is
+        // nothing to open here, so it arrives with the room.
+        lootLeft = 3;
+        SendLoot(ns, ctrl, lootLeft);
     }
 
     /// <summary>

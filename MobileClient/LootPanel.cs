@@ -1,0 +1,235 @@
+using System;
+using System.Collections.Generic;
+using Godot;
+using Meridian59.Data.Models;
+using Meridian59.Drawing2D;
+
+/// <summary>
+/// What is in the thing you are looting.
+///
+/// The game has a loot window - `UILootList.cpp` - and it is a list, not a
+/// grid: one row per item, each an icon, the item's name, and how many of
+/// it there are. Two buttons underneath, Get for what you have picked and
+/// Get All for the lot. This client had only the Get All button and no way
+/// to see what you were about to take.
+///
+/// Three things come straight from the game rather than from taste:
+///
+///  - the name's colour is `NameColors.GetColorFor(flags)`, which is the
+///    library's own function. In vanilla it is white normally, orange for
+///    an outlaw, red for a killer, yellow for a creator, green for a
+///    super-DM, cyan for a DM, purple for an event character, and black
+///    for an object flagged to draw black.
+///  - the icons are composed with the same arguments as the inventory's -
+///    front frame, no Y offset, centred in the box.
+///  - the list appears when the server sends the contents and goes away
+///    when it says so: `ObjectContents.IsVisible` is the switch, not
+///    anything this client decides.
+/// </summary>
+public partial class LootPanel : Control
+{
+    [Export] public int FontSize = 16;
+    [Export] public int IconSize = 40;
+    [Export] public int RowHeight = 56;
+
+    /// <summary>Take the one that is picked.</summary>
+    public event Action<ObjectBase> GetItem;
+    /// <summary>Take everything in range, which is what the game's Get All does.</summary>
+    public event Action GetAll;
+
+    ColorRect _panel;
+    Label _title;
+    ScrollContainer _scroll;
+    VBoxContainer _rows;
+    Button _get, _getAll, _close;
+
+    ObjectBase _picked;
+    string _signature = "";
+    readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
+
+    public bool IsOpen => _panel != null && _panel.Visible;
+
+    public override void _Ready()
+    {
+        SetAnchorsPreset(LayoutPreset.FullRect);
+        MouseFilter = MouseFilterEnum.Ignore;
+
+        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.94f), Visible = false };
+        AddChild(_panel);
+
+        _title = new Label { Text = "Loot", Visible = false };
+        _title.AddThemeFontSizeOverride("font_size", FontSize + 4);
+        _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        AddChild(_title);
+
+        _rows = new VBoxContainer();
+        _rows.AddThemeConstantOverride("separation", 4);
+
+        _scroll = new ScrollContainer { Visible = false };
+        _scroll.AddChild(_rows);
+        AddChild(_scroll);
+
+        _get = Action("Get", () => { if (_picked != null) GetItem?.Invoke(_picked); });
+        _getAll = Action("Get All", () => GetAll?.Invoke());
+        _close = Action("Close", Close);
+
+        GetViewport().SizeChanged += Layout;
+        Layout();
+    }
+
+    Button Action(string text, Action pressed)
+    {
+        var b = new Button { Text = text, Visible = false };
+        b.AddThemeFontSizeOverride("font_size", FontSize);
+        b.Pressed += pressed;
+        AddChild(b);
+        return b;
+    }
+
+    void Layout()
+    {
+        if (_panel == null) return;
+        Vector2 v = GetViewportRect().Size;
+
+        float side = Mathf.Max(16f, v.X * 0.06f);
+        float rowH = FontSize * 2.6f;
+        float height = Mathf.Min(v.Y * 0.6f, 560f);
+        float top = v.Y - height - side;
+
+        _panel.Position = new Vector2(side * 0.5f, top - 12f);
+        _panel.Size = new Vector2(v.X - side, height + 12f);
+
+        _title.Position = new Vector2(side, top);
+        _scroll.Position = new Vector2(side, top + FontSize * 2.2f);
+        _scroll.Size = new Vector2(v.X - side * 2f, height - FontSize * 2.2f - rowH - 16f);
+
+        float y = top + height - rowH;
+        Button[] row = { _get, _getAll, _close };
+        float w = (v.X - side * 2f - 8f * (row.Length - 1)) / row.Length;
+        for (int i = 0; i < row.Length; i++)
+        {
+            row[i].Position = new Vector2(side + i * (w + 8f), y);
+            row[i].Size = new Vector2(w, rowH);
+        }
+    }
+
+    public void Close()
+    {
+        Show(false);
+        _picked = null;
+    }
+
+    void Show(bool on)
+    {
+        _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
+        _get.Visible = on; _getAll.Visible = on; _close.Visible = on;
+    }
+
+    /// <summary>
+    /// Follows the client's own contents list. The server decides when the
+    /// window is up: <c>IsVisible</c> is set when it sends the contents of
+    /// something and cleared when it takes them away.
+    /// </summary>
+    public void Sync(ObjectContents contents)
+    {
+        if (_rows == null) return;
+
+        if (contents == null || !contents.IsVisible || contents.Items == null || contents.Items.Count == 0)
+        {
+            if (IsOpen) Close();
+            return;
+        }
+
+        if (!IsOpen) Show(true);
+
+        var sb = new System.Text.StringBuilder();
+        foreach (ObjectBase o in contents.Items)
+            sb.Append(o?.ID).Append(':').Append(o?.Count).Append(';');
+        string now = sb.ToString();
+        if (now == _signature) return;
+        _signature = now;
+
+        foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
+
+        _title.Text = $"Loot ({contents.Items.Count})";
+        foreach (ObjectBase o in contents.Items)
+            if (o != null) _rows.AddChild(Row(o));
+    }
+
+    Control Row(ObjectBase o)
+    {
+        ObjectBase captured = o;
+
+        var button = new Button { CustomMinimumSize = new Vector2(0, RowHeight), Flat = false };
+        button.Pressed += () => Pick(captured);
+
+        var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+        line.SetAnchorsPreset(LayoutPreset.FullRect);
+        line.AddThemeConstantOverride("separation", 10);
+        line.OffsetLeft = 8; line.OffsetTop = 6; line.OffsetRight = -8; line.OffsetBottom = -6;
+        button.AddChild(line);
+
+        var icon = new TextureRect
+        {
+            Texture = Icon(o),
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            CustomMinimumSize = new Vector2(IconSize, IconSize),
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        line.AddChild(icon);
+
+        // The library's own name colour, not a guess at one.
+        uint argb = o.Flags != null ? NameColors.GetColorFor(o.Flags) : NameColors.NORMAL;
+        var colour = new Color(
+            ((argb >> 16) & 0xFF) / 255f,
+            ((argb >> 8) & 0xFF) / 255f,
+            (argb & 0xFF) / 255f);
+
+        var name = new Label
+        {
+            Text = string.IsNullOrWhiteSpace(o.Name) ? "(unnamed)" : o.Name,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            VerticalAlignment = VerticalAlignment.Center,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        name.AddThemeFontSizeOverride("font_size", FontSize);
+        name.AddThemeColorOverride("font_color", colour);
+        name.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
+        name.AddThemeConstantOverride("outline_size", 3);
+        line.AddChild(name);
+
+        if (o.Count > 1)
+        {
+            var amount = new Label
+            {
+                Text = o.Count.ToString(),
+                VerticalAlignment = VerticalAlignment.Center,
+                MouseFilter = MouseFilterEnum.Ignore,
+            };
+            amount.AddThemeFontSizeOverride("font_size", FontSize);
+            amount.AddThemeColorOverride("font_color", new Color(0.85f, 0.85f, 0.9f));
+            line.AddChild(amount);
+        }
+
+        return button;
+    }
+
+    void Pick(ObjectBase o)
+    {
+        _picked = o;
+        _get.Text = o == null ? "Get" : $"Get {(string.IsNullOrWhiteSpace(o.Name) ? "item" : o.Name)}";
+    }
+
+    ImageTexture Icon(ObjectBase o)
+    {
+        if (o?.Resource == null) return null;
+        string key = $"{o.Resource.Filename}:{o.ViewerFrameIndex}:{IconSize}";
+        if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
+
+        ImageTexture tex = null;
+        try { tex = M59Assets.FromTex(M59Compose.Icon(o, IconSize)); }
+        catch (Exception e) { GD.PrintErr($"[Loot] {o.Name}: {e.Message}"); }
+        _icons[key] = tex;
+        return tex;
+    }
+}

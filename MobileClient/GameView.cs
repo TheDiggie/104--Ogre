@@ -42,6 +42,7 @@ public partial class GameView : Node2D
     CharacterPicker _picker;
     MiniMap _map;
     Button _loot;
+    LootPanel _lootList;
     Vitals _vitals;
     AvatarPanel _face;
     InventoryPanel _bag;
@@ -241,6 +242,15 @@ public partial class GameView : Node2D
             _loot = new Button { Text = "Loot" };
             _loot.Pressed += () => Act(() => _client.LootAll());
             _ui.AddChild(_loot);
+
+            // The list the game has: what is in the thing, with names in
+            // the library's own colours, and a Get for one item as well as
+            // the Get All this button does.
+            _lootList = new LootPanel();
+            _lootList.GetAll += () => Act(() => _client.LootAll());
+            _lootList.GetItem += item => Act(() => _client.SendReqGetMessage(new ObjectID(item.ID)));
+            _ui.AddChild(_lootList);
+
             LayoutLoot();
             GetViewport().SizeChanged += LayoutLoot;
         });
@@ -336,6 +346,7 @@ public partial class GameView : Node2D
         _vitals?.Follow(_client.Data);
         _face?.Follow(_client.Data);
         _bag?.Sync(_client.Data?.InventoryObjects);
+        _lootList?.Sync(_client.Data?.ObjectContents);
 
         RoomObject me = _client.Data?.AvatarObject;
         if (me != null && _map != null)
@@ -373,7 +384,8 @@ public partial class GameView : Node2D
         // Anything covering the screen or owning the keyboard stops
         // movement, so a drag meant for a list does not also walk you.
         if ((_chat != null && (_chat.Capturing || _chat.ShowingHistory))
-            || (_bag != null && _bag.IsOpen))
+            || (_bag != null && _bag.IsOpen)
+            || (_lootList != null && _lootList.IsOpen))
         { avatar.HorizontalSpeed = 0f; return; }
 
         float turn = 0f, fwd = 0f, strafe = 0f;
