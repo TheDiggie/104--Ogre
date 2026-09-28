@@ -53,6 +53,8 @@ static class FakeServer
     const uint RID_BOOKBGF = 60033;
     const uint RID_AXE = 60034;
     const uint RID_AXEBGF = 60035;
+    const uint RID_ALICE = 60040;
+    const uint RID_BORIS = 60041;
 
     /// <summary>The server's own copy of what it wrote to the string file.</summary>
     static readonly StringDictionary strings = new StringDictionary();
@@ -114,6 +116,8 @@ static class FakeServer
             new RsbResourceID(RID_BOOKBGF,    "book1.bgf",       4),
             new RsbResourceID(RID_AXE,        "a nerudite axe",  4),
             new RsbResourceID(RID_AXEBGF,     "neruaxe.bgf",     4),
+            new RsbResourceID(RID_ALICE,      "Alice",           4),
+            new RsbResourceID(RID_BORIS,      "Boris the Outlaw", 4),
         };
 
         foreach (RsbResourceID r in stringList)
@@ -314,9 +318,19 @@ static class FakeServer
             // OF_ATTACKABLE, so the minimap has something to colour: the
             // game only puts a dot on things you could fight, players and
             // guildmates. An ordinary item on the floor gets none.
-            Obj(2001, RID_RATBGF, RID_RATNAME, 816, 672, 1f, OF_ATTACKABLE),
-            Obj(2002, RID_RATBGF, RID_RATNAME, 848, 688, 3f, OF_ATTACKABLE),
-            Obj(2003, RID_RATBGF, RID_RATNAME, 880, 656, 2f, OF_ATTACKABLE),
+            Obj(2001, RID_RATBGF, RID_RATNAME, 816, 672, 1f, OF_ATTACKABLE, MM_MONSTER),
+            Obj(2002, RID_RATBGF, RID_RATNAME, 848, 688, 3f, OF_ATTACKABLE, MM_MONSTER),
+            Obj(2003, RID_RATBGF, RID_RATNAME, 880, 656, 2f, OF_ATTACKABLE, MM_MONSTER),
+
+            // Two other players, so the name labels have something to
+            // label. This server's flavour - Server 104's - draws a name
+            // when OF_DISPLAY_NAME is set and takes the colour from a
+            // separate field the server sends, rather than working it out
+            // from a player type. MM_PLAYER is what puts them on the map.
+            Obj(4001, RID_PLAYERBGF, RID_ALICE, 800, 704, 3f,
+                OF_PLAYER | OF_DISPLAY_NAME, MM_PLAYER, NC_PLAYER),
+            Obj(4002, RID_PLAYERBGF, RID_BORIS, 800, 640, 3f,
+                OF_PLAYER | OF_DISPLAY_NAME, MM_ENEMY, NC_OUTLAW),
         };
         Send(ns, ctrl, new RoomContentsMessage(new ObjectID(1, 0), objects));
         Console.WriteLine($"  -> room {room} with {objects.Length} objects");
@@ -350,11 +364,35 @@ static class FakeServer
         Send(ns, ctrl, new SaidMessage(chat, strings));
     }
 
+    // Server 104's own values, from its include/proto.h. The minimap
+    // bitfield and the name colour are separate fields from the object
+    // flags on this server - they were folded into the flags in vanilla.
+    const uint OF_DISPLAY_NAME = 0x00000001;
     const uint OF_PLAYER = 0x00000004;
     const uint OF_ATTACKABLE = 0x00000008;
 
+    const uint MM_PLAYER = 0x00000001;
+    const uint MM_ENEMY = 0x00000002;
+    const uint MM_MONSTER = 0x00000020;
+
+    const uint NC_PLAYER = 0xFFFFFF;
+    const uint NC_OUTLAW = 0xFC9E00;
+
     static RoomObject Obj(uint id, uint bgfRid, uint nameRid, float x, float y,
-                          float angleRadians, uint flags = 0)
+                          float angleRadians, uint flags = 0,
+                          uint minimap = 0, uint nameColor = 0)
+    {
+        RoomObject o = Make(id, bgfRid, nameRid, x, y, angleRadians, flags);
+
+        // On this server the minimap dot and the name colour travel as
+        // their own fields beside the flags, not as bits inside them.
+        o.Flags.Minimap = minimap;
+        o.Flags.NameColor = nameColor;
+        return o;
+    }
+
+    static RoomObject Make(uint id, uint bgfRid, uint nameRid, float x, float y,
+                           float angleRadians, uint flags)
     {
         return new RoomObject(
             id, 1, bgfRid, nameRid, flags,

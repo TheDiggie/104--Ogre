@@ -50,9 +50,23 @@ public partial class MiniMap : Control
 
     // The game's own colours, from MiniMapCEGUI, on the game's own dial.
     static readonly Color Wall   = new Color(0f, 0f, 0f);                 // COLOR_MAP_WALL
-    static readonly Color Player = new Color(0f, 0f, 1f);                 // 0,0,255
-    static readonly Color Enemy  = new Color(1f, 0f, 0f);                 // 255,0,0
-    static readonly Color Friend = new Color(0f, 1f, 120f / 255f);        // 0,255,120
+    static readonly Color Player      = new Color(0f, 0f, 1f);                       // 0,0,255
+    static readonly Color Enemy       = new Color(1f, 0f, 0f);                       // 255,0,0
+    static readonly Color Friend      = new Color(0f, 1f, 120f / 255f);              // 0,255,120
+    static readonly Color GuildMate   = new Color(1f, 1f, 0f);                       // 255,255,0
+    static readonly Color Minion      = new Color(0f, 200f / 255f, 0f);              // 0,200,0
+    static readonly Color MinionOther = new Color(70f / 255f, 5f / 255f, 130f / 255f);
+    static readonly Color BuildGroup  = new Color(0f, 1f, 0f);                       // 0,255,0
+    static readonly Color Npc         = new Color(0f, 0f, 0f);                       // black
+    static readonly Color TempSafe    = new Color(0f, 170f / 255f, 1f);              // 0,170,255
+    static readonly Color MiniBoss    = new Color(160f / 255f, 66f / 255f, 194f / 255f);
+    static readonly Color Boss        = new Color(127f / 255f, 0f, 0f);              // 127,0,0
+    static readonly Color RareItem    = new Color(237f / 255f, 1f, 9f / 255f);
+    static readonly Color NoPvP       = new Color(1f, 1f, 1f);
+    static readonly Color AggroSelf   = new Color(0f, 0f, 0f);
+    static readonly Color AggroOther  = new Color(1f, 1f, 1f);
+    static readonly Color Mercenary   = new Color(1f, 169f / 255f, 27f / 255f);
+    static readonly Color MobQuest    = new Color(179f / 255f, 0f, 179f / 255f);
     // The drawsurface sits at alpha 0.9 over the background image.
     static readonly Color Ink    = new Color(1f, 1f, 1f, 0.9f);
     // Fallback face, for when the dial cannot be loaded.
@@ -191,12 +205,17 @@ public partial class MiniMap : Control
                 if (o == null || o.IsAvatar || o.Flags == null) continue;
                 if (o.Flags.Drawing == ObjectFlags.DrawingType.Invisible) continue;
 
-                Color? c = DotColour(o.Flags);
-                if (c == null) continue;
+                Color? dot = DotColour(o.Flags);
+                Color? ring = RingColour(o.Flags);
+                if (dot == null && ring == null) continue;
 
                 Vector2 p = Place(o.Position3D.X, o.Position3D.Z);
                 if (p.DistanceTo(centre) > radius) continue;
-                DrawCircle(p, 5f, c.Value);
+
+                // Ten pixels across for the ring, six for the dot, as the
+                // game draws them.
+                if (ring != null) DrawCircle(p, 5f, ring.Value);
+                if (dot != null) DrawCircle(p, 3f, dot.Value);
             }
         }
 
@@ -212,16 +231,52 @@ public partial class MiniMap : Control
     }
 
     /// <summary>
-    /// Vanilla's colour rule, in its order: enemy, then guildmate, then
-    /// any other player, then anything attackable. Null means the game
-    /// draws nothing for it - which is most things.
+    /// The inner dot's colour, in `MiniMapCEGUI::DrawObject`'s own order.
+    /// Null means the game draws nothing, which is the common case.
+    ///
+    /// This is the non-vanilla branch on purpose. Server 104 is that
+    /// flavour - its proto.h carries the separate MM_* minimap bitfield
+    /// and sends name colours as hex RGB - and so is the library as it is
+    /// built here, with VANILLA undefined. Mirroring the vanilla branch
+    /// instead reads flags that this server does not set.
     /// </summary>
     static Color? DotColour(ObjectFlags f)
     {
-        if (f.IsMinimapEnemy) return Enemy;
-        if (f.IsMinimapGuildMate) return Friend;
-        if (f.IsPlayer) return Player;
-        if (f.IsAttackable) return Enemy;
+        if (f.IsMinimapPlayer) return Player;
+        if (f.IsMinimapTempSafe) return TempSafe;
+        if (f.IsMinimapMinionSelf) return Minion;
+        if (f.IsMinimapMinionOther) return MinionOther;
+        if (f.IsMinimapMercenary) return Mercenary;
+        if (f.IsMinimapMobKillQuest) return MobQuest;
+        if (f.IsMinimapMonster) return Enemy;
+        if (f.IsMinimapNPC) return Npc;
+        if (f.IsRareItem) return RareItem;
+        if (f.IsMinimapMiniBoss) return MiniBoss;
+        if (f.IsMinimapBoss) return Boss;
+        if (f.IsNonPvP) return NoPvP;
+        return null;
+    }
+
+    /// <summary>
+    /// The outer ring, which says what a player is to you - or, for
+    /// anything else, whether it has aggro or a quest. Drawn under the dot
+    /// and slightly larger, as `DrawObjectOutter` is.
+    /// </summary>
+    static Color? RingColour(ObjectFlags f)
+    {
+        if (f.IsPlayer)
+        {
+            if (f.IsMinimapBuilderGroup) return BuildGroup;
+            if (f.IsMinimapFriend) return Friend;
+            if (f.IsMinimapEnemy) return Enemy;
+            if (f.IsMinimapGuildMate) return GuildMate;
+            return null;
+        }
+
+        if (f.IsMinimapAggroSelf) return AggroSelf;
+        if (f.IsMinimapAggroOther) return AggroOther;
+        if (f.IsMinimapNPCCurrentQuest) return Friend;
+        if (f.IsMinimapNPCHasQuest) return GuildMate;
         return null;
     }
 

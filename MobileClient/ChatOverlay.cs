@@ -273,9 +273,13 @@ public partial class ChatOverlay : Control
     static string Escape(string s) => s.Replace("[", "[lb]");
 
     /// <summary>
-    /// Vanilla's six chat colours, as the client defines them in
-    /// Constants.h. They are not the obvious ones: chat red is 0x800000
-    /// and chat green 0x006400, both dark, and purple is 0x8F26AA.
+    /// The chat colours, as the client defines them in Constants.h.
+    ///
+    /// The six at the top are the ones vanilla has, and they are not the
+    /// obvious ones: chat red is 0x800000 and green 0x006400, both dark,
+    /// purple is 0x8F26AA. The rest exist only in the flavour Server 104
+    /// runs - the same flavour this library is built as - and a client
+    /// that only knows the six draws two dozen server colours as white.
     /// </summary>
     static string Tint(ChatColor c) => c switch
     {
@@ -285,6 +289,40 @@ public partial class ChatOverlay : Control
         ChatColor.Purple => "8f26aa",
         ChatColor.Red => "800000",
         ChatColor.White => "ffffff",
+
+        ChatColor.Aquamarine => "7fffd4",
+        ChatColor.Cyan => "2eeafa",
+        ChatColor.Drab => "404000",
+        ChatColor.Emerald => "00fa78",
+        ChatColor.Fire => "e10000",
+        ChatColor.Champagne => "e8d5c3",
+        ChatColor.ImperialBlue => "000080",
+        ChatColor.Jonquil => "ffb432",
+        ChatColor.Lime => "00f000",
+        ChatColor.Magenta => "cd00cd",
+        ChatColor.Orange => "fa7800",
+        ChatColor.Pink => "ff00a6",
+        ChatColor.Steel => "004792",
+        ChatColor.ToxicGreen => "78fa00",
+        ChatColor.OffWhite => "f5f4ef",
+        ChatColor.Violet => "800080",
+        ChatColor.Golden => "f5cd5a",
+        ChatColor.Yellow => "e6e619",
+        ChatColor.Bronze => "e6be8a",
+        ChatColor.Gray1 => "0a0a0a",
+        ChatColor.Gray2 => "141414",
+        ChatColor.Gray3 => "1e1e1e",
+        ChatColor.Gray4 => "282828",
+        ChatColor.Gray5 => "323232",
+        ChatColor.Gray6 => "c8c8c8",
+        ChatColor.Gray7 => "d2d2d2",
+        ChatColor.Gray8 => "dcdcdc",
+        ChatColor.Gray9 => "e6e6e6",
+        ChatColor.Gray10 => "f0f0f0",
+        ChatColor.QuestGreen => "00960f",
+        ChatColor.QuestRed => "b41400",
+        ChatColor.MercenaryColor => "ffd1b0",
+
         _ => "ffffff",
     };
 

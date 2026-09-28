@@ -43,6 +43,7 @@ public partial class GameView : Node2D
     MiniMap _map;
     Button _loot;
     LootPanel _lootList;
+    NameTags _names;
     Vitals _vitals;
     AvatarPanel _face;
     InventoryPanel _bag;
@@ -209,6 +210,7 @@ public partial class GameView : Node2D
         });
 
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
+        Widget("names", () => { _names = new NameTags(); _ui.AddChild(_names); });
         Widget("face", () =>
         {
             // Under the status lines rather than behind them.
@@ -347,6 +349,16 @@ public partial class GameView : Node2D
         _face?.Follow(_client.Data);
         _bag?.Sync(_client.Data?.InventoryObjects);
         _lootList?.Sync(_client.Data?.ObjectContents);
+
+        if (_names != null && _world.Renderer != null && _w > 0 && _h > 0)
+        {
+            // The world is drawn into a smaller buffer and stretched up,
+            // so a name's place on screen is its place in that buffer
+            // times the stretch.
+            Vector2 v = GetViewportRect().Size;
+            _names.Sync(_world.Renderer, _client.Data?.RoomObjects,
+                        new Vector2(v.X / _w, v.Y / _h));
+        }
 
         RoomObject me = _client.Data?.AvatarObject;
         if (me != null && _map != null)

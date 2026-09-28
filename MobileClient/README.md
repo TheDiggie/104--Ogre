@@ -240,10 +240,12 @@ bold, `~n` back to normal, and a colour letter for one of vanilla's six.
 `ChatStyle.GetStyles` parses them and `RemoveInlineStyles` takes them back
 out of the text, so the view never sees the markers - only runs.
 
-Vanilla's six colours are not the obvious ones: chat red is `0x800000`
-and chat green `0x006400`, both dark, purple is `0x8F26AA`. The default
-colour of a message depends on its kind - a server message starts purple,
-a system message blue, someone talking white.
+The colours are not the obvious ones: chat red is `0x800000` and chat
+green `0x006400`, both dark, purple is `0x8F26AA`. Those six are all
+vanilla has; this server's flavour has thirty-odd more, and a client that
+knows only six draws the rest as white. The default colour of a message
+depends on its kind - a server message starts purple, a system message
+blue, someone talking white.
 
 They are dark because the game puts them in a chat window with a
 background. Over a bright floor, dark red on red is hard to read; the
@@ -294,6 +296,37 @@ from a flagpole and an ankh, and the panel in the live view falls back to
 the whole object, which is what `RenderInfo` does when the hotspot is not
 there.
 
+## Which Meridian this is
+
+The library carries two implementations of several things - object flags,
+minimap colours, name colours, the chat palette - switched by a `VANILLA`
+define, and **nothing in this repo defines it**, in any configuration. So
+the build is the non-vanilla one, and the `#else` branches are dead code
+here.
+
+That matters because it decides how the client reads what the server
+sends, and the first widgets mirrored here were mirrored off the wrong
+branch. Server 104's own `include/proto.h` settles it:
+
+- `OF_DISPLAY_NAME 0x00000001` exists as a flag, and the name is drawn on
+  that rather than worked out from a player type
+- the minimap dot is its **own bitfield** - `MM_PLAYER`, `MM_ENEMY`,
+  `MM_MONSTER`, `MM_NPC`, `MM_MINION_SELF` and the rest - separate from
+  the object flags, where vanilla folded it in
+- the name colour is sent as **hex RGB**, `NC_OUTLAW 0xFC9E00` and so on,
+  rather than derived from a type
+- drawing effects are their own field too
+
+The wire format agrees: `ObjectFlags.WriteTo` in this build sends drawing,
+minimap, namecolor, player and moveon as separate fields after the base
+flags, which is what that server writes.
+
+So this client follows the non-vanilla branches throughout: the minimap
+dots and rings, the name-display rule, and the full chat palette of
+thirty-odd colours rather than six. A client mirroring the vanilla
+branches would read flags this server never sets - no names on signs, the
+wrong minimap dots, and two dozen chat colours drawn as white.
+
 ## The minimap is the game's minimap
 
 The first version drew the whole room squeezed into a box, all walls, a
@@ -309,10 +342,12 @@ say what:
 - a wall with no sides at all, or whose every side is flagged
   `IsMapNever`, is **not drawn** - that flag is how the game hides scenery
   it does not want you navigating by.
-- objects are dots, and in vanilla only four kinds get one, in this
-  order: enemy red, guildmate green, other players blue, anything else
-  attackable red. An ordinary item on the floor gets nothing. Invisible
-  objects are skipped.
+- objects are dots, coloured from the server's own `MM_*` minimap
+  bitfield in `MiniMapCEGUI::DrawObject`'s order, with an outer ring
+  saying what a player is to you - builder group, friend, enemy,
+  guildmate - or, for anything else, whether it has aggro or a quest. An
+  object with no minimap bit gets nothing, which is most things on a
+  floor. Invisible objects are skipped.
 - you are a **triangle**, in the player colour, built from your facing
   direction and two copies of it rotated by half a turn less half a
   radian - a wide arrowhead rather than a needle.

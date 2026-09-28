@@ -242,6 +242,13 @@ public sealed class Renderer
     {
         float proj = (W * 0.5f) / MathF.Tan(Fov * 0.5f);
         float horizon = Horizon(H, proj);
+
+        // Kept so a caller can put something on top of the frame - a name
+        // over a player's head, say - without repeating the projection or
+        // guessing at the camera.
+        _lastW = W; _lastH = H;
+        _lastCamX = camX; _lastCamY = camY; _lastCamZ = camZ;
+        _lastAngle = angle; _lastProj = proj; _lastHorizon = horizon;
         RooSector camSector = SectorAt(_roo, camX, camY);
         int solidCols = 0;
 
@@ -602,6 +609,40 @@ public sealed class Renderer
             YTop = yTop, YBot = yTop + hPx,
             Fog = MathF.Min(1f, FogFar / depth),
         };
+        return true;
+    }
+
+    int _lastW, _lastH;
+    float _lastCamX, _lastCamY, _lastCamZ, _lastAngle, _lastProj, _lastHorizon;
+
+    /// <summary>
+    /// Where a world point lands on the last frame, in that frame's pixel
+    /// buffer. False when it is behind the camera, off the sides, or
+    /// behind a wall - the last of those from the same per-column depth
+    /// the sprites are clipped against, so a name does not hang in front
+    /// of the wall its owner is standing behind.
+    /// </summary>
+    public bool Project(float x, float y, float z, out float sx, out float sy)
+    {
+        sx = sy = 0f;
+        if (_lastW <= 0) return false;
+
+        float dx = x - _lastCamX, dy = y - _lastCamY;
+        float c = MathF.Cos(-_lastAngle), s = MathF.Sin(-_lastAngle);
+        float depth = dx * c - dy * s;          // along the view direction
+        float lateral = dx * s + dy * c;
+
+        if (depth < 1f) return false;
+
+        float scale = _lastProj / depth;
+        sx = _lastW * 0.5f + lateral * scale;
+        sy = _lastHorizon - (z - _lastCamZ) * scale;
+
+        if (sx < 0f || sx >= _lastW) return false;
+
+        int col = (int)sx;
+        if (col >= 0 && col < _depth.Length && depth > _depth[col]) return false;
+
         return true;
     }
 
