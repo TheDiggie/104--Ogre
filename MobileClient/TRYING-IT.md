@@ -81,6 +81,14 @@ stops being guesswork the moment you run it. Everything after `LoginOK`
 is untested: the character handshake, the room arriving, real objects,
 and movement going back to the server.
 
+If the world comes up blank or untextured, suspect the setup before the
+renderer. Four things in this path each fail silently rather than with
+an error, and all four are now handled but worth knowing about: the
+resource folder layout (flat versus subfolders), the order the resource
+path is set in, which string file is used, and whether the client's
+clock is being advanced. The Godot console prints the resource folder
+and the string file it settled on.
+
 If it fails, the status text in the top left carries the last few server
 notices, and
 
