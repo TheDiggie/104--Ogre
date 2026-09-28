@@ -57,8 +57,14 @@ public partial class Vitals : Control
         SetProcess(true);
     }
 
-    /// <summary>Where the bars sit: above whatever owns the bottom.</summary>
-    public float BottomReserve { get; set; }
+    /// <summary>
+    /// Where the block sits, in the top-left corner. The game keeps its
+    /// avatar panel there too, with the portrait on the left and the bars
+    /// beside it - the head is at 13,14 and the condition bars start at
+    /// x=95 of a 250-wide panel.
+    /// </summary>
+    public float Left { get; set; } = 94f;
+    public float Top { get; set; } = 14f;
 
     public override void _Process(double delta)
     {
@@ -101,10 +107,9 @@ public partial class Vitals : Control
 
         EnsureLabels(count);
 
-        Vector2 v = GetViewportRect().Size;
         float gap = 4f;
-        float x = 12f;
-        float y = v.Y - BottomReserve - 12f - (BarHeight + gap) * count;
+        float x = Left;
+        float y = Top;
 
         _lowSomething = false;
         int i = 0;

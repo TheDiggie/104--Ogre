@@ -77,7 +77,8 @@ public partial class GameView : Node2D
         _ui = new CanvasLayer();
         AddChild(_ui);
 
-        _status = new Label { Position = new Vector2(12, 8) };
+        // Below the avatar block, which owns the corner.
+        _status = new Label { Position = new Vector2(12, 100) };
         _status.AddThemeColorOverride("font_color", new Color(1, 1, 1));
         _status.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
         _status.AddThemeConstantOverride("outline_size", 4);
@@ -210,7 +211,7 @@ public partial class GameView : Node2D
         Widget("face", () =>
         {
             // Under the status lines rather than behind them.
-            _face = new AvatarPanel { TopReserve = 96f };
+            _face = new AvatarPanel { Size = 72, Margin = 12f };
             _ui.AddChild(_face);
         });
 
@@ -226,9 +227,10 @@ public partial class GameView : Node2D
 
         Widget("vitals", () =>
         {
-            _vitals = new Vitals();
+            // Top left, beside the portrait, as the game's avatar panel
+            // has them.
+            _vitals = new Vitals { Left = 94f, Top = 14f };
             _ui.AddChild(_vitals);
-            if (_chat != null) _vitals.BottomReserve = _chat.BlockHeight + 60f;
         });
 
         // Picking things up one at a time by tapping each is exactly the

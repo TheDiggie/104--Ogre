@@ -227,6 +227,11 @@ differs from a health bar in four ways worth knowing:
   game starts a one-shot highlight on every change and switches that
   animation to looping under 33%.
 
+The bars sit in the top-left corner with the portrait to their left,
+which is how the game arranges its avatar panel: the head at 13,14 and
+the condition bars starting at x=95 of a 250-wide panel. The status lines
+moved down to make room.
+
 The fake server sends a deliberately low vigor so the blink has something
 to do.
 
