@@ -37,6 +37,7 @@ public partial class GameView : Node2D
     ChatOverlay _chat;
     ActionBar _actions;
     CharacterPicker _picker;
+    MiniMap _map;
     readonly List<string> _log = new List<string>();
 
     M59Client _client;
@@ -115,6 +116,8 @@ public partial class GameView : Node2D
             AddChild(_actions);
         });
 
+        Widget("map", () => { _map = new MiniMap(); AddChild(_map); });
+
         Widget("character picker", () =>
         {
             _picker = new CharacterPicker();
@@ -166,6 +169,11 @@ public partial class GameView : Node2D
 
         _clock += (float)delta;
         if (_world.Renderer != null) _world.Renderer.Time = _clock;   // scrolling water and lava
+
+        RoomObject me = _client.Data?.AvatarObject;
+        if (me != null && _map != null)
+            _map.SetPlayer(M59Geo.KodToWorld(me.Position3D.X),
+                           M59Geo.KodToWorld(me.Position3D.Z), me.Angle);
 
         _fpsAccum += delta; _frames++;
         if (_fpsAccum >= 0.5) { _fps = $"{_frames / _fpsAccum:F0} fps"; _fpsAccum = 0; _frames = 0; }
@@ -291,6 +299,7 @@ public partial class GameView : Node2D
     void SyncRoom()
     {
         if (!_world.SyncRoom(_client.Data?.RoomInformation?.ResourceRoom)) return;
+        _map?.Build(_world.Room);
         _state = $"in room {_client.Data.RoomInformation.RoomID}";
         GD.Print($"[M59] room -> {_world.Room.Filename} ({_world.Room.Walls.Count} walls)");
     }

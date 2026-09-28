@@ -54,6 +54,14 @@ clears the target and hides the row.
 Enter opens the chat line, Escape closes it. ':' emote, '!' yell,
 '^' broadcast, '#' guild, anything else say.
 
+**Map** in the bottom right corner toggles a map of the room with a
+wedge showing where you are and which way you are pointing. Walking 362
+rooms with no idea which way you came in is the main thing that makes
+the offline build tiring. The walls are drawn once into a texture when
+the room loads - some rooms have six thousand of them and redrawing
+those every frame would cost more than the game does - so only the
+marker moves.
+
 On desktop: WASD to move, arrow keys or left-drag to turn, Shift to run.
 
 ## Android

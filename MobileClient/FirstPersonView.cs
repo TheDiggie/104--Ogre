@@ -41,6 +41,7 @@ public partial class FirstPersonView : Node2D
     readonly M59Assets _assets = new M59Assets();
     readonly TouchControls _touch = new TouchControls();
     RoomPicker _picker;
+    MiniMap _map;
     Renderer _renderer;
     RooFile _roo;
 
@@ -72,6 +73,9 @@ public partial class FirstPersonView : Node2D
         if (dir == null) { Fail(M59Paths.NotFoundMessage()); return; }
 
         if (!_assets.Init(dir)) { Fail(_assets.Error); return; }
+
+        try { _map = new MiniMap(); AddChild(_map); }
+        catch (Exception e) { GD.PrintErr($"[FirstPersonView] map unavailable: {e.Message}"); }
 
         // The room list is a convenience; if it throws you should still get
         // the room the scene names, not a black screen.
@@ -114,6 +118,7 @@ public partial class FirstPersonView : Node2D
 
         RoomFile = file;
         _renderer = new Renderer(_roo, new TexCache(_assets.Resources));
+        _map?.Build(_roo);
         PlaceCameraInLargestLeaf();
         AddDemoSprites();
         SetProcess(true);
@@ -234,6 +239,7 @@ public partial class FirstPersonView : Node2D
         // Scrolling water, lava and moving walls run off this.
         _clock += (float)delta;
         _renderer.Time = _clock;
+        _map?.SetPlayer(_camX, _camY, _angle);
 
         _fpsAccum += delta; _frames++;
         if (_fpsAccum >= 0.5)
