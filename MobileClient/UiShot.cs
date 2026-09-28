@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Godot;
 using Meridian59.Data.Models;
+using Meridian59.Common.Enums;
 using Meridian59.Files.BGF;
 
 /// <summary>
@@ -25,6 +26,11 @@ public partial class UiShot : Node
         var layer = new CanvasLayer();
         AddChild(layer);
 
+        // --portrait shows the avatar-panel portrait instead of the bag:
+        // an object composed from its HEAD hotspot beside the same object
+        // composed whole, which is what makes a face out of a body.
+        if (Arg("--portrait", null) != null) { Portrait(layer, res, outPath); return; }
+
         var bag = new InventoryPanel { FontSize = 18 };
         layer.AddChild(bag);
 
@@ -39,6 +45,57 @@ public partial class UiShot : Node
         string pick = Arg("--pick", null);
         if (pick != null && int.TryParse(pick, out int n) && n >= 0 && n < items.Count)
             bag.Choose(items[n]);
+
+        Shoot(outPath);
+    }
+
+    /// <summary>
+    /// The portrait path. The game's avatar panel composes your object
+    /// from its HEAD hotspot downwards, which turns a body into a face.
+    /// The art to hand has no player bodies - nothing here carries a head
+    /// hotspot with a part on it - so this builds the case by hand: a main
+    /// frame that does have hotspot 1, with a part pinned to it.
+    /// </summary>
+    void Portrait(CanvasLayer layer, string res, string outPath)
+    {
+        var o = new RoomObject();
+        try
+        {
+            o.Resource = new BgfFile(Path.Combine(res, "flagpole.bgf"));
+            var head = new SubOverlay(0, new AnimationNone(), (byte)KnownHotspot.HEAD, 0, 0);
+            head.Resource = new BgfFile(Path.Combine(res, "ankh.bgf"));
+            o.SubOverlays.Add(head);
+            o.Tick(0, 1);
+        }
+        catch (Exception e) { GD.Print($"[UiShot] portrait art: {e.Message}"); }
+
+        Tex tWhole = M59Compose.Icon(o, 160);
+        Tex tHead = M59Compose.Icon(o, 160, (byte)KnownHotspot.HEAD);
+        GD.Print($"[UiShot] whole {(tWhole == null ? "null" : tWhole.W + "x" + tWhole.H)}, " +
+                 $"from head {(tHead == null ? "null" : tHead.W + "x" + tHead.H)}, " +
+                 $"subs {o.SubOverlays.Count}, frame {(o.FrontFrame == null ? "null" : "ok")}");
+
+        var whole = new TextureRect
+        {
+            Texture = M59Assets.FromTex(tWhole),
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            Position = new Vector2(20, 60), Size = new Vector2(160, 160),
+        };
+        var fromHead = new TextureRect
+        {
+            Texture = M59Assets.FromTex(tHead),
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            Position = new Vector2(220, 60), Size = new Vector2(160, 160),
+        };
+        layer.AddChild(whole);
+        layer.AddChild(fromHead);
+
+        foreach (var (text, x) in new[] { ("whole object", 20), ("from the HEAD hotspot", 220) })
+        {
+            var l = new Label { Text = text, Position = new Vector2(x, 28) };
+            l.AddThemeColorOverride("font_color", new Color(1, 1, 1));
+            layer.AddChild(l);
+        }
 
         Shoot(outPath);
     }

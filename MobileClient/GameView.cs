@@ -43,6 +43,7 @@ public partial class GameView : Node2D
     MiniMap _map;
     Button _loot;
     Vitals _vitals;
+    AvatarPanel _face;
     InventoryPanel _bag;
 
     /// <summary>
@@ -206,6 +207,12 @@ public partial class GameView : Node2D
         });
 
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
+        Widget("face", () =>
+        {
+            // Under the status lines rather than behind them.
+            _face = new AvatarPanel { TopReserve = 96f };
+            _ui.AddChild(_face);
+        });
 
         Widget("inventory", () =>
         {
@@ -325,6 +332,7 @@ public partial class GameView : Node2D
         }
 
         _vitals?.Follow(_client.Data);
+        _face?.Follow(_client.Data);
         _bag?.Sync(_client.Data?.InventoryObjects);
 
         RoomObject me = _client.Data?.AvatarObject;

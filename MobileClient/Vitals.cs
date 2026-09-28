@@ -5,109 +5,176 @@ using Meridian59.Data;
 using Meridian59.Data.Models;
 
 /// <summary>
-/// Health, mana and vigor, which is most of what you need to see while
-/// playing and none of which was on screen.
+/// The condition bars, drawn the way the game draws them.
 ///
-/// Reads the client's own AvatarCondition stats rather than keeping a
-/// copy: the library maintains those from the server, including the
-/// maxima, and a second copy would only go stale.
+/// The rules are the Ogre client's `UIAvatar::ConditionChange`, not a
+/// guess at what a health bar should be:
 ///
-/// Draws nothing at all until the server has sent something, so it stays
-/// out of the way while the view is still connecting.
+///  - one bar per entry in the avatar's own condition list, in the
+///    server's order. Not three hardcoded stats: the server decides what
+///    you have, and vanilla sends a fourth - the chance of getting tougher
+///    - which the game shows as a grey bar and this used to throw away.
+///  - the fill is not current over maximum. It is
+///    <c>(current - renderMin) / (max - renderMin)</c>, and <c>max</c> is
+///    the render maximum for vigor and tougher-chance but the plain
+///    maximum for everything else. A stat whose render floor is not zero
+///    reads wrong otherwise.
+///  - the colours are the client's own: hit points 0x800000, mana
+///    0x000080, vigor 0x707000, tougher-chance 0x444444. They are darker
+///    than a health bar usually is because the bar imagery lightens them.
+///  - the text on the bar is "current / max".
+///  - below a third it blinks, and keeps blinking while it stays there.
+///    The game runs a one-shot highlight on every change and switches that
+///    animation to looping under 33%.
 /// </summary>
 public partial class Vitals : Control
 {
     [Export] public float BarWidth = 180f;
-    [Export] public float BarHeight = 14f;
+    [Export] public float BarHeight = 16f;
     [Export] public int FontSize = 12;
 
     DataController _data;
-    Label _text;
 
-    static readonly Color Back   = new Color(0.05f, 0.05f, 0.07f, 0.75f);
-    static readonly Color Health = new Color(0.78f, 0.22f, 0.22f);
-    static readonly Color Mana   = new Color(0.30f, 0.45f, 0.90f);
-    static readonly Color Vigor  = new Color(0.85f, 0.72f, 0.25f);
+    static readonly Color Back  = new Color(0.05f, 0.05f, 0.07f, 0.75f);
+    static readonly Color Edge  = new Color(0.55f, 0.55f, 0.60f, 0.55f);
+
+    // UI_COLOURRECT_BAR_*, as the client defines them.
+    static readonly Color Red    = new Color(0x80 / 255f, 0f, 0f);
+    static readonly Color Blue   = new Color(0f, 0f, 0x80 / 255f);
+    static readonly Color Yellow = new Color(0x70 / 255f, 0x70 / 255f, 0f);
+    static readonly Color Grey   = new Color(0x44 / 255f, 0x44 / 255f, 0x44 / 255f);
+
+    /// <summary>Below this share the bar blinks, as the game's does.</summary>
+    public const float LowWater = 0.333f;
+
+    Label[] _labels = Array.Empty<Label>();
+    double _clock;
 
     public override void _Ready()
     {
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
-
-        _text = new Label { MouseFilter = MouseFilterEnum.Ignore };
-        _text.AddThemeFontSizeOverride("font_size", FontSize);
-        _text.AddThemeColorOverride("font_color", new Color(1, 1, 1));
-        _text.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
-        _text.AddThemeConstantOverride("outline_size", 3);
-        AddChild(_text);
-
-        GetViewport().SizeChanged += Layout;
-        Layout();
+        SetProcess(true);
     }
 
     /// <summary>Where the bars sit: above whatever owns the bottom.</summary>
     public float BottomReserve { get; set; }
 
-    void Layout()
+    public override void _Process(double delta)
     {
-        if (_text == null) return;
-        Vector2 v = GetViewportRect().Size;
-        _text.Position = new Vector2(12f, v.Y - BottomReserve - 12f - BarHeight * 3f - 18f - FontSize * 1.4f);
+        // Only for the blink, and only while something is low.
+        if (!_lowSomething) return;
+        _clock += delta;
+        QueueRedraw();
     }
 
-    int _lastHp = -1, _lastMp = -1, _lastVp = -1;
+    bool _lowSomething;
+    string _signature = "";
 
     /// <summary>
-    /// Points at the client's data and redraws only when a number has
-    /// actually moved - this is called every frame, and three rectangles
-    /// that have not changed are three rectangles not worth redrawing.
+    /// Points at the client's data and redraws when a number has actually
+    /// moved. Called every frame; bars that have not changed are bars not
+    /// worth redrawing.
     /// </summary>
     public void Follow(DataController data)
     {
         _data = data;
-        if (data == null) return;
-        int hp = data.HitPoints, mp = data.ManaPoints, vp = data.VigorPoints;
-        if (hp == _lastHp && mp == _lastMp && vp == _lastVp) return;
-        _lastHp = hp; _lastMp = mp; _lastVp = vp;
+        if (data?.AvatarCondition == null) return;
+
+        var sb = new System.Text.StringBuilder();
+        foreach (StatNumeric s in data.AvatarCondition)
+            sb.Append(s.Num).Append(':').Append(s.ValueCurrent).Append('/')
+              .Append(s.ValueMaximum).Append('/').Append(s.ValueRenderMax).Append(';');
+
+        string now = sb.ToString();
+        if (now == _signature) return;
+        _signature = now;
         QueueRedraw();
     }
 
     public override void _Draw()
     {
-        if (_data == null) return;
+        if (_data?.AvatarCondition == null) return;
 
-        int hp = Max(StatNums.HITPOINTS, out int hpMax);
-        int mp = Max(StatNums.MANA, out int mpMax);
-        int vp = Max(StatNums.VIGOR, out int vpMax);
+        int count = _data.AvatarCondition.Count;
+        if (count == 0) return;
 
-        // Nothing from the server yet - do not draw three empty boxes.
-        if (hpMax <= 0 && mpMax <= 0 && vpMax <= 0) { _text.Text = ""; return; }
+        EnsureLabels(count);
 
         Vector2 v = GetViewportRect().Size;
+        float gap = 4f;
         float x = 12f;
-        float y = v.Y - BottomReserve - 12f - BarHeight * 3f - 18f;
+        float y = v.Y - BottomReserve - 12f - (BarHeight + gap) * count;
 
-        Bar(x, y,                    hp, hpMax, Health);
-        Bar(x, y + BarHeight + 4f,   mp, mpMax, Mana);
-        Bar(x, y + (BarHeight + 4f) * 2f, vp, vpMax, Vigor);
+        _lowSomething = false;
+        int i = 0;
 
-        _text.Text = $"{hp}/{hpMax}   {mp}/{mpMax}   {vp}/{vpMax}";
+        foreach (StatNumeric s in _data.AvatarCondition)
+        {
+            // Vigor and tougher-chance are drawn against their render
+            // maximum; everything else against its plain one.
+            int max = (s.Num == StatNums.VIGOR || s.Num == StatNums.TOUGHERCHANCE)
+                ? s.ValueRenderMax : s.ValueMaximum;
+
+            int range = Math.Max(1, max - s.ValueRenderMin);
+            float fill = Mathf.Clamp((s.ValueCurrent - s.ValueRenderMin) / (float)range, 0f, 1f);
+
+            bool low = fill < LowWater && s.Num != StatNums.TOUGHERCHANCE;
+            if (low) _lowSomething = true;
+
+            Color c = Colour(s.Num);
+            if (low)
+            {
+                // The blink: the game runs a highlight animation on the
+                // bar. A brightness pulse is the same idea with the tools
+                // to hand.
+                float pulse = 0.5f + 0.5f * MathF.Sin((float)_clock * 6f);
+                c = c.Lerp(new Color(1f, 1f, 1f), 0.35f * pulse);
+            }
+
+            float row = y + (BarHeight + gap) * i;
+            DrawRect(new Rect2(x, row, BarWidth, BarHeight), Back);
+            DrawRect(new Rect2(x + 1f, row + 1f, (BarWidth - 2f) * fill, BarHeight - 2f), c);
+            DrawRect(new Rect2(x, row, BarWidth, BarHeight), Edge, false, 1f);
+
+            Label label = _labels[i];
+            label.Text = $"{s.ValueCurrent} / {max}";
+            label.Position = new Vector2(x + 6f, row - 1f);
+            label.Visible = true;
+            i++;
+        }
+
+        for (; i < _labels.Length; i++) _labels[i].Visible = false;
     }
 
-    void Bar(float x, float y, int cur, int max, Color fill)
+    /// <summary>The client's own bar colours, by stat.</summary>
+    static Color Colour(byte num)
     {
-        DrawRect(new Rect2(x, y, BarWidth, BarHeight), Back);
-        if (max <= 0) return;
-        float f = Mathf.Clamp(cur / (float)max, 0f, 1f);
-        DrawRect(new Rect2(x + 1f, y + 1f, (BarWidth - 2f) * f, BarHeight - 2f), fill);
+        switch (num)
+        {
+            case StatNums.HITPOINTS: return Red;
+            case StatNums.MANA: return Blue;
+            case StatNums.VIGOR: return Yellow;
+            default: return Grey;          // tougher-chance, and anything new
+        }
     }
 
-    int Max(byte which, out int maximum)
+    void EnsureLabels(int count)
     {
-        maximum = 0;
-        StatNumeric s = _data?.AvatarCondition?.GetItemByNum(which);
-        if (s == null) return 0;
-        maximum = s.ValueMaximum;
-        return s.ValueCurrent;
+        if (_labels.Length >= count) return;
+
+        var grown = new Label[count];
+        Array.Copy(_labels, grown, _labels.Length);
+        for (int i = _labels.Length; i < count; i++)
+        {
+            var l = new Label { MouseFilter = MouseFilterEnum.Ignore };
+            l.AddThemeFontSizeOverride("font_size", FontSize);
+            l.AddThemeColorOverride("font_color", new Color(1, 1, 1));
+            l.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
+            l.AddThemeConstantOverride("outline_size", 3);
+            AddChild(l);
+            grown[i] = l;
+        }
+        _labels = grown;
     }
 }

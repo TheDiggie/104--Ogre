@@ -207,6 +207,46 @@ See that tool's README for what the handshake actually needs - in short,
 mode, the client verifies no CRC on what it receives, and chat on the
 wire is a string resource id rather than text.
 
+## The condition bars are the game's condition bars
+
+`UIAvatar::ConditionChange` in the Ogre client is the spec, and it
+differs from a health bar in four ways worth knowing:
+
+- there is **one bar per entry in the avatar's condition list**, in the
+  server's order - not three hardcoded stats. Vanilla sends a fourth, the
+  chance of getting tougher, which this client used to throw away.
+- the fill is **not** current over maximum. It is
+  `(current - renderMin) / (max - renderMin)`, and `max` is the *render*
+  maximum for vigor and tougher-chance but the plain maximum for
+  everything else. A stat whose render floor is not zero reads wrong the
+  other way.
+- the colours are the client's own, and darker than a health bar usually
+  is because the bar imagery lightens them: hit points `0x800000`, mana
+  `0x000080`, vigor `0x707000`, tougher-chance `0x444444`.
+- below a third it blinks, and keeps blinking while it stays there. The
+  game starts a one-shot highlight on every change and switches that
+  animation to looping under 33%.
+
+The fake server sends a deliberately low vigor so the blink has something
+to do.
+
+## The portrait is the object composed from its head
+
+The game's avatar panel shows your face, and it is not separate art: it
+is your own object composed **from its HEAD hotspot downwards**, with the
+front frame, no Y offset, centred in the box. `UIAvatar` passes exactly
+those arguments to its composer, and `RenderInfo` picks the suboverlay
+hanging on that hotspot as the compose root.
+
+`M59Compose.Icon` takes the hotspot for this, and
+`Tools/Meridian59.Net8Compose portrait` shows the difference side by
+side: the whole object, then the same object composed from hotspot 1.
+The art in this container has no player bodies - nothing carries a head
+hotspot with a part on it - so that demonstration builds the case by hand
+from a flagpole and an ankh, and the panel in the live view falls back to
+the whole object, which is what `RenderInfo` does when the hotspot is not
+there.
+
 ## The minimap is the game's minimap
 
 The first version drew the whole room squeezed into a box, all walls, a

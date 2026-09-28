@@ -23,11 +23,12 @@ static class Program
 
     static void Main(string[] args)
     {
-        bool mode = args.Length > 0 && (args[0] == "probe" || args[0] == "crush" || args[0] == "sheet" || args[0] == "items" || args[0] == "icons" || args[0] == "anchors");
+        bool mode = args.Length > 0 && (args[0] == "probe" || args[0] == "crush" || args[0] == "sheet" || args[0] == "items" || args[0] == "icons" || args[0] == "anchors" || args[0] == "portrait");
         if (args.Length > 0 && !mode) dir = args[0];
         if (args.Length > 0 && args[0] == "probe") { Probe(); return; }
         if (args.Length > 0 && args[0] == "icons") { Icons(args.Skip(1).ToArray()); return; }
         if (args.Length > 0 && args[0] == "anchors") { Anchors(args.Length > 1 ? args[1] : "/tmp/res"); return; }
+        if (args.Length > 0 && args[0] == "portrait") { Portrait(args.Length > 1 ? args[1] : "portrait.png"); return; }
         if (args.Length > 0 && args[0] == "crush") { Crush(args.Length > 1 ? args[1] : dir); return; }
         if (args.Length > 0 && args[0] == "sheet") { Sheet(args.Length > 1 ? args[1] : "compose.png"); return; }
         if (args.Length > 0 && args[0] == "items")
@@ -282,6 +283,62 @@ static class Program
         foreach (string w in worst) Console.WriteLine("  " + w);
     }
 
+    /// <summary>
+    /// The avatar panel's portrait: an object composed from its HEAD
+    /// hotspot downwards beside the same object composed whole. That is
+    /// what turns a picture of a body into a picture of a face, and it is
+    /// the one argument of the composer nothing else here uses.
+    ///
+    /// The art to hand has no player bodies, so the case is built by hand
+    /// from a main frame that does carry hotspot 1 and a part pinned to
+    /// it.
+    /// </summary>
+    static void Portrait(string path)
+    {
+        var o = new RoomObject();
+        o.Resource = Load("flagpole.bgf");
+        var head = new SubOverlay(0, new AnimationNone(), 1, 0, 0);   // KnownHotspot.HEAD
+        head.Resource = Load("ankh.bgf");
+        o.SubOverlays.Add(head);
+        o.Tick(0, 1);
+
+        Tex whole = M59Compose.Icon(o, 160);
+        Tex face = M59Compose.Icon(o, 160, 1);
+        if (whole == null || face == null) { Console.WriteLine("nothing composed"); return; }
+
+        int different = 0;
+        for (int i = 0; i < Math.Min(whole.P.Length, face.P.Length); i++)
+            if (whole.P[i] != face.P[i]) different++;
+
+        Console.WriteLine($"whole {whole.W}x{whole.H}, from HEAD {face.W}x{face.H}, {different} pixels differ");
+        Console.WriteLine(different > 0
+            ? "  the hotspot changes what is composed, which is the point"
+            : "  FAIL: composing from the hotspot gave the same picture");
+
+        const int gap = 12;
+        int w = whole.W + face.W + gap * 3, h = Math.Max(whole.H, face.H) + gap * 2;
+        var rgba = new byte[w * h * 4];
+        for (int i = 0; i < w * h; i++)
+        { rgba[i * 4] = 60; rgba[i * 4 + 1] = 60; rgba[i * 4 + 2] = 70; rgba[i * 4 + 3] = 255; }
+
+        Blit(rgba, w, whole, gap, gap);
+        Blit(rgba, w, face, gap * 2 + whole.W, gap);
+        Png.Write(path, w, h, rgba);
+        Console.WriteLine($"wrote {path}");
+    }
+
+    static void Blit(byte[] rgba, int w, Tex t, int ox, int oy)
+    {
+        for (int y = 0; y < t.H; y++)
+            for (int x = 0; x < t.W; x++)
+            {
+                uint c = t.P[y * t.W + x];
+                if ((c >> 24) == 0) continue;
+                int o = ((y + oy) * w + ox + x) * 4;
+                rgba[o] = (byte)(c >> 16); rgba[o + 1] = (byte)(c >> 8); rgba[o + 2] = (byte)c; rgba[o + 3] = 255;
+            }
+    }
+
     static void Icons(string[] files)
     {
         if (files.Length == 0)
@@ -329,6 +386,20 @@ static class Program
         Console.WriteLine("reachable frames: " + reachable.Count + " of " + b.Frames.Count);
         int both = 0; foreach (int i in spotFrames) if (reachable.Contains(i)) both++;
         Console.WriteLine("reachable frames that carry spots: " + both);
+
+        foreach (string f in new[] { "hist_orc.bgf", "flagpole.bgf", "bri.bgf", "fountfrozen.bgf" })
+        {
+            try
+            {
+                var bb = Load(f);
+                var spots = new List<int>();
+                foreach (BgfBitmap fr in bb.Frames)
+                    foreach (BgfBitmapHotspot hs in fr.HotSpots)
+                        if (!spots.Contains(hs.Index)) spots.Add(hs.Index);
+                Console.WriteLine($"{f}: hotspot indices " + string.Join(",", spots));
+            }
+            catch { Console.WriteLine($"{f}: missing"); }
+        }
 
         var p = Load("icraftleatha.bgf");
         Console.WriteLine($"part frames={p.Frames.Count} sets={p.FrameSets.Count} idx(1,0)={p.GetFrameIndex(1, 0)} idx(0,0)={p.GetFrameIndex(0, 0)}");

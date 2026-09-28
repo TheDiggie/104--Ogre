@@ -55,15 +55,23 @@ public static class M59Compose
     /// picture scaled into a 40x40 box and centred both ways. Using the
     /// world settings instead gives icons that face wherever you happen
     /// to be standing and sit at the top of a tall empty box.
+    ///
+    /// <paramref name="rootHotspot"/> composes from one part of the object
+    /// downwards instead of the whole thing - the portrait in the game's
+    /// avatar panel is the object composed from its HEAD hotspot, which is
+    /// how a picture of a face comes out of a picture of a body. Zero, the
+    /// default, means the whole object; a hotspot the object does not have
+    /// falls back to the whole object, which is RenderInfo's own
+    /// behaviour rather than something added here.
     /// </summary>
-    public static Tex Icon(ObjectBase o, int size)
+    public static Tex Icon(ObjectBase o, int size, byte rootHotspot = 0)
     {
         if (o == null || o.Resource == null || size < 1) return null;
 
         var ri = new RenderInfo(
             o,
             false,                 // ApplyYOffset
-            0,                     // RootHotspotIndex
+            rootHotspot,           // compose from this hotspot down
             RenderInfo.DEFAULTQUALITY,
             false,                 // ScalePow2
             (uint)size, (uint)size,

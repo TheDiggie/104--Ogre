@@ -167,6 +167,15 @@ static class FakeServer
                     Say(ns, ctrl, RID_GREETING);
                     break;
 
+                case MessageTypeGameMode.SendStats:
+                    // The client asks for its stats once it is in the
+                    // world. The condition group is the one behind the
+                    // bars: hit points, mana, vigor, and vanilla's fourth,
+                    // the chance of getting tougher.
+                    Console.WriteLine("  <- SendStats");
+                    SendConditions(ns, ctrl);
+                    break;
+
                 case MessageTypeGameMode.SayTo:
                     // Whatever the player typed. The text is a string the
                     // client composed, and this server has no vocabulary
@@ -181,6 +190,26 @@ static class FakeServer
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// The condition bars. Deliberately not all full: a low vigor is what
+    /// shows the client blinks a bar under a third, and the render
+    /// minimum and maximum are what the fill is measured against for
+    /// vigor and tougher-chance rather than the plain maximum.
+    /// </summary>
+    static void SendConditions(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var stats = new Stat[]
+        {
+            //            num, rid, tag, current, renderMin, renderMax, maximum
+            new StatNumeric(1, 0, 0,  74,  0, 120, 120),   // hit points
+            new StatNumeric(2, 0, 0,  38,  0,  90,  90),   // mana
+            new StatNumeric(3, 0, 0,  22,  0, 100, 100),   // vigor, low enough to blink
+            new StatNumeric(4, 0, 0,  61,  0, 100, 100),   // tougher chance
+        };
+
+        Send(ns, ctrl, new StatGroupMessage(StatGroup.Condition, stats));
     }
 
     static void SendCharacters(NetworkStream ns, MessageControllerClient ctrl)
