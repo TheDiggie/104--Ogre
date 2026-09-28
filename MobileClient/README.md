@@ -208,6 +208,15 @@ confirmed byte-identical.
   Setting `Sprite.Height` above zero still overrides it, which is what
   the checks in `Tools/` do so their numbers stay comparable.
 
+  The frames' `YOffset` is **not** applied, deliberately. `RenderInfo`
+  uses it for an object's origin, and the values are strange for a
+  straight vertical placement: duskrat -11, Knight +30, cyclops +335 -
+  which over shrink and into world units is 5360, more than the
+  cyclops's own height of 4016. Its meaning there is conditional
+  (`ApplyYOffset`), a sprite's feet currently land on the floor, and
+  guessing at it would float or bury things. `XOffset` is zero on
+  everything measured, so nothing is lost horizontally.
+
 - **Objects** render as camera-facing billboards, sorted back to front
   and occluded by a per-column wall depth buffer. Transparent texels
   (palette index 254) are skipped, and sprite textures deliberately skip
