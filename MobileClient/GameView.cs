@@ -44,6 +44,7 @@ public partial class GameView : Node2D
     Button _loot;
     LootPanel _lootList;
     NameTags _names;
+    ActionButtons _hotbar;
     Vitals _vitals;
     AvatarPanel _face;
     InventoryPanel _bag;
@@ -211,6 +212,13 @@ public partial class GameView : Node2D
 
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
         Widget("names", () => { _names = new NameTags(); _ui.AddChild(_names); });
+        Widget("hotbar", () =>
+        {
+            _hotbar = new ActionButtons();
+            ActionButtons.Seed(_client.Data);
+            if (_chat != null) _hotbar.BottomReserve = _chat.BlockHeight + 56f;
+            _ui.AddChild(_hotbar);
+        });
         Widget("face", () =>
         {
             // Under the status lines rather than behind them.
@@ -349,6 +357,12 @@ public partial class GameView : Node2D
         _face?.Follow(_client.Data);
         _bag?.Sync(_client.Data?.InventoryObjects);
         _lootList?.Sync(_client.Data?.ObjectContents);
+        // Seeded every frame rather than once: the client clears its
+        // lists when the world changes under it - a room change or a
+        // relogin - and a row that was filled at startup would empty and
+        // stay empty.
+        ActionButtons.Seed(_client.Data);
+        _hotbar?.Sync(_client.Data);
 
         if (_names != null && _world.Renderer != null && _w > 0 && _h > 0)
         {

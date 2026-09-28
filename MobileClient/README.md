@@ -207,6 +207,36 @@ See that tool's README for what the handshake actually needs - in short,
 mode, the client verifies no CRC on what it receives, and chat on the
 wire is a string resource id rather than text.
 
+## Action buttons
+
+The game keeps a grid of them - `UIActionButtons.cpp`, twelve across and
+four down - filled from the player's own configuration: spells, skills,
+items, commands and aliases. This client had nothing of the sort. The row
+it already had is a different thing, the actions you can take on whatever
+you tapped.
+
+What a button *does* is not decided in the view. Each is an
+`ActionButtonConfig` in the client's own list, and calling `Activate()` on
+it is what fires it: `BaseClient` is subscribed to every button and
+dispatches by type - a spell casts, a skill performs, an item is used,
+applied or unused, an action runs, an alias runs as a chat command.
+Writing that dispatch again here would be a second copy of five rules.
+
+Item buttons bind themselves. The data controller matches a button by
+name against the inventory as it arrives, so a button named for something
+you are carrying becomes that item, icon and all.
+
+Two departures, both marked in the code. Twelve by four does not fit a
+phone, so this shows one row of however many fit across. And the starting
+set is this client's own: the game ships no default buttons at all - its
+list comes from a configuration file written by a UI this client does not
+have - and an empty row on a phone is a row of nothing. The defaults are
+the library's own avatar actions.
+
+A trap worth recording: `ActionButtonConfig.Label` is an empty string when
+unset rather than null, so `Label ?? Name` picks the blank one and every
+button reads "?".
+
 ## The loot list
 
 The game has a loot window - `UILootList.cpp` - and it is a list rather

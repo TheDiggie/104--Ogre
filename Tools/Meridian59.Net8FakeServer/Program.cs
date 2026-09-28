@@ -189,12 +189,12 @@ static class FakeServer
                     break;
 
                 case MessageTypeGameMode.ReqGet:
-                    // A get takes the thing. This server has nothing to
-                    // track, so it simply says what happened and sends the
-                    // shortened pile back.
+                    // The first get opens the pile; each one after takes
+                    // something out of it. This server tracks nothing, so
+                    // it just sends a shorter list each time.
                     Console.WriteLine("  <- ReqGet");
-                    SendLoot(ns, ctrl, --lootLeft);
-                    Say(ns, ctrl, RID_ECHO);
+                    if (!lootOpen) { lootOpen = true; SendLoot(ns, ctrl, lootLeft); }
+                    else { SendLoot(ns, ctrl, --lootLeft); Say(ns, ctrl, RID_ECHO); }
                     break;
 
                 case MessageTypeGameMode.SendStats:
@@ -243,6 +243,7 @@ static class FakeServer
     }
 
     static int lootLeft = 3;
+    static bool lootOpen;
 
     /// <summary>
     /// The contents of something on the floor. The client puts its loot
@@ -335,11 +336,11 @@ static class FakeServer
         Send(ns, ctrl, new RoomContentsMessage(new ObjectID(1, 0), objects));
         Console.WriteLine($"  -> room {room} with {objects.Length} objects");
 
-        // Something to loot, so the loot list has contents to show. A real
-        // server sends this when you open a corpse or a chest; there is
-        // nothing to open here, so it arrives with the room.
+        // Nothing is sent to loot yet. A real server sends the contents
+        // of something when you open it, and this one answers the Loot
+        // button the same way, so the window is not simply always up.
         lootLeft = 3;
-        SendLoot(ns, ctrl, lootLeft);
+        lootOpen = false;
     }
 
     /// <summary>
