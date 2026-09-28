@@ -230,14 +230,72 @@ confirmed byte-identical.
   Setting `Sprite.Height` above zero still overrides it, which is what
   the checks in `Tools/` do so their numbers stay comparable.
 
-  The frames' `YOffset` is **not** applied, deliberately. `RenderInfo`
-  uses it for an object's origin, and the values are strange for a
-  straight vertical placement: duskrat -11, Knight +30, cyclops +335 -
-  which over shrink and into world units is 5360, more than the
-  cyclops's own height of 4016. Its meaning there is conditional
-  (`ApplyYOffset`), a sprite's feet currently land on the floor, and
-  guessing at it would float or bury things. `XOffset` is zero on
-  everything measured, so nothing is lost horizontally.
+  The frames' `YOffset` **is** applied now, by composing the object the
+  way the game composes it rather than by nudging a frame-sized picture.
+  It was left out before because the values looked implausible for a
+  straight vertical placement - duskrat -11, Knight +30, cyclops +335,
+  which over shrink and into world units is more than the cyclops's own
+  height. Reading `RenderInfo` says why: the offset is not a nudge, it
+  is part of the picture's box. An arrow's art carries a Y offset of
+  -200 at shrink 5, and the composed picture is 208 pixels tall with the
+  art sitting at the bottom of it - the empty space above is how far
+  above its anchor the arrow floats. Measured over the 558 object files
+  to hand, 142 carry an offset or are clamped by the quality cap, which
+  is how many objects the single-frame path sized or placed wrongly.
+
+- **Objects are composed**, not drawn as one frame. `M59Compose.cs`
+  builds the picture out of the main overlay and its suboverlays: a
+  player is a body plus what they are wearing and holding, each its own
+  BGF pinned to a hotspot on the frame below it, and a good many
+  monsters are put together the same way. Drawing the main frame alone
+  showed a Knight with no sword and no shield, and threw away the
+  per-part colour translation that dyes them.
+
+  None of the arithmetic is guessed. The layout comes from the library's
+  own `RenderInfo`, which is called rather than copied; the draw order
+  and the per-part palette come from `ImageComposer`, which runs three
+  passes of underlays, the main frame, then three passes of overlays;
+  and the pixels are laid down by the library's own scaler, so a frame
+  lands here exactly as it lands in the Ogre client. Pictures are cached
+  on the object's `ViewerAppearanceHash`, which is what the library
+  keys its own image cache on - it changes when the frame, the facing,
+  the parts or their colours do, and not when the object merely moves.
+
+  Checked by `Tools/Meridian59.Net8Compose`: 404 objects with no parts
+  and no offsets compose to **exactly** the picture the old single-frame
+  path drew, pixel for pixel, so composition did not quietly resize
+  everything that was already right; a part hung on a hotspot lands
+  inside the box the library gives for it; and in the overlap, an
+  underlay changes nothing behind the body while an overlay repaints it.
+
+  Two rounding bugs came out of that check, both from casting where the
+  library converts. `Convert.ToInt32` rounds and a cast truncates, so a
+  box of 478.00003 became 479 pixels wide with an empty column down one
+  side, and a part 453.9998 wide lost its last column.
+
+  **Hanging objects** are pinned by their top, not their base.
+  `RemoteNode2D` picks `BBO_TOP_CENTER` for them, and excludes players
+  in its vanilla build because the flag overlaps some player types on
+  the original server - this does the same, so lamps and signs hang and
+  no player dangles.
+
+- **Nine files of art cannot be decoded at all.** Frames come in two
+  compressions: one the library undoes with .NET's own inflate, and
+  CRUSH, which it can only undo by calling a proprietary `crush32.dll`
+  from an x86 Windows build. There is no source for that DLL in the
+  repo, so those frames throw here and would throw on a phone.
+
+  Counted over the 558 object files to hand: 201 frames, 2.93%, all of
+  them in nine files - `edragon`, `idragon`, `rdragon`, `gbeetle`,
+  `rbeetle`, `ranu` and their `X` variants. Every frame in each, so
+  those creatures are simply invisible rather than patchy. The composer
+  skips an undecodable part instead of losing the whole object, which
+  matters for a body wearing one bad item but does nothing for a file
+  that is bad throughout.
+
+  Two ways out, neither doable from here: re-save the nine files with
+  the original tool on x86 Windows, or rebuild them from the `.bmp`
+  sources in the server's `resource/graphics`. Both need a Windows box.
 
 - **Objects** render as camera-facing billboards, sorted back to front
   and occluded by a per-column wall depth buffer. Transparent texels

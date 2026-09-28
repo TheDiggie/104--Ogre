@@ -22,13 +22,52 @@ static class Program
 
     static void Main(string[] args)
     {
-        if (args.Length > 0 && args[0] != "probe") dir = args[0];
+        bool mode = args.Length > 0 && (args[0] == "probe" || args[0] == "crush");
+        if (args.Length > 0 && !mode) dir = args[0];
         if (args.Length > 0 && args[0] == "probe") { Probe(); return; }
+        if (args.Length > 0 && args[0] == "crush") { Crush(args.Length > 1 ? args[1] : dir); return; }
         PlainMatchesFrame();
         PartAppears();
         OverUnder();
         Console.WriteLine(fails == 0 ? "OK" : $"{fails} FAILED");
         Environment.Exit(fails == 0 ? 0 : 1);
+    }
+
+    /// <summary>
+    /// How much of the art this client cannot decode at all. Frames come
+    /// in two compressions: one the library undoes with .NET's own
+    /// inflate, and CRUSH, which it can only undo in an x86 Windows build
+    /// and throws on everywhere else - here, and on a phone. Counting
+    /// them says whether that is a curiosity or a hole in the game.
+    /// </summary>
+    static void Crush(string where)
+    {
+        int files = 0, frames = 0, bad = 0, badFiles = 0, uncompressed = 0;
+        var worst = new List<string>();
+
+        foreach (string f in Directory.GetFiles(where, "*.bgf").OrderBy(x => x))
+        {
+            BgfFile b;
+            try { b = new BgfFile(f); } catch { continue; }
+            files++;
+            int fileBad = 0;
+            foreach (BgfBitmap fr in b.Frames)
+            {
+                frames++;
+                if (!fr.IsCompressed) { uncompressed++; continue; }
+                try { fr.Decompress(fr.PixelData); }
+                catch { bad++; fileBad++; }
+            }
+            if (fileBad > 0)
+            {
+                badFiles++;
+                if (worst.Count < 10) worst.Add($"{Path.GetFileName(f)} {fileBad}/{b.Frames.Count}");
+            }
+        }
+
+        Console.WriteLine($"{files} files, {frames} frames, {uncompressed} stored uncompressed");
+        Console.WriteLine($"{bad} frames ({100.0 * bad / Math.Max(1, frames):F2}%) in {badFiles} files cannot be decoded here");
+        foreach (string w in worst) Console.WriteLine("  " + w);
     }
 
     static void Probe()

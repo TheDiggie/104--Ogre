@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Meridian59.Net8Compose")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+21a2a36c28fa09e5d547a960521e2bf6b4a6ba63")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0d975b6a5952f323ce8865b5f20abd6107e9794c")]
 [assembly: System.Reflection.AssemblyProductAttribute("Meridian59.Net8Compose")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Meridian59.Net8Compose")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
