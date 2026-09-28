@@ -57,6 +57,23 @@ namespace Meridian59.Files
 		protected readonly StringDictionary stringResources = new StringDictionary();
         protected readonly LockingDictionary<string, RsbFile> stringDictionaries = new LockingDictionary<string, RsbFile>(StringComparer.OrdinalIgnoreCase);
         protected readonly LockingDictionary<string, BgfFile> objects = new LockingDictionary<string, BgfFile>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Any casing of a filename to the casing actually on disk.
+        ///
+        /// The dictionaries above are case-insensitive, so a lookup for
+        /// "knight.bgf" finds an entry registered as "Knight.bgf" - but the
+        /// load then built its path from the name that was ASKED for, and
+        /// opening that path is case-sensitive on Linux and Android. On
+        /// Windows nobody ever noticed; anywhere else it throws
+        /// FileNotFoundException. Resolving through here first is what
+        /// makes the two agree.
+        /// </summary>
+        protected readonly LockingDictionary<string, string> realNames = new LockingDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The name as it is on disk, or the one given if unknown.</summary>
+        protected string RealName(string File)
+            => (File != null && realNames.TryGetValue(File, out string real)) ? real : File;
         protected readonly LockingDictionary<string, BgfFile> roomTextures = new LockingDictionary<string, BgfFile>(StringComparer.OrdinalIgnoreCase);
         protected readonly LockingDictionary<string, RooFile> rooms = new LockingDictionary<string, RooFile>(StringComparer.OrdinalIgnoreCase);
         protected readonly LockingDictionary<string, string> sounds = new LockingDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -243,7 +260,7 @@ namespace Meridian59.Files
                     if (!fileBuffers.TryPop(out buffer))
                       buffer = new byte[FILEBUFFERSIZE];
 
-                    string file = ObjectsFolder + "/" + File;
+                    string file = ObjectsFolder + "/" + RealName(File);
 
                     // load to mem
                     if (Util.LoadFileToBuffer(file, buffer))
@@ -286,7 +303,7 @@ namespace Meridian59.Files
                    if (!fileBuffers.TryPop(out buffer))
                       buffer = new byte[FILEBUFFERSIZE];
 
-                   string file = RoomsFolder + "/" + File;
+                   string file = RoomsFolder + "/" + RealName(File);
 
                    // load to mem
                    if (Util.LoadFileToBuffer(file, buffer))
@@ -332,7 +349,7 @@ namespace Meridian59.Files
                    if (!fileBuffers.TryPop(out buffer))
                       buffer = new byte[FILEBUFFERSIZE];
 
-                   string file = RoomTexturesFolder + "/" + File;
+                   string file = RoomTexturesFolder + "/" + RealName(File);
 
                    // load to mem
                    if (Util.LoadFileToBuffer(file, buffer))
@@ -518,7 +535,10 @@ namespace Meridian59.Files
                     string filename = Path.GetFileName(s);
 
                     if (!filename.StartsWith("grd"))
-                        Objects.TryAdd(filename, null);                  
+                    {
+                        Objects.TryAdd(filename, null);
+                        realNames.TryAdd(filename, filename);
+                    }
                 }
             }
             else
@@ -530,8 +550,12 @@ namespace Meridian59.Files
                 // get available files
                 files = Directory.GetFiles(RoomTexturesFolder, "grd*" + FileExtensions.BGF);
                 
-                foreach (string s in files)                
-                    RoomTextures.TryAdd(Path.GetFileName(s), null);                
+                foreach (string s in files)
+                {
+                    string filename = Path.GetFileName(s);
+                    RoomTextures.TryAdd(filename, null);
+                    realNames.TryAdd(filename, filename);
+                }
             }
             else
                 Directory.CreateDirectory(RoomTexturesFolder);
@@ -542,8 +566,12 @@ namespace Meridian59.Files
                 // get available files
                 files = Directory.GetFiles(RoomsFolder, '*' + FileExtensions.ROO);
                 
-                foreach (string s in files)               
-                    Rooms.TryAdd(Path.GetFileName(s), null);              
+                foreach (string s in files)
+                {
+                    string filename = Path.GetFileName(s);
+                    Rooms.TryAdd(filename, null);
+                    realNames.TryAdd(filename, filename);
+                }
             }
             else
                 Directory.CreateDirectory(RoomsFolder);

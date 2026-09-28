@@ -3,6 +3,8 @@ using Meridian59.Common;using Meridian59.Common.Enums;
 using Meridian59.Files.BGF;using Meridian59.Files.ROO;
 using Meridian59.Protocol;using Meridian59.Protocol.Enums;
 using Meridian59.Protocol.GameMessages;
+using Meridian59.Files;
+using System.Linq;
 
 static class Verify
 {
@@ -23,6 +25,7 @@ static class Verify
         }
         else Console.WriteLine("assets: skipped (no resource path given)\n");
         Protocol();
+        if (args.Length > 0 && Directory.Exists(args[0])) CaseSensitivity(args[0]);
         Console.WriteLine($"\n{pass} passed, {fail} failed");
         return fail == 0 ? 0 : 1;
     }
@@ -102,5 +105,44 @@ static class Verify
         Check("partial message is buffered", got == null);
         using (var ms = new MemoryStream(full, cut, full.Length - cut)) ctrl.ReadRecv(ms, full.Length - cut);
         Check("reassembled on second chunk", got is LoginOKMessage o && o.SessionID == 999);
+    }
+
+    /// <summary>
+    /// Asking for a file by a different casing than the one on disk.
+    ///
+    /// The resource dictionaries are case-insensitive, so the lookup
+    /// succeeds - but the load used to build its path from the name that
+    /// was asked for, and opening that path is case-sensitive on Linux and
+    /// Android. On Windows this never happens. Anywhere else it threw
+    /// FileNotFoundException, which for an Android client means every
+    /// object whose casing the server does not match exactly.
+    ///
+    /// A fresh ResourceManager per attempt matters: asking with the right
+    /// casing first loads and caches the file, and every later casing then
+    /// finds it in the dictionary without touching the disk. Written the
+    /// other way round, this check reports that all is well.
+    /// </summary>
+    static void CaseSensitivity(string root)
+    {
+        Console.WriteLine("\ncase sensitivity");
+
+        string mixed = Directory.GetFiles(root, "*.bgf")
+            .Select(Path.GetFileName)
+            .FirstOrDefault(n => !n.StartsWith("grd") && n != n.ToLowerInvariant());
+
+        if (mixed == null) { Console.WriteLine("  no mixed-case object here, skipped"); return; }
+
+        foreach (string name in new[]{ mixed, mixed.ToLowerInvariant(), mixed.ToUpperInvariant() })
+        {
+            bool ok;
+            try
+            {
+                var rm = new ResourceManager();
+                rm.Init(root, root, root, root, root, root, root);
+                ok = rm.GetObject(name) != null;
+            }
+            catch (Exception e) { ok = false; Console.Write($"  ({e.GetType().Name}) "); }
+            Check($"{mixed} asked for as {name}", ok);
+        }
     }
 }

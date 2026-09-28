@@ -464,6 +464,25 @@ confirmed byte-identical.
   premise I could not test. It wants the server's ambient value and
   somebody who knows what these rooms are supposed to look like.
 
+## A note on case
+
+Asking the resource manager for a file by a different casing than the
+one on disk used to throw `FileNotFoundException` on anything that is
+not Windows - which is to say, on the phone. The dictionaries are
+case-insensitive so the lookup succeeded, but the load then built its
+path from the name that was *asked for*, and opening that path is
+case-sensitive on Linux and Android. The object folder has mixed casing
+in it (`Knight.bgf`, `ogreX.bgf`, `duskrat.bgf`), and the server's names
+need not match.
+
+`ResourceManager` now resolves through a map of any-casing to the casing
+on disk before building a path, and `Tools/Meridian59.Net8Verify` checks
+it. That check needs a fresh `ResourceManager` per attempt: asking with
+the right casing first loads and caches the file, and every later casing
+then finds it in the dictionary without going near the disk. Written the
+other way round - which is how it was written first - it reports that
+everything is fine.
+
 ## Unit conventions
 
 Established by measurement, not documentation - see
