@@ -52,8 +52,10 @@ static class Fpv
         if (si >= 0 && si + 1 < a.Length)
         {
             var bgf = rm.GetObject(a[si + 1]);
+            if (bgf == null) Console.WriteLine($"  ! could not load sprite {a[si + 1]}");
+            else Console.WriteLine($"  {a[si + 1]}: {bgf.Frames.Count} frames, {bgf.FrameSets.Count} groups");
             Tex st = Tex.FromSprite(bgf);
-            if (st == null) Console.WriteLine($"  ! could not load sprite {a[si + 1]}");
+            if (st == null) Console.WriteLine($"  ! could not decode {a[si + 1]}");
             else
             {
                 // A line straight ahead at increasing distance, plus one far
@@ -71,7 +73,7 @@ static class Fpv
                     r.Sprites.Add(new Renderer.Sprite {
                         X = sxw, Y = syw,
                         BaseZ = sec != null ? M59Geo.FloorXY(sec) : camZ - Renderer.EyeHeight,
-                        Height = 500f, Texture = st });
+                        Height = 500f, Bgf = bgf, AngleUnits = 0, Group = 1 });
                     Console.WriteLine($"  sprite at {d,6:F0}  sector={(sec == null ? "outside room" : "ok")}");
                 }
             }

@@ -39,6 +39,7 @@ public partial class FirstPersonView : Node2D
     [Export] public float DemoSpriteHeight = 500f;
 
     readonly M59Assets _assets = new M59Assets();
+    readonly TouchControls _touch = new TouchControls();
     Renderer _renderer;
     RooFile _roo;
 
@@ -175,7 +176,12 @@ public partial class FirstPersonView : Node2D
         if (Input.IsKeyPressed(Key.A)) strafe -= 1f;
         if (Input.IsKeyPressed(Key.D)) strafe += 1f;
 
-        _angle += turn * TurnSpeed * (float)delta;
+        // Touch: left-hand stick moves, right-hand drag turns.
+        Vector2 stick = _touch.Move;
+        strafe += stick.X;
+        fwd -= stick.Y;                       // screen Y grows downward
+
+        _angle += turn * TurnSpeed * (float)delta + _touch.TakeTurn();
 
         if (fwd != 0f || strafe != 0f)
         {
@@ -237,12 +243,11 @@ public partial class FirstPersonView : Node2D
     {
         if (_texture == null) return;
         DrawTextureRect(_texture, new Rect2(Vector2.Zero, GetViewportRect().Size), false);
+        _touch.Draw(this);
     }
 
     public override void _UnhandledInput(InputEvent e)
     {
-        if (e is InputEventScreenDrag sd) { _angle += sd.Relative.X * 0.005f; }
-        else if (e is InputEventMouseMotion mm && Input.IsMouseButtonPressed(MouseButton.Left))
-            _angle += mm.Relative.X * 0.005f;
+        _touch.Handle(e, GetViewportRect().Size);
     }
 }

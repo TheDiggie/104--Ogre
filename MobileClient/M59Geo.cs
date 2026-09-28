@@ -23,6 +23,22 @@ public static class M59Geo
     public static float FloorXY(RooSector s) => s == null ? 0f : (float)s.FloorHeight * HeightToXY;
     public static float CeilingXY(RooSector s) => s == null ? 0f : (float)s.CeilingHeight * HeightToXY;
 
+    // --- kod (server) coordinates <-> room coordinates -------------------
+    //
+    // RoomObject.Position3D is in the server's own units, NOT room units.
+    // The library converts with (X - 64) * 16 before touching a ROO (see
+    // RoomObject.UpdatePosition and BaseClient.SendReqMoveMessage), and
+    // stores height as roomHeight * 0.0625. These wrap that so the renderer
+    // never sees a kod coordinate.
+    public const float KodToRoom = 16f;
+    public const float KodOrigin = 64f;
+
+    public static float KodToWorld(float kod) => (kod - KodOrigin) * KodToRoom;
+    public static float WorldToKod(float world) => world / KodToRoom + KodOrigin;
+    /// <summary>Height only: no origin shift, just the scale.</summary>
+    public static float KodHeightToXY(float kod) => kod * KodToRoom;
+    public static float XYHeightToKod(float xy) => xy / KodToRoom;
+
     /// <summary>Bounds-checked lookup of the 1-based sector and sidedef numbers.</summary>
     public static RooSector Sector(RooFile roo, int num)
         => (num >= 1 && num <= roo.Sectors.Count) ? roo.Sectors[num - 1] : null;

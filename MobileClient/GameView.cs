@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using Godot;
 using Meridian59.Common;
+using Meridian59.Common.Constants;
+using Meridian59.Common.Enums;
 using Meridian59.Data.Models;
 using Meridian59.Files.BGF;
 using Meridian59.Files.ROO;
@@ -27,8 +29,11 @@ public partial class GameView : Node2D
     [Export] public string ResourceDir = "";
     [Export] public int RenderWidth = 480;
     [Export] public bool AutoConnect = true;
+    [Export] public float TurnSpeed = 2.2f;      // radians per second, keyboard
+    [Export] public bool Run = false;
 
     readonly M59Assets _assets = new M59Assets();
+    readonly TouchControls _touch = new TouchControls();
     readonly List<string> _log = new List<string>();
 
     M59Client _client;
@@ -115,6 +120,7 @@ public partial class GameView : Node2D
         catch (Exception e) { Fail($"Update: {e.GetType().Name}: {e.Message}"); return; }
 
         SyncRoom();
+        ApplyInput(delta);
         SyncSprites();
 
         _fpsAccum += delta; _frames++;
@@ -122,6 +128,81 @@ public partial class GameView : Node2D
 
         RenderFrame();
         QueueRedraw();
+    }
+
+    public override void _Input(InputEvent e) => _touch.Handle(e, GetViewportRect().Size);
+
+    /// <summary>
+    /// Turns touch and keyboard into avatar movement, then tells the server.
+    ///
+    /// The library does not move the avatar for us: for our own avatar
+    /// RoomObject.UpdatePosition only snaps to a destination we already set.
+    /// So the client owns the step - predict locally, then send - and the
+    /// server corrects us if it disagrees.
+    /// </summary>
+    void ApplyInput(double delta)
+    {
+        RoomObject avatar = _client.Data?.AvatarObject;
+        if (avatar == null || _room == null) return;
+
+        float turn = 0f, fwd = 0f, strafe = 0f;
+        if (Input.IsKeyPressed(Key.Left)) turn -= 1f;
+        if (Input.IsKeyPressed(Key.Right)) turn += 1f;
+        if (Input.IsKeyPressed(Key.W)) fwd += 1f;
+        if (Input.IsKeyPressed(Key.S)) fwd -= 1f;
+        if (Input.IsKeyPressed(Key.A)) strafe -= 1f;
+        if (Input.IsKeyPressed(Key.D)) strafe += 1f;
+
+        Vector2 stick = _touch.Move;
+        strafe += stick.X;
+        fwd -= stick.Y;                       // screen Y grows downward
+
+        float dAngle = turn * TurnSpeed * (float)delta + _touch.TakeTurn();
+        if (dAngle != 0f)
+        {
+            avatar.Angle += dAngle;
+            _client.SendReqTurnMessage();
+        }
+
+        bool running = Run || Input.IsKeyPressed(Key.Shift);
+        float kodSpeed = (float)(running ? MovementSpeed.Run : MovementSpeed.Walk);
+
+        if (fwd == 0f && strafe == 0f)
+        {
+            // Speed 0 makes SendReqMoveMessage a no-op, which is what we want
+            // while standing still.
+            avatar.HorizontalSpeed = 0f;
+            return;
+        }
+        avatar.HorizontalSpeed = kodSpeed;
+
+        // kod units per second: speed * MOVEBASECOEFF is per millisecond.
+        float step = kodSpeed * GeometryConstants.MOVEBASECOEFF * 1000f * (float)delta;
+
+        float c = MathF.Cos(avatar.Angle), sn = MathF.Sin(avatar.Angle);
+        V3 p = avatar.Position3D;
+        float nkx = p.X + (c * fwd - sn * strafe) * step;
+        float nky = p.Z + (sn * fwd + c * strafe) * step;
+
+        // Collision runs in room units, on the same ROO the renderer draws.
+        var from = new V2(M59Geo.KodToWorld(p.X), M59Geo.KodToWorld(p.Z));
+        var to = new V2(M59Geo.KodToWorld(nkx), M59Geo.KodToWorld(nky));
+        bool clear;
+        try { clear = _room.CanMoveInRoom(ref from, ref to, 0f, 0f, out _); }
+        catch { clear = _renderer != null && _renderer.SectorAtPoint(to.X, to.Y) != null; }
+        if (!clear) return;
+
+        // Follow the floor, the way the library does for moving objects.
+        float h = p.Y;
+        try
+        {
+            RooSubSector leaf;
+            h = (float)_room.GetHeightAt(to.X, to.Y, out leaf, true, true) * 0.0625f;
+        }
+        catch { }
+
+        avatar.Position3D = new V3(nkx, h, nky);
+        _client.SendReqMoveMessage();
     }
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>
@@ -159,9 +240,9 @@ public partial class GameView : Node2D
             // as you walk around them.
             _renderer.Sprites.Add(new Renderer.Sprite
             {
-                X = o.Position3D.X,
-                Y = o.Position3D.Z,          // world Y is Position3D.Z; Y is height
-                BaseZ = o.Position3D.Y,
+                X = M59Geo.KodToWorld(o.Position3D.X),
+                Y = M59Geo.KodToWorld(o.Position3D.Z),   // world Y is Position3D.Z
+                BaseZ = M59Geo.KodHeightToXY(o.Position3D.Y),
                 Height = 640f,
                 Bgf = o.Resource,
                 AngleUnits = o.AngleUnits,
@@ -190,9 +271,9 @@ public partial class GameView : Node2D
         float cx, cy, cz, ang;
         if (avatar != null)
         {
-            cx = avatar.Position3D.X;
-            cy = avatar.Position3D.Z;
-            cz = avatar.Position3D.Y + Renderer.EyeHeight;
+            cx = M59Geo.KodToWorld(avatar.Position3D.X);
+            cy = M59Geo.KodToWorld(avatar.Position3D.Z);
+            cz = M59Geo.KodHeightToXY(avatar.Position3D.Y) + Renderer.EyeHeight;
             ang = avatar.Angle;
         }
         else
@@ -223,6 +304,7 @@ public partial class GameView : Node2D
     {
         if (_texture == null) return;
         DrawTextureRect(_texture, new Rect2(Vector2.Zero, GetViewportRect().Size), false);
+        _touch.Draw(this);
     }
 
     public override void _ExitTree()
