@@ -38,6 +38,7 @@ public partial class GameView : Node2D
     ActionBar _actions;
     CharacterPicker _picker;
     MiniMap _map;
+    Button _loot;
 
     /// <summary>
     /// Controls live under a CanvasLayer, not directly under this Node2D.
@@ -95,6 +96,15 @@ public partial class GameView : Node2D
         }
 
         FindResources();
+    }
+
+    /// <summary>Bottom right, left of the map toggle.</summary>
+    void LayoutLoot()
+    {
+        if (_loot == null) return;
+        Vector2 v = GetViewportRect().Size;
+        _loot.Size = new Vector2(76, 40);
+        _loot.Position = new Vector2(v.X - 70f - 12f - 76f - 8f, v.Y - 40f - 12f);
     }
 
     /// <summary>Status text from a worker thread.</summary>
@@ -186,6 +196,18 @@ public partial class GameView : Node2D
         });
 
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
+
+        // Picking things up one at a time by tapping each is exactly the
+        // sort of thing a phone is bad at, and the library already has
+        // LootAll: everything gettable within close distance, in one go.
+        Widget("loot", () =>
+        {
+            _loot = new Button { Text = "Loot" };
+            _loot.Pressed += () => Act(() => _client.LootAll());
+            _ui.AddChild(_loot);
+            LayoutLoot();
+            GetViewport().SizeChanged += LayoutLoot;
+        });
 
         Widget("character picker", () =>
         {

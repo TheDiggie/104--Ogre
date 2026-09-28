@@ -273,6 +273,11 @@ confirmed byte-identical.
   Credentials come from `M59USER` / `M59PASS` in the environment unless
   set on the node. They are deliberately not stored in the scene.
 
+  A **Loot** button in the bottom right calls the library's `LootAll`,
+  which picks up everything gettable within close distance in one go.
+  Tapping each item individually is exactly the sort of thing a phone is
+  bad at.
+
   An account with more than one character gets a full-screen picker and
   nothing is sent until you choose; one character, or a **Character**
   set on the node, goes straight in. Picking the first silently would
