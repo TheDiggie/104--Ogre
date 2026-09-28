@@ -60,6 +60,8 @@ static class FakeServer
     const uint RID_SPELL2 = 60061;
     const uint RID_SKILL1 = 60062;
     const uint RID_SKILL2 = 60063;
+    const uint RID_BUFF1 = 60070;
+    const uint RID_BUFF2 = 60071;
 
     /// <summary>The server's own copy of what it wrote to the string file.</summary>
     static readonly StringDictionary strings = new StringDictionary();
@@ -127,6 +129,8 @@ static class FakeServer
             new RsbResourceID(RID_SPELL2,     "kraanan's blessing", 4),
             new RsbResourceID(RID_SKILL1,     "slash",            4),
             new RsbResourceID(RID_SKILL2,     "bandaging",        4),
+            new RsbResourceID(RID_BUFF1,      "shielding",        4),
+            new RsbResourceID(RID_BUFF2,      "haste",            4),
             new RsbResourceID(RID_RATLOOK,
                 "A duskrat, grey-brown and unbothered. Its tail is longer than the rest of it.", 4),
         };
@@ -454,6 +458,12 @@ static class FakeServer
         // button the same way, so the window is not simply always up.
         lootLeft = 3;
         lootOpen = false;
+
+        // A couple of enchantments, so the avatar panel has icons to show.
+        Send(ns, ctrl, new AddEnchantmentMessage(BuffType.AvatarBuff,
+            Item(6001, RID_COINBGF, RID_BUFF1, 1)));
+        Send(ns, ctrl, new AddEnchantmentMessage(BuffType.AvatarBuff,
+            Item(6002, RID_AXEBGF, RID_BUFF2, 1)));
     }
 
     /// <summary>

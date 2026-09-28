@@ -83,7 +83,7 @@ public partial class GameView : Node2D
         AddChild(_ui);
 
         // Below the avatar block, which owns the corner.
-        _status = new Label { Position = new Vector2(12, 100) };
+        _status = new Label { Position = new Vector2(12, 132) };
         _status.AddThemeColorOverride("font_color", new Color(1, 1, 1));
         _status.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
         _status.AddThemeConstantOverride("outline_size", 4);
@@ -368,6 +368,7 @@ public partial class GameView : Node2D
 
         _vitals?.Follow(_client.Data);
         _face?.Follow(_client.Data);
+        _face?.SyncBuffs(_client.Data);
         _bag?.Sync(_client.Data?.InventoryObjects);
         _lootList?.Sync(_client.Data?.ObjectContents);
         // Seeded every frame rather than once: the client clears its

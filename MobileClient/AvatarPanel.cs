@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using Meridian59.Common.Enums;
 using Meridian59.Data;
@@ -9,8 +10,13 @@ using Meridian59.Data.Models;
 ///
 /// The game has an avatar panel - `UIAvatar.cpp` and the `Avatar` window
 /// in the CEGUI layout - holding a head portrait, the condition bars, and
-/// a row of enchantment icons. This is the portrait half of it; the bars
-/// live in <see cref="Vitals"/>.
+/// a grid of enchantment icons. This is the portrait and the enchantments;
+/// the bars live in <see cref="Vitals"/>.
+///
+/// The enchantments are whatever is in the client's own `AvatarBuffs`,
+/// each composed the way the game composes a buff icon: front frame, no Y
+/// offset, centred in a small box. Sixteen pixels there; bigger here,
+/// because a phone is not a mouse pointer.
 ///
 /// The portrait is not a separate picture. It is your own object composed
 /// from its HEAD hotspot downwards, with the front frame rather than the
@@ -29,6 +35,11 @@ public partial class AvatarPanel : Control
     DataController _data;
     TextureRect _head;
     uint _shown;
+
+    [Export] public int BuffSize = 28;
+    readonly List<TextureRect> _buffs = new List<TextureRect>();
+    readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
+    string _buffSignature = "";
 
     public override void _Ready()
     {
@@ -80,5 +91,66 @@ public partial class AvatarPanel : Control
             GD.PrintErr($"[AvatarPanel] portrait: {e.Message}");
             _head.Visible = false;
         }
+    }
+
+    /// <summary>
+    /// The enchantments on you, as icons under the portrait. Rebuilt only
+    /// when the list changes.
+    /// </summary>
+    public void SyncBuffs(DataController data)
+    {
+        if (data?.AvatarBuffs == null) { HideBuffs(0); return; }
+
+        var sb = new System.Text.StringBuilder();
+        foreach (ObjectBase b in data.AvatarBuffs) sb.Append(b?.ID).Append(';');
+        string now = sb.ToString();
+        if (now == _buffSignature) return;
+        _buffSignature = now;
+
+        int used = 0;
+        foreach (ObjectBase b in data.AvatarBuffs)
+        {
+            if (b?.Resource == null) continue;
+            TextureRect icon = TakeBuff(used);
+            icon.Texture = BuffIcon(b);
+            icon.TooltipText = b.Name;
+            icon.Position = new Vector2(Margin + used * (BuffSize + 4f), Margin + TopReserve + Size + 6f);
+            icon.Size = new Vector2(BuffSize, BuffSize);
+            icon.Visible = icon.Texture != null;
+            used++;
+        }
+        HideBuffs(used);
+    }
+
+    ImageTexture BuffIcon(ObjectBase o)
+    {
+        string key = $"{o.Resource.Filename}:{BuffSize}";
+        if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
+
+        ImageTexture tex = null;
+        try { tex = M59Assets.FromTex(M59Compose.Icon(o, BuffSize)); }
+        catch (Exception e) { GD.PrintErr($"[AvatarPanel] buff {o.Name}: {e.Message}"); }
+        _icons[key] = tex;
+        return tex;
+    }
+
+    TextureRect TakeBuff(int index)
+    {
+        while (_buffs.Count <= index)
+        {
+            var t = new TextureRect
+            {
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                Visible = false,
+            };
+            AddChild(t);
+            _buffs.Add(t);
+        }
+        return _buffs[index];
+    }
+
+    void HideBuffs(int from)
+    {
+        for (int i = from; i < _buffs.Count; i++) _buffs[i].Visible = false;
     }
 }

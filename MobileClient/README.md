@@ -207,6 +207,22 @@ See that tool's README for what the handshake actually needs - in short,
 mode, the client verifies no CRC on what it receives, and chat on the
 wire is a string resource id rather than text.
 
+## Enchantments and the target
+
+Two smaller mirrors from the same pass.
+
+The avatar panel carries a grid of **enchantment icons** under the
+portrait - whatever is in the client's own `AvatarBuffs`, each composed
+the way the game composes a buff icon: front frame, no Y offset, centred.
+Sixteen pixels there, bigger here, because a phone is not a mouse
+pointer.
+
+The **target row** shows its name in the colour the server gives that
+object, through the same `NameColors.GetColorFor` the loot list, the look
+window and the labels over people's heads use - and, like the game's
+target window, it hides itself when the target has no name or is flagged
+invisible. It used to be gold for everything.
+
 ## Spells and skills
 
 The game has two windows of the same shape - `UISpells.cpp` and
