@@ -4,5 +4,13 @@
 bin/
 obj/
 *.user
-export_presets.cfg
 *.uid
+
+# Game data. An installed client's resource folder goes here to be bundled
+# into the Android export; it is hundreds of megabytes and is not ours.
+resource/
+build/
+
+# export_presets.cfg IS tracked - the Android preset lives there. Godot
+# writes release keystore passwords into it, so check `git diff` before
+# committing it once you have set up signing.

@@ -17,15 +17,64 @@ Open this folder as a project in the Godot .NET editor and press play.
 It builds `MobileClient.csproj`, which references
 `../Meridian59/net8.csproj`.
 
-Assets are read from `%LOCALAPPDATA%\Meridian-104\resource` unless you
-set **Resource Dir** on the root node.
+Assets are found by `M59Paths.Resolve`, which tries, in order:
+`user://resource` (where the Android build unpacks them),
+`%LOCALAPPDATA%\Meridian-104\resource`, `%LOCALAPPDATA%\Meridian59\resource`,
+`~/.meridian-104/resource`, and a `resource` folder next to the
+executable. Setting **Resource Dir** on the root node overrides all of
+it. If none of them has any `.roo` or `.bgf` in it the view says so and
+lists the paths it tried.
 
 ## Scenes
 
 - `FirstPerson.tscn` (the main scene) - first-person textured view.
   WASD to move, arrows or drag to turn.
+- `Game.tscn` - the live view: connects to the server and renders the
+  room the avatar is in. Moves and turns are sent to the server.
 - `Main.tscn` - top-down map: textured floors per BSP leaf, walls over
   the top. T toggles textures, W walls, F refits.
+
+## Controls
+
+Left half of the screen is a floating movement stick - it appears where
+your thumb lands. Right half is look: drag to turn. Each tracks its own
+finger, so moving and turning at once works, which is why the screen is
+split rather than given fixed on-screen buttons.
+
+On desktop: WASD to move, arrow keys or left-drag to turn, Shift to run.
+
+## Android
+
+Nothing here has been run on a phone yet. What is in place:
+
+- `export_presets.cfg` carries an arm64 Android preset
+  (`us.meridian59.mobile`), immersive mode, portrait, internet
+  permission, output to `../build/Meridian59.apk`.
+- `M59Paths.UnpackIfNeeded` copies `res://resource` out to
+  `user://resource` on first run. This is not optional on Android: the
+  library reads with `System.IO`, and `res://` inside an APK is an entry
+  in the `.pck`, not a file on disk. Godot's `FileAccess` can read it;
+  `File.ReadAllBytes` cannot.
+
+What you have to do:
+
+1. Install a JDK 17 and the Android SDK (Android Studio is the easy
+   way), then point Godot at them in
+   *Editor > Editor Settings > Export > Android*.
+2. *Editor > Manage Export Templates* and download the templates for
+   your exact Godot version.
+3. Copy an installed client's `resource` folder into `MobileClient/resource`.
+   It is gitignored - it is hundreds of megabytes and it is not ours.
+4. *Project > Export > Android > Export Project*.
+
+The resource folder is the awkward part: a full one is far past the
+150 MB the Play Store allows, which is fine for sideloading and not fine
+for publishing. The real fix is to download it on first run the way the
+desktop patcher does, which is not written yet.
+
+Set the main scene to `Game.tscn` for the live client;
+`FirstPerson.tscn` is the offline one and is still the default because
+the server path has not been exercised end to end.
 
 ## How the renderer works
 
@@ -61,8 +110,15 @@ confirmed byte-identical.
   why a 195-wall guild hall is now among the slowest. That is where the
   next optimisation belongs, not in the caster.
 
-  A phone is several times slower, so 480 wide is still the sensible
-  default.
+  Columns are rendered one contiguous band per core. This is checked,
+  not assumed: 362 rooms x 8 headings produce byte-identical output
+  single-threaded and threaded (`Renderer.Threaded = false` forces the
+  old path). On the two cores available in development it is worth
+  1.5-1.8x on wall-heavy rooms and nothing at all on barinn, whose cost
+  is floor fill and looks memory-bound rather than CPU-bound.
+
+  A phone is several times slower per core, so 480 wide is still the
+  sensible default.
 
 - **Texture aliasing** is handled with mipmaps. Point-sampling a 128x128
   stone texture across a ceiling at a grazing angle produced heavy radial
@@ -104,6 +160,20 @@ confirmed byte-identical.
   Verified over a loopback socket: connects, receives GetLogin, sends
   credentials, receives LoginOK. Everything past that - the character
   handshake, rooms, real objects - needs the live server.
+
+  Movement is client-predicted: the library does not step our own avatar
+  (`RoomObject.UpdatePosition` only snaps the avatar to a destination
+  something else set), so `GameView` moves it, checks the step against
+  `CanMoveInRoom`, then calls `SendReqMoveMessage` / `SendReqTurnMessage`
+  and lets the server correct it.
+
+  Note that `RoomObject.Position3D` is in the server's units, not room
+  units: the conversion is `(X - 64) * 16`, and height is stored as
+  `roomHeight * 0.0625`. `M59Geo.KodToWorld` and friends wrap it so the
+  renderer never sees a server coordinate. Taken from the library's own
+  arithmetic in `RoomObject.UpdatePosition` and
+  `BaseClient.SendReqMoveMessage`; not yet confirmed against a live
+  server.
 
   `Tools/Meridian59.Net8Play` runs the same client headlessly and prints
   what arrives, which separates a networking problem from a rendering

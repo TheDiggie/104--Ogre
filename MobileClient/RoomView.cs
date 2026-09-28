@@ -49,14 +49,11 @@ public partial class RoomView : Node2D
         _status.AddThemeColorOverride("font_shadow_color", new Color(0, 0, 0));
         AddChild(_status);
 
-        string dir = ResourceDir;
-        if (string.IsNullOrWhiteSpace(dir))
-        {
-            // System.Environment, not Godot.Environment (the 3D world one)
-            string local = System.Environment.GetFolderPath(
-                System.Environment.SpecialFolder.LocalApplicationData);
-            dir = Path.Combine(local, "Meridian-104", "resource");
-        }
+        // On Android the game data has to be copied out of the .pck before
+        // the library, which reads with System.IO, can see any of it.
+        M59Paths.UnpackIfNeeded(s => GD.Print("[M59] " + s));
+        string dir = M59Paths.Resolve(ResourceDir);
+        if (dir == null) { Fail(M59Paths.NotFoundMessage()); return; }
 
         if (!_assets.Init(dir))
         {
