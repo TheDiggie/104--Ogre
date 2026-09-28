@@ -31,6 +31,12 @@ public sealed class WorldSync
     /// <summary>Default sprite height when the object does not say.</summary>
     public float SpriteHeight = 640f;
 
+    /// <summary>
+    /// Scrape along a wall instead of stopping dead against it. Off is the
+    /// old behaviour, kept so the difference can be measured.
+    /// </summary>
+    public bool Sliding = true;
+
     public WorldSync(ResourceManager rm) { _rm = rm; }
 
     /// <summary>
@@ -90,6 +96,62 @@ public sealed class WorldSync
     }
 
     /// <summary>
+    /// Moves from one point to another in room units, sliding along the
+    /// blocking wall if the direct line is refused and
+    /// <paramref name="sliding"/> is set. Returns false, writing nothing
+    /// worth using, when neither works.
+    ///
+    /// Only one retry: a corner blocks both the step and its slide, and
+    /// chasing that with more retries buys a jitter, not a corner.
+    ///
+    /// Static and taking the room outright so the offline view can use the
+    /// same movement as the live one instead of its own copy.
+    /// </summary>
+    public static bool TryMove(RooFile room, V2 from, V2 to, bool sliding,
+                               float height, out V2 landed)
+    {
+        landed = to;
+        if (room == null) return false;
+
+        RooWall blocker = null;
+        try
+        {
+            if (room.CanMoveInRoom(ref from, ref to, height, 0f, out blocker)) return true;
+        }
+        catch { return false; }
+
+        // Walking into a wall at a slight angle and coming to a halt is the
+        // difference between a room that feels solid and one that feels
+        // sticky, and in corridors it is most of the walking you do.
+        if (!sliding) return false;
+        return Slide(room, blocker, from, height, ref landed);
+    }
+
+    static bool Slide(RooFile room, RooWall wall, V2 from, float height, ref V2 to)
+    {
+        if (wall == null) return false;
+
+        float ex = wall.X2 - wall.X1, ey = wall.Y2 - wall.Y1;
+        float len2 = ex * ex + ey * ey;
+        if (len2 < 1e-6f) return false;
+
+        float dx = to.X - from.X, dy = to.Y - from.Y;
+        float t = (dx * ex + dy * ey) / len2;          // projection onto the wall
+        var slid = new V2(from.X + ex * t, from.Y + ey * t);
+        if (MathF.Abs(slid.X - from.X) < 0.01f && MathF.Abs(slid.Y - from.Y) < 0.01f)
+            return false;                              // head-on: nothing to slide along
+
+        try
+        {
+            if (!room.CanMoveInRoom(ref from, ref slid, height, 0f, out _)) return false;
+        }
+        catch { return false; }
+
+        to = slid;
+        return true;
+    }
+
+    /// <summary>
     /// Room units a body at <paramref name="kodSpeed"/> covers in
     /// <paramref name="seconds"/>. MOVEBASECOEFF is per millisecond.
     /// </summary>
@@ -122,10 +184,10 @@ public sealed class WorldSync
         var from = new V2(M59Geo.KodToWorld(p.X), M59Geo.KodToWorld(p.Z));
         var to = new V2(M59Geo.KodToWorld(nkx), M59Geo.KodToWorld(nky));
 
-        bool clear;
-        try { clear = Room.CanMoveInRoom(ref from, ref to, 0f, 0f, out _); }
-        catch { clear = Renderer != null && Renderer.SectorAtPoint(to.X, to.Y) != null; }
-        if (!clear) return false;
+        if (!TryMove(Room, from, to, Sliding, 0f, out V2 landed)) return false;
+        to = landed;
+        nkx = M59Geo.WorldToKod(to.X);
+        nky = M59Geo.WorldToKod(to.Y);
 
         // Follow the floor, the way the library does for moving objects:
         // GetHeightAt returns room units and Position3D.Y is kod.

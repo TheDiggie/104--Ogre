@@ -186,19 +186,14 @@ public partial class FirstPersonView : Node2D
             float nx = _camX + (c * fwd - s * strafe) * MoveSpeed * (float)delta;
             float ny = _camY + (s * fwd + c * strafe) * MoveSpeed * (float)delta;
 
-            // The library's own collision, which walks the BSP tree and
-            // accounts for step heights. Verified against the rendered
-            // geometry: walking past the nearest solid wall is blocked in
-            // every direction tested.
-            var from = new V2(_camX, _camY);
-            var to = new V2(nx, ny);
-            bool clear;
-            try { clear = _roo.CanMoveInRoom(ref from, ref to, PlayerHeight, 0f, out _); }
-            catch { clear = _renderer.SectorAtPoint(nx, ny) != null; }
-
-            if (clear)
+            // The same movement the live view uses: the library's own
+            // collision, which walks the BSP tree and accounts for step
+            // heights, and a slide along the blocking wall so walking into
+            // one at an angle does not stop you dead.
+            if (WorldSync.TryMove(_roo, new V2(_camX, _camY), new V2(nx, ny),
+                                  true, PlayerHeight, out V2 landed))
             {
-                _camX = nx; _camY = ny;
+                _camX = landed.X; _camY = landed.Y;
                 RooSector dest = _renderer.SectorAtPoint(_camX, _camY);
                 if (dest != null) _camZ = M59Geo.FloorXY(dest) + Renderer.EyeHeight;
             }

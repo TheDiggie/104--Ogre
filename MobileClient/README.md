@@ -139,8 +139,16 @@ confirmed byte-identical.
 - **Collision** uses the library's own `RooFile.CanMoveInRoom`, which
   walks the BSP tree. Verified across all 362 rooms: 4320 of 4320
   attempts to walk past the nearest solid wall were blocked, no
-  exceptions. There is no sliding along walls yet - a blocked move is
-  simply rejected.
+  exceptions.
+
+  A blocked move is retried with the movement projected onto the wall
+  that stopped it, so you scrape along instead of stopping dead - in
+  corridors that is most of the walking you do. One retry only; a corner
+  blocks both and chasing it further buys jitter, not a corner. Measured
+  rather than eyeballed: holding forward for 600 frames from the middle
+  of the inn gets further on 115 of 120 headings, never shorter, and
+  never ends up outside the room. Both views share the same
+  `WorldSync.TryMove`.
 - **Objects** render as camera-facing billboards, sorted back to front
   and occluded by a per-column wall depth buffer. Transparent texels
   (palette index 254) are skipped, and sprite textures deliberately skip

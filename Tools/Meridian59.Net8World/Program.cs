@@ -115,6 +115,40 @@ static class World
             if (steps < 4000) stuckAt++;
         }
         Check(escaped == 0, $"walking never leaves the room ({escaped} headings escaped)");
+
+        // Sliding: hold forward for a fixed number of frames and measure
+        // how far you actually travel. Walking into a wall at an angle
+        // should keep you moving along it; head-on it should not.
+        int better = 0, worse = 0, outside = 0;
+        for (int i = 0; i < 360; i += 3)
+        {
+            float[] travelled = new float[2];
+            for (int mode = 0; mode < 2; mode++)
+            {
+                w.Sliding = mode == 1;
+                var walker = new RoomObject();
+                walker.Position3D = new V3(M59Geo.WorldToKod(wx), kodH, M59Geo.WorldToKod(wy));
+                walker.Angle = i * MathF.PI / 180f;
+                float dist = 0;
+                for (int f = 0; f < 600; f++)
+                {
+                    if (!w.TryStep(walker, 1f, 0f, 55f, 0.016, out V3 t)) continue;
+                    var p0 = walker.Position3D;
+                    dist += MathF.Sqrt((t.X-p0.X)*(t.X-p0.X) + (t.Z-p0.Z)*(t.Z-p0.Z));
+                    walker.Position3D = t;
+                    if (w.Renderer.SectorAtPoint(M59Geo.KodToWorld(t.X), M59Geo.KodToWorld(t.Z)) == null)
+                    { outside++; break; }
+                }
+                travelled[mode] = dist;
+            }
+            if (travelled[1] > travelled[0] + 0.5f) better++;
+            else if (travelled[1] < travelled[0] - 0.5f) worse++;
+        }
+        w.Sliding = true;
+        Check(outside == 0, $"sliding never leaves the room ({outside} did)");
+        Check(worse == 0, $"sliding never costs distance ({worse} headings went backwards)");
+        Check(better > 0, "sliding gets you further along at least some walls");
+        Console.WriteLine($"  sliding: further on {better} of 120 headings, never shorter");
         Console.WriteLine($"  walked 120 headings to a wall: {stuckAt} stopped, {120 - stuckAt} ran the full distance");
 
         // A blocked step must not move the avatar at all.
