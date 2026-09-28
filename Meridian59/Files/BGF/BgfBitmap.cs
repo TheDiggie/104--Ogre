@@ -632,8 +632,17 @@ namespace Meridian59.Files.BGF
                 // init .net decompressor
                 DeflateStream destZ = new DeflateStream(srcStream, CompressionMode.Decompress);
 
-                // decompress
-                destZ.Read(decompressedPixelData, 0, UncompressedLength);
+                // decompress - Read is not obliged to fill the buffer in
+                // one call, so loop until we have every byte or the
+                // stream ends. A single Read silently truncated large
+                // frames and left the tail as palette index 0 (black).
+                int read = 0;
+                while (read < UncompressedLength)
+                {
+                    int n = destZ.Read(decompressedPixelData, read, UncompressedLength - read);
+                    if (n <= 0) break;
+                    read += n;
+                }
 
                 // cleanup                
                 destZ.Dispose();
