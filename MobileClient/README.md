@@ -46,6 +46,17 @@ confirmed byte-identical.
 - **Speed.** Wall casting is brute force over every wall in the room, so
   the internal resolution is low (`RenderWidth`, default 480) and scaled
   up. The BSP tree is already loaded and is the obvious fix.
+
+  Measured on desktop x64, release build, renderer only:
+
+  | room     | walls | 480x270 | 960x540 |
+  |----------|-------|---------|---------|
+  | barinn   |   158 |  77 fps |  85 fps |
+  | kc4      |   682 | 277 fps |  69 fps |
+  | dvalley1 |  1699 |  73 fps |  35 fps |
+
+  A phone is several times slower than this, so expect the worst case to
+  be uncomfortable at 480 wide and to need the BSP before it is smooth.
 - **No collision.** Movement is rejected if the destination is not
   inside a sector; that is all.
 - **No objects, monsters or players.** Those arrive from the server and
