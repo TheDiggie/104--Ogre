@@ -4,6 +4,49 @@ Godot 4 (.NET) front end for Meridian 59, built on the ported
 `Meridian59` core library. Android and iOS are the targets; the desktop
 editor is just where it gets developed.
 
+## Where this stands
+
+Landed on `net8-core` (2026-09-28). What runs, what is checked, and what
+is still unknown - so the next person does not have to re-derive it.
+
+**Runs.** The Godot client draws the world, and its output is
+pixel-identical to the offline renderer. The whole live path - login,
+character select, room entry, the object list, movement, chat, targeting,
+looting, looking - runs end to end against
+`Tools/Meridian59.Net8FakeServer` on loopback. Every widget has been
+photographed doing its job; `SceneShot.tscn` and `UiShot.tscn` take those
+pictures, and they can inject a touch and press a named button, so
+tap-to-target is exercised too.
+
+**Checked against the library rather than by eye.** 362 rooms render
+byte-identical threaded and single-threaded; 8357 wall UVs and 604,901
+flat UVs agree with the library's own arithmetic; 134,887 slope rays
+agree with a bisection; 8.3M pixels of tap-picking agree with what was
+drawn; 404 objects compose to exactly the picture the single-frame path
+drew. `Tools/Meridian59.Net8RenderCheck`, `Net8Uv`, `Net8Units`,
+`Net8World`, `Net8Compose` and `Net8Verify` are those checks.
+
+**Not yet run against the real server.** Everything above is the fake
+one, which answers the protocol but invents the world. In particular
+`BaseClient.SendLoginMessage` sends `"8"` as the RSB hash where a local
+change on the author's machine used `"13"`; if the real server checks it,
+this branch cannot log in until that is settled.
+
+**Known gaps, in rough order of how much they matter:**
+
+- Nine art files cannot be decoded at all - the CRUSH-compressed ones.
+  The dragons, two beetles and `ranu` are invisible. Needs a Windows box
+  to re-save them; see the note further down.
+- Nothing has run on a phone. The Android export preset exists; a JDK,
+  the Android SDK, export templates and a device do not.
+- Sector lighting is not implemented - there is no formula in this repo
+  and the ambient comes from the server, so it has not been guessed at.
+- `WF_BACKWARDS` direction, and which way scrolling water flows, both
+  need somebody who knows what these rooms should look like.
+- Inventory containers and `SendReqInventoryMoveMessage` - the bag does
+  not open containers or rearrange itself.
+- Slope seams at flat-span boundaries.
+
 ## Requirements
 
 - Godot **.NET** build - the download labelled "Windows - .NET", file
