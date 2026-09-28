@@ -39,9 +39,7 @@ public partial class GameView : Node2D
     readonly List<string> _log = new List<string>();
 
     M59Client _client;
-    Renderer _renderer;
-    RooFile _room;
-    TexCache _roomTextures;
+    WorldSync _world;
 
     Image _image;
     ImageTexture _texture;
@@ -81,6 +79,7 @@ public partial class GameView : Node2D
         }
 
         _client = new M59Client { PreferredCharacter = Character };
+        _world = new WorldSync(_client.ResourceManager);
         _client.Notice += s =>
         {
             _log.Add(s); GD.Print("[M59] " + s);
@@ -168,7 +167,7 @@ public partial class GameView : Node2D
     void ApplyInput(double delta)
     {
         RoomObject avatar = _client.Data?.AvatarObject;
-        if (avatar == null || _room == null) return;
+        if (avatar == null || _world.Room == null) return;
         if (_chat != null && _chat.Capturing) { avatar.HorizontalSpeed = 0f; return; }
 
         float turn = 0f, fwd = 0f, strafe = 0f;
@@ -190,44 +189,20 @@ public partial class GameView : Node2D
             _client.SendReqTurnMessage();
         }
 
-        bool running = Run || Input.IsKeyPressed(Key.Shift);
-        float kodSpeed = (float)(running ? MovementSpeed.Run : MovementSpeed.Walk);
-
         if (fwd == 0f && strafe == 0f)
         {
-            // Speed 0 makes SendReqMoveMessage a no-op, which is what we want
-            // while standing still.
+            // Speed 0 makes SendReqMoveMessage a no-op, which is what we
+            // want while standing still.
             avatar.HorizontalSpeed = 0f;
             return;
         }
+
+        bool running = Run || Input.IsKeyPressed(Key.Shift);
+        float kodSpeed = (float)(running ? MovementSpeed.Run : MovementSpeed.Walk);
         avatar.HorizontalSpeed = kodSpeed;
 
-        // kod units per second: speed * MOVEBASECOEFF is per millisecond.
-        float step = kodSpeed * GeometryConstants.MOVEBASECOEFF * 1000f * (float)delta;
-
-        float c = MathF.Cos(avatar.Angle), sn = MathF.Sin(avatar.Angle);
-        V3 p = avatar.Position3D;
-        float nkx = p.X + (c * fwd - sn * strafe) * step;
-        float nky = p.Z + (sn * fwd + c * strafe) * step;
-
-        // Collision runs in room units, on the same ROO the renderer draws.
-        var from = new V2(M59Geo.KodToWorld(p.X), M59Geo.KodToWorld(p.Z));
-        var to = new V2(M59Geo.KodToWorld(nkx), M59Geo.KodToWorld(nky));
-        bool clear;
-        try { clear = _room.CanMoveInRoom(ref from, ref to, 0f, 0f, out _); }
-        catch { clear = _renderer != null && _renderer.SectorAtPoint(to.X, to.Y) != null; }
-        if (!clear) return;
-
-        // Follow the floor, the way the library does for moving objects.
-        float h = p.Y;
-        try
-        {
-            RooSubSector leaf;
-            h = (float)_room.GetHeightAt(to.X, to.Y, out leaf, true, true) * 0.0625f;
-        }
-        catch { }
-
-        avatar.Position3D = new V3(nkx, h, nky);
+        if (!_world.TryStep(avatar, fwd, strafe, kodSpeed, delta, out V3 next)) return;
+        avatar.Position3D = next;
         _client.SendReqMoveMessage();
     }
 
@@ -245,7 +220,7 @@ public partial class GameView : Node2D
     /// </summary>
     void ApplyTap()
     {
-        if (_renderer == null || _client?.Data == null) return;
+        if (_world.Renderer == null || _client?.Data == null) return;
         if (!_touch.TakeTap(out Vector2 screen)) return;
 
         // Screen is the stretched viewport; the renderer works in its own
@@ -257,11 +232,9 @@ public partial class GameView : Node2D
 
         RoomObject avatar = _client.Data.AvatarObject;
         if (avatar == null) return;
-        float cx = M59Geo.KodToWorld(avatar.Position3D.X);
-        float cy = M59Geo.KodToWorld(avatar.Position3D.Z);
-        float cz = M59Geo.KodHeightToXY(avatar.Position3D.Y) + Renderer.EyeHeight;
+        WorldSync.Camera(avatar, out float cx, out float cy, out float cz);
 
-        Renderer.Sprite hit = _renderer.Pick(bx, by, _w, _h, cx, cy, cz, avatar.Angle);
+        Renderer.Sprite hit = _world.Renderer.Pick(bx, by, _w, _h, cx, cy, cz, avatar.Angle);
         var obj = hit?.Tag as RoomObject;
 
         if (obj == null)
@@ -278,49 +251,14 @@ public partial class GameView : Node2D
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>
     void SyncRoom()
     {
-        RooFile current = _client.Data?.RoomInformation?.ResourceRoom;
-        if (current == null || ReferenceEquals(current, _room)) return;
-
-        _room = current;
-        _roomTextures = new TexCache(_client.ResourceManager);
-        _renderer = new Renderer(_room, _roomTextures);
-        _renderer.SpriteFrames.Clear();
+        if (!_world.SyncRoom(_client.Data?.RoomInformation?.ResourceRoom)) return;
         _state = $"in room {_client.Data.RoomInformation.RoomID}";
-        GD.Print($"[M59] room -> {_room.Filename} ({_room.Walls.Count} walls)");
+        GD.Print($"[M59] room -> {_world.Room.Filename} ({_world.Room.Walls.Count} walls)");
     }
 
     /// <summary>Mirrors the server's object list into the renderer each frame.</summary>
     void SyncSprites()
-    {
-        if (_renderer == null) return;
-        _renderer.Sprites.Clear();
-
-        var objects = _client.Data?.RoomObjects;
-        if (objects == null) return;
-
-        RoomObject avatar = _client.Data.AvatarObject;
-
-        foreach (RoomObject o in objects)
-        {
-            if (o == null || o.Resource == null) continue;
-            if (avatar != null && ReferenceEquals(o, avatar)) continue;   // don't draw ourselves
-
-            // Hand over the BGF rather than one frame: the renderer picks
-            // the frame per view from the object's facing, so creatures turn
-            // as you walk around them.
-            _renderer.Sprites.Add(new Renderer.Sprite
-            {
-                X = M59Geo.KodToWorld(o.Position3D.X),
-                Y = M59Geo.KodToWorld(o.Position3D.Z),   // world Y is Position3D.Z
-                BaseZ = M59Geo.KodHeightToXY(o.Position3D.Y),
-                Height = 640f,
-                Bgf = o.Resource,
-                AngleUnits = o.AngleUnits,
-                Group = o.Animation != null && o.Animation.CurrentGroup > 0 ? o.Animation.CurrentGroup : 1,
-                Tag = o
-            });
-        }
-    }
+        => _world.SyncSprites(_client.Data?.RoomObjects, _client.Data?.AvatarObject);
 
     void Resize()
     {
@@ -336,15 +274,13 @@ public partial class GameView : Node2D
 
     void RenderFrame()
     {
-        if (_renderer == null || _px == null) return;
+        if (_world.Renderer == null || _px == null) return;
 
         RoomObject avatar = _client.Data?.AvatarObject;
         float cx, cy, cz, ang;
         if (avatar != null)
         {
-            cx = M59Geo.KodToWorld(avatar.Position3D.X);
-            cy = M59Geo.KodToWorld(avatar.Position3D.Z);
-            cz = M59Geo.KodHeightToXY(avatar.Position3D.Y) + Renderer.EyeHeight;
+            WorldSync.Camera(avatar, out cx, out cy, out cz);
             ang = avatar.Angle;
         }
         else
@@ -353,7 +289,7 @@ public partial class GameView : Node2D
             cx = cy = 0; cz = Renderer.EyeHeight; ang = 0;
         }
 
-        _renderer.Render(_px, _w, _h, cx, cy, cz, ang);
+        _world.Renderer.Render(_px, _w, _h, cx, cy, cz, ang);
 
         for (int i = 0; i < _px.Length; i++)
         {
@@ -367,7 +303,7 @@ public partial class GameView : Node2D
         _texture.Update(_image);
 
         _status.Text = $"{_state}   {_w}x{_h}  {_fps}\n" +
-                       $"{_renderer.Sprites.Count} objects\n" +
+                       $"{_world.Renderer.Sprites.Count} objects\n" +
                        string.Join("\n", _log);
     }
 
