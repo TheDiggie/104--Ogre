@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 
 /// <summary>
@@ -49,7 +50,14 @@ public partial class SceneShot : Node
             AddChild(view);
         }
 
-        Shoot(outPath, wait);
+        // --walk <frames> holds the forward key down and photographs the
+        // result every few frames, which is how the movement path gets
+        // exercised at all: it runs through the same input handling a
+        // thumb on the stick does.
+        if (int.TryParse(Arg("--walk", "0"), out int walk) && walk > 0)
+            Walk(outPath, wait, walk, Arg("--keys", "W"));
+        else
+            Shoot(outPath, wait);
     }
 
     /// <summary>
@@ -67,6 +75,44 @@ public partial class SceneShot : Node
         Image img = GetViewport().GetTexture().GetImage();
         Error e = img.SavePng(path);
         GD.Print(e == Error.Ok ? $"[SceneShot] wrote {path}" : $"[SceneShot] save failed: {e}");
+        GetTree().Quit();
+    }
+
+    /// <summary>
+    /// Holds keys down and takes a numbered shot every few frames. The
+    /// keys go in through Godot's own input queue rather than by poking
+    /// the view, so what is tested is the path a real press takes.
+    /// </summary>
+    async void Walk(string path, int settle, int frames, string keys)
+    {
+        for (int i = 0; i < Math.Max(1, settle); i++)
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        var held = new List<Key>();
+        foreach (char k in keys.ToUpperInvariant())
+            if (Enum.TryParse("Key" + k, out Key parsed) || Enum.TryParse(k.ToString(), out parsed))
+                held.Add(parsed);
+
+        foreach (Key k in held)
+            Input.ParseInputEvent(new InputEventKey { Keycode = k, PhysicalKeycode = k, Pressed = true });
+
+        int shot = 0;
+        for (int i = 0; i <= frames; i++)
+        {
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            if (i % Math.Max(1, frames / 8) != 0) continue;
+
+            await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            Image img = GetViewport().GetTexture().GetImage();
+            string numbered = path.Replace(".png", $"-{shot:D2}.png");
+            img.SavePng(numbered);
+            GD.Print($"[SceneShot] wrote {numbered}");
+            shot++;
+        }
+
+        foreach (Key k in held)
+            Input.ParseInputEvent(new InputEventKey { Keycode = k, PhysicalKeycode = k, Pressed = false });
+
         GetTree().Quit();
     }
 
