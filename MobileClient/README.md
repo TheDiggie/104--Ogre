@@ -272,6 +272,19 @@ confirmed byte-identical.
   94.22% over 17184 views - so letting people see through fences does
   not leave holes in the picture.
 
+- **Sidedef flags.** `WF_BACKWARDS` - "draw bitmap right/left reversed" -
+  is honoured; it is set on 1108 of the 12874 sidedefs, across 232 of the
+  362 rooms, and was previously ignored. **This one wants your eye**:
+  the flag's meaning is unambiguous in the game's own source, but the
+  result cannot be confirmed here against anything. `Net8Fpv --noflip`
+  and `Renderer.HonourBackwards` turn it off.
+
+  Still ignored, and a known gap: `WF_NO_VTILE` (2301 sidedefs),
+  `WF_NORMAL_TOPDOWN` (924), `WF_ABOVE_BOTTOMUP` and `WF_BELOW_TOPDOWN`.
+  These are all vertical alignment, and they interact - doing one without
+  the others means guessing where a texture is anchored, which is how
+  you make things worse rather than better. They want doing together.
+
 ## Unit conventions
 
 Established by measurement, not documentation - see

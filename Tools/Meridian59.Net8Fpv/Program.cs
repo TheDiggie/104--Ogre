@@ -23,6 +23,8 @@ static class Fpv
         // --solid renders grates and railings as solid walls, which is what
         // this renderer did before it read WF_TRANSPARENT. For comparing.
         if (a.Contains("--solid")) r.SeeThroughWalls = false;
+        // --noflip ignores WF_BACKWARDS, for comparing.
+        if (a.Contains("--noflip")) r.HonourBackwards = false;
 
         float camX, camY, angle;
         if (a.Length >= 6)

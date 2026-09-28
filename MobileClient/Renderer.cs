@@ -111,6 +111,13 @@ public sealed class Renderer
     public bool SeeThroughWalls { get; set; } = true;
 
     /// <summary>
+    /// Honour WF_BACKWARDS, the sidedef flag meaning "draw bitmap
+    /// right/left reversed". Off is what this renderer did before, and is
+    /// how the difference gets looked at.
+    /// </summary>
+    public bool HonourBackwards { get; set; } = true;
+
+    /// <summary>
     /// Per-thread working state. The wall grid's visit marker lives here
     /// too, so two threads walking the same grid do not overwrite each
     /// other's stamps.
@@ -258,7 +265,12 @@ public sealed class Renderer
                 yBot = Math.Min(yBot, floorY);
                 if (yTop > yBot) { closed = true; break; }
 
-                float u = (h.Along + (h.Right ? h.Wall.RightXOffset : h.Wall.LeftXOffset) * M59Geo.HeightToXY) / M59Geo.Fineness;
+                // WF_BACKWARDS is "draw bitmap right/left reversed", set on
+                // 1108 sidedefs across the 362 rooms. The offset is applied
+                // after the reversal, not reversed with it, or the texture
+                // slides the wrong way along the wall.
+                float along = (HonourBackwards && side != null && side.Flags.IsBackwards) ? -h.Along : h.Along;
+                float u = (along + (h.Right ? h.Wall.RightXOffset : h.Wall.LeftXOffset) * M59Geo.HeightToXY) / M59Geo.Fineness;
                 float fog = MathF.Min(1f, FogFar / perp);
                 // Texels one screen pixel spans on this wall, for mip choice.
                 float tpp = (perp / proj) * 128f / M59Geo.Fineness;
