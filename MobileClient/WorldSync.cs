@@ -168,49 +168,10 @@ public sealed class WorldSync
     public static float StepKod(float kodSpeed, double seconds)
         => kodSpeed * GeometryConstants.MOVEBASECOEFF * 1000f * (float)seconds;
 
-    /// <summary>
-    /// Works out where a step would put the avatar, or reports that the
-    /// room blocks it. Nothing is written unless it is clear, so a blocked
-    /// step leaves the avatar exactly where it was.
-    ///
-    /// <paramref name="forward"/> and <paramref name="strafe"/> are -1..1.
-    /// The heading is the avatar's own Angle, which is measured the way
-    /// MathUtil.GetRadianForDirection measures it: counterclockwise from
-    /// +X, so the direction is (cos, sin).
-    /// </summary>
-    public bool TryStep(RoomObject avatar, float forward, float strafe,
-                        float kodSpeed, double seconds, out V3 destination)
-    {
-        destination = avatar != null ? avatar.Position3D : new V3(0, 0, 0);
-        if (avatar == null || Room == null) return false;
-        if (forward == 0f && strafe == 0f) return false;
-
-        float step = StepKod(kodSpeed, seconds);
-        float c = MathF.Cos(avatar.Angle), s = MathF.Sin(avatar.Angle);
-        V3 p = avatar.Position3D;
-        float nkx = p.X + (c * forward - s * strafe) * step;
-        float nky = p.Z + (s * forward + c * strafe) * step;
-
-        var from = new V2(M59Geo.KodToWorld(p.X), M59Geo.KodToWorld(p.Z));
-        var to = new V2(M59Geo.KodToWorld(nkx), M59Geo.KodToWorld(nky));
-
-        if (!TryMove(Room, from, to, Sliding, M59Geo.KodHeightToXY(p.Y), out V2 landed))
-            return false;
-        to = landed;
-        nkx = M59Geo.WorldToKod(to.X);
-        nky = M59Geo.WorldToKod(to.Y);
-
-        // Follow the floor, the way the library does for moving objects:
-        // GetHeightAt returns room units and Position3D.Y is kod.
-        float h = p.Y;
-        try
-        {
-            RooSubSector leaf;
-            h = (float)Room.GetHeightAt(to.X, to.Y, out leaf, true, true) * 0.0625f;
-        }
-        catch { }
-
-        destination = new V3(nkx, h, nky);
-        return true;
-    }
+    // A TryStep lived here that moved a RoomObject a frame's worth. The
+    // live view no longer wants it - BaseClient.TryMove does that job
+    // properly, with resting, paralysis, vigor, buffs, water depth and
+    // object collision - and the offline view works in world units with a
+    // camera rather than a RoomObject. Nothing was left using it except
+    // its own test, so it went.
 }

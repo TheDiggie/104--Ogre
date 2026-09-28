@@ -68,98 +68,88 @@ static class World
         float wx = leaf.Vertices.Average(v=>(float)v.X), wy = leaf.Vertices.Average(v=>(float)v.Y);
         RooSubSector lf;
         float kodH = (float)roo.GetHeightAt(wx, wy, out lf, true, true) * 0.0625f;
-        var me = new RoomObject();
-        me.Position3D = new V3(M59Geo.WorldToKod(wx), kodH, M59Geo.WorldToKod(wy));
+        var r2 = w.Renderer;
 
-        Check(!w.TryStep(me, 0f, 0f, 25f, 0.016, out _), "standing still is not a step");
+        // Movement, in the shape the offline view uses it: world units, a
+        // camera, and WorldSync.TryMove. The live view hands this job to
+        // BaseClient.TryMove instead, which does rather more.
+        float stepLen = WorldSync.StepKod(55f, 0.016) * M59Geo.KodToRoom;
 
-        int moved = 0, blocked = 0, sank = 0, teleported = 0;
-        float expect = WorldSync.StepKod(25f, 0.016);
+        int moved = 0, blocked = 0, overshot = 0;
         for (int i = 0; i < 360; i++)
         {
-            me.Angle = i * MathF.PI / 180f;
-            V3 before = me.Position3D;
-            if (w.TryStep(me, 1f, 0f, 25f, 0.016, out V3 to))
+            float ang = i * MathF.PI / 180f;
+            var from = new V2(wx, wy);
+            var to = new V2(wx + MathF.Cos(ang) * stepLen, wy + MathF.Sin(ang) * stepLen);
+            if (WorldSync.TryMove(roo, from, to, false, kodH * M59Geo.KodToRoom, out V2 landed))
             {
                 moved++;
-                float d = MathF.Sqrt((to.X-before.X)*(to.X-before.X) + (to.Z-before.Z)*(to.Z-before.Z));
-                if (MathF.Abs(d - expect) > 0.01f) teleported++;
-                // Standing on the floor, not inside or above it.
-                float roomH = (float)roo.GetHeightAt(M59Geo.KodToWorld(to.X), M59Geo.KodToWorld(to.Z), out lf, true, true);
-                if (MathF.Abs(M59Geo.KodHeightToXY(to.Y) - roomH) > 0.01f) sank++;
+                float d = MathF.Sqrt((landed.X - wx) * (landed.X - wx) + (landed.Y - wy) * (landed.Y - wy));
+                if (d > stepLen + 0.01f) overshot++;
             }
             else blocked++;
         }
         Check(moved > 0, "some directions are walkable");
-        Check(teleported == 0, $"every step is exactly one step ({teleported} were not)");
-        Check(sank == 0, $"every step lands on the floor ({sank} did not)");
+        Check(overshot == 0, $"no step goes further than asked ({overshot} did)");
         Console.WriteLine($"  360 headings: {moved} walkable, {blocked} blocked by the room");
 
-        // One step from the middle of a big room hits nothing, so walk each
-        // heading until the room says no. Ending up outside the room would
-        // mean the collision check and the step disagree about units.
+        // Walking each heading until the room refuses. Ending up outside
+        // the room would mean the step and the collision disagree about
+        // units.
         int escaped = 0, stuckAt = 0;
         for (int i = 0; i < 360; i += 3)
         {
-            var walker = new RoomObject();
-            walker.Position3D = new V3(M59Geo.WorldToKod(wx), kodH, M59Geo.WorldToKod(wy));
-            walker.Angle = i * MathF.PI / 180f;
+            float ang = i * MathF.PI / 180f;
+            float px = wx, py = wy;
             int steps = 0;
-            while (steps < 4000 && w.TryStep(walker, 1f, 0f, 55f, 0.016, out V3 to))
+            while (steps < 4000)
             {
-                walker.Position3D = to;
+                var from = new V2(px, py);
+                var to = new V2(px + MathF.Cos(ang) * stepLen, py + MathF.Sin(ang) * stepLen);
+                var sec2 = r2.SectorAtPoint(px, py);
+                float hNow = sec2 != null ? M59Geo.FloorXY(sec2, px, py) : 0f;
+                if (!WorldSync.TryMove(roo, from, to, false, hNow, out V2 landed)) break;
+                px = landed.X; py = landed.Y;
                 steps++;
-                if (w.Renderer.SectorAtPoint(M59Geo.KodToWorld(to.X), M59Geo.KodToWorld(to.Z)) == null)
-                { escaped++; break; }
+                if (r2.SectorAtPoint(px, py) == null) { escaped++; break; }
             }
             if (steps < 4000) stuckAt++;
         }
         Check(escaped == 0, $"walking never leaves the room ({escaped} headings escaped)");
+        Console.WriteLine($"  walked 120 headings to a wall: {stuckAt} stopped, {120 - stuckAt} ran the full distance");
 
-        // Sliding: hold forward for a fixed number of frames and measure
-        // how far you actually travel. Walking into a wall at an angle
-        // should keep you moving along it; head-on it should not.
+        // Sliding: hold a heading for a fixed number of frames and measure
+        // how far you travel with it on and off.
         int better = 0, worse = 0, outside = 0;
         for (int i = 0; i < 360; i += 3)
         {
+            float ang = i * MathF.PI / 180f;
             float[] travelled = new float[2];
             for (int mode = 0; mode < 2; mode++)
             {
-                w.Sliding = mode == 1;
-                var walker = new RoomObject();
-                walker.Position3D = new V3(M59Geo.WorldToKod(wx), kodH, M59Geo.WorldToKod(wy));
-                walker.Angle = i * MathF.PI / 180f;
-                float dist = 0;
+                float px = wx, py = wy, dist = 0;
                 for (int f = 0; f < 600; f++)
                 {
-                    if (!w.TryStep(walker, 1f, 0f, 55f, 0.016, out V3 t)) continue;
-                    var p0 = walker.Position3D;
-                    dist += MathF.Sqrt((t.X-p0.X)*(t.X-p0.X) + (t.Z-p0.Z)*(t.Z-p0.Z));
-                    walker.Position3D = t;
-                    if (w.Renderer.SectorAtPoint(M59Geo.KodToWorld(t.X), M59Geo.KodToWorld(t.Z)) == null)
-                    { outside++; break; }
+                    var from = new V2(px, py);
+                    var to = new V2(px + MathF.Cos(ang) * stepLen, py + MathF.Sin(ang) * stepLen);
+                    var sec2 = r2.SectorAtPoint(px, py);
+                    float hNow = sec2 != null ? M59Geo.FloorXY(sec2, px, py) : 0f;
+                    if (!WorldSync.TryMove(roo, from, to, mode == 1, hNow, out V2 landed)) continue;
+                    dist += MathF.Sqrt((landed.X - px) * (landed.X - px) + (landed.Y - py) * (landed.Y - py));
+                    px = landed.X; py = landed.Y;
+                    if (r2.SectorAtPoint(px, py) == null) { outside++; break; }
                 }
                 travelled[mode] = dist;
             }
             if (travelled[1] > travelled[0] + 0.5f) better++;
             else if (travelled[1] < travelled[0] - 0.5f) worse++;
         }
-        w.Sliding = true;
         Check(outside == 0, $"sliding never leaves the room ({outside} did)");
         Check(worse == 0, $"sliding never costs distance ({worse} headings went backwards)");
         Check(better > 0, "sliding gets you further along at least some walls");
         Console.WriteLine($"  sliding: further on {better} of 120 headings, never shorter");
-        Console.WriteLine($"  walked 120 headings to a wall: {stuckAt} stopped, {120 - stuckAt} ran the full distance");
 
-        // A blocked step must not move the avatar at all.
-        var trapped = new RoomObject();
-        trapped.Position3D = new V3(-9999f, 0f, -9999f);     // far outside
-        V3 was = trapped.Position3D;
-        w.TryStep(trapped, 1f, 0f, 25f, 0.016, out _);
-        Check(trapped.Position3D.Equals(was), "a blocked step leaves the avatar alone");
-
-        // Running covers more ground than walking, in the same ratio the
-        // server's own speed constants give.
+        // Run over walk matches the server's own speed constants.
         float walk = WorldSync.StepKod((float)MovementSpeed.Walk, 1.0);
         float run  = WorldSync.StepKod((float)MovementSpeed.Run, 1.0);
         Check(MathF.Abs(run / walk - 55f / 25f) < 0.001f, "run:walk matches the server's constants");

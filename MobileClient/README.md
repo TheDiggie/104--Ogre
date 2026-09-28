@@ -279,11 +279,17 @@ confirmed byte-identical.
   credentials, receives LoginOK. Everything past that - the character
   handshake, rooms, real objects - needs the live server.
 
-  Movement is client-predicted: the library does not step our own avatar
-  (`RoomObject.UpdatePosition` only snaps the avatar to a destination
-  something else set), so `GameView` moves it, checks the step against
-  `CanMoveInRoom`, then calls `SendReqMoveMessage` / `SendReqTurnMessage`
-  and lets the server correct it.
+  Movement in the live view is the library's own `BaseClient.TryMove`
+  and `TryYaw`, not a hand-rolled step. That was worth finding: it
+  denies movement while resting or paralyzed, refuses to run on low
+  vigor, knows about the wolfpack buff and the movement-speed percent,
+  slows you in deep water, collides with objects flagged no-move-on as
+  well as with walls, slides using the room's own `VerifyMove`, and
+  starts the move so `BaseClient.Update` sends it. The version it
+  replaced did none of that.
+
+  The offline view has no client, so it still uses
+  `WorldSync.TryMove`, which is the room collision plus a slide.
 
   Note that `RoomObject.Position3D` is in the server's units, not room
   units: the conversion is `(X - 64) * 16`, and height is stored as

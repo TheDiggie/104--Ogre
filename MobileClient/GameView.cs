@@ -278,27 +278,27 @@ public partial class GameView : Node2D
         fwd -= stick.Y;                       // screen Y grows downward
 
         float dAngle = turn * TurnSpeed * (float)delta + _touch.TakeTurn();
-        if (dAngle != 0f)
-        {
-            avatar.Angle += dAngle;
-            _client.SendReqTurnMessage();
-        }
+        if (dAngle != 0f) _client.TryYaw(dAngle);
 
         if (fwd == 0f && strafe == 0f)
         {
-            // Speed 0 makes SendReqMoveMessage a no-op, which is what we
-            // want while standing still.
             avatar.HorizontalSpeed = 0f;
             return;
         }
 
-        bool running = Run || Input.IsKeyPressed(Key.Shift);
-        float kodSpeed = (float)(running ? MovementSpeed.Run : MovementSpeed.Walk);
-        avatar.HorizontalSpeed = kodSpeed;
+        // The library's own avatar movement, not a hand-rolled one. It
+        // denies movement while resting or paralyzed, refuses to run on
+        // low vigor, knows about the wolfpack buff and the movement-speed
+        // percent, slows you in deep water, collides with objects flagged
+        // no-move-on as well as with walls, slides using the room's own
+        // VerifyMove, and starts the move properly so BaseClient.Update
+        // sends it. None of which the version this replaced did.
+        float c = MathF.Cos(avatar.Angle), sn = MathF.Sin(avatar.Angle);
+        var dir = new V2(c * fwd - sn * strafe, sn * fwd + c * strafe);
 
-        if (!_world.TryStep(avatar, fwd, strafe, kodSpeed, delta, out V3 next)) return;
-        avatar.Position3D = next;
-        _client.SendReqMoveMessage();
+        bool running = Run || Input.IsKeyPressed(Key.Shift) || stick.Length() > 0.75f;
+        try { _client.TryMove(dir, running, 0f); }
+        catch (Exception e) { _chat?.Local($"move: {e.GetType().Name}: {e.Message}"); }
     }
 
     /// <summary>
