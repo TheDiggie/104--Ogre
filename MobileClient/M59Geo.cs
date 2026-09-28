@@ -23,7 +23,7 @@ public static class M59Geo
     public static float FloorXY(RooSector s) => s == null ? 0f : (float)s.FloorHeight * HeightToXY;
     public static float CeilingXY(RooSector s) => s == null ? 0f : (float)s.CeilingHeight * HeightToXY;
 
-    /// <summary>Sectors and sidedefs are 1-based and never wired up by the loader.</summary>
+    /// <summary>Bounds-checked lookup of the 1-based sector and sidedef numbers.</summary>
     public static RooSector Sector(RooFile roo, int num)
         => (num >= 1 && num <= roo.Sectors.Count) ? roo.Sectors[num - 1] : null;
 

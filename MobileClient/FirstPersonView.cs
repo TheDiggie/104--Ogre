@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Godot;
+using Meridian59.Common;
 using Meridian59.Files;
 using Meridian59.Files.ROO;
 
@@ -27,6 +28,8 @@ public partial class FirstPersonView : Node2D
     [Export] public int RenderWidth = 480;
     [Export] public float MoveSpeed = 2200f;     // world units per second
     [Export] public float TurnSpeed = 2.2f;      // radians per second
+    /// <summary>Used by the library's collision for step-height checks.</summary>
+    [Export] public float PlayerHeight = 0f;
 
     readonly M59Assets _assets = new M59Assets();
     Renderer _renderer;
@@ -142,13 +145,22 @@ public partial class FirstPersonView : Node2D
             float c = MathF.Cos(_angle), s = MathF.Sin(_angle);
             float nx = _camX + (c * fwd - s * strafe) * MoveSpeed * (float)delta;
             float ny = _camY + (s * fwd + c * strafe) * MoveSpeed * (float)delta;
-            // Only move if the destination is inside a sector, which keeps
-            // the camera out of solid geometry without real collision yet.
-            RooSector dest = _renderer.SectorAtPoint(nx, ny);
-            if (dest != null)
+
+            // The library's own collision, which walks the BSP tree and
+            // accounts for step heights. Verified against the rendered
+            // geometry: walking past the nearest solid wall is blocked in
+            // every direction tested.
+            var from = new V2(_camX, _camY);
+            var to = new V2(nx, ny);
+            bool clear;
+            try { clear = _roo.CanMoveInRoom(ref from, ref to, PlayerHeight, 0f, out _); }
+            catch { clear = _renderer.SectorAtPoint(nx, ny) != null; }
+
+            if (clear)
             {
                 _camX = nx; _camY = ny;
-                _camZ = M59Geo.FloorXY(dest) + Renderer.EyeHeight;
+                RooSector dest = _renderer.SectorAtPoint(_camX, _camY);
+                if (dest != null) _camZ = M59Geo.FloorXY(dest) + Renderer.EyeHeight;
             }
         }
 

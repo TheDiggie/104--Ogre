@@ -71,8 +71,11 @@ confirmed byte-identical.
   It costs nothing measurable - smaller levels are kinder to cache, so
   the median frame got very slightly faster.
 
-- **No collision.** Movement is rejected if the destination is not
-  inside a sector; that is all.
+- **Collision** uses the library's own `RooFile.CanMoveInRoom`, which
+  walks the BSP tree. Verified across all 362 rooms: 4320 of 4320
+  attempts to walk past the nearest solid wall were blocked, no
+  exceptions. There is no sliding along walls yet - a blocked move is
+  simply rejected.
 - **No objects, monsters or players.** Those arrive from the server and
   nothing here is connected yet.
 - Transparent middle textures on two-sided walls are treated as solid.

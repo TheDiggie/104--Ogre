@@ -139,8 +139,9 @@ public partial class RoomView : Node2D
 
                 var pts = new Vector2[poly.Count];
                 var uvs = new Vector2[poly.Count];
-                // RooSubSector.Sector is never assigned by the loader -
-                // resolve it from the 1-based SectorNum instead.
+                // leaf.Sector is populated by the loader; this resolves
+                // from the 1-based SectorNum anyway so the lookup is bounds
+                // checked and does not depend on that.
                 RooSector sector = (leaf.SectorNum >= 1 && leaf.SectorNum <= _roo.Sectors.Count)
                     ? _roo.Sectors[leaf.SectorNum - 1] : null;
                 float offX = sector != null ? sector.TextureX : 0f;

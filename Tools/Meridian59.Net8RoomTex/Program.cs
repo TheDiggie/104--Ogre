@@ -43,8 +43,7 @@ static class RoomTex
             if (poly == null || poly.Count < 3) continue;
             leaves++;
 
-            // RooSubSector.Sector is never assigned by the loader, so
-            // resolve it from the 1-based SectorNum ourselves.
+            // Bounds-checked lookup from the 1-based SectorNum.
             RooSector sec = (leaf.SectorNum >= 1 && leaf.SectorNum <= roo.Sectors.Count)
                 ? roo.Sectors[leaf.SectorNum - 1] : null;
             ushort texNum = sec != null ? sec.FloorTexture : (ushort)0;
