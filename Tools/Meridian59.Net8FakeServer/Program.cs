@@ -56,6 +56,10 @@ static class FakeServer
     const uint RID_ALICE = 60040;
     const uint RID_BORIS = 60041;
     const uint RID_RATLOOK = 60050;
+    const uint RID_SPELL1 = 60060;
+    const uint RID_SPELL2 = 60061;
+    const uint RID_SKILL1 = 60062;
+    const uint RID_SKILL2 = 60063;
 
     /// <summary>The server's own copy of what it wrote to the string file.</summary>
     static readonly StringDictionary strings = new StringDictionary();
@@ -119,6 +123,10 @@ static class FakeServer
             new RsbResourceID(RID_AXEBGF,     "neruaxe.bgf",     4),
             new RsbResourceID(RID_ALICE,      "Alice",           4),
             new RsbResourceID(RID_BORIS,      "Boris the Outlaw", 4),
+            new RsbResourceID(RID_SPELL1,     "shalille's touch", 4),
+            new RsbResourceID(RID_SPELL2,     "kraanan's blessing", 4),
+            new RsbResourceID(RID_SKILL1,     "slash",            4),
+            new RsbResourceID(RID_SKILL2,     "bandaging",        4),
             new RsbResourceID(RID_RATLOOK,
                 "A duskrat, grey-brown and unbothered. Its tail is longer than the rest of it.", 4),
         };
@@ -209,6 +217,16 @@ static class FakeServer
                     else { SendLoot(ns, ctrl, --lootLeft); Say(ns, ctrl, RID_ECHO); }
                     break;
 
+                case MessageTypeGameMode.SendSpells:
+                    Console.WriteLine("  <- SendSpells");
+                    SendSpells(ns, ctrl);
+                    break;
+
+                case MessageTypeGameMode.SendSkills:
+                    Console.WriteLine("  <- SendSkills");
+                    SendSkills(ns, ctrl);
+                    break;
+
                 case MessageTypeGameMode.SendStats:
                     // The client asks for its stats once it is in the
                     // world. The condition group is the one behind the
@@ -252,6 +270,68 @@ static class FakeServer
         };
 
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Condition, stats));
+    }
+
+    /// <summary>
+    /// Spells arrive as two things, and the client needs both: the objects
+    /// themselves, which is what a cast is resolved against, and a stat
+    /// group, which is the list the window shows with a percentage beside
+    /// each name.
+    /// </summary>
+    static void SendSpells(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var objects = new[]
+        {
+            Spell(5001, RID_SPELL1),
+            Spell(5002, RID_SPELL2),
+        };
+        Send(ns, ctrl, new SpellsMessage(objects));
+
+        var stats = new Stat[]
+        {
+            new StatList(1, RID_SPELL1, 5001, 63, 0),
+            new StatList(2, RID_SPELL2, 5002, 21, 0),
+        };
+        Send(ns, ctrl, new StatGroupMessage(StatGroup.Spells, stats));
+    }
+
+    static void SendSkills(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var objects = new[]
+        {
+            Skill(5101, RID_SKILL1),
+            Skill(5102, RID_SKILL2),
+        };
+        Send(ns, ctrl, new SkillsMessage(objects));
+
+        var stats = new Stat[]
+        {
+            new StatList(1, RID_SKILL1, 5101, 88, 0),
+            new StatList(2, RID_SKILL2, 5102, 40, 0),
+        };
+        Send(ns, ctrl, new StatGroupMessage(StatGroup.Skills, stats));
+    }
+
+    static SpellObject Spell(uint id, uint nameRid)
+    {
+        return new SpellObject(
+            id, 1, 0, nameRid, 0,
+            new LightingInfo(),
+            AnimationType.NONE, 0, 0,
+            new AnimationNone(),
+            new List<SubOverlay>(),
+            1, 0);
+    }
+
+    static SkillObject Skill(uint id, uint nameRid)
+    {
+        return new SkillObject(
+            id, 1, 0, nameRid, 0,
+            new LightingInfo(),
+            AnimationType.NONE, 0, 0,
+            new AnimationNone(),
+            new List<SubOverlay>(),
+            1, SchoolType.Kraanan, true);
     }
 
     static void SendLook(NetworkStream ns, MessageControllerClient ctrl)

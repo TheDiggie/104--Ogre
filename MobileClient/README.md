@@ -207,6 +207,24 @@ See that tool's README for what the handshake actually needs - in short,
 mode, the client verifies no CRC on what it receives, and chat on the
 wire is a string resource id rather than text.
 
+## Spells and skills
+
+The game has two windows of the same shape - `UISpells.cpp` and
+`UISkills.cpp` - each a list whose rows are an icon, the name, and how far
+along you are with it as a percentage, with a double click to cast or
+perform.
+
+Two lists is one panel with a pair of tabs here, because a phone has room
+for one and the rows are identical. That is the only departure.
+
+Worth knowing: a spell arrives as **two** things and the client needs
+both. `SpellsMessage` carries the objects, which is what a cast is
+resolved against - `SendReqCastMessage(uint)` looks the id up in the
+client's own list - while the list the window shows is a *stat group*,
+`StatGroup.Spells`, whose rows carry the name resource and the
+percentage. Sending only one of the two gives either an empty window or a
+window that cannot cast.
+
 ## Looking at something
 
 `UIObjectDetails.cpp` is a window with four things in it: a picture of
