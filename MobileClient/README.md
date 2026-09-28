@@ -306,6 +306,16 @@ confirmed byte-identical.
   The offline view has no client, so it still uses
   `WorldSync.TryMove`, which is the room collision plus a slide.
 
+  **The client's clock has to be advanced by hand.** `RootClient.Tick`
+  does `GameTick.Tick()` and then `Update()`, and its own loop is the
+  only thing that normally calls it - but that loop sleeps, and Godot
+  owns the frame timing here, so the view calls the two itself.
+  Calling `Update` alone leaves `GameTick.Span` at zero for ever, and
+  `Span` is what every timed thing in the library multiplies by:
+  `TryMove` computes its step as direction x speed x span, so the avatar
+  simply would not move. Nor would objects interpolate, animations
+  advance, or the request rate limiters ever come round.
+
   Note that `RoomObject.Position3D` is in the server's units, not room
   units: the conversion is `(X - 64) * 16`, and height is stored as
   `roomHeight * 0.0625`. `M59Geo.KodToWorld` and friends wrap it so the

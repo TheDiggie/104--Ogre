@@ -267,8 +267,19 @@ public partial class GameView : Node2D
     {
         if (_client == null) return;
 
-        // Pumps the socket and applies every message that arrived.
-        try { _client.Update(); }
+        // Advance the client's clock, then pump the socket and apply
+        // every message that arrived.
+        //
+        // RootClient.Tick does exactly these two in this order, and its own
+        // loop is the only thing that normally calls it. Calling Update
+        // alone leaves GameTick.Span at zero for ever, and Span is what
+        // every timed thing in the library multiplies by: TryMove computes
+        // its step as direction * speed * Span, so the avatar would not
+        // move at all, objects would not interpolate, animations would not
+        // advance and the request rate limiters would never come round.
+        // RootClient.Tick itself is no use here because it sleeps - Godot
+        // owns the frame timing.
+        try { _client.GameTick.Tick(); _client.Update(); }
         catch (Exception e) { Fail($"Update: {e.GetType().Name}: {e.Message}"); return; }
 
         SyncRoom();

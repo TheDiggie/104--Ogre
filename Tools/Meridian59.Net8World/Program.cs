@@ -214,6 +214,19 @@ static class World
               $"string file resolves to something plausible ({strings})");
         Console.WriteLine($"  (string file: {strings}{(anyRsb ? "" : ", none present here so this is the fallback")})");
 
+        // The client's clock. RootClient.Tick advances GameTick and then
+        // calls Update; calling Update on its own - which is what a Godot
+        // _Process does - leaves Span at zero for ever. Span is what every
+        // timed thing in the library multiplies by, including the step in
+        // BaseClient.TryMove, so a client that never ticks cannot move.
+        Check(probe.GameTick.Span == 0.0, "a fresh client has not ticked yet");
+        probe.GameTick.Tick();
+        System.Threading.Thread.Sleep(5);
+        probe.GameTick.Tick();
+        Check(probe.GameTick.Span > 0.0, "ticking advances the clock");
+        Console.WriteLine($"  client clock: {probe.GameTick.Span:F1} ms after a tick, " +
+                          "0 without one - and a span of 0 means TryMove's step is 0");
+
         Console.WriteLine(fail == 0 ? "OK" : $"{fail} FAILURES");
         return fail == 0 ? 0 : 1;
     }

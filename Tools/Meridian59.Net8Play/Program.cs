@@ -63,7 +63,8 @@ static class Play
 
         while (DateTime.UtcNow < until)
         {
-            try { client.Update(); }
+            // GameTick first, then Update - see the note in GameView.
+            try { client.GameTick.Tick(); client.Update(); }
             catch (Exception e) { Console.WriteLine($"update: {e.GetType().Name}: {e.Message}"); break; }
 
             var info = client.Data?.RoomInformation;
