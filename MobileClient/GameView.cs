@@ -89,25 +89,38 @@ public partial class GameView : Node2D
         };
         _client.EnteredGame += name => _state = $"playing as {name}";
 
-        _chat = new ChatOverlay();
-        _chat.Submitted += (type, text) =>
+        // Each overlay is built on its own. None of this has run on a
+        // device yet, and a widget that throws while being set up should
+        // cost you that widget, not the view - a game you can walk around
+        // in with no chat box beats a black screen and a stack trace.
+        Widget("chat", () =>
         {
-            try { _client.SendSayToMessage(type, text); }
-            catch (Exception ex) { _chat.Local($"could not send: {ex.Message}"); }
-        };
-        AddChild(_chat);
+            _chat = new ChatOverlay();
+            _chat.Submitted += (type, text) =>
+            {
+                try { _client.SendSayToMessage(type, text); }
+                catch (Exception ex) { _chat.Local($"could not send: {ex.Message}"); }
+            };
+            AddChild(_chat);
+        });
 
-        _actions = new ActionBar();
-        _actions.LookAt       += () => Act(() => _client.SendReqLookMessage());
-        _actions.PickUp       += () => Act(() => _client.SendReqGetMessage());
-        _actions.AttackTarget += () => Act(() => _client.SendReqAttackMessage());
-        _actions.UseTarget    += () => Act(() => _client.SendReqUseMessage(_client.Data.TargetID));
-        AddChild(_actions);
+        Widget("actions", () =>
+        {
+            _actions = new ActionBar();
+            _actions.LookAt       += () => Act(() => _client.SendReqLookMessage());
+            _actions.PickUp       += () => Act(() => _client.SendReqGetMessage());
+            _actions.AttackTarget += () => Act(() => _client.SendReqAttackMessage());
+            _actions.UseTarget    += () => Act(() => _client.SendReqUseMessage(_client.Data.TargetID));
+            AddChild(_actions);
+        });
 
-        _picker = new CharacterPicker();
-        _picker.Chosen += c => _client.UseCharacter(c);
-        AddChild(_picker);
-        _client.ChooseCharacter += chars => _picker.Offer(chars);
+        Widget("character picker", () =>
+        {
+            _picker = new CharacterPicker();
+            _picker.Chosen += c => _client.UseCharacter(c);
+            AddChild(_picker);
+            _client.ChooseCharacter += chars => _picker.Offer(chars);
+        });
 
         _client.Init();
         _client.Config.ResourcesPath = dir;
@@ -210,6 +223,22 @@ public partial class GameView : Node2D
         if (!_world.TryStep(avatar, fwd, strafe, kodSpeed, delta, out V3 next)) return;
         avatar.Position3D = next;
         _client.SendReqMoveMessage();
+    }
+
+    /// <summary>
+    /// Builds one overlay, reporting rather than propagating if it throws.
+    /// A missing widget is written into the status text so it is visible
+    /// on the device, where there is no console to read.
+    /// </summary>
+    void Widget(string name, Action build)
+    {
+        try { build(); }
+        catch (Exception e)
+        {
+            string msg = $"{name} unavailable: {e.GetType().Name}: {e.Message}";
+            _log.Add(msg);
+            GD.PrintErr("[GameView] " + msg);
+        }
     }
 
     void Act(Action send)

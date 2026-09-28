@@ -72,10 +72,19 @@ public partial class FirstPersonView : Node2D
 
         if (!_assets.Init(dir)) { Fail(_assets.Error); return; }
 
-        _picker = new RoomPicker();
-        _picker.Chosen += f => LoadRoom(f);
-        AddChild(_picker);
-        _picker.Load(dir);
+        // The room list is a convenience; if it throws you should still get
+        // the room the scene names, not a black screen.
+        try
+        {
+            _picker = new RoomPicker();
+            _picker.Chosen += f => LoadRoom(f);
+            AddChild(_picker);
+            _picker.Load(dir);
+        }
+        catch (Exception e)
+        {
+            GD.PrintErr($"[FirstPersonView] room list unavailable: {e.GetType().Name}: {e.Message}");
+        }
 
         if (!LoadRoom(RoomFile)) return;
 
