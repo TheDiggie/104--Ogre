@@ -17,12 +17,10 @@ public sealed class WallGrid
     readonly int _cols, _rows;
     readonly List<int>[] _cells;
     readonly RooWall[] _walls;
-    readonly int[] _stamp;      // per-wall visit marker, avoids a HashSet
-    int _tick;
-
     public int Cols => _cols;
     public int Rows => _rows;
     public float CellSize => _cell;
+    public int WallCount => _walls.Length;
 
     public WallGrid(RooFile roo, float targetCell = 2048f)
     {
@@ -44,7 +42,6 @@ public sealed class WallGrid
         _rows = Math.Max(1, (int)MathF.Ceiling((maxY - _minY) / _cell) + 1);
 
         _cells = new List<int>[_cols * _rows];
-        _stamp = new int[_walls.Length];
 
         for (int i = 0; i < _walls.Length; i++)
         {
@@ -67,13 +64,18 @@ public sealed class WallGrid
     static int Clamp(int v, int lo, int hi) => v < lo ? lo : (v > hi ? hi : v);
 
     /// <summary>
-    /// Calls <paramref name="visit"/> once for each wall in a cell the ray
-    /// crosses. Order is by cell along the ray, which is not the same as by
-    /// distance - the caller sorts.
+    /// Appends every wall in a cell the ray crosses to <paramref name="outWalls"/>.
+    /// Order is by cell along the ray, which is not the same as by distance -
+    /// the caller sorts.
+    ///
+    /// The visit marker is passed in rather than held as a field so that
+    /// several threads can traverse the same grid at once, each with its own
+    /// stamp buffer. Size it to <see cref="WallCount"/>.
     /// </summary>
-    public void ForEachCandidate(float ox, float oy, float dx, float dy, Action<RooWall> visit)
+    public void Collect(float ox, float oy, float dx, float dy,
+                        List<RooWall> outWalls, int[] stamp, ref int tick)
     {
-        _tick++;
+        tick++;
 
         // Cell the ray starts in, clamped: a camera just outside the room's
         // bounds still gets a sensible starting cell.
@@ -100,9 +102,9 @@ public sealed class WallGrid
                 for (int i = 0; i < bucket.Count; i++)
                 {
                     int wi = bucket[i];
-                    if (_stamp[wi] == _tick) continue;
-                    _stamp[wi] = _tick;
-                    visit(_walls[wi]);
+                    if (stamp[wi] == tick) continue;
+                    stamp[wi] = tick;
+                    outWalls.Add(_walls[wi]);
                 }
 
             if (tMaxX < tMaxY) { tMaxX += tDeltaX; cx += stepX; if (cx < 0 || cx >= _cols) break; }

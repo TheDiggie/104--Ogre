@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Meridian59.Common;
 using Meridian59.Common.Constants;
 using Meridian59.Files.BGF;
@@ -58,13 +59,41 @@ public sealed class Renderer
 
     readonly RooFile _roo;
     readonly TexCache _tex;
-    readonly List<Hit> _hits = new List<Hit>(64);
     readonly WallGrid _grid;
+    Scratch[] _scratch = Array.Empty<Scratch>();
     // Per-column distance to whatever closed that column, for sprite depth.
     float[] _depth = new float[0];
 
     /// <summary>Set false to fall back to testing every wall (reference path).</summary>
     public bool UseGrid { get; set; } = true;
+
+    /// <summary>
+    /// Splits the column loop across cores. Columns are independent - each
+    /// writes its own pixels and its own depth slot - so the output is the
+    /// same either way; this is checked room by room against the
+    /// single-threaded path rather than assumed.
+    /// </summary>
+    public bool Threaded { get; set; } = true;
+
+    /// <summary>
+    /// Per-thread working state. The wall grid's visit marker lives here
+    /// too, so two threads walking the same grid do not overwrite each
+    /// other's stamps.
+    /// </summary>
+    sealed class Scratch
+    {
+        public readonly List<Hit> Hits = new List<Hit>(64);
+        public readonly List<RooWall> Candidates = new List<RooWall>(64);
+        public int[] Stamp;
+        public int Tick;
+        public int SolidCols;
+    }
+
+    static readonly Comparison<Hit> ByDistanceThenWall = (p, q) =>
+    {
+        int c = p.Dist.CompareTo(q.Dist);
+        return c != 0 ? c : p.Wall.Num.CompareTo(q.Wall.Num);
+    };
 
     public Renderer(RooFile roo, TexCache tex)
     {
@@ -85,20 +114,66 @@ public sealed class Renderer
         if (_depth.Length < W) _depth = new float[W];
         for (int i = 0; i < W; i++) _depth[i] = float.MaxValue;
 
-        for (int sx = 0; sx < W; sx++)
+        // One band of columns per core, each with its own scratch. Bands are
+        // contiguous so each thread touches a stride of the pixel buffer
+        // rather than interleaving cache lines with its neighbours.
+        int bands = Threaded ? Math.Min(System.Environment.ProcessorCount, Math.Max(1, W / 48)) : 1;
+        EnsureScratch(bands);
+
+        if (bands <= 1)
+        {
+            RenderBand(_scratch[0], px, W, H, 0, W, camX, camY, camZ, angle,
+                       proj, horizon, camSector);
+        }
+        else
+        {
+            int per = (W + bands - 1) / bands;
+            Parallel.For(0, bands, b =>
+            {
+                int x0 = b * per, x1 = Math.Min(W, x0 + per);
+                if (x0 < x1)
+                    RenderBand(_scratch[b], px, W, H, x0, x1, camX, camY, camZ,
+                               angle, proj, horizon, camSector);
+            });
+        }
+        for (int b = 0; b < bands; b++) solidCols += _scratch[b].SolidCols;
+
+        DrawSprites(px, W, H, camX, camY, camZ, angle, proj, horizon);
+        return solidCols;
+    }
+
+    void EnsureScratch(int bands)
+    {
+        if (_scratch.Length < bands)
+        {
+            var next = new Scratch[bands];
+            Array.Copy(_scratch, next, _scratch.Length);
+            for (int i = _scratch.Length; i < bands; i++)
+                next[i] = new Scratch { Stamp = new int[_grid != null ? _grid.WallCount : 0] };
+            _scratch = next;
+        }
+        for (int i = 0; i < bands; i++) _scratch[i].SolidCols = 0;
+    }
+
+    /// <summary>Renders columns [x0, x1) - the body of the old single loop.</summary>
+    void RenderBand(Scratch sc, uint[] px, int W, int H, int x0, int x1,
+                    float camX, float camY, float camZ, float angle,
+                    float proj, float horizon, RooSector camSector)
+    {
+        for (int sx = x0; sx < x1; sx++)
         {
             float camOff = (sx - W * 0.5f) / proj;
             float rayA = angle + MathF.Atan(camOff);
             float cosFix = MathF.Cos(rayA - angle);
             float rdx = MathF.Cos(rayA), rdy = MathF.Sin(rayA);
 
-            CollectHits(_roo, camX, camY, rdx, rdy, _hits);
+            CollectHits(_roo, camX, camY, rdx, rdy, sc);
 
             int yTop = 0, yBot = H - 1;
             RooSector cur = camSector;
             bool closed = false;
 
-            foreach (Hit h in _hits)
+            foreach (Hit h in sc.Hits)
             {
                 if (yTop > yBot) break;
                 float perp = MathF.Max(1f, h.Dist * cosFix);
@@ -169,12 +244,9 @@ public sealed class Renderer
                 cur = far;
             }
 
-            if (closed) solidCols++;
+            if (closed) sc.SolidCols++;
             else for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0) px[y * W + sx] = 0xFF05050Au;
         }
-
-        DrawSprites(px, W, H, camX, camY, camZ, angle, proj, horizon);
-        return solidCols;
     }
 
     /// <summary>
@@ -327,13 +399,21 @@ public sealed class Renderer
         uint r = (uint)(((c >> 16) & 0xFF) * f), g = (uint)(((c >> 8) & 0xFF) * f), b = (uint)((c & 0xFF) * f);
         return 0xFF000000u | (r << 16) | (g << 8) | b;
     }
-    void CollectHits(RooFile roo, float ox, float oy, float dx, float dy, List<Hit> outHits)
+    void CollectHits(RooFile roo, float ox, float oy, float dx, float dy, Scratch sc)
     {
+        List<Hit> outHits = sc.Hits;
         outHits.Clear();
         if (UseGrid && _grid != null)
-            _grid.ForEachCandidate(ox, oy, dx, dy, w => TestWall(w, ox, oy, dx, dy, outHits));
+        {
+            sc.Candidates.Clear();
+            _grid.Collect(ox, oy, dx, dy, sc.Candidates, sc.Stamp, ref sc.Tick);
+            for (int i = 0; i < sc.Candidates.Count; i++)
+                TestWall(sc.Candidates[i], ox, oy, dx, dy, outHits);
+        }
         else
+        {
             foreach (RooWall w in roo.Walls) TestWall(w, ox, oy, dx, dy, outHits);
+        }
         // Sort by distance, then by wall number. List.Sort is unstable, so
         // without the second key two walls at exactly equal distance - a
         // corner, or coincident walls - get ordered by however they were
@@ -341,11 +421,7 @@ public sealed class Renderer
         // whether the grid or the full wall list fed it. That made grid and
         // brute-force output differ on 5 of 362 rooms. The tiebreak makes
         // the result independent of iteration order.
-        outHits.Sort((p, q) =>
-        {
-            int c = p.Dist.CompareTo(q.Dist);
-            return c != 0 ? c : p.Wall.Num.CompareTo(q.Wall.Num);
-        });
+        outHits.Sort(ByDistanceThenWall);
     }
 
     static void TestWall(RooWall w, float ox, float oy, float dx, float dy, List<Hit> outHits)

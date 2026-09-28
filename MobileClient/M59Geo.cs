@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using Meridian59.Drawing2D;
 using Meridian59.Files;
 using Meridian59.Files.BGF;
@@ -218,7 +219,11 @@ public sealed class SpriteCache
 public sealed class TexCache
 {
     readonly ResourceManager _rm;
-    readonly Dictionary<ushort, Tex> _c = new Dictionary<ushort, Tex>();
+    // Read from several render threads at once; the fast path has to be
+    // lock-free, and decoding is serialised because ResourceManager is not
+    // itself known to be thread-safe.
+    readonly ConcurrentDictionary<ushort, Tex> _c = new ConcurrentDictionary<ushort, Tex>();
+    readonly object _buildLock = new object();
     public TexCache(ResourceManager rm) { _rm = rm; }
     public int Count => _c.Count;
 
@@ -226,9 +231,13 @@ public sealed class TexCache
     {
         if (num == 0) return null;
         if (_c.TryGetValue(num, out Tex t)) return t;
-        Tex built = null;
-        try { built = Tex.From(_rm.GetRoomTexture(num)); } catch { }
-        _c[num] = built;
-        return built;
+        lock (_buildLock)
+        {
+            if (_c.TryGetValue(num, out t)) return t;
+            Tex built = null;
+            try { built = Tex.From(_rm.GetRoomTexture(num)); } catch { }
+            _c[num] = built;
+            return built;
+        }
     }
 }
