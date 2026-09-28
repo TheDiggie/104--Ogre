@@ -28,8 +28,6 @@ public partial class FirstPersonView : Node2D
     [Export] public int RenderWidth = 480;
     [Export] public float MoveSpeed = 2200f;     // world units per second
     [Export] public float TurnSpeed = 2.2f;      // radians per second
-    /// <summary>Used by the library's collision for step-height checks.</summary>
-    [Export] public float PlayerHeight = 0f;
     /// <summary>
     /// Optional: a sprite BGF ("duskrat.bgf") to scatter around the room so
     /// there is something to look at before the server connection exists.
@@ -276,8 +274,10 @@ public partial class FirstPersonView : Node2D
             // collision, which walks the BSP tree and accounts for step
             // heights, and a slide along the blocking wall so walking into
             // one at an angle does not stop you dead.
+            // The third argument is where we are, not how tall we are -
+            // see WorldSync.TryMove.
             if (WorldSync.TryMove(_roo, new V2(_camX, _camY), new V2(nx, ny),
-                                  true, PlayerHeight, out V2 landed))
+                                  true, _camZ - Renderer.EyeHeight, out V2 landed))
             {
                 _camX = landed.X; _camY = landed.Y;
                 RooSector dest = _renderer.SectorAtPoint(_camX, _camY);

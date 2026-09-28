@@ -110,6 +110,13 @@ public sealed class WorldSync
     /// Static and taking the room outright so the offline view can use the
     /// same movement as the live one instead of its own copy.
     /// </summary>
+    /// <param name="height">
+    /// The mover's current elevation in room units - NOT a body height.
+    /// The library passes Start.Y here in its own VerifyMove, and the
+    /// value seeds the step-up and fall checks: zero means the collision
+    /// thinks you are standing at world height zero, which in a room whose
+    /// floor is at three thousand is a long way underground.
+    /// </param>
     public static bool TryMove(RooFile room, V2 from, V2 to, bool sliding,
                                float height, out V2 landed)
     {
@@ -187,7 +194,8 @@ public sealed class WorldSync
         var from = new V2(M59Geo.KodToWorld(p.X), M59Geo.KodToWorld(p.Z));
         var to = new V2(M59Geo.KodToWorld(nkx), M59Geo.KodToWorld(nky));
 
-        if (!TryMove(Room, from, to, Sliding, 0f, out V2 landed)) return false;
+        if (!TryMove(Room, from, to, Sliding, M59Geo.KodHeightToXY(p.Y), out V2 landed))
+            return false;
         to = landed;
         nkx = M59Geo.WorldToKod(to.X);
         nky = M59Geo.WorldToKod(to.Y);

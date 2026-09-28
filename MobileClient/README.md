@@ -192,7 +192,16 @@ confirmed byte-identical.
   the median frame got very slightly faster.
 
 - **Collision** uses the library's own `RooFile.CanMoveInRoom`, which
-  walks the BSP tree. Verified across all 362 rooms: 4320 of 4320
+  walks the BSP tree. Its third argument is the mover's current
+  *elevation*, not a body height - the library passes `Start.Y` there in
+  its own `VerifyMove` - and this passed zero, which tells the step-up
+  and fall checks you are standing at world height zero. In a room whose
+  floor is at three thousand that is a long way underground, and it was
+  refusing moves for it: across 19200 attempts, 4090 that were blocked
+  are allowed once the real elevation goes in, and **none** that were
+  allowed became blocked. Being strictly more permissive in one
+  direction only is what you would expect from removing a false block
+  rather than loosening the collision. Verified across all 362 rooms: 4320 of 4320
   attempts to walk past the nearest solid wall were blocked, no
   exceptions.
 

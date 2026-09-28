@@ -164,6 +164,40 @@ static class World
         float run  = WorldSync.StepKod((float)MovementSpeed.Run, 1.0);
         Check(MathF.Abs(run / walk - 55f / 25f) < 0.001f, "run:walk matches the server's constants");
 
+        // What passing the real elevation to the room's collision changes.
+        // The library's own VerifyMove passes Start.Y there; this used to
+        // pass zero, which tells the step-up and fall checks you are
+        // standing at world height zero.
+        int same = 0, nowAllowed = 0, nowBlocked = 0, tried = 0;
+        foreach (string path in Directory.GetFiles(dir, "*.roo").OrderBy(x=>x).Take(120))
+        {
+            RooFile room;
+            try { room = new RooFile(path); room.ResolveResources(rm); } catch { continue; }
+            var rr = new Renderer(room, new TexCache(rm));
+            foreach (var lf2 in room.BSPTreeLeaves
+                     .Where(l=>l.Vertices!=null&&l.Vertices.Count>=3&&l.Sector!=null).Take(10))
+            {
+                float sx2 = lf2.Vertices.Average(v=>(float)v.X), sy2 = lf2.Vertices.Average(v=>(float)v.Y);
+                var sec2 = rr.SectorAtPoint(sx2, sy2);
+                if (sec2 == null) continue;
+                float h2 = M59Geo.FloorXY(sec2);
+                for (int k = 0; k < 16; k++)
+                {
+                    float ang2 = k * MathF.PI / 8f;
+                    var f2 = new V2(sx2, sy2);
+                    var t2 = new V2(sx2 + MathF.Cos(ang2) * 900f, sy2 + MathF.Sin(ang2) * 900f);
+                    bool atZero = WorldSync.TryMove(room, f2, t2, false, 0f, out _);
+                    bool atReal = WorldSync.TryMove(room, f2, t2, false, h2, out _);
+                    tried++;
+                    if (atZero == atReal) same++;
+                    else if (atReal) nowAllowed++;
+                    else nowBlocked++;
+                }
+            }
+        }
+        Console.WriteLine($"  collision elevation: {tried} moves, {same} unchanged, " +
+                          $"{nowAllowed} now allowed, {nowBlocked} now blocked");
+
         Console.WriteLine(fail == 0 ? "OK" : $"{fail} FAILURES");
         return fail == 0 ? 0 : 1;
     }
