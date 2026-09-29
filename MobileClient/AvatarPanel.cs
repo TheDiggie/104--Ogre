@@ -33,11 +33,33 @@ public partial class AvatarPanel : Control
     [Export] public float TopReserve = 0f;
 
     DataController _data;
-    TextureRect _head;
+    Button _head;
     uint _shown;
 
     [Export] public int BuffSize = 28;
-    readonly List<TextureRect> _buffs = new List<TextureRect>();
+    /// <summary>
+    /// An enchantment on you was tapped: look at it.
+    ///
+    /// `UIAvatar.cpp` subscribes a plain left click on every buff slot
+    /// and sends `SendReqLookMessage(buff.ID)` - not a right click, so
+    /// it maps straight onto a tap. Without it a phone player has no
+    /// way at all to find out what has been cast on them: the name is a
+    /// tooltip, and there is nothing to hover with.
+    /// </summary>
+    public event Action<uint> LookBuff;
+
+    /// <summary>
+    /// Your own portrait was tapped: target yourself.
+    ///
+    /// `OnHeadMouseClick` sets `Data.TargetID` to your own id on a left
+    /// click and looks at you on a right one, both guarded by
+    /// `ObjectID.IsValid`. Self-targeting is otherwise unreachable
+    /// here - you cannot tap yourself in first person - so every
+    /// self-cast through the target row had nothing to aim at.
+    /// </summary>
+    public event Action SelfTarget;
+
+    readonly List<Button> _buffs = new List<Button>();
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
     string _buffSignature = "";
 
@@ -46,12 +68,14 @@ public partial class AvatarPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _head = new TextureRect
+        _head = new Button
         {
-            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-            MouseFilter = MouseFilterEnum.Ignore,
+            Flat = true,
+            IconAlignment = HorizontalAlignment.Center,
             Visible = false,
+            Name = "selfPortrait",
         };
+        _head.Pressed += () => SelfTarget?.Invoke();
         AddChild(_head);
 
         GetViewport().SizeChanged += Layout;
@@ -77,14 +101,14 @@ public partial class AvatarPanel : Control
         RoomObject me = data?.AvatarObject;
         if (me == null) { _head.Visible = false; return; }
 
-        if (me.AppearanceHash == _shown && _head.Texture != null) return;
+        if (me.AppearanceHash == _shown && _head.Icon != null) return;
         _shown = me.AppearanceHash;
 
         try
         {
             Tex t = M59Compose.Icon(me, Size, (byte)KnownHotspot.HEAD);
-            _head.Texture = M59Assets.FromTex(t);
-            _head.Visible = _head.Texture != null;
+            _head.Icon = M59Assets.FromTex(t);
+            _head.Visible = _head.Icon != null;
         }
         catch (Exception e)
         {
@@ -102,7 +126,11 @@ public partial class AvatarPanel : Control
         if (data?.AvatarBuffs == null) { HideBuffs(0); return; }
 
         var sb = new System.Text.StringBuilder();
-        foreach (ObjectBase b in data.AvatarBuffs) sb.Append(b?.ID).Append(';');
+        // Resolution state is in the signature as well as the id: a
+        // buff whose sprite has not been resolved yet is skipped below,
+        // and on an id-only signature it would stay skipped for ever.
+        foreach (ObjectBase b in data.AvatarBuffs)
+            sb.Append(b?.ID).Append(b?.Resource != null ? "+" : "-").Append(';');
         string now = sb.ToString();
         if (now == _buffSignature) return;
         _buffSignature = now;
@@ -111,12 +139,22 @@ public partial class AvatarPanel : Control
         foreach (ObjectBase b in data.AvatarBuffs)
         {
             if (b?.Resource == null) continue;
-            TextureRect icon = TakeBuff(used);
-            icon.Texture = BuffIcon(b);
+            uint id = b.ID;
+
+            Button icon = TakeBuff(used);
+            icon.Icon = BuffIcon(b);
             icon.TooltipText = b.Name;
-            icon.Position = new Vector2(Margin + used * (BuffSize + 4f), Margin + TopReserve + Size + 6f);
-            icon.Size = new Vector2(BuffSize, BuffSize);
-            icon.Visible = icon.Texture != null;
+            icon.Position = new Vector2(Margin + used * (BuffSize + 8f), Margin + TopReserve + Size + 6f);
+            icon.Size = new Vector2(BuffSize + 6f, BuffSize + 6f);
+            icon.Visible = icon.Icon != null;
+
+            // Slots are reused as the list changes, so the old handler
+            // has to go or a tap looks at whatever was in that position
+            // before.
+            foreach (Godot.Collections.Dictionary c in icon.GetSignalConnectionList(BaseButton.SignalName.Pressed))
+                icon.Disconnect(BaseButton.SignalName.Pressed, (Callable)c["callable"]);
+            icon.Pressed += () => LookBuff?.Invoke(id);
+
             used++;
         }
         HideBuffs(used);
@@ -134,17 +172,19 @@ public partial class AvatarPanel : Control
         return tex;
     }
 
-    TextureRect TakeBuff(int index)
+    Button TakeBuff(int index)
     {
         while (_buffs.Count <= index)
         {
-            var t = new TextureRect
+            var b = new Button
             {
-                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                Flat = true,
+                IconAlignment = HorizontalAlignment.Center,
                 Visible = false,
+                Name = $"buff{_buffs.Count}",
             };
-            AddChild(t);
-            _buffs.Add(t);
+            AddChild(b);
+            _buffs.Add(b);
         }
         return _buffs[index];
     }

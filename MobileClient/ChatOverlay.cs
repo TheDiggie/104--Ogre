@@ -42,6 +42,8 @@ public partial class ChatOverlay : Control
     LineEdit _entry;
     Button _open, _history;
     int _seen;
+    bool _dirty = true;
+    Meridian59.Data.Lists.BaseList<ServerString> _watching;
 
     // The full log, behind a button. The corner shows the last few lines
     // because that is what you want while walking; the whole thing is what
@@ -72,11 +74,14 @@ public partial class ChatOverlay : Control
         _log.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
         AddChild(_log);
 
+        // The server's own limit, so an over-long line is refused here
+        // rather than composed, sent and truncated at the other end.
         _entry = new LineEdit
         {
             PlaceholderText = "say something",
             Visible = false,
             CaretBlink = true,
+            MaxLength = Meridian59.Common.Constants.BlakservStringLengths.MAX_CHAT_LEN,
         };
         _entry.AddThemeFontSizeOverride("font_size", FontSize + 2);
         _entry.TextSubmitted += OnSubmitted;
@@ -223,10 +228,35 @@ public partial class ChatOverlay : Control
     /// Redraws the log if the client has new messages. Cheap to call every
     /// frame: it compares counts and does nothing when nothing arrived.
     /// </summary>
+    /// <summary>
+    /// Subscribes to the chat list, once.
+    ///
+    /// Polling the count is not enough, and the reason is worth stating
+    /// because the symptom is silent and total. `DataController` caps
+    /// the log at 200: every chat handler does
+    /// `if (Count > Maximum) Remove(this[0]); Add(msg);`. So the count
+    /// climbs to 201 and then never changes again - one out, one in,
+    /// for the rest of the session - and a view that redraws only when
+    /// the count moves stops redrawing at the 202nd message and shows
+    /// the same screen of chat for ever after. `UIChat.cpp` subscribes
+    /// to ListChanged instead, which is what this does.
+    /// </summary>
+    public void Follow(Meridian59.Data.Lists.BaseList<ServerString> messages)
+    {
+        if (ReferenceEquals(_watching, messages)) return;
+        if (_watching != null) _watching.ListChanged -= OnChatChanged;
+        _watching = messages;
+        if (_watching != null) _watching.ListChanged += OnChatChanged;
+        _dirty = true;
+    }
+
+    void OnChatChanged(object sender, System.ComponentModel.ListChangedEventArgs e) => _dirty = true;
+
     public void Sync(IList<ServerString> messages)
     {
         if (_log == null || messages == null) return;
-        if (messages.Count == _seen) return;
+        if (!_dirty && messages.Count == _seen) return;
+        _dirty = false;
         _seen = messages.Count;
 
         _lines.Clear();

@@ -317,10 +317,12 @@ public partial class GameView : Node2D
                     // returns nothing for text that is not a command, so
                     // plain text falls through to a say. This used to be
                     // four prefixes I made up.
-                    if (ChatCommand.Parse(text, _client.Data, _client.Config) != null)
-                        _client.ExecChatCommand(text);
-                    else
-                        _client.SendSayToMessage(ChatTransmissionType.Normal, text);
+                    // Everything goes through ExecChatCommand, including
+                    // plain text: it falls through to a say by itself,
+                    // and it is what adds the line to the client's
+                    // command history. Sending a say directly kept
+                    // ordinary talk out of that history entirely.
+                    _client.ExecChatCommand(text);
                 }
                 catch (Exception ex) { _chat.Local($"could not send: {ex.Message}"); }
             };
@@ -601,6 +603,16 @@ public partial class GameView : Node2D
         {
             // Under the status lines rather than behind them.
             _face = new AvatarPanel { Size = 72, Margin = 12f };
+            _face.LookBuff += id => Act(() => _client.SendReqLookMessage(id));
+            // Self-target, guarded the way the file guards it. Nothing
+            // else here can select you: you cannot tap yourself in
+            // first person, so every self-cast through the target row
+            // had nothing to aim at.
+            _face.SelfTarget += () => Act(() =>
+            {
+                uint me = _client.Data.AvatarID;
+                if (ObjectID.IsValid(me)) _client.Data.TargetID = me;
+            });
             _ui.AddChild(_face);
         });
 
@@ -756,6 +768,10 @@ public partial class GameView : Node2D
             if (e?.PropertyName != Meridian59.Data.DataController.PROPNAME_TARGETOBJECT) return;
             _actions?.SetTarget(_client.Data.TargetObject, _client.Data.AvatarID);
         };
+
+        // The chat log is followed rather than polled - see
+        // ChatOverlay.Follow for why a count is not enough.
+        _chat?.Follow(_client.Data.ChatMessages);
         string strings = M59Client.FindStringDictionary(_resDir);
         GD.Print($"[M59] string file: {strings}");
         _client.Config.Connections.Add(new ConnectionInfo(

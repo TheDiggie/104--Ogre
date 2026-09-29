@@ -1314,6 +1314,20 @@ static class FakeServer
         Send(ns, ctrl, new PlayWaveMessage(
             new PlaySound(RID_RATSOUND, 0, new PlaySound.Flags(1), 11, 12, 0, 100)));
         stopAfter = 8;
+
+        // M59_CHATFLOOD=1 sends more chat than the client's log holds.
+        // DataController caps ChatMessages at 200 by removing the
+        // oldest before adding, so past that the count never changes
+        // again - which is exactly the state a view that polls the
+        // count stops redrawing in. The last line is a different
+        // string from all the rest, so a screenshot says plainly
+        // whether the log is still alive.
+        if (Environment.GetEnvironmentVariable("M59_CHATFLOOD") == "1")
+        {
+            for (int i = 0; i < 205; i++)
+                Say(ns, ctrl, (i % 2 == 0) ? RID_GREETING : RID_ECHO);
+            Say(ns, ctrl, RID_HEADLINE);
+        }
         statChangeAfter = wantStatChange ? 12 : 0;
 
         // Somebody offering you a trade. OfferMessage carries the
