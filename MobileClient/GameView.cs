@@ -1016,16 +1016,30 @@ public partial class GameView : Node2D
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
+        // None of the furniture until you are actually in the world.
+        //
+        // The character picker is a full-screen panel, and everything
+        // the game draws over the world was up behind and around it -
+        // the minimap dial over one corner, the vitals bars over
+        // another, the hotbar across the middle, the menu row along the
+        // bottom. It looked like a broken game rather than a choice of
+        // character. None of it means anything before a character has
+        // been picked, so none of it is drawn.
+        bool inWorld = _wasInGame;
+        foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _face, _vitals, _chat })
+            if (c != null) c.Visible = inWorld;
+        if (_loot != null) _loot.Visible = inWorld;
+
         bool covered = PanelUp;
-        if (_hotbar != null) _hotbar.Visible = !covered;
+        if (_hotbar != null) _hotbar.Visible = inWorld && !covered;
         // The row of buttons that open the panels goes with it - and
         // also while the chat box is up, because the row shares a line
         // with the entry. Each button belongs to the panel it opens, so
         // no panel could hide the others; Panels keeps the list.
-        Panels.ShowOpeners(!covered && !(_chat != null && _chat.Capturing));
+        Panels.ShowOpeners(inWorld && !covered && !(_chat != null && _chat.Capturing));
         // Not simply !covered: the row hides itself when there is
         // nothing targeted, and this runs every frame.
-        if (_actions != null) _actions.Visible = !covered && _actions.HasTarget;
+        if (_actions != null) _actions.Visible = inWorld && !covered && _actions.HasTarget;
         // Seeded every frame rather than once: the client clears its
         // lists when the world changes under it - a room change or a
         // relogin - and a row that was filled at startup would empty and
