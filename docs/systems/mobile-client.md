@@ -24,7 +24,13 @@ per session.
 See also: HotbarStore.cs
 
 ## Known gaps, deliberately left
-Tags: design | Minimap dots pop out whole at the rim instead of clipping in half (MiniMapCEGUI.h:160-175) and the radius is ~2% off; hotbar alias buttons do not exist because no alias list exists anywhere in the port
+Tags: design | Hotbar alias buttons do not exist, because no alias list exists anywhere in the port
+
+The minimap's radius is ~2% tighter than the reference's, and that one
+stays: the game's map fills its square window and its walls run under
+the frame, while ours is cut inside the dial texture's rim, which has a
+rim to run under. MiniMap.cs says so where the number is. The dots
+themselves are now cut to that rim, as the game cuts them.
 
 See also: ../../CLAUDE.md
 
