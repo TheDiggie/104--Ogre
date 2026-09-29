@@ -45,6 +45,8 @@ public sealed class TouchControls
 
     public float StickRadius = 120f;
     public float LookSensitivity = 0.006f;
+    /// <summary>Drag up to look down, for those who want it that way.</summary>
+    public bool InvertLook;
 
     float _turn, _pitch;
     int _moveFinger = -1, _lookFinger = -1;
@@ -93,7 +95,7 @@ public sealed class TouchControls
 
             case InputEventScreenDrag d when d.Index == _lookFinger:
                 _turn  += d.Relative.X * LookSensitivity;
-                _pitch -= d.Relative.Y * LookSensitivity;   // drag up, look up
+                _pitch -= d.Relative.Y * LookSensitivity * (InvertLook ? -1f : 1f);   // drag up, look up
                 if ((d.Position - _lookOrigin).Length() > TapSlop) _lookMoved = true;
                 break;
 
@@ -106,7 +108,7 @@ public sealed class TouchControls
 
             case InputEventMouseMotion mm when _mouseLook:
                 _turn  += mm.Relative.X * LookSensitivity;
-                _pitch -= mm.Relative.Y * LookSensitivity;
+                _pitch -= mm.Relative.Y * LookSensitivity * (InvertLook ? -1f : 1f);
                 if ((mm.Position - _mouseDownAt).Length() > TapSlop) _lookMoved = true;
                 break;
         }

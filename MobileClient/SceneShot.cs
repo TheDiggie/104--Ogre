@@ -413,7 +413,7 @@ public partial class SceneShot : Node
             {
                 string want = step.Substring(6);
                 Button b = FindNamed(GetTree().Root, want);
-                if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed node {want}"); }
+                if (b != null) { Hit(b); GD.Print($"[SceneShot] pressed node {want}"); }
                 else GD.Print($"[SceneShot] no node called {want}");
             }
             else if (step == "@slot")
@@ -451,6 +451,23 @@ public partial class SceneShot : Node
         GetViewport().GetTexture().GetImage().SavePng(path);
         GD.Print($"[SceneShot] wrote {path}");
         GetTree().Quit();
+    }
+
+    /// <summary>
+    /// Presses a button, or flips it if it is a checkbox.
+    ///
+    /// Emitting Pressed on a toggle does nothing useful: its state
+    /// changes through Toggled, and a settings switch wired to Toggled
+    /// stayed exactly where it was while the harness reported pressing
+    /// it.
+    /// </summary>
+    static void Hit(Button b)
+    {
+        // Setting the property raises Toggled by itself; emitting it as
+        // well fires every handler twice, which showed up as two
+        // preference messages for one switch.
+        if (b.ToggleMode) b.ButtonPressed = !b.ButtonPressed;
+        else b.EmitSignal(BaseButton.SignalName.Pressed);
     }
 
     /// <summary>

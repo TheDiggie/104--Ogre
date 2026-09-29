@@ -52,6 +52,8 @@ public partial class GameView : Node2D
     QuestsPanel _quests;
     MailPanel _mail;
     NewsPanel _news;
+    OptionsPanel _options;
+    float _bright = 0f;
     GuildPanel _guild;
     ConfirmPopup _ask;
     StatsWizard _wizard;
@@ -449,6 +451,21 @@ public partial class GameView : Node2D
             });
             _ui.AddChild(_news);
         });
+        Widget("options", () =>
+        {
+            // Left of the mail button.
+            _options = new OptionsPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 7f };
+            _options.SoundVolume += v => { if (_sound != null) _sound.Volume = v; };
+            _options.MusicVolume += v => { if (_sound != null) _sound.MusicLevel = v; };
+            _options.LoopSounds  += on => { if (_sound != null) _sound.Loops = on; };
+            // A factor on the room's own ambient light, not on the
+            // finished picture - AdjustAmbientLight, not a gamma ramp.
+            _options.Brightness  += v => _bright = v;
+            _options.LookSpeed   += v => _touch.LookSensitivity = 0.006f * v;
+            _options.InvertLook  += on => _touch.InvertLook = on;
+            _options.Preferences += () => Act(() => _client.SendUserCommandSendPreferences());
+            _ui.AddChild(_options);
+        });
         Widget("guild", () =>
         {
             // No button opens this: UserCommandGuildInfo raises it.
@@ -811,6 +828,7 @@ public partial class GameView : Node2D
         _bar?.Sync(_client.Data);
         _mail?.Sync(_client.ResourceManager?.Mails);
         _news?.Sync(_client.Data?.NewsGroup);
+        _options?.Follow(_client.Data?.ClientPreferences);
         _guild?.Sync(_client.Data?.GuildInfo, _client.Data != null ? _client.Data.AvatarID : 0u);
         _wizard?.Sync(_client.Data?.StatChangeInfo);
         _newChar?.Sync();
@@ -1023,8 +1041,12 @@ public partial class GameView : Node2D
         if (room == null) return 1f;
 
         int lit = Math.Max(room.AmbientLight, room.AvatarLight);
-        if (lit <= 0) return 1f;
-        return lit / 255f;
+        // The settings brightness is a factor on top, the way
+        // AdjustAmbientLight applies Config->BrightnessFactor: a room
+        // the server has darkened stays darker than one it has not.
+        float extra = 1f + _bright;
+        if (lit <= 0) return Math.Min(1f, extra);
+        return Math.Min(1f, lit / 255f * extra);
     }
 
     /// <summary>
@@ -1071,6 +1093,7 @@ public partial class GameView : Node2D
         || (_npcQuests != null && _npcQuests.IsOpen)
         || (_mail != null && _mail.IsOpen)
         || (_news != null && _news.IsOpen)
+        || (_options != null && _options.IsOpen)
         || (_guild != null && _guild.IsOpen)
         || (_wizard != null && _wizard.IsOpen)
         || (_ask != null && _ask.IsOpen);

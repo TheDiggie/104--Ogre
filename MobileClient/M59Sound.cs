@@ -33,6 +33,18 @@ public partial class M59Sound : Node
 {
     /// <summary>0 to 1, as the game's own slider is 0 to 10.</summary>
     [Export] public float Volume = 0.7f;
+    /// <summary>
+    /// Music has its own level, as it does in the game - two sliders,
+    /// not one - and a room's ambience is not the same nuisance as a
+    /// fountain three doors away.
+    /// </summary>
+    [Export] public float MusicLevel = 0.5f;
+    /// <summary>
+    /// Off silences the looping sounds only, which is what
+    /// Config->DisableLoopSounds does: a fountain stops, a sword does
+    /// not.
+    /// </summary>
+    [Export] public bool Loops = true;
     /// <summary>Server units past which a sound is inaudible.</summary>
     [Export] public float MaxDistance = 2000f;
     /// <summary>How many one-shot sounds may overlap.</summary>
@@ -98,6 +110,8 @@ public partial class M59Sound : Node
         // and the streams are shared between callers - so a looping sound
         // gets its own copy rather than making every later one-shot of the
         // same file loop as well.
+        if (loop && !Loops) return;
+
         if (loop)
         {
             if (player.Stream == null || !player.Playing)
@@ -170,7 +184,7 @@ public partial class M59Sound : Node
         // runs until the room changes it.
         if (stream is AudioStreamOggVorbis ogg) ogg.Loop = true;
         _music.Stream = stream;
-        _music.VolumeDb = Mathf.LinearToDb(Mathf.Clamp(Volume * 0.5f, 0.0001f, 1f));
+        _music.VolumeDb = Mathf.LinearToDb(Mathf.Clamp(MusicLevel, 0.0001f, 1f));
         _music.Play();
         if (Verbose) GD.Print($"[M59Sound] music {info.ResourceName}");
     }
