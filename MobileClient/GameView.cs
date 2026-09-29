@@ -50,6 +50,7 @@ public partial class GameView : Node2D
     AmountPrompt _amount;
     PlayersPanel _players;
     QuestsPanel _quests;
+    MailPanel _mail;
     NpcQuestsPanel _npcQuests;
     TradePanel _trade;
     /// <summary>Who asked the bag for something: the trade, or a container.</summary>
@@ -386,6 +387,22 @@ public partial class GameView : Node2D
             _npcQuests.Dismissed += () => _client.Data?.QuestUIInfo?.Clear(true);
             _ui.AddChild(_npcQuests);
         });
+        Widget("mail", () =>
+        {
+            // Left of the quest log button.
+            _mail = new MailPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 5f };
+            _mail.Refresh += () => Act(() => _client.SendReqGetMail());
+            _mail.Lookup += names => Act(() => _client.SendReqLookupNames(names));
+            // The second half of the send: the server has said who these
+            // names are, and the panel decides whether that is everyone.
+            _client.NamesLookedUp += ids => Act(() =>
+            {
+                if (_mail == null) return;
+                if (_mail.Answer(ids, out ObjectID[] to, out string subject, out string text))
+                    _client.SendSendMail(to, subject, text);
+            });
+            _ui.AddChild(_mail);
+        });
         Widget("players", () =>
         {
             // Left of the character sheet button.
@@ -677,6 +694,7 @@ public partial class GameView : Node2D
         _npcQuests?.Sync(_client.Data?.QuestUIInfo);
         _roomBuffs?.Sync(_client.Data?.RoomBuffs);
         _bar?.Sync(_client.Data);
+        _mail?.Sync(_client.ResourceManager?.Mails);
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
@@ -931,7 +949,8 @@ public partial class GameView : Node2D
         || (_players != null && _players.IsOpen)
         || (_quests != null && _quests.IsOpen)
         || (_trade != null && _trade.IsOpen)
-        || (_npcQuests != null && _npcQuests.IsOpen);
+        || (_npcQuests != null && _npcQuests.IsOpen)
+        || (_mail != null && _mail.IsOpen);
 
     /// <summary>
     /// Puts one of yours into the container whose contents are open.

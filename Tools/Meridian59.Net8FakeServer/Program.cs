@@ -61,6 +61,8 @@ static class FakeServer
     const uint RID_SPELL2 = 60061;
     const uint RID_SKILL1 = 60062;
     const uint RID_SKILL2 = 60063;
+    const uint RID_MAIL1 = 60130;
+    const uint RID_MAIL2 = 60131;
     const uint RID_ROOMBUFF1 = 60072;
     const uint RID_ROOMBUFF2 = 60073;
     const uint RID_BUFF1 = 60070;
@@ -155,6 +157,13 @@ static class FakeServer
             new RsbResourceID(RID_SPELL2,     "kraanan's blessing", 4),
             new RsbResourceID(RID_SKILL1,     "slash",            4),
             new RsbResourceID(RID_SKILL2,     "bandaging",        4),
+            // A mail's subject is not a field on the wire: it is the
+            // first line of the body, after a "Subject: " that the
+            // client strips back off. So these strings carry it.
+            new RsbResourceID(RID_MAIL1,
+                "Subject: The cellar again\nAlice says the rats are back. She is not wrong.", 4),
+            new RsbResourceID(RID_MAIL2,
+                "Subject: Re: your axe\nI have it. Come and get it, or do not.", 4),
             new RsbResourceID(RID_ROOMBUFF1,  "shal'ille's grace", 4),
             new RsbResourceID(RID_ROOMBUFF2,  "a lingering fog",   4),
             new RsbResourceID(RID_BUFF1,      "shielding",        4),
@@ -320,6 +329,28 @@ static class FakeServer
                     Console.WriteLine("  <- ReqGet");
                     if (!lootOpen) { lootOpen = true; SendLoot(ns, ctrl, lootLeft); }
                     else { SendLoot(ns, ctrl, --lootLeft); Say(ns, ctrl, RID_ECHO); }
+                    break;
+
+                case MessageTypeGameMode.ReqGetMail:
+                    Console.WriteLine("  <- ReqGetMail");
+                    SendMail(ns, ctrl);
+                    break;
+
+                case MessageTypeGameMode.DeleteMail:
+                    // The client deletes the server's copy the moment it
+                    // has one, which is how a mailbox that lives on disk
+                    // avoids downloading the same mail twice.
+                    Console.WriteLine("  <- DeleteMail");
+                    break;
+
+                case MessageTypeGameMode.ReqLookupNames:
+                    Console.WriteLine("  <- ReqLookupNames");
+                    SendLookup(ns, ctrl, body);
+                    break;
+
+                case MessageTypeGameMode.SendMail:
+                    Console.WriteLine("  <- SendMail");
+                    Say(ns, ctrl, RID_ECHO);
                     break;
 
                 case MessageTypeGameMode.ReqNPCQuests:
@@ -757,6 +788,89 @@ static class FakeServer
     /// three go out shuffled here on purpose - a list that comes back
     /// active-first proves the sort rather than the sending order.
     /// </summary>
+    /// <summary>
+    /// The mailbox. Each mail goes as its own Mail message and the
+    /// client files it, asks for the server's copy to be deleted, and
+    /// renumbers it locally - so a real server would only ever send
+    /// what has not been collected. This one sends the same two every
+    /// time, which is what makes the renumbering visible.
+    ///
+    /// Sending nothing at all is not how "no mail" is said: the client
+    /// looks for a mail with no number, no sender, no timestamp and no
+    /// recipients (Mail.IsMessageForNoMessages) and ignores it.
+    /// </summary>
+    static void SendMail(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        Send(ns, ctrl, new MailMessage(Letter(1, "Alice", RID_MAIL1, new List<string> { "Tester" })));
+        Send(ns, ctrl, new MailMessage(Letter(2, "Boris the Outlaw", RID_MAIL2,
+                                              new List<string> { "Tester", "Alice" })));
+    }
+
+    static Mail Letter(uint num, string from, uint bodyRid, List<string> to)
+    {
+        // The title argument is ignored on the wire - the client parses
+        // it back out of the body - so it is passed for the sake of the
+        // model rather than for the message.
+        //
+        // The timestamp is not a unix one. MeridianDate.ToDateTime, which
+        // is what the mail window puts through, reads it as seconds since
+        // 1599982030 - 13 September 2020 - so a unix timestamp sent here
+        // comes out in 2077. The first attempt did exactly that. The
+        // server's epoch is the library's to declare, so this matches it
+        // rather than arguing with it.
+        uint stamp = (uint)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 1599982030L);
+
+        return new Mail(num, from, stamp, to, Line(bodyRid), "", true);
+    }
+
+    /// <summary>
+    /// Who these names are. One id per name asked, in the order asked,
+    /// and zero for a name there is no player for - which is the whole
+    /// of the client's check before it will send a mail. "Alice" and
+    /// "Boris the Outlaw" are known here; anything else comes back
+    /// zero, so the error path is reachable by typing a name.
+    /// </summary>
+    static void SendLookup(NetworkStream ns, MessageControllerClient ctrl, byte[] body)
+    {
+        // Read by hand rather than through ReqLookupNamesMessage: that
+        // constructor parses a whole TCP message, header included, and
+        // what arrives here is the body with the PI byte on the front.
+        // Handing it the body throws inside the header reader, which is
+        // what the first attempt did.
+        string[] names = Names(body);
+        var ids = new ObjectID[names.Length];
+
+        for (int i = 0; i < names.Length; i++)
+        {
+            string n = (names[i] ?? "").Trim();
+            uint id =
+                string.Equals(n, "Alice", StringComparison.OrdinalIgnoreCase) ? 4001u :
+                string.Equals(n, "Boris the Outlaw", StringComparison.OrdinalIgnoreCase) ? 4002u : 0u;
+
+            Console.WriteLine($"     {n} -> {id}");
+            ids[i] = new ObjectID(id, 0);
+        }
+
+        Send(ns, ctrl, new LookupNamesMessage(ids));
+    }
+
+    static string[] Names(byte[] body)
+    {
+        int cursor = 1;                                  // past the PI
+        ushort count = BitConverter.ToUInt16(body, cursor);
+        cursor += 2;
+
+        var names = new string[count];
+        for (int i = 0; i < count; i++)
+        {
+            ushort len = BitConverter.ToUInt16(body, cursor);
+            cursor += 2;
+            names[i] = Meridian59.Common.Util.Encoding.GetString(body, cursor, len);
+            cursor += len;
+        }
+        return names;
+    }
+
     static void SendNPCQuests(NetworkStream ns, MessageControllerClient ctrl)
     {
         var quests = new[]

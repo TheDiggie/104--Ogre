@@ -70,6 +70,15 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
     /// <summary>The room's background music changed.</summary>
     public event Action<PlayMusic> Music;
 
+    /// <summary>
+    /// The server's answer to a name lookup: one id per name asked, in
+    /// the order asked, zero where there is no such player. The base
+    /// class deliberately does nothing with this - it is only ever
+    /// asked for on the way to sending a mail, and only the view knows
+    /// what it asked.
+    /// </summary>
+    public event Action<ObjectID[]> NamesLookedUp;
+
     void Say(string s) => Notice?.Invoke(s);
 
     /// <summary>
@@ -195,6 +204,12 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
             handler(info);
         }
         catch (Exception e) { Say($"sound: {e.GetType().Name}: {e.Message}"); }
+    }
+
+    protected override void HandleLookupNamesMessage(LookupNamesMessage Message)
+    {
+        try { NamesLookedUp?.Invoke(Message?.ResolvedIDs); }
+        catch (Exception e) { Say($"lookup: {e.GetType().Name}: {e.Message}"); }
     }
 
     protected override void HandleGetLoginMessage(GetLoginMessage Message)
