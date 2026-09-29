@@ -46,6 +46,7 @@ public partial class GameView : Node2D
     LootPanel _contents;
     BuyPanel _shop;
     LoginPrompt _login;
+    RichTextLabel _crash;
     string _resDir = "";
     NameTags _names;
     ActionButtons _hotbar;
@@ -84,6 +85,62 @@ public partial class GameView : Node2D
 
     public override void _Ready()
     {
+        // Anything that escapes here reaches Godot's own crash overlay,
+        // which shows one line and no stack. On a phone that is all you
+        // get - there is no console to read and no log to open - so the
+        // exception is caught and put on the screen instead.
+        try { Boot(); }
+        catch (Exception e) { Boom("startup", e); }
+    }
+
+    /// <summary>
+    /// Puts the whole exception on the screen, because on a phone there
+    /// is nowhere else for it to go.
+    /// </summary>
+    void Boom(string where, Exception e)
+    {
+        GD.PrintErr($"[GameView] {where}: {e}");
+        if (_crash != null) return;
+
+        _crash = new RichTextLabel
+        {
+            BbcodeEnabled = false,
+            SelectionEnabled = true,
+            ScrollFollowing = false,
+            Text = $"{where} failed" + "\n\n" + e.ToString(),
+        };
+        _crash.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        _crash.OffsetLeft = 12; _crash.OffsetTop = 40;
+        _crash.OffsetRight = -12; _crash.OffsetBottom = -12;
+        _crash.AddThemeFontSizeOverride("normal_font_size", 15);
+        _crash.AddThemeColorOverride("default_color", new Color(1, 0.75f, 0.7f));
+
+        var bg = new ColorRect { Color = new Color(0.05f, 0.02f, 0.02f, 0.97f) };
+        bg.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+
+        var layer = new CanvasLayer { Layer = 100 };
+        layer.AddChild(bg);
+        layer.AddChild(_crash);
+        AddChild(layer);
+    }
+
+    void Boot()
+    {
+        // Threads and deferred calls do not come back through Boot's
+        // catch, and on a phone an exception that escapes is a grey
+        // screen with one line on it.
+        AppDomain.CurrentDomain.UnhandledException += (_, a) =>
+        {
+            if (a.ExceptionObject is Exception ex)
+                Callable.From(() => Boom("something", ex)).CallDeferred();
+        };
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, a) =>
+        {
+            Exception ex = a.Exception;
+            Callable.From(() => Boom("a background task", ex)).CallDeferred();
+            a.SetObserved();
+        };
+
         _ui = new CanvasLayer();
         AddChild(_ui);
 
@@ -106,8 +163,17 @@ public partial class GameView : Node2D
             {
                 // Callable.From rather than a method name: these are
                 // private methods, so the engine has no name for them.
-                M59Paths.UnpackIfNeeded(msg => Callable.From(() => SetStatus(msg)).CallDeferred());
-                Callable.From(FindResources).CallDeferred();
+                try
+                {
+                    M59Paths.UnpackIfNeeded(msg => Callable.From(() => SetStatus(msg)).CallDeferred());
+                    Callable.From(FindResources).CallDeferred();
+                }
+                catch (Exception e)
+                {
+                    // A task's exception is unobserved, so it would
+                    // otherwise be a silent hang on the unpack screen.
+                    Callable.From(() => Boom("unpacking", e)).CallDeferred();
+                }
             });
             return;
         }
@@ -129,6 +195,12 @@ public partial class GameView : Node2D
 
     /// <summary>Finds the resource folder, or asks. Main thread only.</summary>
     void FindResources()
+    {
+        try { Look(); }
+        catch (Exception e) { Boom("finding the game files", e); }
+    }
+
+    void Look()
     {
         _status.Text = "";
         string dir = M59Paths.Resolve(ResourceDir);
