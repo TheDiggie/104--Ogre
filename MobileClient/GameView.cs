@@ -343,6 +343,7 @@ public partial class GameView : Node2D
             _ui.AddChild(_actions);
             if (_chat != null) _actions.BottomReserve = _chat.BlockHeight;
 
+
             // Now both are here: the hotbar sits above the target block,
             // which sits above the chat. Measured, not guessed.
             if (_hotbar != null && _chat != null)
@@ -739,6 +740,22 @@ public partial class GameView : Node2D
         // ResourcesPath before Init, not after: Init is what reads it.
         _client.Config.ResourcesPath = _resDir;
         _client.Init();
+
+        // After Init, because Init is what creates Data - subscribing
+        // in the widget setup attached to nothing at all, and the
+        // target row simply never appeared again.
+        //
+        // The row follows the library's target rather than the tap.
+        // `UITarget` subscribes to exactly this and hides itself when
+        // the target goes null, which happens on its own more often
+        // than by tapping: the object leaves the room, you change room,
+        // you log out, or the library re-binds the target when the
+        // object model is rebuilt.
+        _client.Data.PropertyChanged += (_, e) =>
+        {
+            if (e?.PropertyName != Meridian59.Data.DataController.PROPNAME_TARGETOBJECT) return;
+            _actions?.SetTarget(_client.Data.TargetObject, _client.Data.AvatarID);
+        };
         string strings = M59Client.FindStringDictionary(_resDir);
         GD.Print($"[M59] string file: {strings}");
         _client.Config.Connections.Add(new ConnectionInfo(
@@ -980,15 +997,12 @@ public partial class GameView : Node2D
         Renderer.Sprite hit = _world.Renderer.Pick(bx, by, _w, _h, cx, cy, cz, avatar.Angle);
         var obj = hit?.Tag as RoomObject;
 
-        if (obj == null)
-        {
-            _client.Data.TargetID = uint.MaxValue;      // tapped nothing: clear
-            _actions?.SetTarget(null, _client.Data.AvatarID);
-            return;
-        }
-
-        _client.Data.TargetID = obj.ID;
-        _actions?.SetTarget(obj, _client.Data.AvatarID);
+        // Only the id is set. The library resolves it to an object and
+        // raises TargetObject, and the row follows that - which is how
+        // the game does it, and the only way the row hears about the
+        // targets the library sets by itself: the thing you killed
+        // leaving the room, a room change, a tab-target, a click-target.
+        _client.Data.TargetID = obj == null ? uint.MaxValue : obj.ID;
     }
 
     /// <summary>

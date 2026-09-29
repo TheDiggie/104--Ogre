@@ -212,11 +212,23 @@ public partial class InventoryPanel : Control
     {
         if (_grid == null || !IsOpen || items == null) return;
 
-        // Count and in-use state are what a slot shows, so they are what
-        // decides whether a rebuild is needed.
+        // What a slot shows is what decides whether it is rebuilt, and
+        // that is more than the count and the in-use mark. An object's
+        // picture changes with its colour translation, its effect and
+        // its frame - an item dyed, enchanted, lit or drawn - and its
+        // name changes outright when the server identifies a magic
+        // item. The reference's per-slot composer re-pushes a texture
+        // on any of those; a signature of id, count and use alone
+        // leaves the old bitmap and the old name there for the rest of
+        // the session.
         var sb = new System.Text.StringBuilder();
         foreach (InventoryObject o in items)
-            sb.Append(o?.ID).Append(':').Append(o?.Count).Append(o != null && o.IsInUse ? "u" : "-").Append(';');
+        {
+            sb.Append(o?.ID).Append(':').Append(o?.Count)
+              .Append(o != null && o.IsInUse ? "u" : "-").Append(':')
+              .Append(o?.Name).Append(':').Append(o?.ColorTranslation).Append(':')
+              .Append(o?.Effect).Append(':').Append(o?.ViewerFrameIndex).Append(';');
+        }
         string signature = sb.ToString();
         if (signature == _lastSignature && items.Count == _lastCount) return;
         _lastSignature = signature; _lastCount = items.Count;
@@ -354,7 +366,10 @@ public partial class InventoryPanel : Control
     {
         if (o?.Resource == null) return null;
         int frame = o.ViewerFrameIndex >= 0 ? o.ViewerFrameIndex : 0;
-        string key = $"{o.Resource.Filename}:{frame}:{size}";
+        // Keyed on everything the composed picture depends on, not the
+        // file alone: two of the same item dyed differently are two
+        // pictures, and one that gains an effect is a third.
+        string key = $"{o.Resource.Filename}:{frame}:{size}:{o.ColorTranslation}:{o.Effect}";
         if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
 
         ImageTexture tex = null;

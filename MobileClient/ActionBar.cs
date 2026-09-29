@@ -143,12 +143,54 @@ public partial class ActionBar : Control
     /// Follows the target. <paramref name="avatarId"/> is needed for the
     /// one exception the game makes: an invisible object shows nothing,
     /// unless it is you.
+    ///
+    /// Takes an ObjectBase rather than a RoomObject because that is what
+    /// `DataController.TargetObject` is: the library resolves a target
+    /// id against the room first and then against your own inventory,
+    /// so a carried thing is as much a target as a creature, and the
+    /// game's target window shows either.
+    ///
+    /// The object is listened to while it is the target.
+    /// `UITarget.cpp` re-runs the colour, the invisibility rule and all
+    /// seven buttons whenever the object's Flags or Name change, and
+    /// without that the row freezes as it was at the moment you tapped:
+    /// a monster you have just killed keeps Attack lit and Get greyed
+    /// until you tap the corpse again, an NPC that gains a quest never
+    /// lights its Quest button, and a player who turns outlaw keeps the
+    /// old name colour.
     /// </summary>
-    public void SetTarget(RoomObject target, uint avatarId)
+    public void SetTarget(ObjectBase target, uint avatarId)
     {
+        if (!ReferenceEquals(_target, target))
+        {
+            if (_target != null) _target.PropertyChanged -= OnTargetChanged;
+            _target = target;
+            if (_target != null) _target.PropertyChanged += OnTargetChanged;
+        }
+        _avatar = avatarId;
+
         HasTarget = target != null;
         Visible = HasTarget;
         if (!HasTarget) return;
+
+        Refresh();
+    }
+
+    ObjectBase _target;
+    uint _avatar;
+
+    void OnTargetChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e == null) return;
+        if (e.PropertyName != ObjectBase.PROPNAME_FLAGS && e.PropertyName != ObjectBase.PROPNAME_NAME)
+            return;
+        if (_target != null) Refresh();
+    }
+
+    void Refresh()
+    {
+        ObjectBase target = _target;
+        uint avatarId = _avatar;
 
         bool hidden = target.ID != avatarId
                    && target.Flags != null
@@ -172,6 +214,12 @@ public partial class ActionBar : Control
         _trade.Disabled    = f == null || !f.IsOfferable;
         _loot.Disabled     = f == null || !f.IsGettable;
         _quest.Disabled    = f == null || !(f.IsNPCActiveQuest || f.IsNPCHasQuests);
+
+        // `SetTooltips`: the Activate control is labelled Items when
+        // the target is a container. On a desktop that is a tooltip; on
+        // a phone the caption is the only thing telling you whether the
+        // button pulls a lever or opens a bag.
+        _activate.Text = f != null && f.IsContainer ? "Items" : "Activate";
     }
 
     ImageTexture Face(ObjectBase o)
