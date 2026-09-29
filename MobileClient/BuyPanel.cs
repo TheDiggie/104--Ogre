@@ -183,7 +183,19 @@ public partial class BuyPanel : Control
         {
             _signature = now;
             _stock.Clear();
+
+            // What you had picked is kept across a rebuild, minus
+            // anything the shop no longer has. The rebuild fires on any
+            // change to a count or a price - the server's doing, not
+            // yours - and clearing the whole selection meant a stock
+            // update silently unticked everything you had chosen. The
+            // game has no such problem: its selection lives on the list
+            // widget and an unrelated item changing does not touch it.
+            var stillThere = new HashSet<uint>();
+            foreach (TradeOfferObject o in buy.Items)
+                if (o != null && _ticked.Contains(o.ID)) stillThere.Add(o.ID);
             _ticked.Clear();
+            foreach (uint id in stillThere) _ticked.Add(id);
 
             foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
 
@@ -218,7 +230,15 @@ public partial class BuyPanel : Control
     {
         TradeOfferObject captured = o;
 
-        var tick = new CheckBox { CustomMinimumSize = new Vector2(0, RowHeight) };
+        var tick = new CheckBox
+        {
+            CustomMinimumSize = new Vector2(0, RowHeight),
+            // A row rebuilt while it was picked comes back picked.
+            ButtonPressed = _ticked.Contains(o.ID),
+            // Named so a scripted run can tick one: the row's text lives
+            // in child labels, so there is nothing to find it by.
+            Name = $"buy{o.ID}",
+        };
         tick.AddThemeFontSizeOverride("font_size", FontSize);
         tick.Toggled += on =>
         {
