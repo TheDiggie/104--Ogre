@@ -16,11 +16,11 @@ Needs: .NET 8 SDK, Godot 4.7 mono, Python 3.10+ with Pillow, git with
 user.name and user.email set. Optional: the Android SDK for the phone
 export, GitHub CLI.
 
-`python tools/run_all.py survey` prints the list and what is missing. It
+`python Tools/run_all.py survey` prints the list and what is missing. It
 is deliberately outside the `session` group, because the bridge VM that a
 cloud session reaches is a different machine with a different answer.
 
-See also: the survey -> tools/workstation_survey.py | delivery -> docs/systems/delivery.md
+See also: the survey -> Tools/workstation_survey.py | delivery -> docs/systems/delivery.md
 
 ## The cloud workspace
 Tags: process | Ephemeral; holds a clone at /home/claude/ogre104 and the Godot binary under /tmp - nothing there survives the session

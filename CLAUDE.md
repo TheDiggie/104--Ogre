@@ -31,7 +31,7 @@ Index: core
   `--press` steps and `--shots`. See `docs/systems/harness.md`.
 - Fake server: `Tools/Meridian59.Net8FakeServer`. `pgrep` it and check
   `head -3 /tmp/fake.log` before believing a blank frame.
-- Checks: `python tools/run_all.py check`
+- Checks: `python Tools/run_all.py check`
 
 ## The laws no hook enforces
 Index: core

@@ -14,7 +14,7 @@ Tags: process | dotnet build then GREP THE OUTPUT FOR "error" - the tail shows e
 
 1. `dotnet build MobileClient/MobileClient.csproj 2>&1 | tee /tmp/build.log`
 2. `grep -i error /tmp/build.log` - this step is the check, not step 1.
-3. `python tools/run_all.py check`
+3. `python Tools/run_all.py check`
 
 See also: the verify block -> CLAUDE.md
 

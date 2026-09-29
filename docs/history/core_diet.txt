@@ -1,11 +1,11 @@
 # THE CORE DIET - CLAUDE.md section heat (tools/core_diet.py; regenerated whole each run)
-# window 30 days | core ~619 tokens | budget 2000 | 2026-09-29 14:46
+# window 30 days | core ~619 tokens | budget 2000 | 2026-09-29 14:52
 # heading | level | ~tokens | reads | follows | last edit (days) | route | verdict
-The one law of this port | 2 | 93 | 0 | 0 | - | core | pinned
-How to read this repo | 2 | 53 | 0 | 0 | - | core | pinned
-How to verify | 2 | 121 | 0 | 0 | - | core | pinned
-The laws no hook enforces | 2 | 157 | 0 | 0 | - | core | pinned
-The wiki convention | 2 | 59 | 0 | 0 | - | core | pinned
-THE CONTRADICTION RULE | 2 | 62 | 0 | 0 | - | core | pinned
+The one law of this port | 2 | 93 | 0 | 0 | 0 | core | pinned
+How to read this repo | 2 | 53 | 0 | 0 | 0 | core | pinned
+How to verify | 2 | 121 | 0 | 0 | 0 | core | pinned
+The laws no hook enforces | 2 | 157 | 0 | 0 | 0 | core | pinned
+The wiki convention | 2 | 59 | 0 | 0 | 0 | core | pinned
+THE CONTRADICTION RULE | 2 | 62 | 0 | 0 | 0 | core | pinned
 
 == PROPOSE: none
