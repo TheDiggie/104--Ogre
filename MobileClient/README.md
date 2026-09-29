@@ -39,8 +39,8 @@ this branch cannot log in until that is settled.
   to re-save them; see the note further down.
 - Nothing has run on a phone. The Android export preset exists; a JDK,
   the Android SDK, export templates and a device do not.
-- Sector lighting is not implemented - there is no formula in this repo
-  and the ambient comes from the server, so it has not been guessed at.
+- Per-sector light values are read but unused, which is what the
+  reference client does too. See "Light is the room's ambient" below.
 - `WF_BACKWARDS` direction, and which way scrolling water flows, both
   need somebody who knows what these rooms should look like.
 - Inventory containers and `SendReqInventoryMoveMessage` - the bag does
@@ -593,6 +593,38 @@ That is a container with no audio device, so Godot falls back to its
 dummy driver: what is proved there is the resolution, placement,
 fall-off, panning and loop bookkeeping, not that a speaker moved. The
 sounds themselves have not been heard yet.
+
+## Light is the room's ambient, and nothing else
+
+The reference client does exactly one thing with light.
+`ControllerRoom::AdjustAmbientLight` takes the larger of the room's
+`AmbientLight` and the avatar's own light - night vision, a lamp - and
+sets that as the scene's ambient, as a plain ratio of 255
+(`Util::LightIntensityToOgreRGB`). That is the whole of it.
+
+`RooSector` does carry a light value, and the library works two numbers
+out of it: sectors 128-255 are scaled by the room's ambient
+(`AmbientLightModifier`, 0 to 2), sectors 0-127 light themselves
+(`OwnLight`, 0 to 1). Nothing in this repo reads either one. Rather than
+invent a way to combine them, the renderer does what the client does: a
+`Brightness` of 0 to 1 multiplies the distance shading, so a dark room
+is dark everywhere.
+
+Both values come from the server and both change while you play - dusk
+falls, a spell wears off - so `GameView` reads them every frame rather
+than once on entering the room. A room that has said nothing yet is left
+at full brightness, because rendering it black would look like a broken
+renderer rather than an unlit cellar.
+
+Measured against the fake server, mean pixel value over the whole frame:
+
+| room ambient | mean |
+|---|---|
+| 255 | 60.45 |
+| 160 | 38.92 |
+
+which is the 160/255 the formula asks for, less the overlays, which are
+UI and not lit.
 
 ## Known limits
 

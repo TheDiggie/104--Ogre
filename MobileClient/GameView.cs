@@ -374,6 +374,7 @@ public partial class GameView : Node2D
         {
             _world.Renderer.Time = _clock;     // scrolling water and lava
             _world.Renderer.Pitch = _pitch;
+            _world.Renderer.Brightness = Ambient();
         }
 
         _vitals?.Follow(_client.Data);
@@ -568,6 +569,26 @@ public partial class GameView : Node2D
         }
 
         _sound.Play(info, _world.Room, lx, ly, facing);
+    }
+
+    /// <summary>
+    /// How bright the room is, 0 to 1.
+    ///
+    /// `ControllerRoom::AdjustAmbientLight` takes the larger of the
+    /// room's ambient light and the avatar's own - night vision, a lamp -
+    /// and uses it as a plain ratio of 255. It is read every frame
+    /// because the server changes both of them as you play: dusk falls,
+    /// a spell wears off. A room that has not said anything yet is left
+    /// at full brightness rather than being rendered black.
+    /// </summary>
+    float Ambient()
+    {
+        RoomInfo room = _client?.Data?.RoomInformation;
+        if (room == null) return 1f;
+
+        int lit = Math.Max(room.AmbientLight, room.AvatarLight);
+        if (lit <= 0) return 1f;
+        return lit / 255f;
     }
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>

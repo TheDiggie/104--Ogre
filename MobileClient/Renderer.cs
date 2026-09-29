@@ -27,6 +27,20 @@ public sealed class Renderer
     public const float EyeHeight = 0.6f * M59Geo.Fineness;
     public const float FogFar = 4500f;
 
+    /// <summary>
+    /// How bright the room is, 0 to 1, from the server.
+    ///
+    /// The reference client does exactly one thing with light: it takes
+    /// the larger of the room's AmbientLight and the avatar's own light
+    /// (night vision and the like) and sets that as the scene's ambient,
+    /// as a plain ratio of 255 - `ControllerRoom::AdjustAmbientLight`
+    /// and `Util::LightIntensityToOgreRGB`. It does not use the per-
+    /// sector light values at all, even though the library exposes them,
+    /// so neither does this: a room is lit by its ambient and shaded by
+    /// distance, and nothing else.
+    /// </summary>
+    public float Brightness = 1f;
+
     public struct Hit { public RooWall Wall; public float Dist, Along; public bool Right; }
 
     /// <summary>A billboarded object standing on the floor at X,Y.</summary>
@@ -354,10 +368,12 @@ public sealed class Renderer
 
                 FillFlat(px, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
-                         NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null);
+                         NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
+                         Brightness);
                 FillFlat(px, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
-                         NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null);
+                         NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
+                         Brightness);
 
                 yTop = Math.Max(yTop, ceilY);
                 yBot = Math.Min(yBot, floorY);
@@ -377,7 +393,7 @@ public sealed class Renderer
                 ushort texGroup = side?.Animation != null ? side.Animation.CurrentGroup : (ushort)1;
                 int xOff = h.Right ? h.Wall.RightXOffset : h.Wall.LeftXOffset;
                 int yOff = h.Right ? h.Wall.RightYOffset : h.Wall.LeftYOffset;
-                float fog = MathF.Min(1f, FogFar / perp);
+                float fog = MathF.Min(1f, FogFar / perp) * Brightness;
                 // World units one screen pixel spans on this wall. Turning
                 // that into texels needs the texture's shrink, so DrawWall
                 // finishes it - the old constant here quietly assumed
@@ -607,7 +623,7 @@ public sealed class Renderer
             S = sp, T = t, Depth = depth,
             Left = cxs - wPx * 0.5f, WPx = wPx, HPx = hPx,
             YTop = yTop, YBot = yTop + hPx,
-            Fog = MathF.Min(1f, FogFar / depth),
+            Fog = MathF.Min(1f, FogFar / depth) * Brightness,
         };
         return true;
     }
@@ -844,7 +860,8 @@ public sealed class Renderer
     static void FillFlat(uint[] px, int W, int H, int sx, int y0, int y1, bool ceiling,
                          RooSector sec, float camX, float camY, float camZ,
                          float horizon, float proj, float angle, float rayA, TexCache tc,
-                         bool skip, bool noSample, float time, FlatAnchors anchors)
+                         bool skip, bool noSample, float time, FlatAnchors anchors,
+                         float bright)
     {
         if (sec == null || skip) return;
         if (y0 < 0) y0 = 0;
@@ -898,7 +915,7 @@ public sealed class Renderer
                 d = straight / cosFixMax;
             }
             float wx = camX + rdx * d, wy = camY + rdy * d;
-            float fog = MathF.Min(1f, FogFar / MathF.Max(straight, 1f));
+            float fog = MathF.Min(1f, FogFar / MathF.Max(straight, 1f)) * bright;
             // How much world space one screen pixel covers here, in texels.
             // Rows near the horizon cover enormous distances, which is what
             // made ceilings streak before mipmapping.

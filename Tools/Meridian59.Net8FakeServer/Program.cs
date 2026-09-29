@@ -452,7 +452,10 @@ static class FakeServer
             RoomFileRID: RID_ROOMFILE,
             RoomNameRID: RID_ROOMNAME,
             RoomSecurity: 0,
-            AmbientLight: 0,
+            // A dim-ish room, so the ambient actually does something
+            // visible: the client takes the larger of these two over 255
+            // and shades everything by it.
+            AmbientLight: 160,
             AvatarLight: 0,
             BackgroundFileRID: 0,
             WadingSoundFileRID: 0,
