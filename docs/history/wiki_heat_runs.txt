@@ -1,5 +1,0 @@
-# WIKI HEAT HISTORY (append-only; one line per run).
-# Read the TAIL for recent runs - never the whole file.
-# date time | ws | files | sections | touched | cold (lines) | why: active-unread/current/dormant/process/reference/archive | hottest section
-2026-09-29 14:47 | WS1 | files 29 | sections 219 | touched 0 | cold 157 (6339 lines) | why: active-unread 0, current 0, dormant 8, process 65, reference 84, archive 0 | hottest CLAUDE.md#(preamble) (0)
-2026-09-29 14:57 | WS1 | files 29 | sections 219 | touched 0 | cold 157 (6339 lines) | why: active-unread 0, current 0, dormant 8, process 65, reference 84, archive 0 | hottest CLAUDE.md#(preamble) (0)
