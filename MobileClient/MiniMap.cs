@@ -18,9 +18,11 @@ using Meridian59.Files.ROO;
 ///    <c>IsMapNever</c>, is not drawn. Map-never is how the game hides the
 ///    scenery it does not want you navigating by.
 ///  - objects are dots, ten pixels across, coloured by what they are to
-///    you: enemy red, guildmate green, other players blue, anything else
-///    attackable red. Nothing else is drawn - an ordinary item on the
-///    floor does not appear.
+///    you. The colours are `MiniMapCEGUI.cpp`'s non-vanilla branch,
+///    which is the one that ships here, not the short vanilla list: a
+///    ring for who someone is to you - guild, ally, enemy, a player at
+///    all - and a filled dot for what a thing is, monsters and quest
+///    mobs included. An object with none of those flags is not drawn.
 ///  - you are a triangle pointing where you face, not a dot.
 ///  - the whole thing is round, on the game's own dial: the CEGUI layout
 ///    puts "TaharezLook/MiniMapBackground" behind it, which is the wooden
@@ -40,10 +42,17 @@ public partial class MiniMap : Control
     [Export] public float Margin = 12f;
 
     /// <summary>
-    /// Server units per pixel. The library's default is 4; its own limits
-    /// are 0.05 to 20, and the Ogre client's wheel moves between 1 and 32.
+    /// Server units per pixel, and how much of the room you can see: the
+    /// map covers MapSize * Zoom units across.
+    ///
+    /// Eight, not the library's DEFAULTZOOM of 4. The shipping client
+    /// overrides that with 8 (`ControllerUI.h:559`), and it is looking
+    /// at a window of 256 to 512 pixels rather than this one's 220 - so
+    /// at 4 this map showed under half the area the game's does, which
+    /// on a small map is the difference between seeing the room and
+    /// seeing a corner of it.
     /// </summary>
-    [Export] public float Zoom = 4f;
+    [Export] public float Zoom = 8f;
 
     public const float MinZoom = 1f;
     public const float MaxZoom = 32f;
@@ -159,7 +168,11 @@ public partial class MiniMap : Control
 
     public override void _Draw()
     {
-        if (!_shown || _walls.Count == 0) return;
+        // Not "and there are walls". A room whose every wall is
+        // map-never still has you in it, and the game always draws the
+        // dial and the arrow (`MiniMapCEGUI.cpp:274`, `:337`). Bailing
+        // on an empty wall list turned that into a blank corner.
+        if (!_shown) return;
 
         Vector2 v = GetViewportRect().Size;
         var origin = new Vector2(v.X - MapSize - Margin, Margin);
@@ -197,8 +210,11 @@ public partial class MiniMap : Control
             if (!Clip(ref a, ref b, centre, radius)) continue;
             clipped.Add(a); clipped.Add(b);
         }
+        // Two pixels, as the game's pen is (`MiniMapCEGUI.h:265`). One
+        // was a fair reading of a map drawn at desktop scale, but a
+        // single black hairline on a phone screen is close to invisible.
         if (clipped.Count > 0)
-            DrawMultiline(clipped.ToArray(), new Color(Wall, Ink.A), 1f);
+            DrawMultiline(clipped.ToArray(), new Color(Wall, Ink.A), 2f);
 
         if (_objects != null)
         {
@@ -216,8 +232,8 @@ public partial class MiniMap : Control
 
                 // Ten pixels across for the ring, six for the dot, as the
                 // game draws them.
-                if (ring != null) DrawCircle(p, 5f, ring.Value);
-                if (dot != null) DrawCircle(p, 3f, dot.Value);
+                if (ring != null) DrawCircle(p, 5f, new Color(ring.Value, Ink.A));
+                if (dot != null) DrawCircle(p, 3f, new Color(dot.Value, Ink.A));
             }
         }
 
@@ -229,7 +245,10 @@ public partial class MiniMap : Control
         var dir = new Vector2(MathF.Cos(_angle), MathF.Sin(_angle)) * 8f;
         Vector2 left = dir.Rotated(MathF.PI - 0.5f);
         Vector2 right = dir.Rotated(-MathF.PI + 0.5f);
-        DrawColoredPolygon(new[] { me + dir, me + left, me + right }, Player);
+        // The game's alpha comes from the surface the whole map is drawn
+        // on, so it covers the dots and the arrow as well as the walls;
+        // ours was applied to the walls alone.
+        DrawColoredPolygon(new[] { me + dir, me + left, me + right }, new Color(Player, Ink.A));
     }
 
     /// <summary>

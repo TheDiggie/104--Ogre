@@ -638,17 +638,24 @@ static class FakeServer
         var quests = new Stat[]
         {
             Quest(1, RID_QHEAD1, 0,    0),
-            Quest(2, RID_QUEST1, 9001, 25),
-            Quest(3, RID_QUEST2, 9002, 40),
+            Quest(2, RID_QUEST1, 9001, 25, RID_BOOKBGF),
+            Quest(3, RID_QUEST2, 9002, 40, RID_AXEBGF),
             Quest(4, RID_QHEAD2, 0,    0),
-            Quest(5, RID_QUEST3, 9003, 10),
+            Quest(5, RID_QUEST3, 9003, 10, RID_COINBGF),
         };
 
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Quests, quests));
     }
 
-    static StatList Quest(byte num, uint nameRid, uint objectId, uint points)
-        => new StatList(num, nameRid, objectId, points, 0);
+    /// <summary>
+    /// The last argument is the icon resource. It used to be zero for
+    /// every quest, so the quest log had no art to draw and the icon
+    /// path could not be tested - and a missing resource looks exactly
+    /// like a client that forgot to compose one. Headings keep zero,
+    /// because a heading is not a quest and has no icon.
+    /// </summary>
+    static StatList Quest(byte num, uint nameRid, uint objectId, uint points, uint iconRid = 0)
+        => new StatList(num, nameRid, objectId, points, iconRid);
 
     /// <summary>
     /// Who is online. The window draws each name in
