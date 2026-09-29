@@ -437,6 +437,16 @@ public partial class SceneShot : Node
                 string[] ends = body.Split('>');
                 if (ends.Length == 2 && Point(ends[0], out Vector2 from) && Point(ends[1], out Vector2 to))
                 {
+                    // A drag that starts on a button or a panel is eaten
+                    // by that control and never reaches the touch layer,
+                    // and the run then looks exactly like a client that
+                    // cannot walk: no movement, nothing on the wire, no
+                    // error. Cost one investigation before it was said out
+                    // loud, so now it is said out loud.
+                    Control eater = Swallower(GetTree().Root, from);
+                    if (eater != null)
+                        GD.Print($"[SceneShot] WARNING drag starts on '{eater.Name}' ({eater.GetType().Name}), which will take the touch instead of the world");
+
                     Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = from, Pressed = true });
                     await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
@@ -614,6 +624,30 @@ public partial class SceneShot : Node
     {
         if (n is Button b && Showing(b)) into.Add(b.Name);
         foreach (Node c in n.GetChildren()) Walk(c, into);
+    }
+
+    /// <summary>
+    /// The visible control under this point that would consume a touch,
+    /// or null when the point is over the world.
+    ///
+    /// Deepest match wins, because a child is drawn over its parent and
+    /// gets the event first. Controls set to Ignore are skipped: that is
+    /// exactly what Ignore means, and every full-screen panel root uses
+    /// it so the world stays reachable around its children.
+    /// </summary>
+    static Control Swallower(Node n, Vector2 p)
+    {
+        Control hit = null;
+        if (n is Control c && Showing(c)
+            && c.MouseFilter != Control.MouseFilterEnum.Ignore
+            && c.GetGlobalRect().HasPoint(p))
+            hit = c;
+        foreach (Node child in n.GetChildren())
+        {
+            Control deeper = Swallower(child, p);
+            if (deeper != null) hit = deeper;
+        }
+        return hit;
     }
 
     /// <summary>"300x1400" -> a point. False when it is not one.</summary>

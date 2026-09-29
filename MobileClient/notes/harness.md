@@ -78,6 +78,14 @@ Proved with `@drag:270x1500>270x1100@90` (walk forward: 22 movement
 messages on the wire) and `@drag:1100x700>1500x700@60` (look right: the
 view ends facing a different wall).
 
+A drag that starts on a button or a panel is eaten by that control and
+never reaches the touch layer. The run then looks exactly like a client
+that cannot walk: no movement, nothing on the wire, no error. The step
+now names the control it would hit - "WARNING drag starts on 'hot3'
+(Button)" - so that costs a line instead of an investigation. The world
+is roughly y 250..1150 at 1080x1920; above is the HUD, below is the
+hotbar, the target row and the chat block.
+
 See also: the touch layer -> TouchControls.cs | the client -> mobile-client.md
 
 ## A run inherits the last run's hotbar
