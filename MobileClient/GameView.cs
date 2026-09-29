@@ -88,6 +88,7 @@ public partial class GameView : Node2D
     int _w, _h;
 
     Label _status;
+    StatusBar _bar;
     string _state = "starting";
     double _fpsAccum; int _frames; string _fps = "";
     float _clock;
@@ -412,6 +413,20 @@ public partial class GameView : Node2D
             _ui.AddChild(_sheet);
         });
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
+        Widget("statusbar", () =>
+        {
+            _bar = new StatusBar();
+            _bar.Mood   += a => Act(() => _client.SendActionMessage(a));
+            // Non-vanilla, like Server 104: the whole preferences word
+            // goes up rather than a dedicated safety command.
+            _bar.Safety += _ => Act(() => _client.SendUserCommandSendPreferences());
+            _bar.Players += () => { _players?.Open(); };
+            _ui.AddChild(_bar);
+
+            // The debug line moves down to clear it.
+            if (_status != null)
+                _status.Position = new Vector2(12, _bar.TopReserve + _bar.BlockHeight);
+        });
         Widget("roombuffs", () =>
         {
             // Under the minimap, which owns the top-right corner.
@@ -661,6 +676,7 @@ public partial class GameView : Node2D
         _trade?.Sync(_client.Data?.Trade);
         _npcQuests?.Sync(_client.Data?.QuestUIInfo);
         _roomBuffs?.Sync(_client.Data?.RoomBuffs);
+        _bar?.Sync(_client.Data);
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
