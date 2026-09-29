@@ -937,6 +937,47 @@ picking mode - one tap chooses and closes it - because a phone cannot
 show both windows at once to drag between them. That part is not the
 game's.
 
+## The target, and the red edge round it
+
+The row of buttons over the chat is the game's target window,
+`UITarget.cpp`, rather than four buttons of my own: a picture of the
+target, its name in the target's colour, and Inspect, Attack, Activate,
+Buy, Trade, Loot and Quest. Which of them work is decided flag by flag
+- Attack wants `IsAttackable`, Activate wants `IsActivatable` **or**
+`IsContainer`, Buy `IsBuyable`, Trade `IsOfferable`, Loot `IsGettable`,
+Quest `IsNPCActiveQuest` or `IsNPCHasQuests`, and Inspect always. The
+game greys them rather than hiding them, which also tells you what the
+thing in front of you is.
+
+The picture is the object at hotspot 0, not the head: the comment in
+that file says "hotspot=1 is head" and the line under it sets 0. An
+invisible object shows neither name nor picture unless it is you.
+
+**The red edge.** The game marks the target by swapping the billboard's
+material, and the picture behind it comes from
+`ImageComposerGDI.DrawPostEffectTarget`, which is worth copying
+literally because it is stranger than it sounds:
+
+```
+for (int i = 1; i < pixelcount - 1; i++)
+    if (ptr[i] != 0 && (ptr[i - 1] == 0 || ptr[i + 1] == 0))
+        ptr[i] = 0xFFFF0000;
+```
+
+One flat pass over the buffer, so it is a horizontal edge test and not
+an outline: it reddens the left and right sides of a shape, leaves the
+top and bottom alone, and wraps across row ends. That is the
+red-sided silhouette the game has always had, and a tidy four-way
+outline would not look like it. The outlined picture is cached as a
+second entry against the same object, because a thing is the target for
+a moment and then is not.
+
+Two layout bugs came out of building this, both of the same kind. The
+hotbar measured its gap from a row that did not exist yet and drew
+through the portrait; and the code that hides the button rows behind an
+open panel set `Visible` every frame, which put the empty target row
+back whenever nothing was targeted.
+
 ## Known limits
 
 - **Speed.** A uniform spatial grid (`WallGrid.cs`) means a ray only

@@ -81,6 +81,31 @@ public static class M59Compose
     }
 
     /// <summary>Draws a laid-out RenderInfo into a picture.</summary>
+    /// <summary>
+    /// The red edge the game puts round whatever you have targeted, in
+    /// place: `ImageComposerGDI.DrawPostEffectTarget`, which is worth
+    /// copying literally because it is stranger than it sounds.
+    ///
+    /// It walks the pixel buffer as one flat run and turns any opaque
+    /// pixel whose **previous or next** pixel is fully transparent pure
+    /// red. That is a horizontal edge test, not an outline: it catches
+    /// the left and right sides of a shape and leaves the top and
+    /// bottom alone, and it wraps across row ends, so the last pixel of
+    /// a row is compared with the first of the next. The result is the
+    /// red-sided silhouette the game has always had, and a tidier
+    /// four-way outline would not look like it.
+    ///
+    /// The first and last pixel are skipped, as they are there.
+    /// </summary>
+    public static void Outline(Tex t)
+    {
+        if (t?.P == null) return;
+        uint[] px = t.P;
+        for (int i = 1; i < px.Length - 1; i++)
+            if (px[i] != 0x00000000u && (px[i - 1] == 0x00000000u || px[i + 1] == 0x00000000u))
+                px[i] = 0xFFFF0000u;
+    }
+
     static Tex Raster(RenderInfo ri)
     {
         if (ri == null || ri.Bgf == null) return null;
@@ -177,7 +202,7 @@ public sealed class ComposeCache
 {
     public sealed class Entry { public Tex Tex; public float WorldW, WorldH; }
 
-    readonly Dictionary<uint, Entry> _c = new Dictionary<uint, Entry>();
+    readonly Dictionary<ulong, Entry> _c = new Dictionary<ulong, Entry>();
     public int Count => _c.Count;
 
     /// <summary>
@@ -185,7 +210,7 @@ public sealed class ComposeCache
     /// <paramref name="viewer"/>. Updates the object's viewer angle first,
     /// because that is what decides which frames the library picks.
     /// </summary>
-    public Entry Get(RoomObject o, Meridian59.Common.V2 viewer)
+    public Entry Get(RoomObject o, Meridian59.Common.V2 viewer, bool outlined = false)
     {
         if (o == null || o.Resource == null) return null;
 
@@ -197,11 +222,15 @@ public sealed class ComposeCache
         // shortcut: the Ogre client sets the angle the same way and waits
         // for ViewerAppearanceChanged. It costs one tick of lag on a
         // turning object and saves recomposing a picture per frame.
-        uint key = o.ViewerAppearanceHash;
+        // The outlined picture is a second entry rather than a second
+        // cache: the same object is the target for a moment and then is
+        // not, and both versions are worth keeping while that happens.
+        ulong key = o.ViewerAppearanceHash | (outlined ? 0x1_0000_0000UL : 0UL);
         if (_c.TryGetValue(key, out Entry e)) return e;
 
         Tex t = M59Compose.Build(o, out float ww, out float wh);
         if (t == null) return null;
+        if (outlined) M59Compose.Outline(t);
 
         // The cache is per room and rooms are small, but a crowd of
         // players in a lot of poses is not, so it is not unbounded.

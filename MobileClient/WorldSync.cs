@@ -106,7 +106,10 @@ public sealed class WorldSync
             // than the body's frame alone. Falls back to the plain frame
             // if the compose comes back empty, because a Knight with no
             // sword still beats no Knight.
-            ComposeCache.Entry c = Composed ? _compose.Get(o, eye) : null;
+            // IsTarget is the library's own flag, set when TargetID is
+            // set, and the game draws a red edge round whatever carries
+            // it - RemoteNode2D picks a different material for it.
+            ComposeCache.Entry c = Composed ? _compose.Get(o, eye, o.IsTarget) : null;
             if (c != null)
             {
                 sp.Texture = c.Tex;

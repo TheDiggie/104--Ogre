@@ -316,12 +316,23 @@ public partial class GameView : Node2D
         Widget("actions", () =>
         {
             _actions = new ActionBar();
-            _actions.LookAt       += () => Act(() => _client.SendReqLookMessage());
-            _actions.PickUp       += () => Act(() => _client.SendReqGetMessage());
-            _actions.AttackTarget += () => Act(() => _client.SendReqAttackMessage());
-            _actions.UseTarget    += () => Act(() => _client.SendReqUseMessage(_client.Data.TargetID));
+            // Each of these is what the game's target window sends,
+            // and each acts on the target the library is holding, not
+            // on an id this view kept for itself.
+            _actions.LookAt         += () => Act(() => _client.SendReqLookMessage());
+            _actions.AttackTarget   += () => Act(() => _client.SendReqAttackMessage());
+            _actions.ActivateTarget += () => Act(() => _client.ExecAction(AvatarAction.Activate));
+            _actions.BuyFrom        += () => Act(() => _client.SendReqBuyMessage());
+            _actions.TradeWith      += () => Act(() => _client.ExecAction(AvatarAction.Trade));
+            _actions.LootTarget     += () => Act(() => _client.SendReqGetMessage());
+            _actions.AskQuests      += () => Act(() => _client.SendReqNPCQuestsMessage());
             _ui.AddChild(_actions);
             if (_chat != null) _actions.BottomReserve = _chat.BlockHeight;
+
+            // Now both are here: the hotbar sits above the target block,
+            // which sits above the chat. Measured, not guessed.
+            if (_hotbar != null && _chat != null)
+                _hotbar.BottomReserve = _chat.BlockHeight + _actions.BlockHeight + 12f;
         });
 
         Widget("trade", () =>
@@ -404,7 +415,10 @@ public partial class GameView : Node2D
             ActionButtons.Seed(_client.Data);
             // Above the target row, which is itself above the chat block:
             // the row is one button tall plus the name label over it.
-            if (_chat != null) _hotbar.BottomReserve = _chat.BlockHeight + 16f * 2.6f + 16f * 1.8f + 24f;
+            // The reserve is set once both rows exist - see below. The
+            // hotbar is built before the target row, so measuring it
+            // here reads a null and puts the hotbar through the
+            // portrait.
             _ui.AddChild(_hotbar);
         });
         Widget("face", () =>
@@ -607,7 +621,9 @@ public partial class GameView : Node2D
         // covers the world.
         bool covered = PanelUp;
         if (_hotbar != null) _hotbar.Visible = !covered;
-        if (_actions != null) _actions.Visible = !covered;
+        // Not simply !covered: the row hides itself when there is
+        // nothing targeted, and this runs every frame.
+        if (_actions != null) _actions.Visible = !covered && _actions.HasTarget;
         // Seeded every frame rather than once: the client clears its
         // lists when the world changes under it - a room change or a
         // relogin - and a row that was filled at startup would empty and
@@ -751,12 +767,12 @@ public partial class GameView : Node2D
         if (obj == null)
         {
             _client.Data.TargetID = uint.MaxValue;      // tapped nothing: clear
-            _actions?.SetTarget((RoomObject)null);
+            _actions?.SetTarget(null, _client.Data.AvatarID);
             return;
         }
 
         _client.Data.TargetID = obj.ID;
-        _actions?.SetTarget(obj);
+        _actions?.SetTarget(obj, _client.Data.AvatarID);
     }
 
     /// <summary>
