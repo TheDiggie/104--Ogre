@@ -33,8 +33,23 @@ public partial class ActionButtons : Control
     [Export] public int IconSize = 40;
     [Export] public int ButtonSize = 72;
 
-    /// <summary>Pixels at the bottom already spoken for.</summary>
-    public float BottomReserve { get; set; }
+    /// <summary>
+    /// Pixels at the bottom already spoken for. Setting it relays out:
+    /// the row is rebuilt from a signature, and a reserve that changed
+    /// without touching the signature used to leave the buttons where
+    /// they were - which is how they ended up drawn over the menu row.
+    /// </summary>
+    public float BottomReserve
+    {
+        get => _reserve;
+        set
+        {
+            if (Mathf.IsEqualApprox(_reserve, value)) return;
+            _reserve = value;
+            _signature = "";
+        }
+    }
+    float _reserve;
 
     DataController _data;
     readonly List<Button> _pool = new List<Button>();

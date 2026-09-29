@@ -360,10 +360,13 @@ public partial class GameView : Node2D
             if (_chat != null) _actions.BottomReserve = _chat.BlockHeight;
 
 
-            // Now both are here: the hotbar sits above the target block,
-            // which sits above the chat. Measured, not guessed.
-            if (_hotbar != null && _chat != null)
-                _hotbar.BottomReserve = _chat.BlockHeight + _actions.BlockHeight + 12f;
+            // The hotbar's own reserve is not set here. It used to be,
+            // and it never took: this widget is built before the hotbar
+            // widget, so _hotbar was still null every time and the row
+            // kept a reserve of zero - which is why the buttons sat on
+            // top of the menu row along the bottom edge. It is set from
+            // _Process instead, where both blocks certainly exist and
+            // where it also follows the chat block growing and shrinking.
         });
 
         Widget("trade", () =>
@@ -912,6 +915,14 @@ public partial class GameView : Node2D
         // relogin - and a row that was filled at startup would empty and
         // stay empty.
         ActionButtons.Seed(_client.Data);
+        // Above the target block, which is above the chat. Measured
+        // rather than guessed, and re-measured because the chat block
+        // changes height with the number of lines it is showing. The
+        // target block's height counts even while nothing is targeted
+        // and the row is hidden, so the buttons do not hop down the
+        // screen and back the moment you tap something.
+        if (_hotbar != null && _chat != null)
+            _hotbar.BottomReserve = _chat.BlockHeight + (_actions?.BlockHeight ?? 0f) + 12f;
         _hotbar?.Sync(_client.Data);
         _look?.Sync(_client.Data);
         _book?.Sync(_client.Data);
