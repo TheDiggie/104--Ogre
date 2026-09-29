@@ -142,8 +142,19 @@ public partial class Vitals : Control
             DrawRect(new Rect2(x + 1f, row + 1f, (BarWidth - 2f) * fill, BarHeight - 2f), c);
             DrawRect(new Rect2(x, row, BarWidth, BarHeight), Edge, false, 1f);
 
+            // The name as well as the numbers. `UIAvatar.cpp` puts the
+            // condition's own icon beside each bar - Resource.Frames[0]
+            // - and that icon is the only label a bar gets there. Here
+            // three stats are colour-coded and everything else is grey,
+            // so a condition the server invents is a grey bar with two
+            // numbers on it and no way to tell what it measures. The
+            // library resolves ResourceName for exactly this, and the
+            // character sheet already uses it.
             Label label = _labels[i];
-            label.Text = $"{s.ValueCurrent} / {max}";
+            string name = s.ResourceName;
+            label.Text = string.IsNullOrWhiteSpace(name)
+                ? $"{s.ValueCurrent} / {max}"
+                : $"{name}  {s.ValueCurrent} / {max}";
             label.Position = new Vector2(x + 6f, row - 1f);
             label.Visible = true;
             i++;

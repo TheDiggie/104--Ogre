@@ -61,6 +61,10 @@ static class FakeServer
     const uint RID_SPELL2 = 60061;
     const uint RID_SKILL1 = 60062;
     const uint RID_SKILL2 = 60063;
+    const uint RID_COND1 = 60160;
+    const uint RID_COND2 = 60161;
+    const uint RID_COND3 = 60162;
+    const uint RID_COND4 = 60163;
     const uint RID_GLOBE = 60150;
     const uint RID_HEADLINE = 60151;
     const uint RID_HEADBGF = 60140;
@@ -178,6 +182,14 @@ static class FakeServer
             // so the palette points at a body and a hat. The compose
             // path is the same one a real head goes through; only the
             // pictures are wrong.
+            // Conditions carry a string id like everything else, and
+            // the client resolves it into the bar's name. Sending zero
+            // leaves every bar anonymous, which is what this fixture
+            // did while the client had nowhere to show a name anyway.
+            new RsbResourceID(RID_COND1,      "health",           4),
+            new RsbResourceID(RID_COND2,      "mana",             4),
+            new RsbResourceID(RID_COND3,      "vigor",            4),
+            new RsbResourceID(RID_COND4,      "toughness",        4),
             new RsbResourceID(RID_GLOBE,      "a notice board",   4),
             new RsbResourceID(RID_HEADLINE,   "Nothing here is true, and this is the board that says so.", 4),
             new RsbResourceID(RID_HEADBGF,    "bri.bgf",          4),
@@ -606,10 +618,10 @@ static class FakeServer
         var stats = new Stat[]
         {
             //            num, rid, tag, current, renderMin, renderMax, maximum
-            new StatNumeric(1, 0, 0,  74,  0, 120, 120),   // hit points
-            new StatNumeric(2, 0, 0,  38,  0,  90,  90),   // mana
-            new StatNumeric(3, 0, 0,  22,  0, 100, 100),   // vigor, low enough to blink
-            new StatNumeric(4, 0, 0,  61,  0, 100, 100),   // tougher chance
+            new StatNumeric(1, RID_COND1, 0,  74,  0, 120, 120),   // hit points
+            new StatNumeric(2, RID_COND2, 0,  38,  0,  90,  90),   // mana
+            new StatNumeric(3, RID_COND3, 0,  22,  0, 100, 100),   // vigor, low enough to blink
+            new StatNumeric(4, RID_COND4, 0,  61,  0, 100, 100),   // tougher chance
         };
 
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Condition, stats));
