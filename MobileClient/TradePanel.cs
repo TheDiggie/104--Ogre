@@ -49,6 +49,27 @@ public partial class TradePanel : Control
     /// <summary>Open the bag to pick something to add.</summary>
     public event Action AddWanted;
 
+    /// <summary>How many of this stackable of yours to offer.</summary>
+    public event Action<ObjectBase> AmountWanted;
+
+    /// <summary>
+    /// What you are parting with, by object id, where it is not the
+    /// whole stack. Kept beside the model rather than in it: the object
+    /// is the one in your pack, and writing a smaller number into it
+    /// would be claiming you own less than you do.
+    /// </summary>
+    readonly Dictionary<uint, uint> _amounts = new Dictionary<uint, uint>();
+
+    uint Offering(ObjectBase o) =>
+        _amounts.TryGetValue(o.ID, out uint n) ? n : (o.Count > 0 ? o.Count : 1u);
+
+    /// <summary>Sets how many of one line to offer.</summary>
+    public void SetAmount(uint id, uint count)
+    {
+        _amounts[id] = count < 1 ? 1 : count;
+        _mineSignature = "";
+    }
+
     ColorRect _panel;
     Label _title, _mine, _theirs;
     ScrollContainer _scrollMine, _scrollTheirs;
@@ -99,7 +120,7 @@ public partial class TradePanel : Control
             var send = new List<ObjectID>();
             if (_trade?.ItemsYou != null)
                 foreach (ObjectBase o in _trade.ItemsYou)
-                    if (o != null) send.Add(new ObjectID(o.ID, o.Count > 0 ? o.Count : 1));
+                    if (o != null) send.Add(new ObjectID(o.ID, Offering(o)));
             Offer?.Invoke(send);
         });
         _accept = Act("Accept", () => Accept?.Invoke());
@@ -256,7 +277,7 @@ public partial class TradePanel : Control
         var mine = new System.Text.StringBuilder();
         if (trade.ItemsYou != null)
             foreach (ObjectBase o in trade.ItemsYou)
-                mine.Append(o?.ID).Append(':').Append(o?.Count).Append(':').Append(o?.Name).Append(':')
+                mine.Append(o?.ID).Append(':').Append(o == null ? 0u : Offering(o)).Append(':').Append(o?.Name).Append(':')
                     .Append(o?.Flags != null && o.Flags.IsEquipped).Append(';');
         string nowMine = mine.ToString();
         if (nowMine != _mineSignature)
@@ -285,6 +306,7 @@ public partial class TradePanel : Control
 
     void Clear()
     {
+        _amounts.Clear();
         _theirSignature = "";
         _mineSignature = "";
         foreach (Node n in _rowsMine.GetChildren()) { _rowsMine.RemoveChild(n); n.QueueFree(); }
@@ -330,7 +352,25 @@ public partial class TradePanel : Control
             ((argb >> 16) & 0xFF) / 255f, ((argb >> 8) & 0xFF) / 255f, (argb & 0xFF) / 255f));
         line.AddChild(name);
 
-        if (count > 1)
+        if (mine && o.IsStackable)
+        {
+            // How many of the stack to offer. The game keeps this on
+            // the row and reads it when you press Offer, warning in its
+            // own comment not to trust the object's count
+            // (`UITrade.cpp:398-414`) - the object here is the one in
+            // your pack, and its count is what you own, not what you
+            // are parting with.
+            var many = new Button
+            {
+                Text = $"x{Offering(o)}",
+                Name = $"mine{o.ID}",
+                TooltipText = "How many",
+            };
+            many.AddThemeFontSizeOverride("font_size", FontSize);
+            many.Pressed += () => AmountWanted?.Invoke(o);
+            line.AddChild(many);
+        }
+        else if (count > 1)
         {
             var many = new Label
             {

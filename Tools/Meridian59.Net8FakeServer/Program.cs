@@ -557,9 +557,39 @@ static class FakeServer
 
                 case MessageTypeGameMode.ReqOffer:
                 case MessageTypeGameMode.ReqCounterOffer:
+                {
+                    // The lines are logged, not just the message name:
+                    // offering part of a stack is a thing the client can
+                    // now do, and "it said 23 on screen" is not evidence
+                    // that 23 went out. Same shape as a buy - the PI,
+                    // the partner, a count, then that many ObjectIDs.
                     Console.WriteLine($"  <- {(MessageTypeGameMode)pi}");
+                    try
+                    {
+                        // An offer names the partner first; a counter
+                        // offer does not - it is a reply, so the server
+                        // already knows who to. Reading one as the other
+                        // silently gives a nonsense count and prints
+                        // nothing, which is how this first went wrong.
+                        int cursor = 1;
+                        if ((MessageTypeGameMode)pi == MessageTypeGameMode.ReqOffer)
+                        {
+                            var partner = new ObjectID(body, cursor);
+                            cursor += partner.ByteLength;
+                        }
+                        ushort lines = BitConverter.ToUInt16(body, cursor);
+                        cursor += 2;
+                        for (int i = 0; i < lines; i++)
+                        {
+                            var line = new ObjectID(body, cursor);
+                            cursor += line.ByteLength;
+                            Console.WriteLine($"     offered {line.ID} x{line.Count}");
+                        }
+                    }
+                    catch (Exception e) { Console.WriteLine($"  !! offer: {e.Message}"); }
                     Say(ns, ctrl, RID_ECHO);
                     break;
+                }
 
                 case MessageTypeGameMode.AcceptOffer:
                     Console.WriteLine("  <- AcceptOffer");

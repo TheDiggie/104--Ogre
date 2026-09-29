@@ -77,6 +77,8 @@ public partial class GameView : Node2D
     bool _bagWasOpen;
     /// <summary>The shop line the amount prompt was opened for, if any.</summary>
     TradeOfferObject _amountFor;
+    /// <summary>The trade line the amount prompt was opened for, if any.</summary>
+    ObjectBase _amountForTrade;
     uint _targetBeforeBag = uint.MaxValue;
     RoomBuffsPanel _roomBuffs;
     Button _loot;
@@ -469,6 +471,12 @@ public partial class GameView : Node2D
             _trade.Cancel += () => Act(() => _client.SendCancelOffer());
             // Not the game's: it drags out of the inventory window, and
             // a phone cannot show both at once.
+            _trade.AmountWanted += o =>
+            {
+                if (_amount == null || o == null) return;
+                _amountForTrade = o;
+                _amount.Ask(o.ID, (int)o.Count, o.Name);
+            };
             _trade.AddWanted += () =>
             {
                 if (_bag == null) return;
@@ -646,6 +654,11 @@ public partial class GameView : Node2D
             {
                 // The prompt is asked for by more than one thing now, so
                 // what it means has to be remembered when it is opened.
+                // Which of the things that can ask is asking.
+                ObjectBase offering = _amountForTrade;
+                _amountForTrade = null;
+                if (offering != null) { _trade?.SetAmount(id, (uint)Math.Max(1, many)); return; }
+
                 TradeOfferObject line = _amountFor;
                 _amountFor = null;
                 if (line != null)
