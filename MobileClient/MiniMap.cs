@@ -81,7 +81,7 @@ public partial class MiniMap : Control
     // Fallback face, for when the dial cannot be loaded.
     static readonly Color Back   = new Color(0.82f, 0.82f, 0.80f, 0.92f);
 
-    Button _toggle;
+    Button _toggle, _in, _out;
     bool _shown = true;
     Texture2D _dial;
 
@@ -98,8 +98,19 @@ public partial class MiniMap : Control
         MouseFilter = MouseFilterEnum.Ignore;
 
         _toggle = new Button { Text = "Map" };
-        _toggle.Pressed += () => { _shown = !_shown; QueueRedraw(); };
+        _toggle.Pressed += () => { _shown = !_shown; Save(); Layout(); QueueRedraw(); };
         AddChild(_toggle);
+
+        // The game zooms with the mouse wheel, between 1 and 32
+        // (`UIMiniMap.cpp:107-118`). A wheel is desktop input but zoom
+        // is not a desktop feature: it is how you get from "where is
+        // that door" to "where am I in the level", and without it this
+        // map showed one fixed slice of the room for ever. Two buttons
+        // and a pinch stand in for the wheel.
+        _in = Step("+", 1f / 1.25f);
+        _out = Step("-", 1.25f);
+
+        Load();
 
         // The game's own minimap face. Loaded as a resource rather than
         // read off disk: Image.LoadFromFile works from the editor and
@@ -116,12 +127,96 @@ public partial class MiniMap : Control
         Layout();
     }
 
+    /// <summary>
+    /// A zoom button. Multiplicative rather than the game's flat 0.2 a
+    /// notch: a notch is cheap on a wheel and a tap is not, so each press
+    /// has to be worth making.
+    /// </summary>
+    Button Step(string text, float factor)
+    {
+        var b = new Button { Text = text, Name = text == "+" ? "mapIn" : "mapOut" };
+        b.AddThemeFontSizeOverride("font_size", 24);
+        // Black on the dial's pale face, with a light outline so it
+        // still reads where a wall shows through the face.
+        b.AddThemeColorOverride("font_color", new Color(0.1f, 0.1f, 0.1f));
+        b.AddThemeColorOverride("font_hover_color", new Color(0.1f, 0.1f, 0.1f));
+        b.AddThemeColorOverride("font_outline_color", new Color(1f, 1f, 1f));
+        b.AddThemeConstantOverride("outline_size", 4);
+        b.Pressed += () =>
+        {
+            Zoom = Mathf.Clamp(Zoom * factor, MinZoom, MaxZoom);
+            Save();
+            QueueRedraw();
+        };
+        AddChild(b);
+        return b;
+    }
+
+    /// <summary>
+    /// Pinch, where the device sends one. Factor above one is fingers
+    /// spreading, which means zoom in, which means fewer server units
+    /// per pixel - so it divides.
+    /// </summary>
+    public override void _UnhandledInput(InputEvent e)
+    {
+        if (!_shown || e is not InputEventMagnifyGesture pinch) return;
+        if (pinch.Factor <= 0f) return;
+        Zoom = Mathf.Clamp(Zoom / pinch.Factor, MinZoom, MaxZoom);
+        Save();
+        QueueRedraw();
+    }
+
     void Layout()
     {
         if (_toggle == null) return;
         Vector2 v = GetViewportRect().Size;
         _toggle.Size = new Vector2(70, 40);
         _toggle.Position = new Vector2(v.X - 70 - Margin, v.Y - 40 - Margin);
+
+        // On the dial's own face rather than under it. Below the dial
+        // they sat over the world, where a dark button on a dark wall is
+        // barely a shape; the face is pale and holds them.
+        float w = 40f, h = 34f;
+        float left = v.X - MapSize - Margin;
+        float y = Margin + MapSize * 0.72f;
+        _out.Size = _in.Size = new Vector2(w, h);
+        _out.Position = new Vector2(left + MapSize * 0.5f - w - 6f, y);
+        _in.Position = new Vector2(left + MapSize * 0.5f + 6f, y);
+        _in.Visible = _out.Visible = _shown;
+    }
+
+    const string PrefsPath = "user://view.cfg";
+
+    /// <summary>
+    /// Keeps the map's zoom and whether it is up at all. The game saves
+    /// both to its own configuration on the way out
+    /// (`ControllerUI.cpp:643`) and restores them on a mode change
+    /// (`:722`). Turning the map off and finding it back next launch is
+    /// not a desktop-only complaint.
+    /// </summary>
+    void Save()
+    {
+        try
+        {
+            var f = new ConfigFile();
+            f.Load(PrefsPath);
+            f.SetValue("map", "zoom", Zoom);
+            f.SetValue("map", "shown", _shown);
+            f.Save(PrefsPath);
+        }
+        catch (Exception e) { GD.PrintErr($"[MiniMap] save: {e.Message}"); }
+    }
+
+    void Load()
+    {
+        try
+        {
+            var f = new ConfigFile();
+            if (f.Load(PrefsPath) != Error.Ok) return;
+            Zoom = Mathf.Clamp((float)f.GetValue("map", "zoom", Zoom), MinZoom, MaxZoom);
+            _shown = (bool)f.GetValue("map", "shown", _shown);
+        }
+        catch (Exception e) { GD.PrintErr($"[MiniMap] load: {e.Message}"); }
     }
 
     /// <summary>
