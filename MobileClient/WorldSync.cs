@@ -170,9 +170,20 @@ public sealed class WorldSync
         else if (f.Drawing == ObjectFlags.DrawingType.Black)
             sp.TintR = sp.TintG = sp.TintB = 0f;
 
-        // TARGET
-        else if (o.IsTarget)
-        { sp.TintR = 5f; sp.TintG = 3f; sp.TintB = 3f; }
+        // TARGET is handled in the picture, not here - see below. The
+        // Ogre client's `base_material_target` multiplies the sprite by
+        // (5, 3, 3) (`Resources/shader/general.material:341`), and that
+        // is the right effect for a 3D billboard. Applied here it ran
+        // ON TOP of the red edge the composer had already baked in, and
+        // a target came out flooded pink with a red rim round it -
+        // neither of the two things the game does, and the one thing
+        // Ashton asked for by name was the edge.
+        //
+        // So the edge wins and the modifier goes. This renderer draws
+        // 2D sprites, which is the classic client's family, and the
+        // classic client's effect is `ImageComposerGDI.DrawPostEffectTarget`
+        // - the red-sided silhouette. `_compose.Get(o, eye, o.IsTarget)`
+        // asks for it; M59Compose.Outline does it.
 
         // MOUSEOVER would go here.
 
