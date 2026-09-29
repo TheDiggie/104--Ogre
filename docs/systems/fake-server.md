@@ -42,3 +42,18 @@ unkillable - an hour spent reading client code that was right the whole
 time. Dump the bytes before believing a parse.
 
 See also: ../../CLAUDE.md | wire format -> wire-format.md
+
+## The server's half of a trade
+Tags: gotchas, process | An offer used to go out and nothing come back, so IsItemsYouSet stayed false and the window sat on "Offer" forever
+
+The fixture now answers with `OfferedMessage` for an offer and
+`CounterOfferedMessage` for a counter-offer. With it, the window fills in
+"You offer" from the server rather than only locally, and the buttons
+collapse to Cancel alone.
+
+Accept stays hidden throughout, and that is correct: the reference gates
+it on `IsItemsYouSet && IsItemsPartnerSet && !IsBackgroundOffer`
+(`UITrade.cpp:94-97`), and a trade the other party opened is a background
+offer. You counter; they accept.
+
+See also: the trade panel -> mobile-client.md

@@ -1,5 +1,5 @@
 # THE CORE DIET - CLAUDE.md section heat (tools/core_diet.py; regenerated whole each run)
-# window 30 days | core ~619 tokens | budget 2000 | 2026-09-29 14:56
+# window 30 days | core ~619 tokens | budget 2000 | 2026-09-29 10:48
 # heading | level | ~tokens | reads | follows | last edit (days) | route | verdict
 The one law of this port | 2 | 93 | 0 | 0 | 0 | core | pinned
 How to read this repo | 2 | 53 | 0 | 0 | 0 | core | pinned

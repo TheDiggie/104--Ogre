@@ -637,6 +637,26 @@ static class FakeServer
                             cursor += line.ByteLength;
                             Console.WriteLine($"     offered {line.ID} x{line.Count}");
                         }
+
+                        // And the server confirms YOUR side back to
+                        // you. Until this existed the offer went out and
+                        // nothing came back, so TradeInfo.IsItemsYouSet
+                        // stayed false and the window sat on "Offer"
+                        // forever - the half of the trade that belongs
+                        // to the server was never tested at all.
+                        // Offered answers an offer, CounterOffered a
+                        // counter: the client files them in the same
+                        // place but only the matching one arrives in a
+                        // real session.
+                        var mine = new ObjectBase[]
+                        {
+                            Item(9201, RID_BOOKBGF, RID_BOOK, 0),
+                        };
+                        if ((MessageTypeGameMode)pi == MessageTypeGameMode.ReqOffer)
+                            Send(ns, ctrl, new OfferedMessage(mine));
+                        else
+                            Send(ns, ctrl, new CounterOfferedMessage(mine));
+                        Console.WriteLine("  -> confirmed your side");
                     }
                     catch (Exception e) { Console.WriteLine($"  !! offer: {e.Message}"); }
                     Say(ns, ctrl, RID_ECHO);
