@@ -35,3 +35,20 @@ See also: ActionButtons.cs
 Tags: gotchas | RootClient.Init() creates Data, so anything subscribing to Data must run after _client.Init()
 
 See also: GameView.cs
+
+## A ScrollContainer sizes its child to that child's minimum
+Tags: gotchas, lessons | The rows' container must ask to expand, or the list is only as wide as its longest line and every column after the name lands where that row's text ended
+
+Four panels had `SizeFlagsHorizontal = ExpandFill` on the NAME LABEL
+inside each row, which is correct and does nothing on its own: the
+VBoxContainer holding the rows is the ScrollContainer's child, and
+without the same flag on IT the whole list stays at its minimum width.
+
+What that looks like is not an obvious layout bug. Nothing overlaps and
+nothing is cut off. The percentages and the bind buttons simply sit
+wherever each row's text happened to end - a ragged column of tap
+targets a thumb has to hunt for, with most of the panel going spare
+beside it. InventoryPanel had the flag all along, which is why its grid
+looked right and the lists did not.
+
+See also: the panels -> mobile-client.md

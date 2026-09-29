@@ -105,12 +105,19 @@ public partial class TradePanel : Control
 
         _rowsMine = new VBoxContainer();
         _rowsMine.AddThemeConstantOverride("separation", 3);
+        // The rows span the panel: a ScrollContainer sizes its child
+        // to that child's MINIMUM width unless it asks to expand, so
+        // without this the list is only as wide as its longest line and
+        // every column after the name lands wherever that row's text
+        // ended. Same one line in SpellsPanel, where it was found.
+        _rowsMine.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _scrollMine = new ScrollContainer { Visible = false };
         _scrollMine.AddChild(_rowsMine);
         AddChild(_scrollMine);
 
         _rowsTheirs = new VBoxContainer();
         _rowsTheirs.AddThemeConstantOverride("separation", 3);
+        _rowsTheirs.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _scrollTheirs = new ScrollContainer { Visible = false };
         _scrollTheirs.AddChild(_rowsTheirs);
         AddChild(_scrollTheirs);

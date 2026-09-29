@@ -113,6 +113,12 @@ public partial class LootPanel : Control
 
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 4);
+        // The rows span the panel: a ScrollContainer sizes its child
+        // to that child's MINIMUM width unless it asks to expand, so
+        // without this the list is only as wide as its longest line and
+        // every column after the name lands wherever that row's text
+        // ended. Same one line in SpellsPanel, where it was found.
+        _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
 
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);

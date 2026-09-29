@@ -3,8 +3,8 @@
 # last appended line - not append-only, this one small state file is
 # meant to be rewritten (the ledgers themselves never are).
 # ledger basename | head hash | dirty signature | last appended date time
-core_diet_runs.txt | ff3577a | b55ac25e1069 | 2026-09-29 10:48
-format_lint_runs.txt | ff3577a | 727fbec00f61 | 2026-09-29 10:48
-lesson_runs.txt | ff3577a | 727fbec00f61 | 2026-09-29 10:48
-purpose_audit_runs.txt | ff3577a | 727fbec00f61 | 2026-09-29 10:48
-wiki_link_runs.txt | ff3577a | 727fbec00f61 | 2026-09-29 10:48
+core_diet_runs.txt | 5060dc9 | b55ac25e1069 | 2026-09-29 11:24
+format_lint_runs.txt | 5060dc9 | 727fbec00f61 | 2026-09-29 11:24
+lesson_runs.txt | 5060dc9 | 727fbec00f61 | 2026-09-29 11:24
+purpose_audit_runs.txt | 5060dc9 | 727fbec00f61 | 2026-09-29 11:24
+wiki_link_runs.txt | 5060dc9 | 727fbec00f61 | 2026-09-29 11:24

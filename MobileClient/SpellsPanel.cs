@@ -87,6 +87,14 @@ public partial class SpellsPanel : Control
 
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 4);
+        // A ScrollContainer sizes its child to that child's MINIMUM
+        // width unless the child asks to expand, and the rows' minimum
+        // is whatever their text happens to need. Without this the list
+        // was as wide as its longest spell name, so the percentage and
+        // the bind button sat wherever each row's text ended - a ragged
+        // column of tap targets a thumb has to hunt for, on a panel with
+        // most of the screen going spare beside it.
+        _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
