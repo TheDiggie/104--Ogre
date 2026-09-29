@@ -52,9 +52,12 @@ public partial class AmountPrompt : Control
         _entry.TextSubmitted += _ => Accept();
         AddChild(_entry);
 
-        _less = Small("-", () => Nudge(-1));
-        _more = Small("+", () => Nudge(+1));
-        _all = Small("All", () => { _entry.Text = _max.ToString(); Clamp(true); });
+        // Named as well as captioned: the minimap's zoom buttons are
+        // also "-" and "+", so a scripted run asking for one by text
+        // could reach either.
+        _less = Small("-", () => Nudge(-1), "amountLess");
+        _more = Small("+", () => Nudge(+1), "amountMore");
+        _all = Small("All", () => { _entry.Text = _max.ToString(); Clamp(true); }, "amountAll");
         _ok = Small("OK", Accept);   // the game's button is an OK
         _cancel = Small("Cancel", Close);
 
@@ -62,9 +65,10 @@ public partial class AmountPrompt : Control
         Layout();
     }
 
-    Button Small(string text, Action pressed)
+    Button Small(string text, Action pressed, string name = null)
     {
         var b = new Button { Text = text, Visible = false };
+        if (name != null) b.Name = name;
         b.AddThemeFontSizeOverride("font_size", FontSize);
         b.Pressed += pressed;
         AddChild(b);
