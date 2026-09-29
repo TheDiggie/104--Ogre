@@ -53,6 +53,7 @@ public partial class GameView : Node2D
     MailPanel _mail;
     GuildPanel _guild;
     ConfirmPopup _ask;
+    StatsWizard _wizard;
     NpcQuestsPanel _npcQuests;
     TradePanel _trade;
     /// <summary>Who asked the bag for something: the trade, or a container.</summary>
@@ -406,6 +407,16 @@ public partial class GameView : Node2D
             _ui.AddChild(_mail);
         });
         Widget("ask", () => { _ask = new ConfirmPopup(); _ui.AddChild(_ask); });
+        Widget("statwizard", () =>
+        {
+            // No button opens this either: the server offers a stat
+            // change and the data layer raises it.
+            _wizard = new StatsWizard();
+            _wizard.Apply += () => Act(() => _client.SendChangedStatsMessage());
+            _wizard.Confirm += (text, yes) => _ask?.Choice(text, 0, _ => yes());
+            _wizard.Complain += text => _ask?.Tell(text);
+            _ui.AddChild(_wizard);
+        });
         Widget("guild", () =>
         {
             // No button opens this: UserCommandGuildInfo raises it.
@@ -749,6 +760,7 @@ public partial class GameView : Node2D
         _bar?.Sync(_client.Data);
         _mail?.Sync(_client.ResourceManager?.Mails);
         _guild?.Sync(_client.Data?.GuildInfo, _client.Data != null ? _client.Data.AvatarID : 0u);
+        _wizard?.Sync(_client.Data?.StatChangeInfo);
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
@@ -1006,6 +1018,7 @@ public partial class GameView : Node2D
         || (_npcQuests != null && _npcQuests.IsOpen)
         || (_mail != null && _mail.IsOpen)
         || (_guild != null && _guild.IsOpen)
+        || (_wizard != null && _wizard.IsOpen)
         || (_ask != null && _ask.IsOpen);
 
     /// <summary>

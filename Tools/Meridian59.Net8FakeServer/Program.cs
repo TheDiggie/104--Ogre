@@ -293,6 +293,14 @@ static class FakeServer
                     new StopSound(RID_RATSOUND, 0)));
             }
 
+            // The stat change wizard has no request behind it - the
+            // server offers one and the client puts it up. There is
+            // nothing for a test to press, so it goes out a few
+            // messages in, and only when asked for: it covers the
+            // screen, and every other fixture here wants a clear one.
+            if (statChangeAfter > 0 && --statChangeAfter == 0)
+                SendStatChange(ns, ctrl);
+
             switch ((MessageTypeGameMode)pi)
             {
                 case MessageTypeGameMode.SendCharacters:
@@ -726,6 +734,17 @@ static class FakeServer
         => new ServerString(ChatMessageType.SystemMessage, strings, rid,
                             new List<InlineVariable>(), new List<ChatStyle>());
 
+    /// <summary>
+    /// Messages to wait before offering a stat change, or zero for
+    /// never. Set M59_STATCHANGE=1 to turn it on. Reset per client the
+    /// way stopAfter is: this server is reconnected to between runs,
+    /// and a counter that only counts once fires for the first run
+    /// only - which is what the first attempt did.
+    /// </summary>
+    static readonly bool wantStatChange =
+        Environment.GetEnvironmentVariable("M59_STATCHANGE") == "1";
+    static int statChangeAfter;
+
     static int lootLeft = 3;
     static bool lootOpen;
 
@@ -928,6 +947,31 @@ static class FakeServer
         Send(ns, ctrl, new UserCommandMessage(new UserCommandGuildInfo(info), strings));
     }
 
+    /// <summary>
+    /// A stat change on offer.
+    ///
+    /// StatChangeInfo's OrigLevel fields have protected setters - only
+    /// its own ReadFrom fills them, and it sets each school's current
+    /// level to the level you arrived with as it goes. So the fixture
+    /// is built as the thirteen bytes the model reads rather than by
+    /// assignment: six attributes, then seven school levels.
+    ///
+    /// The numbers are chosen to make the rules visible. The six come
+    /// to 195 of the 220 allowed, so there are 25 points spare to push
+    /// around; and three schools are studied, which puts a floor under
+    /// intellect that only giving those levels up will lower.
+    /// </summary>
+    static void SendStatChange(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        byte[] raw =
+        {
+            40, 35, 30, 30, 30, 30,   // might, intellect, stamina, agility, mysticism, aim
+            3, 0, 2, 0, 0, 0, 4,      // sha, qor, kraanan, faren, riija, jala, weaponcraft
+        };
+
+        Send(ns, ctrl, new ReqStatChangeMessage(new StatChangeInfo(raw)));
+    }
+
     static void SendNPCQuests(NetworkStream ns, MessageControllerClient ctrl)
     {
         var quests = new[]
@@ -1065,6 +1109,7 @@ static class FakeServer
         Send(ns, ctrl, new PlayWaveMessage(
             new PlaySound(RID_RATSOUND, 0, new PlaySound.Flags(1), 11, 12, 0, 100)));
         stopAfter = 8;
+        statChangeAfter = wantStatChange ? 12 : 0;
 
         // Somebody offering you a trade. OfferMessage carries the
         // partner and what they are putting up, and the client's
