@@ -201,15 +201,19 @@ What you have to do:
    keystore there too.
 2. *Editor > Manage Export Templates* and download the templates for
    your exact Godot version.
-3. Install a **.NET 9 SDK**. Godot 4.7.2's Android template embeds a
-   .NET 9 runtime and refuses assemblies built for anything else:
-   *"C# project targets 'net8.0' but the export template only supports
-   'net9.0'"*. The desktop templates are happy with net8.0, and the
-   rest of this repo builds against net8.0, so rather than move
-   everything the two csproj files read `M59TFM` from the environment
-   and fall back to net8.0 - MSBuild reads environment variables as
-   properties. Set `M59TFM=net9.0` for an Android build and leave it
-   unset for everything else.
+3. Install a **.NET 9 SDK**, and set `<TargetFramework>` to `net9.0`
+   in `MobileClient.csproj` and `Meridian59/net8.csproj` for the
+   duration of the build. Godot 4.7.2's Android template embeds a .NET 9
+   runtime and refuses anything else: *"C# project targets 'net8.0' but
+   the export template only supports 'net9.0'"*. The desktop templates
+   are happy with net8.0 and the rest of the repo builds against it, so
+   the tree stays on net8.0 and the Android build swaps those two lines.
+
+   An MSBuild condition driven by an environment variable looks like the
+   tidy way to do this and does not work: Godot reads `TargetFramework`
+   out of the csproj XML rather than evaluating the project, so it sees
+   whichever literal is written there and reports net8.0 no matter what
+   the environment says.
 4. Copy an installed client's `resource` folder into `MobileClient/resource`.
    It is gitignored - it is hundreds of megabytes and it is not ours.
 5. *Project > Export > Android > Export Project*, or headless:
