@@ -293,7 +293,14 @@ public partial class TradePanel : Control
     ImageTexture Icon(ObjectBase o)
     {
         if (o?.Resource == null) return null;
-        string key = $"{o.Resource.Filename}:{IconSize}";
+        // Keyed on everything the composed picture depends on. The
+        // file alone was not enough: two items sharing a BGF but dyed
+        // differently compose to different pictures, and an item that
+        // changes appearance kept the first icon it was ever drawn
+        // with - where the game's composer re-pushes a texture every
+        // time the object changes.
+        int frame = o.ViewerFrameIndex >= 0 ? o.ViewerFrameIndex : 0;
+        string key = $"{o.Resource.Filename}:{frame}:{IconSize}:{o.ColorTranslation}:{o.Effect}";
         if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
 
         ImageTexture tex = null;

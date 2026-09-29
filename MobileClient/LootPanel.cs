@@ -225,9 +225,20 @@ public partial class LootPanel : Control
 
         if (!IsOpen) Show(true);
 
+        // The name and the flags are in the signature, not just the id
+        // and the count. The contents window is the one window the game
+        // rebuilds on ItemChanged as well as on add and delete
+        // (`UIObjectContents.cpp:77`, `:165`), and for good reason: the
+        // library resolves names out of the string file *after* the list
+        // arrives (`DataController.ResolveStrings`), and the flags that
+        // pick the name's colour arrive late too. A signature of id and
+        // count cannot see either, so rows kept saying "(unnamed)" in
+        // the wrong colour for as long as the window was open.
         var sb = new System.Text.StringBuilder();
         foreach (ObjectBase o in items)
-            sb.Append(o?.ID).Append(':').Append(o?.Count).Append(';');
+            sb.Append(o?.ID).Append(':').Append(o?.Count).Append(':')
+              .Append(o?.Name).Append(':')
+              .Append(o?.Flags != null ? NameColors.GetColorFor(o.Flags) : 0u).Append(';');
         string now = sb.ToString();
         if (now == _signature) return;
         _signature = now;
