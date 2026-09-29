@@ -52,6 +52,14 @@ public partial class TradePanel : Control
     /// <summary>How many of this stackable of yours to offer.</summary>
     public event Action<ObjectBase> AmountWanted;
 
+    /// <summary>Describe this row - raised by a hold, the right click's stand-in.</summary>
+    public event Action<uint> Look;
+
+    /// <summary>How long a press is held before it describes the row.</summary>
+    [Export] public ulong LongPressMs = 600;
+
+    ulong _downAt;
+
     /// <summary>
     /// What you are parting with, by object id, where it is not the
     /// whole stack. Kept beside the model rather than in it: the object
@@ -328,8 +336,32 @@ public partial class TradePanel : Control
 
     Control Row(ObjectBase o, int count, bool mine)
     {
-        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
+        // The row sits inside a button so it can be held. The game
+        // looks at a trade row on a right click, on both sides
+        // (`UITrade.cpp:441`, `:453`), and knowing what someone is
+        // actually offering you before you accept it is the whole
+        // point. A tap does nothing: the game has no left-click action
+        // here either, and a tap that threw a panel over the trade
+        // would be worse than none.
+        var press = new Button
+        {
+            CustomMinimumSize = new Vector2(0, RowHeight),
+            Flat = true,
+            Name = (mine ? "myrow" : "theirrow") + o.ID,
+        };
+        press.ButtonDown += () => _downAt = Time.GetTicksMsec();
+        press.Pressed += () =>
+        {
+            ulong down = _downAt;
+            _downAt = 0;
+            if (down != 0 && Time.GetTicksMsec() - down >= LongPressMs) Look?.Invoke(o.ID);
+        };
+
+        var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+        line.SetAnchorsPreset(LayoutPreset.FullRect);
+        line.OffsetLeft = 6; line.OffsetTop = 2; line.OffsetRight = -6; line.OffsetBottom = -2;
         line.AddThemeConstantOverride("separation", 8);
+        press.AddChild(line);
 
         line.AddChild(new TextureRect
         {
@@ -383,7 +415,7 @@ public partial class TradePanel : Control
             line.AddChild(many);
         }
 
-        return line;
+        return press;
     }
 
     ImageTexture Icon(ObjectBase o)

@@ -471,6 +471,7 @@ public partial class GameView : Node2D
             _trade.Cancel += () => Act(() => _client.SendCancelOffer());
             // Not the game's: it drags out of the inventory window, and
             // a phone cannot show both at once.
+            _trade.Look += id => Act(() => _client.SendReqLookMessage(id));
             _trade.AmountWanted += o =>
             {
                 if (_amount == null || o == null) return;
