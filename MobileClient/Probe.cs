@@ -75,6 +75,21 @@ public partial class Probe : Node2D
             Say("  dual-stack socket ok");
         });
 
+        // The game app never got past this: the probe found the data
+        // still packed, and it shares the app's storage - so if the game
+        // had unpacked it once, this would say False.
+        Step("unpack the game data", () =>
+        {
+            if (!M59Paths.NeedsUnpack()) { Say("  already unpacked"); return; }
+            int n = M59Paths.UnpackIfNeeded(m => Say("  " + m));
+            Say($"  wrote {n} files");
+        });
+
+        Step("resolve again after unpacking", () =>
+        {
+            Say($"  resources: {M59Paths.Resolve("") ?? "(none found)"}");
+        });
+
         Step("compose a frame", () =>
         {
             // The composer is the one thing here that touches the
