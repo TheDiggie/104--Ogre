@@ -41,6 +41,13 @@ public partial class SpellsPanel : Control
     public event Action<uint> Look;
     /// <summary>Raised on opening, to ask the server for a fresh list.</summary>
     public event Action Opened;
+    /// <summary>
+    /// Put this on the hotbar: the id, and whether it is a spell. The
+    /// game does this by dragging the row onto a button, which a phone
+    /// cannot do while this panel is covering the hotbar - so the row
+    /// carries a button instead.
+    /// </summary>
+    public event Action<uint, bool> Assign;
 
     Button _open;
     ColorRect _panel;
@@ -236,6 +243,19 @@ public partial class SpellsPanel : Control
         percent.AddThemeFontSizeOverride("font_size", FontSize);
         percent.AddThemeColorOverride("font_color", new Color(0.8f, 0.85f, 0.95f));
         line.AddChild(percent);
+
+        // Sits inside the row but takes its own presses, so tapping it
+        // binds without also describing or casting.
+        var bind = new Button
+        {
+            Text = "+",
+            TooltipText = "Put on the hotbar",
+            CustomMinimumSize = new Vector2(RowHeight, 0),
+            Name = $"bind{id}",
+        };
+        bind.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        bind.Pressed += () => Assign?.Invoke(id, spell);
+        line.AddChild(bind);
 
         return button;
     }

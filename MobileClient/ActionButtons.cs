@@ -58,6 +58,7 @@ public partial class ActionButtons : Control
     readonly List<int> _nums = new List<int>();
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
     string _signature = "";
+    ulong _downAt;
     Meridian59.Data.Lists.ActionButtonList _list;
 
     /// <summary>
@@ -140,6 +141,62 @@ public partial class ActionButtons : Control
     }
 
     /// <summary>
+    /// How long a press has to be held before it clears the button
+    /// instead of firing it.
+    /// </summary>
+    [Export] public ulong LongPressMs = 600;
+
+    /// <summary>
+    /// Binds a spell, a skill or an item to a button - the phone's
+    /// stand-in for the game's drag and drop.
+    ///
+    /// In the game every one of the 48 slots is on screen at once, empty
+    /// ones included, and you drop a spell from the spell list or an item
+    /// from the inventory onto whichever one you want
+    /// (`UIActionButtons.cpp:359-438`). None of that survives the port:
+    /// the lists you would drag from cover the whole screen on a phone,
+    /// so the hotbar you would drop onto is not even visible while you
+    /// are holding the thing to drop. The list panels carry a button per
+    /// row instead, and this is what it calls.
+    ///
+    /// The slot chosen is the first unset one, and a new one is appended
+    /// when they are all taken. That is the part the game does not have
+    /// to decide, because its grid is a fixed 48 and ours is however many
+    /// fit across one row.
+    ///
+    /// The setters are the library's, so what a bound button then does
+    /// when pressed is the dispatch in BaseClient - not a second copy of
+    /// it here.
+    /// </summary>
+    public static bool Bind(DataController data, object what)
+    {
+        if (data?.ActionButtons == null || what == null) return false;
+
+        ActionButtonConfig slot = null;
+        int next = 0;
+        foreach (ActionButtonConfig b in data.ActionButtons)
+        {
+            if (b == null) continue;
+            if (b.Num >= next) next = b.Num + 1;
+            if (slot == null && b.ButtonType == ActionButtonType.Unset) slot = b;
+        }
+
+        if (slot == null)
+        {
+            slot = new ActionButtonConfig(next, ActionButtonType.Unset, "");
+            data.ActionButtons.Add(slot);
+        }
+
+        switch (what)
+        {
+            case SpellObject spell:    slot.SetToSpell(spell); return true;
+            case SkillObject skill:    slot.SetToSkill(skill); return true;
+            case InventoryObject item: slot.SetToItem(item);   return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Rebuilds the row when the configured buttons change. Called every
     /// frame; a signature keeps it from rebuilding for nothing.
     /// </summary>
@@ -207,6 +264,13 @@ public partial class ActionButtons : Control
             _nums.Add(cfg.Num);
             if (b.HasMeta("wired")) continue;
             b.SetMeta("wired", true);
+            // Held rather than tapped clears the button, which is the
+            // phone's version of dragging one off the grid onto the root
+            // window (`UIActionButtons.cpp:471`). Timed from the press
+            // down rather than handled separately, because a Button
+            // raises Pressed on the release either way - two handlers
+            // would fire the spell as well as forget it.
+            b.ButtonDown += () => _downAt = Time.GetTicksMsec();
             b.Pressed += () => Fire(slot);
         }
 
@@ -223,7 +287,19 @@ public partial class ActionButtons : Control
     {
         if (slot < 0 || slot >= _nums.Count) return;
         ActionButtonConfig cfg = _data?.ActionButtons?.GetByNum(_nums[slot]);
-        try { cfg?.Activate(); }
+        if (cfg == null) return;
+
+        // Zero means no press-down was seen, which is how a scripted
+        // press arrives: those are taps, never holds.
+        ulong down = _downAt;
+        _downAt = 0;
+        if (down != 0 && Time.GetTicksMsec() - down >= LongPressMs)
+        {
+            cfg.SetToUnset();
+            return;
+        }
+
+        try { cfg.Activate(); }
         catch (Exception e) { GD.PrintErr($"[ActionButtons] {cfg?.Name}: {e.Message}"); }
     }
 

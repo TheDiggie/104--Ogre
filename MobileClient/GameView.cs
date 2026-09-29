@@ -611,6 +611,22 @@ public partial class GameView : Node2D
             _book.Cast += id => Act(() => _client.SendReqCastMessage(id));
             _book.Perform += id => Act(() => _client.SendReqPerformMessage(id));
             _book.Look += id => Act(() => _client.SendReqLookMessage(id));
+            // The row's list and the objects the hotbar needs are two
+            // different lists: the panel shows AvatarSpells / AvatarSkills,
+            // which are stat rows, while a button holds the SpellObject or
+            // SkillObject. The game pairs them by position
+            // (`UIActionButtons.cpp:394-411`); pairing by id is the same
+            // answer whenever the two are in step and the right one when
+            // they are not.
+            _book.Assign += (id, spell) => Act(() =>
+            {
+                object what = spell
+                    ? (object)_client.Data?.SpellObjects?.GetItemByID(id)
+                    : _client.Data?.SkillObjects?.GetItemByID(id);
+                if (what == null) { _chat?.Local("Nothing to put on the hotbar yet."); return; }
+                if (ActionButtons.Bind(_client.Data, what))
+                    _chat?.Local($"{(what as Meridian59.Data.Models.ObjectBase)?.Name} is on the hotbar. Hold the button to clear it.");
+            });
             _ui.AddChild(_book);
         });
         Widget("hotbar", () =>
