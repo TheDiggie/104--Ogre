@@ -18,13 +18,23 @@ using Meridian59.Drawing2D;
 /// The list arrives from the server: `SendSendPlayers` asks and a
 /// `Players` message answers, which the data layer sorts by name.
 ///
-/// The game's row has a checkbox next to the name for an ignore list
-/// that its own source marks "todo: set ignorestate" and never
-/// implements. There is no checkbox here. Tapping a name starts a tell
-/// to that player instead, which the game does from the chat bar - a
-/// phone has no chat bar to type a name into, so the list is the way
-/// in. That much is not mirrored, and is marked here because it is the
-/// only part that is not.
+/// Each row has a checkbox for the ignore list, as the game's does.
+/// This file used to claim the game never implemented it, on the
+/// strength of a "todo: set ignorestate" comment in
+/// `UIOnlinePlayers.cpp` - that comment is about refreshing the
+/// checkbox when a row changes, and the rest is fully wired and
+/// load-bearing: `OnIgnoreSelectStateChanged` adds or removes the
+/// player's name in `Data.IgnoreList`, `HandleSaid` drops an incoming
+/// message outright when its speaker is on that list, and the list is
+/// saved per connection and reloaded on connect. Nothing is sent to
+/// the server; the filtering is entirely this side. Blocking someone
+/// is one of the few things a player can do about another, so it is
+/// worth having.
+///
+/// Tapping the name starts a tell to that player, which the game does
+/// from the chat bar - a phone has no chat bar to type a name into, so
+/// the list is the way in. That much is an addition rather than a
+/// mirror.
 /// </summary>
 public partial class PlayersPanel : Control
 {
@@ -146,13 +156,18 @@ public partial class PlayersPanel : Control
     Control Row(OnlinePlayer p)
     {
         string who = string.IsNullOrWhiteSpace(p.Name) ? "(unnamed)" : p.Name;
+        int index = _rows.GetChildCount();
+
+        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
+        line.AddThemeConstantOverride("separation", 6);
 
         var b = new Button
         {
             Text = who,
             Alignment = HorizontalAlignment.Left,
-            CustomMinimumSize = new Vector2(0, RowHeight),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
             TooltipText = Kind(p.Flags),
+            Name = $"who{index}",
         };
         b.AddThemeFontSizeOverride("font_size", FontSize);
 
@@ -163,8 +178,32 @@ public partial class PlayersPanel : Control
             (argb & 0xFF) / 255f));
 
         b.Pressed += () => Tell?.Invoke(who);
-        return b;
+        line.AddChild(b);
+
+        var ignore = new CheckBox
+        {
+            Text = "mute",
+            ButtonPressed = _ignored != null && _ignored.Contains(p.Name),
+            Name = $"mute{index}",
+        };
+        ignore.AddThemeFontSizeOverride("font_size", FontSize - 3);
+        string name = p.Name;
+        ignore.Toggled += on => Ignore?.Invoke(name, on);
+        line.AddChild(ignore);
+
+        return line;
     }
+
+    /// <summary>
+    /// Someone was muted or unmuted. The caller owns the list, because
+    /// it is the client's and it outlives this panel.
+    /// </summary>
+    public event Action<string, bool> Ignore;
+
+    System.Collections.Generic.List<string> _ignored;
+
+    /// <summary>The list the checkboxes are drawn from.</summary>
+    public void Follow(System.Collections.Generic.List<string> ignored) => _ignored = ignored;
 
     /// <summary>
     /// What the game's tooltip says they are, decided by the same flags

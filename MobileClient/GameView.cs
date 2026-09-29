@@ -524,6 +524,15 @@ public partial class GameView : Node2D
             // Left of the character sheet button.
             _players = new PlayersPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 3f };
             _players.Opened += () => Act(() => _client.SendSendPlayers());
+            // Nothing goes to the server: HandleSaid consults this list
+            // and drops the message before it reaches the log.
+            _players.Ignore += (name, on) => Act(() =>
+            {
+                var list = _client.Data?.IgnoreList;
+                if (list == null || string.IsNullOrWhiteSpace(name)) return;
+                if (on) { if (!list.Contains(name)) list.Add(name); }
+                else list.Remove(name);
+            });
             // Not the game's: its row has an ignore checkbox its own
             // source never implements. A tell has to start somewhere on
             // a phone, and the list of names is the obvious place.
@@ -623,6 +632,14 @@ public partial class GameView : Node2D
             _bag.UseItem     += item => Act(() => _client.UseUnuseApply(item));
             // One tap puts it on the trade table, rather than the
             // select-then-use a tap normally means.
+            _bag.Selected    += item => Act(() =>
+            {
+                // The library resolves the id against the room and then
+                // the inventory, so this targets the carried thing.
+                // Clearing goes back to nothing rather than to whatever
+                // was targeted in the world before the bag was opened.
+                _client.Data.TargetID = item != null ? item.ID : uint.MaxValue;
+            });
             _bag.Picked      += item =>
             {
                 PickFor who = _pickFor;
@@ -772,6 +789,8 @@ public partial class GameView : Node2D
         // The chat log is followed rather than polled - see
         // ChatOverlay.Follow for why a count is not enough.
         _chat?.Follow(_client.Data.ChatMessages);
+        // Also after Init, for the same reason: Data is what holds it.
+        _players?.Follow(_client.Data.IgnoreList);
         string strings = M59Client.FindStringDictionary(_resDir);
         GD.Print($"[M59] string file: {strings}");
         _client.Config.Connections.Add(new ConnectionInfo(

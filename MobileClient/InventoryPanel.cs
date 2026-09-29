@@ -56,6 +56,18 @@ public partial class InventoryPanel : Control
     /// show at once.
     /// </summary>
     public event Action<InventoryObject> Picked;
+
+    /// <summary>
+    /// The selection changed, including to nothing.
+    ///
+    /// `UIInventory.cpp` sets `Data.TargetID` to the clicked item's id,
+    /// and the library resolves a target id against the room first and
+    /// your own inventory second - so a carried thing is a legitimate
+    /// target and the game's target window shows it. Keeping the
+    /// selection purely local meant that picking an item and then
+    /// casting a spell aimed at whatever was last tapped in the world.
+    /// </summary>
+    public event Action<InventoryObject> Selected;
     /// <summary>One tap chooses and closes, instead of select-then-use.</summary>
     public bool PickMode;
 
@@ -342,6 +354,7 @@ public partial class InventoryPanel : Control
     void Pick(InventoryObject item)
     {
         _picked = item;
+        Selected?.Invoke(item);
         bool on = item != null && IsOpen;
         _use.Visible = on; _drop.Visible = on; _look.Visible = on;
         _selected.Visible = on;

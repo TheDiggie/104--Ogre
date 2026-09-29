@@ -496,6 +496,18 @@ static class FakeServer
                     break;
 
                 case MessageTypeGameMode.SendPlayers:
+                    // Alice says something every time the Who list is
+                    // asked for, so muting her can be seen to work: ask
+                    // twice with a mute in between and the second line
+                    // never arrives.
+                    //
+                    // 4002 because that is Alice in the *online players*
+                    // list, which is the list HandleSaid looks the
+                    // speaker up in. 4001 is Alice as a room object and
+                    // Tester in the who list - this fixture's id spaces
+                    // do not line up, and speaking as 4001 muted
+                    // nothing at all.
+                    SayAs(ns, ctrl, 4002, RID_PLAYERBGF, RID_GREETING);
                     Console.WriteLine("  <- SendPlayers");
                     SendWho(ns, ctrl);
                     break;
@@ -1370,9 +1382,20 @@ static class FakeServer
     /// into the string file.
     /// </summary>
     static void Say(NetworkStream ns, MessageControllerClient ctrl, uint rid)
+        => SayAs(ns, ctrl, 2001, RID_RATBGF, rid);
+
+    /// <summary>
+    /// The same, from somebody in particular. The speaker's id is what
+    /// the ignore list works on: HandleSaid looks the source up in
+    /// OnlinePlayers and drops the message when that player's name is
+    /// on the list, so a line has to come from a listed player for
+    /// muting to be testable at all.
+    /// </summary>
+    static void SayAs(NetworkStream ns, MessageControllerClient ctrl,
+                      uint sourceId, uint bgfRid, uint rid)
     {
         var chat = new ObjectChatMessage(
-            2001, RID_RATBGF, ChatTransmissionType.Normal,
+            sourceId, bgfRid, ChatTransmissionType.Normal,
             strings, rid,
             new List<InlineVariable>(), new List<ChatStyle>());
 
