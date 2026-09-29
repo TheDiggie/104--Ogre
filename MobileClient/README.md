@@ -895,6 +895,22 @@ chat bar with `tell <name>` already in it. The game starts a tell by
 typing the whole command, which needs a keyboard that a phone does not
 have sitting there.
 
+## The quest log
+
+`UIQuests.cpp` over `Data->AvatarQuests`, which arrives as the Quests
+stat group - the client asks for it at login beside the condition and
+attribute groups.
+
+One rule there is easy to miss and decides how the list reads: a row
+whose **`SkillPoints` is 0 is a heading**, not a quest. The game draws
+those in bold and takes the hand cursor away, because there is nothing
+to click. Everything else is a quest, and tapping one sends
+`SendReqLookMessage(id)` - the same look used on an object, answered
+with a description.
+
+The fake server sends two headings and three quests, so the window has
+to tell them apart; the count in the title is quests only.
+
 ## Known limits
 
 - **Speed.** A uniform spatial grid (`WallGrid.cs`) means a ray only

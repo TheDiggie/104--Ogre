@@ -48,6 +48,7 @@ public partial class GameView : Node2D
     AttributesPanel _sheet;
     AmountPrompt _amount;
     PlayersPanel _players;
+    QuestsPanel _quests;
     LoginPrompt _login;
     RichTextLabel _crash;
     string _resDir = "";
@@ -322,6 +323,14 @@ public partial class GameView : Node2D
             if (_chat != null) _actions.BottomReserve = _chat.BlockHeight;
         });
 
+        Widget("quests", () =>
+        {
+            _quests = new QuestsPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 4f };
+            _quests.Opened += () => Act(() =>
+                _client.SendSendStatsMessage(Meridian59.Common.Enums.StatGroup.Quests));
+            _quests.Look += id => Act(() => _client.SendReqLookMessage(id));
+            _ui.AddChild(_quests);
+        });
         Widget("players", () =>
         {
             // Left of the character sheet button.
@@ -567,6 +576,7 @@ public partial class GameView : Node2D
         _shop?.Sync(_client.Data?.Buy);
         _sheet?.Sync(_client.Data?.AvatarAttributes);
         _players?.Sync(_client.Data?.OnlinePlayers);
+        _quests?.Sync(_client.Data?.AvatarQuests);
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
@@ -816,7 +826,8 @@ public partial class GameView : Node2D
         || (_look != null && _look.IsOpen)
         || (_book != null && _book.IsOpen)
         || (_amount != null && _amount.IsOpen)
-        || (_players != null && _players.IsOpen);
+        || (_players != null && _players.IsOpen)
+        || (_quests != null && _quests.IsOpen);
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>
     void SyncRoom()

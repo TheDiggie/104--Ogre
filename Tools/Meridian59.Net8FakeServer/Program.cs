@@ -64,6 +64,11 @@ static class FakeServer
     const uint RID_BUFF1 = 60070;
     const uint RID_BUFF2 = 60071;
     static int stopAfter;
+    const uint RID_QHEAD1 = 60100;
+    const uint RID_QHEAD2 = 60101;
+    const uint RID_QUEST1 = 60102;
+    const uint RID_QUEST2 = 60103;
+    const uint RID_QUEST3 = 60104;
     const uint RID_MIGHT = 60090;
     const uint RID_INTELLECT = 60091;
     const uint RID_STAMINA = 60092;
@@ -142,6 +147,11 @@ static class FakeServer
             // Sound files are named as .wav in the string table and the
             // library swaps the extension to .ogg, which is what is
             // actually on disk.
+            new RsbResourceID(RID_QHEAD1,     "Available",        4),
+            new RsbResourceID(RID_QHEAD2,     "In progress",      4),
+            new RsbResourceID(RID_QUEST1,     "Clear the cellar", 4),
+            new RsbResourceID(RID_QUEST2,     "Deliver the ledger", 4),
+            new RsbResourceID(RID_QUEST3,     "Find Alice's ring", 4),
             new RsbResourceID(RID_MIGHT,      "might",            4),
             new RsbResourceID(RID_INTELLECT,  "intellect",        4),
             new RsbResourceID(RID_STAMINA,    "stamina",          4),
@@ -344,6 +354,7 @@ static class FakeServer
                         ? (StatGroup)body[1] : StatGroup.Condition;
                     Console.WriteLine($"  <- SendStats {want}");
                     if (want == StatGroup.Attributes) SendAttributes(ns, ctrl);
+                    else if (want == StatGroup.Quests) SendQuests(ns, ctrl);
                     else SendConditions(ns, ctrl);
                     break;
 
@@ -382,6 +393,29 @@ static class FakeServer
 
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Condition, stats));
     }
+
+    /// <summary>
+    /// The quest log. A StatList with no skill points is a heading
+    /// rather than a quest - UIQuests.cpp draws those in bold and takes
+    /// the click away - so this sends two of them, to prove the window
+    /// tells them apart.
+    /// </summary>
+    static void SendQuests(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var quests = new Stat[]
+        {
+            Quest(1, RID_QHEAD1, 0,    0),
+            Quest(2, RID_QUEST1, 9001, 25),
+            Quest(3, RID_QUEST2, 9002, 40),
+            Quest(4, RID_QHEAD2, 0,    0),
+            Quest(5, RID_QUEST3, 9003, 10),
+        };
+
+        Send(ns, ctrl, new StatGroupMessage(StatGroup.Quests, quests));
+    }
+
+    static StatList Quest(byte num, uint nameRid, uint objectId, uint points)
+        => new StatList(num, nameRid, objectId, points, 0);
 
     /// <summary>
     /// Who is online. The window draws each name in
