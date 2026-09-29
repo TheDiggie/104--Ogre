@@ -510,12 +510,50 @@ static class FakeServer
                     break;
 
                 case MessageTypeGameMode.ReqBuyItems:
+                {
                     // A real server takes the money and hands over the
-                    // goods. This just says something, so the exchange
-                    // is visible from the client's side.
+                    // goods. This used to say something and hand over
+                    // nothing, so the half of the shop that matters -
+                    // does what I bought turn up in my pack - could not
+                    // be tested at all.
                     Console.WriteLine("  <- ReqBuyItems");
+                    try
+                    {
+                        // Parsed by hand rather than with
+                        // ReqBuyItemsMessage: that reads a whole TCP
+                        // message and checks its length, and what is in
+                        // hand here is the body. Handing it the body
+                        // gives "WrongLEN - input:256 expected:8061".
+                        // The shape is the PI, the seller, a count, then
+                        // that many ObjectIDs - which do know how to
+                        // read themselves, and how long they are.
+                        int cursor = 1 + 4;
+                        ushort lines = BitConverter.ToUInt16(body, cursor);
+                        cursor += 2;
+                        for (int i = 0; i < lines; i++)
+                        {
+                            var line = new ObjectID(body, cursor);
+                            cursor += line.ByteLength;
+                            // The shop's own lines, by id, so buying the
+                            // book does not hand over an axe.
+                            (uint bgf, uint name) = line.ID switch
+                            {
+                                7001 => (RID_AXEBGF, RID_AXE),
+                                7002 => (RID_BOOKBGF, RID_BOOK),
+                                _    => (RID_COINBGF, RID_COIN),
+                            };
+                            InventoryObject bought = Carry(
+                                8200 + line.ID % 100, bgf, name,
+                                line.Count > 0 ? line.Count : 0u, false);
+                            takenSoFar.Add(bought);
+                            Send(ns, ctrl, new InventoryAddMessage(bought));
+                            Console.WriteLine($"  -> sold {line.ID} x{line.Count}");
+                        }
+                    }
+                    catch (Exception e) { Console.WriteLine($"  !! buy: {e.Message}"); }
                     Say(ns, ctrl, RID_ECHO);
                     break;
+                }
 
                 case MessageTypeGameMode.ReqOffer:
                 case MessageTypeGameMode.ReqCounterOffer:
