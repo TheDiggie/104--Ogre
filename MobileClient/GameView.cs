@@ -47,6 +47,7 @@ public partial class GameView : Node2D
     BuyPanel _shop;
     AttributesPanel _sheet;
     AmountPrompt _amount;
+    PlayersPanel _players;
     LoginPrompt _login;
     RichTextLabel _crash;
     string _resDir = "";
@@ -321,6 +322,17 @@ public partial class GameView : Node2D
             if (_chat != null) _actions.BottomReserve = _chat.BlockHeight;
         });
 
+        Widget("players", () =>
+        {
+            // Left of the character sheet button.
+            _players = new PlayersPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 3f };
+            _players.Opened += () => Act(() => _client.SendSendPlayers());
+            // Not the game's: its row has an ignore checkbox its own
+            // source never implements. A tell has to start somewhere on
+            // a phone, and the list of names is the obvious place.
+            _players.Tell += who => { _players.Close(); _chat?.Compose($"tell {who} "); };
+            _ui.AddChild(_players);
+        });
         Widget("amount", () =>
         {
             _amount = new AmountPrompt();
@@ -554,6 +566,7 @@ public partial class GameView : Node2D
         _contents?.Sync(_client.Data?.ObjectContents);
         _shop?.Sync(_client.Data?.Buy);
         _sheet?.Sync(_client.Data?.AvatarAttributes);
+        _players?.Sync(_client.Data?.OnlinePlayers);
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
@@ -802,7 +815,8 @@ public partial class GameView : Node2D
         || (_sheet != null && _sheet.IsOpen)
         || (_look != null && _look.IsOpen)
         || (_book != null && _book.IsOpen)
-        || (_amount != null && _amount.IsOpen);
+        || (_amount != null && _amount.IsOpen)
+        || (_players != null && _players.IsOpen);
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>
     void SyncRoom()

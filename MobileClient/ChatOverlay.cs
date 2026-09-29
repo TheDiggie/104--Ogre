@@ -163,6 +163,21 @@ public partial class ChatOverlay : Control
         _fullBack.Visible = false; _fullScroll.Visible = false; _fullClose.Visible = false;
     }
 
+    /// <summary>
+    /// Opens the entry with something already in it and the caret at the
+    /// end - "tell Alice " and then whatever you type. The game starts a
+    /// tell by typing the whole command; a phone has no keyboard sitting
+    /// there to type it into, so the parts that know a name can fill it
+    /// in.
+    /// </summary>
+    public void Compose(string prefix)
+    {
+        Open();
+        _entry.Text = prefix ?? "";
+        _entry.CaretColumn = _entry.Text.Length;
+        DisplayServer.VirtualKeyboardShow(_entry.Text);
+    }
+
     public void Open()
     {
         _entry.Visible = true;

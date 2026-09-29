@@ -868,6 +868,33 @@ twenty-five doubloons:
 list of buttons is pressed in order with the slot tapped after the
 first, so a whole flow runs in one go.
 
+## Who is online
+
+`UIOnlinePlayers.cpp` is a list over `Data->OnlinePlayers` - asked for
+with `SendSendPlayers`, answered with a `Players` message, sorted by
+name by the data layer. Each row is the name in
+`NameColors::GetColorFor(player->Flags)` with a tooltip naming what the
+player is.
+
+Worth knowing which of those two the colour comes from, because it is
+not the obvious one. In this flavour `GetColorFor` reads
+`Flags.NameColor` - a colour the **server** puts in the flags - and
+ignores the player type entirely; only vanilla decides the colour from
+the type. So the colour and the moderator/admin/GM/murderer/outlaw
+tooltip are independent, and a server can colour a name however it
+likes. Black is turned into white on the way out, because a lot of kod
+objects are flagged black.
+
+The tooltip mapping is easy to get backwards: `Creator` is the admin
+and `DM`/`SuperDM` are the game master, not the other way round.
+
+One thing here is not the game's. Its row carries an ignore checkbox
+that its own source marks "todo: set ignorestate" and never
+implements; there is no checkbox here, and tapping a name opens the
+chat bar with `tell <name>` already in it. The game starts a tell by
+typing the whole command, which needs a keyboard that a phone does not
+have sitting there.
+
 ## Known limits
 
 - **Speed.** A uniform spatial grid (`WallGrid.cs`) means a ray only

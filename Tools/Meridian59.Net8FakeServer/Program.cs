@@ -285,6 +285,11 @@ static class FakeServer
                     Say(ns, ctrl, RID_ECHO);
                     break;
 
+                case MessageTypeGameMode.SendPlayers:
+                    Console.WriteLine("  <- SendPlayers");
+                    SendWho(ns, ctrl);
+                    break;
+
                 case MessageTypeGameMode.ReqInventory:
                     Console.WriteLine("  <- ReqInventory");
                     SendBag(ns, ctrl);
@@ -376,6 +381,40 @@ static class FakeServer
         };
 
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Condition, stats));
+    }
+
+    /// <summary>
+    /// Who is online. The window draws each name in
+    /// NameColors.GetColorFor(flags), so these deliberately carry
+    /// different player types - the colours are the point.
+    /// </summary>
+    static void SendWho(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var who = new[]
+        {
+            Online(4001, RID_PLAYERNAME, "Tester", ObjectFlags.PlayerType.None, NC_PLAYER),
+            Online(4002, RID_ALICE,      "Alice",  ObjectFlags.PlayerType.None, NC_PLAYER),
+            Online(4003, RID_BORIS,      "Boris the Outlaw", ObjectFlags.PlayerType.Outlaw, NC_OUTLAW),
+            Online(4004, RID_ALICE,      "Cordelia the DM", ObjectFlags.PlayerType.DM, 0x00FFFF),
+        };
+
+        Send(ns, ctrl, new PlayersMessage(who));
+    }
+
+    /// <summary>
+    /// In this flavour NameColors.GetColorFor reads Flags.NameColor -
+    /// a colour the server puts in the flags - and ignores the player
+    /// type entirely; only vanilla decides the colour from the type.
+    /// The type still decides the tooltip, so both are set here and
+    /// they are deliberately independent.
+    /// </summary>
+    static OnlinePlayer Online(uint id, uint nameRid, string name,
+                               ObjectFlags.PlayerType type, uint nameColor)
+    {
+        var f = new ObjectFlags();
+        f.Player = type;
+        f.NameColor = nameColor;
+        return new OnlinePlayer(id, nameRid, name, f);
     }
 
     /// <summary>
