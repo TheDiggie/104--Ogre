@@ -2,12 +2,14 @@
   <PropertyGroup>
     <!-- Godot's Android export template embeds a .NET 9 runtime and
          refuses assemblies built for anything else, while the desktop
-         templates are happy with net8.0. An MSBuild condition is no use
-         here: Godot reads this element out of the XML rather than
-         evaluating the project, so it would only ever see the first
-         value. The Android build script rewrites this line to net9.0
-         and puts it back afterwards. -->
+         templates are happy with net8.0 and the rest of this repo
+         builds against it. Godot sets GodotTargetPlatform when it
+         publishes, so the platform picks the framework and nothing has
+         to be edited per build. An unconditioned element has to come
+         first or Godot writes one in for you; the later matching one
+         wins, which is MSBuild's own rule. -->
     <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework Condition=" '$(GodotTargetPlatform)' == 'android' ">net9.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <Nullable>disable</Nullable>
     <!-- The composer writes pixels through the library's own scaler, which

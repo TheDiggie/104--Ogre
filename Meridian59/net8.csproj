@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- See MobileClient.csproj: an Android build rewrites this. -->
+    <!-- See MobileClient.csproj: Godot's Android template wants net9.0. -->
     <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework Condition=" '$(GodotTargetPlatform)' == 'android' ">net9.0</TargetFramework>
     <AssemblyName>Meridian59</AssemblyName>
     <RootNamespace>Meridian59</RootNamespace>
     <DefineConstants>TRACE;ANYCPU;CONCURRENT</DefineConstants>

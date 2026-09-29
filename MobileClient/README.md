@@ -211,27 +211,42 @@ What you have to do:
    keystore there too.
 2. *Editor > Manage Export Templates* and download the templates for
    your exact Godot version.
-3. Install a **.NET 9 SDK**, and set `<TargetFramework>` to `net9.0`
-   in `MobileClient.csproj` and `Meridian59/net8.csproj` for the
-   duration of the build. Godot 4.7.2's Android template embeds a .NET 9
-   runtime and refuses anything else: *"C# project targets 'net8.0' but
-   the export template only supports 'net9.0'"*. The desktop templates
-   are happy with net8.0 and the rest of the repo builds against it, so
-   the tree stays on net8.0 and the Android build swaps those two lines.
+3. Install a **.NET 9 SDK**. Godot 4.7.2's Android template embeds a
+   .NET 9 runtime and refuses anything else: *"C# project targets
+   'net8.0' but the export template only supports 'net9.0'"*. The
+   desktop templates are happy with net8.0 and the rest of the repo
+   builds against it, so both csproj files carry
 
-   An MSBuild condition driven by an environment variable looks like the
-   tidy way to do this and does not work: Godot reads `TargetFramework`
-   out of the csproj XML rather than evaluating the project, so it sees
-   whichever literal is written there and reports net8.0 no matter what
-   the environment says.
-4. `rendering/textures/vram_compression/import_etc2_astc` has to be on
+   ```xml
+   <TargetFramework>net8.0</TargetFramework>
+   <TargetFramework Condition=" '$(GodotTargetPlatform)' == 'android' ">net9.0</TargetFramework>
+   ```
+
+   which is the engine's own idiom: Godot sets `GodotTargetPlatform`
+   when it publishes, the later matching element wins by MSBuild's
+   rules, and nothing has to be edited per build. The unconditioned one
+   has to be there or Godot writes one in for you - it did, silently,
+   which is worth knowing because it then reads back the value it just
+   added. A condition on a variable Godot does not set gets you
+   net8.0 and the same error.
+
+4. **Use a gradle build.** `gradle_build/use_gradle_build=true`, with
+   Godot's `android_source.zip` unpacked into `MobileClient/android/build`
+   and `MobileClient/android/.build_version` naming the version. C# on
+   Android is experimental, the prebuilt template has a run of open
+   issues about the .NET runtime not being packaged into the apk
+   properly, and the engine's own export error suggests gradle instead.
+   A gradle build compiles the Android project from source with your own
+   SDK. `MobileClient/android/` is gitignored - it is 207 MB of Godot's
+   own project, not ours.
+5. `rendering/textures/vram_compression/import_etc2_astc` has to be on
    or Android refuses the export. Nothing here ships a compressed
    texture - every wall and sprite is rasterised into a buffer at
    runtime from the game's own art - but the check is on the setting,
    not on what the project contains. It is on in `project.godot`.
-5. Copy an installed client's `resource` folder into `MobileClient/resource`.
+6. Copy an installed client's `resource` folder into `MobileClient/resource`.
    It is gitignored - it is hundreds of megabytes and it is not ours.
-6. *Project > Export > Android > Export Project*, or headless:
+7. *Project > Export > Android > Export Project*, or headless:
    `godot --headless --path MobileClient --export-debug "Android" ..\build\Meridian59.apk`
 
 The resource folder is the awkward part: a full one is far past the

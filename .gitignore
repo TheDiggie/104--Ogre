@@ -69,3 +69,6 @@ MobileClient/nuget.config
 
 # The game art, copied in for an Android build. Hundreds of MB, not ours.
 MobileClient/resource/
+
+# Godot unpacks its own Android project here for a gradle build.
+MobileClient/android/
