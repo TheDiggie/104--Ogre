@@ -102,6 +102,31 @@ public sealed class Renderer
         /// back into a thing to look at or attack.
         /// </summary>
         public object Tag;
+
+        /// <summary>
+        /// The object's material, as a colour multiplier and an opacity.
+        ///
+        /// `RemoteNode2D.cpp` picks one of a dozen materials per object
+        /// per frame, and `general.material` shows what each of them is:
+        /// every one of them is the same pixel shader given a different
+        /// `colormodifier` float4. Its last line is
+        ///
+        ///     pixel = float4(light * colormodifier.rgb * texcol.rgb,
+        ///                    texcol.a * colormodifier.a);
+        ///
+        /// so black (shadowform) is rgb 0,0,0; the target is 5,3,3 - a
+        /// red-biased brightening, on top of the red edge; mouseover is
+        /// 3,5,3; and the three translucent materials are 1,1,1 with
+        /// alpha 0.25, 0.5 and 0.75. The comment in ImageComposerOgre is
+        /// worth keeping in mind: those numbers are opacity, not
+        /// transparency, so translucent25 is the faintest of them.
+        ///
+        /// A material is not baked into the composed picture because it
+        /// changes without the picture changing - a creature becomes the
+        /// target, stops being it, and flashes in between - and baking
+        /// it would mean a new composed copy for each.
+        /// </summary>
+        public float TintR = 1f, TintG = 1f, TintB = 1f, Opacity = 1f;
     }
 
     /// <summary>A sprite worked out in screen space: where it lands and how big.</summary>
@@ -579,7 +604,13 @@ public sealed class Renderer
                     if (ty < 0) continue;
                     uint c = p.T.P[ty * p.T.W + tx];
                     if ((c >> 24) == 0) continue;            // transparent texel
-                    px[y * W + sx] = Shade(c | 0xFF000000u, p.Fog);
+                    uint lit = Material(Shade(c | 0xFF000000u, p.Fog), sp);
+                    // Opacity one is the ordinary case and must cost
+                    // nothing; anything less is blended over whatever the
+                    // walls and floor already put there.
+                    px[y * W + sx] = sp.Opacity >= 1f
+                        ? lit
+                        : Blend(px[y * W + sx], lit, sp.Opacity);
                     if (_spriteDepth != null) _spriteDepth[y * W + sx] = depth;
                 }
             }
@@ -943,6 +974,32 @@ public sealed class Renderer
                 fog);
         }
     }
+    /// <summary>
+    /// The object's colormodifier applied to a lit texel: multiply and
+    /// clamp, which is what the shader's saturate does on the way out.
+    /// Skipped entirely when the object is drawn plainly, which is
+    /// nearly always.
+    /// </summary>
+    static uint Material(uint c, Sprite sp)
+    {
+        if (sp.TintR == 1f && sp.TintG == 1f && sp.TintB == 1f) return c;
+        uint r = (uint)MathF.Min(255f, ((c >> 16) & 0xFF) * sp.TintR);
+        uint g = (uint)MathF.Min(255f, ((c >> 8) & 0xFF) * sp.TintG);
+        uint b = (uint)MathF.Min(255f, (c & 0xFF) * sp.TintB);
+        return 0xFF000000u | (r << 16) | (g << 8) | b;
+    }
+
+    /// <summary>Source over destination at the given opacity.</summary>
+    static uint Blend(uint under, uint over, float a)
+    {
+        if (a <= 0f) return under;
+        float b = 1f - a;
+        uint r = (uint)(((over >> 16) & 0xFF) * a + ((under >> 16) & 0xFF) * b);
+        uint g = (uint)(((over >> 8) & 0xFF) * a + ((under >> 8) & 0xFF) * b);
+        uint bl = (uint)((over & 0xFF) * a + (under & 0xFF) * b);
+        return 0xFF000000u | (r << 16) | (g << 8) | bl;
+    }
+
     static uint Shade(uint c, float f)
     {
         if (f >= 1f) return c;

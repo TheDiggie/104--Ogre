@@ -74,6 +74,12 @@ public sealed class WorldSync
     /// server's coordinates to the room's. Skips the avatar - you do not
     /// see yourself - and anything with no art.
     /// </summary>
+    /// <summary>
+    /// Seconds since the view started, for the one material that moves.
+    /// Set by the caller each frame; zero is a still picture.
+    /// </summary>
+    public double Seconds;
+
     public void SyncSprites(IEnumerable<RoomObject> objects, RoomObject avatar)
     {
         if (Renderer == null) return;
@@ -126,8 +132,73 @@ public sealed class WorldSync
                 sp.Group = o.Animation != null && o.Animation.CurrentGroup > 0 ? o.Animation.CurrentGroup : 1;
             }
 
+            Material(o, ref sp);
+
             Renderer.Sprites.Add(sp);
         }
+    }
+
+    /// <summary>
+    /// Which material the object is drawn with, as RemoteNode2D picks it.
+    ///
+    /// That file is one if-chain, and the order is the whole of it: the
+    /// first match wins, so a target that is also flashing is drawn as a
+    /// target, and a shadowform that is also the target stays black. The
+    /// chain is copied here in its own order rather than rearranged into
+    /// something tidier.
+    ///
+    /// The numbers are `general.material`'s, where every one of these
+    /// materials is the same pixel shader handed a different
+    /// `colormodifier`. Two of the twelve do not survive the trip: the
+    /// game's invisible material is a refraction shader that samples the
+    /// scene behind the object and warps it with a scrolling noise
+    /// texture, which a span renderer has nothing to sample from, so it
+    /// is drawn as a faint ghost and said so here rather than pretended
+    /// otherwise; and mouseover (3,5,3, a green-biased brightening)
+    /// needs a pointer to hover, which a finger is not.
+    /// </summary>
+    void Material(RoomObject o, ref Renderer.Sprite sp)
+    {
+        ObjectFlags f = o.Flags;
+        if (f == null) return;
+
+        // INVISIBLE
+        if (f.Drawing == ObjectFlags.DrawingType.Invisible)
+            sp.Opacity = 0.15f;
+
+        // BLACK (shadowform)
+        else if (f.Drawing == ObjectFlags.DrawingType.Black)
+            sp.TintR = sp.TintG = sp.TintB = 0f;
+
+        // TARGET
+        else if (o.IsTarget)
+        { sp.TintR = 5f; sp.TintG = 3f; sp.TintB = 3f; }
+
+        // MOUSEOVER would go here.
+
+        // FLASHING - the only material that moves. Its sintime is bound
+        // to sintime_0_2pi with a factor of 2, so it runs a full cycle
+        // every two seconds, and the shader turns that into a brightness
+        // between 0.4 and 1.0: `texcol.rgb *= (0.4 + 0.6 * abs(sintime))`.
+        // Every other material passes a constant 1.0 there, which is why
+        // that line does nothing anywhere else.
+        else if (f.IsFlashing)
+        {
+            float pulse = 0.4f + 0.6f * MathF.Abs(MathF.Sin((float)(Seconds * Math.PI)));
+            sp.TintR = sp.TintG = sp.TintB = pulse;
+        }
+
+        // TRANSLUCENT. The comment in ImageComposerOgre is not an aside:
+        // these are opacities despite the names, so translucent25 is the
+        // faintest of the three rather than the strongest.
+        else if (f.Drawing == ObjectFlags.DrawingType.Translucent75) sp.Opacity = 0.75f;
+        else if (f.Drawing == ObjectFlags.DrawingType.Translucent50) sp.Opacity = 0.50f;
+        else if (f.Drawing == ObjectFlags.DrawingType.Translucent25) sp.Opacity = 0.25f;
+
+        // DITHERINVIS (the logoff ghost) and DITHERTRANS both take the
+        // 50% material in the game rather than a dither of their own.
+        else if (f.Drawing == ObjectFlags.DrawingType.DitherInvis
+              || f.Drawing == ObjectFlags.DrawingType.DitherTrans) sp.Opacity = 0.50f;
     }
 
     /// <summary>Camera position in room units, eye height included.</summary>

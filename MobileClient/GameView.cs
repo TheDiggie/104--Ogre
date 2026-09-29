@@ -953,7 +953,12 @@ public partial class GameView : Node2D
 
     /// <summary>Mirrors the server's object list into the renderer each frame.</summary>
     void SyncSprites()
-        => _world.SyncSprites(_client.Data?.RoomObjects, _client.Data?.AvatarObject);
+    {
+        // The flashing material runs off the clock, so the clock has to
+        // reach it; everything else here is a constant.
+        _world.Seconds = Time.GetTicksMsec() / 1000.0;
+        _world.SyncSprites(_client.Data?.RoomObjects, _client.Data?.AvatarObject);
+    }
 
     void Resize()
     {

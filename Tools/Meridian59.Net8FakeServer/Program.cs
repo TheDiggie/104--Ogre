@@ -838,8 +838,15 @@ static class FakeServer
             // game only puts a dot on things you could fight, players and
             // guildmates. An ordinary item on the floor gets none.
             Obj(2001, RID_RATBGF, RID_RATNAME, 816, 672, 1f, OF_ATTACKABLE, MM_MONSTER),
-            Obj(2002, RID_RATBGF, RID_RATNAME, 848, 688, 3f, OF_ATTACKABLE, MM_MONSTER),
-            Obj(2003, RID_RATBGF, RID_RATNAME, 880, 656, 2f, OF_ATTACKABLE, MM_MONSTER),
+            // Two of the three rats are here to exercise the drawing
+            // types RemoteNode2D switches materials on: one half
+            // translucent, one a shadowform. Like PlayerType, Drawing is
+            // its own byte on the wire rather than a bit in the flags
+            // integer, so it is set on the object afterwards.
+            Drawn(Obj(2002, RID_RATBGF, RID_RATNAME, 848, 688, 3f, OF_ATTACKABLE, MM_MONSTER),
+                  ObjectFlags.DrawingType.Translucent50),
+            Drawn(Obj(2003, RID_RATBGF, RID_RATNAME, 880, 656, 2f, OF_ATTACKABLE, MM_MONSTER),
+                  ObjectFlags.DrawingType.Black),
             // Something to open and something to pick up, so the Activate
             // and Loot actions have a target: the library looks for a
             // container or an activatable object near you for the first,
@@ -964,6 +971,12 @@ static class FakeServer
         // their own fields beside the flags, not as bits inside them.
         o.Flags.Minimap = minimap;
         o.Flags.NameColor = nameColor;
+        return o;
+    }
+
+    static RoomObject Drawn(RoomObject o, ObjectFlags.DrawingType how)
+    {
+        o.Flags.Drawing = how;
         return o;
     }
 
