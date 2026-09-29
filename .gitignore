@@ -77,3 +77,4 @@ MobileClient/android/
 .claude/fanout_state.json
 .claude/diet_state.json
 .claude/verify_state.json
+Engine/
