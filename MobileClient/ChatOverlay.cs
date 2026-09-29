@@ -114,7 +114,6 @@ public partial class ChatOverlay : Control
         AddChild(_history);
 
         _fullBack = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.95f), Visible = false };
-        _fullBack.SetAnchorsPreset(LayoutPreset.FullRect);
         AddChild(_fullBack);
 
         _full = new RichTextLabel
@@ -159,9 +158,20 @@ public partial class ChatOverlay : Control
         _history.Position = new Vector2(pad + btnW + 8f, v.Y - entryH - pad);
         _history.Size = new Vector2(btnW, entryH);
 
+        // Sized here rather than left on anchors. This overlay lives in
+        // a CanvasLayer, and its Control parent has no rect of its own,
+        // so an anchored child came out zero by zero: the log opened
+        // and absolutely nothing appeared. Everything else in this file
+        // is positioned explicitly, which is why only this was invisible.
         float side = Mathf.Max(16f, v.X * 0.05f);
+        _fullBack.Position = Vector2.Zero;
+        _fullBack.Size = v;
+
         _fullScroll.Position = new Vector2(side, side);
         _fullScroll.Size = new Vector2(v.X - side * 2f, v.Y - side * 2f - entryH - 8f);
+        // The label wraps against a width; without one it has no height
+        // either and the scroll stays empty.
+        _full.CustomMinimumSize = new Vector2(_fullScroll.Size.X, 0);
         _fullClose.Position = new Vector2(side, v.Y - entryH - side * 0.5f);
         _fullClose.Size = new Vector2(v.X - side * 2f, entryH);
 
@@ -177,6 +187,9 @@ public partial class ChatOverlay : Control
     {
         _full.Text = string.Join("\n", _lines);
         _fullBack.Visible = true; _fullScroll.Visible = true; _fullClose.Visible = true;
+        // Above the panels built after this one, or the Close button
+        // sits under the hotbar and cannot be pressed.
+        GetParent()?.MoveChild(this, -1);
         Layout();
         // Newest at the bottom, which is where you were looking. Deferred
         // because the scrollbar does not know its range until the label
@@ -315,7 +328,29 @@ public partial class ChatOverlay : Control
         int from = Math.Max(0, _lines.Count - Lines);
         _log.Text = string.Join("\n", _lines.GetRange(from, _lines.Count - from));
 
-        if (ShowingHistory) _full.Text = string.Join("\n", _lines);
+        if (ShowingHistory)
+        {
+            // End-lock, which `UIChat` sets on both scrollbars: while
+            // you are at the bottom the view follows new messages, and
+            // it stops following the moment you scroll away - so
+            // reading back through a fight is not yanked out from under
+            // you, and sitting at the bottom does not silently fall
+            // behind. The reference turns it back on within five pixels
+            // of the bottom, and the same slack is used here.
+            VScrollBar bar = _fullScroll.GetVScrollBar();
+            bool atEnd = bar == null
+                      || _fullScroll.ScrollVertical >= (int)(bar.MaxValue - bar.Page) - 5;
+
+            _full.Text = string.Join("\n", _lines);
+
+            if (atEnd)
+                Callable.From(() =>
+                {
+                    VScrollBar b = _fullScroll.GetVScrollBar();
+                    if (b != null)
+                        _fullScroll.ScrollVertical = (int)Math.Max(0f, b.MaxValue - b.Page);
+                }).CallDeferred();
+        }
     }
 
     /// <summary>
