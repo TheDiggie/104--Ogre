@@ -1,0 +1,10 @@
+# THE LOOP (append-only): one line per run_all group run. date time | ws | group | seconds | result
+2026-09-29 14:41 | WS? | check | 9.6 | FAIL (tools/workstation_survey.py (exit 1))
+2026-09-29 14:42 | WS? | check | 22.9 | FAIL (tools/format_lint.py --quiet (exit 1))
+2026-09-29 14:43 | WS? | check | 35.8 | FAIL (tools/law_gaps.py (exit 1))
+2026-09-29 14:44 | WS? | check | 36.2 | ok
+2026-09-29 14:46 | WS? | check | 36.6 | ok
+2026-09-29 14:47 | WS? | session | 39.7 | ok
+2026-09-29 14:47 | WS? | regen | 39.7 | ok (in session)
+2026-09-29 14:47 | WS? | check | 39.7 | ok (in session)
+2026-09-29 14:47 | WS? | metrics | 39.7 | ok (in session)

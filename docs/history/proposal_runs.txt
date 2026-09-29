@@ -1,0 +1,4 @@
+# PROPOSAL HISTORY (append-only; one line whenever the ledger trends change what is proposed). Read the TAIL.
+# date time | ws | count | proposals (truncated)
+2026-09-29 14:44 | WS? | 3 | PROPOSE (wiki_link_runs.txt): 75 dead wiki link(s) - fix them (the list: docs/history/wik || PROPOSE (readme_audit_runs.txt): no README audit on record - run the four-employee cross-ref || PROPOSE (systems_audit_runs.txt): no systems audit on record - run the four-lane audit (WORKF
+2026-09-29 14:46 | WS? | 2 | PROPOSE (readme_audit_runs.txt): no README audit on record - run the four-employee cross-ref || PROPOSE (systems_audit_runs.txt): no systems audit on record - run the four-lane audit (WORKF

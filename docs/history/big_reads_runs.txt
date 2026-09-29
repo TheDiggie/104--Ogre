@@ -1,0 +1,2 @@
+# GENERATED ledger (append-only) by tools/big_reads.py: date | WS | big whole reads (all time) | last-7-active-day avg | top file (count)
+2026-09-29 14:47 | WS1 | 0 | 0.0 | none

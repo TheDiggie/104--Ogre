@@ -1,0 +1,21 @@
+<Project Sdk="Godot.NET.Sdk/4.7.2">
+  <PropertyGroup>
+    <!-- net8.0 unless M59TFM says otherwise. Godot's Android export
+         template embeds a .NET 9 runtime and refuses assemblies built
+         for anything else, while the desktop templates are happy with
+         net8.0 - so the Android build sets M59TFM=net9.0 in the
+         environment (MSBuild reads environment variables as properties)
+         and nothing else has to change. -->
+    <TargetFramework Condition="'$(M59TFM)' == ''">net8.0</TargetFramework>
+    <TargetFramework Condition="'$(M59TFM)' != ''">$(M59TFM)</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Nullable>disable</Nullable>
+    <!-- The composer writes pixels through the library's own scaler, which
+         takes a uint* buffer. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>MobileClient</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Meridian59/net8.csproj" />
+  </ItemGroup>
+</Project>

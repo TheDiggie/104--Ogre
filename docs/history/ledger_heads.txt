@@ -1,0 +1,10 @@
+# LEDGER HEADS (rewritten in place; one line per ledger). Used by
+# tools/_ledger.py to know whether HEAD/tree changed since a ledger's
+# last appended line - not append-only, this one small state file is
+# meant to be rewritten (the ledgers themselves never are).
+# ledger basename | head hash | dirty signature | last appended date time
+core_diet_runs.txt | 80c26b2 | ca203fe1886a | 2026-09-29 14:47
+format_lint_runs.txt | 80c26b2 | ca203fe1886a | 2026-09-29 14:47
+lesson_runs.txt | 80c26b2 | ca203fe1886a | 2026-09-29 14:47
+purpose_audit_runs.txt | 80c26b2 | ca203fe1886a | 2026-09-29 14:47
+wiki_link_runs.txt | 80c26b2 | ca203fe1886a | 2026-09-29 14:47

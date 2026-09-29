@@ -1,0 +1,6 @@
+# THE CORE DIET (append-only): one line per run. date time | ws | core ~tokens (lines) | units | hot | cold | cold-unrouted | moved | budget
+2026-09-29 14:40 | WS1 | ~601 (58) | 6 | 0 | 6 | 6 | 0 | 2000
+2026-09-29 14:42 | WS1 | ~607 (60) | 6 | 0 | 4 | 4 | 0 | 2000
+2026-09-29 14:43 | WS1 | ~619 (64) | 6 | 0 | 0 | 0 | 0 | 2000
+2026-09-29 14:45 | WS1 | ~619 (64) | 6 | 0 | 0 | 0 | 0 | 2000
+2026-09-29 14:46 | WS1 | ~619 (64) | 6 | 0 | 0 | 0 | 0 | 2000

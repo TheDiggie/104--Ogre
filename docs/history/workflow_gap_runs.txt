@@ -1,0 +1,5 @@
+# THE WORKFLOW GAP LEDGER (append-only; one line per run of tools/law_gaps.py's 30 day tool-change proxy for the workflow rule). Read the TAIL.
+# date time | ws | commits N | tools changed N | unnamed N | verdict | unnamed basenames
+2026-09-29 14:44 | WS? | commits 178 | tools changed 0 | unnamed 0 | ok | 
+2026-09-29 14:46 | WS? | commits 178 | tools changed 0 | unnamed 0 | ok | 
+2026-09-29 14:47 | WS? | commits 178 | tools changed 0 | unnamed 0 | ok | 

@@ -72,3 +72,8 @@ MobileClient/resource/
 
 # Godot unpacks its own Android project here for a gradle build.
 MobileClient/android/
+.claude/hooks_state.json
+.claude/settings.local.json
+.claude/fanout_state.json
+.claude/diet_state.json
+.claude/verify_state.json
