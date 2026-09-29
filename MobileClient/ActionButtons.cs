@@ -38,8 +38,41 @@ public partial class ActionButtons : Control
 
     DataController _data;
     readonly List<Button> _pool = new List<Button>();
+    /// <summary>The button number showing in each screen slot, so a press
+    /// can resolve what it fires at the moment it happens.</summary>
+    readonly List<int> _nums = new List<int>();
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
     string _signature = "";
+    Meridian59.Data.Lists.ActionButtonList _list;
+
+    /// <summary>
+    /// Watches the client's button list, the way `UIActionButtons.cpp:19`
+    /// does.
+    ///
+    /// This is not decoration over the polling below - it is the only
+    /// thing that sees most changes. A button is bound to an item, a
+    /// spell or a skill by the data controller as those arrive from the
+    /// server, and every one of those paths matches the button *by name*
+    /// and then calls SetToItem / SetToSpell / SetToSkill. Those set the
+    /// type and the name as plain fields and only the data as a property,
+    /// so a poll that compares number, type and name sees nothing change
+    /// and never redraws - which is exactly the case where the button
+    /// finally has an icon to show.
+    ///
+    /// BaseList re-raises any item's PropertyChanged as an ItemChanged on
+    /// the list, so one subscription here covers both the list gaining
+    /// and losing buttons and an individual button being rebound.
+    /// </summary>
+    public void Follow(DataController data)
+    {
+        if (data?.ActionButtons == null || ReferenceEquals(_list, data.ActionButtons)) return;
+        if (_list != null) _list.ListChanged -= OnButtonsChanged;
+        _list = data.ActionButtons;
+        _list.ListChanged += OnButtonsChanged;
+        _signature = "";
+    }
+
+    void OnButtonsChanged(object sender, System.ComponentModel.ListChangedEventArgs e) => _signature = "";
 
     public override void _Ready()
     {
@@ -118,6 +151,8 @@ public partial class ActionButtons : Control
         if (now == _signature) return;
         _signature = now;
 
+        _nums.Clear();
+
         float y = v.Y - BottomReserve - ButtonSize - 8f;
         for (int i = 0; i < count; i++)
         {
@@ -134,31 +169,45 @@ public partial class ActionButtons : Control
             b.Size = new Vector2(ButtonSize, ButtonSize);
             b.Visible = true;
 
-            // The button's number, not the config object: the client
-            // replaces the whole list when it loads the player's saved
-            // buttons on login, and the replacements carry the same
-            // numbers and names. Holding the object would leave every
-            // button pressing a config the client has already thrown
-            // away - one BaseClient is no longer subscribed to, so the
-            // press would do nothing at all.
-            int num = cfg.Num;
+            // The slot, not the button number and not the config object.
+            //
+            // Not the object, because the client replaces the whole list
+            // when it loads the player's saved buttons on login, and the
+            // replacements carry the same numbers and names: holding the
+            // object would leave every button pressing a config the
+            // client has already thrown away, one BaseClient is no
+            // longer subscribed to, so the press would do nothing.
+            //
+            // Not the number either, which is what this used to capture.
+            // The handler is attached once per pooled Button and the
+            // pool is reused, so it kept the number of whatever config
+            // first happened to land in that screen position. Unset
+            // buttons are filtered out and the rest compacted, so that
+            // position does not hold the same button for long - bind one
+            // item and slot 3 would show one button's icon and fire
+            // another's. The game has no such bug because it resolves
+            // the index at the click (`UIActionButtons.cpp:351`), and
+            // that is what the slot gives us.
+            int slot = i;
+            _nums.Add(cfg.Num);
             if (b.HasMeta("wired")) continue;
             b.SetMeta("wired", true);
-            b.Pressed += () => Fire(num);
+            b.Pressed += () => Fire(slot);
         }
 
         HideFrom(count);
     }
 
     /// <summary>
-    /// Fires the button the way the client does: by activating its config,
-    /// looked up in the client's list by number at the moment of the press.
-    /// The dispatch lives in BaseClient, which is subscribed to every
-    /// button in the list.
+    /// Fires the button the way the client does: the screen slot says
+    /// which button number is showing there right now, and that number is
+    /// looked up in the client's own list. The dispatch lives in
+    /// BaseClient, which is subscribed to every button in the list.
     /// </summary>
-    void Fire(int num)
+    void Fire(int slot)
     {
-        ActionButtonConfig cfg = _data?.ActionButtons?.GetByNum(num);
+        if (slot < 0 || slot >= _nums.Count) return;
+        ActionButtonConfig cfg = _data?.ActionButtons?.GetByNum(_nums[slot]);
         try { cfg?.Activate(); }
         catch (Exception e) { GD.PrintErr($"[ActionButtons] {cfg?.Name}: {e.Message}"); }
     }

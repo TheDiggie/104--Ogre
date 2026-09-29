@@ -802,6 +802,7 @@ public partial class GameView : Node2D
 
         // The chat log is followed rather than polled - see
         // ChatOverlay.Follow for why a count is not enough.
+        _hotbar?.Follow(_client.Data);
         _chat?.Follow(_client.Data.ChatMessages);
         // Also after Init, for the same reason: Data is what holds it.
         _players?.Follow(_client.Data.IgnoreList);
