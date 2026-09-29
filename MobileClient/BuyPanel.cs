@@ -78,9 +78,9 @@ public partial class BuyPanel : Control
             foreach (TradeOfferObject o in _stock)
                 if (o != null && _ticked.Contains(o.ID)) want.Add(o);
             if (want.Count > 0) Buy?.Invoke(want);
-            Close();
+            Dismiss();
         });
-        _close = Action("Close", Close);
+        _close = Action("Close", Dismiss);
 
         GetViewport().SizeChanged += Layout;
         Layout();
@@ -125,10 +125,28 @@ public partial class BuyPanel : Control
         }
     }
 
+    /// <summary>
+    /// Closes the shop the way the game closes it - by telling the model,
+    /// which is the only thing the window's visibility follows.
+    ///
+    /// Hiding the Controls alone did not work: Sync runs every frame,
+    /// saw IsVisible still set, and reopened the window on the next one,
+    /// so both Buy and Close looked like they did nothing. The game sets
+    /// the flag false after buying (`UIBuy.cpp:294`) and clears the stock
+    /// as well when the window is closed outright (`:308`), since what a
+    /// shopkeeper had is not worth remembering once you have walked away.
+    /// </summary>
+    public void Dismiss()
+    {
+        if (_buy != null) { _buy.IsVisible = false; _buy.Clear(true); }
+        Close();
+    }
+
     public void Close()
     {
         Show(false);
         _ticked.Clear();
+        _signature = "";
     }
 
     void Show(bool on)
@@ -141,9 +159,12 @@ public partial class BuyPanel : Control
     /// Follows the merchant's stock. `IsVisible` is the server's switch,
     /// not the view's.
     /// </summary>
+    BuyInfo _buy;
+
     public void Sync(BuyInfo buy)
     {
         if (_rows == null) return;
+        _buy = buy;
 
         if (buy == null || !buy.IsVisible || buy.Items == null || buy.Items.Count == 0)
         {

@@ -66,6 +66,10 @@ public partial class LootPanel : Control
 
     ObjectBase _picked;
     string _signature = "";
+    // The model the window is currently showing, so closing it can say
+    // so. Only one of the two is ever set - see Dismiss.
+    ObjectContents _contents;
+    LootInfo _loot;
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
 
     public bool IsOpen => _panel != null && _panel.Visible;
@@ -90,10 +94,13 @@ public partial class LootPanel : Control
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
-        _get = Action("Get", () => { if (_picked != null) GetItem?.Invoke(_picked); });
+        // Get and Get All close the window in the game as well as
+        // sending (`UILootList.cpp:280`, `:295`,
+        // `UIObjectContents.cpp:282`), so they go through Dismiss too.
+        _get = Action("Get", () => { if (_picked != null) { GetItem?.Invoke(_picked); Dismiss(); } });
         _put = Action("Put", () => PutWanted?.Invoke());
-        _getAll = Action("Get All", () => GetAll?.Invoke());
-        _close = Action("Close", Close);
+        _getAll = Action("Get All", () => { GetAll?.Invoke(); Dismiss(); });
+        _close = Action("Close", Dismiss);
 
         GetViewport().SizeChanged += Layout;
         Layout();
@@ -137,10 +144,39 @@ public partial class LootPanel : Control
         }
     }
 
+    /// <summary>
+    /// Closes the window the way the game closes it: by telling the model
+    /// it is closed.
+    ///
+    /// This used to hide the Controls and nothing else, which did not
+    /// work at all. The window's visibility is the server's
+    /// <c>IsVisible</c> flag, and Sync runs every frame - so the panel
+    /// hid itself and the very next frame saw the flag still set and put
+    /// itself straight back up. The contents window in particular could
+    /// not be closed for the rest of the session, and it blocks movement
+    /// and hides the hotbar while it is up.
+    ///
+    /// The two windows do differ, and the difference is the game's:
+    /// the container's contents are cleared as well as hidden
+    /// (`UIObjectContents.cpp:282`), because what was in the box is no
+    /// longer known once you stop looking; the loot pile is only hidden
+    /// (`UILootList.cpp:280`), because what is on the floor is still
+    /// there and the library keeps it up to date.
+    /// </summary>
+    public void Dismiss()
+    {
+        if (_contents != null) { _contents.IsVisible = false; _contents.Clear(true); }
+        if (_loot != null) _loot.IsVisible = false;
+        Close();
+    }
+
     public void Close()
     {
         Show(false);
         _picked = null;
+        // Or a reopen with the same items would match the signature and
+        // short-circuit the rebuild, showing rows that were freed.
+        _signature = "";
     }
 
     void Show(bool on)
@@ -157,6 +193,7 @@ public partial class LootPanel : Control
     /// </summary>
     public void Sync(ObjectContents contents)
     {
+        _contents = contents; _loot = null;
         if (contents == null) { Fill(null, false); return; }
         var list = new List<ObjectBase>(contents.Items ?? (System.Collections.Generic.IEnumerable<ObjectBase>)Array.Empty<ObjectBase>());
         Fill(list, contents.IsVisible);
@@ -169,6 +206,7 @@ public partial class LootPanel : Control
     /// </summary>
     public void Sync(LootInfo loot)
     {
+        _loot = loot; _contents = null;
         if (loot == null) { Fill(null, false); return; }
         var list = new List<ObjectBase>();
         if (loot.Items != null) foreach (RoomObject o in loot.Items) list.Add(o);
