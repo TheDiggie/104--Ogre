@@ -56,6 +56,8 @@ public partial class SceneShot : Node
         // thumb on the stick does.
         if (int.TryParse(Arg("--walk", "0"), out int walk) && walk > 0)
             Walk(outPath, wait, walk, Arg("--keys", "W"));
+        else if (Arg("--drag", null) != null)
+            Drag(outPath, wait, Arg("--drag", null), Arg("--press", null));
         else if (Arg("--tap", null) != null || Arg("--press", null) != null)
             Poke(outPath, wait, Arg("--tap", null), Arg("--press", null));
         else
@@ -151,6 +153,76 @@ public partial class SceneShot : Node
             Button b = FindButton(GetTree().Root, press);
             if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed {press}"); }
             else GD.Print($"[SceneShot] no button called {press}");
+        }
+
+        for (int i = 0; i < 60; i++)
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+        Image img = GetViewport().GetTexture().GetImage();
+        img.SavePng(path);
+        GD.Print($"[SceneShot] wrote {path}");
+        GetTree().Quit();
+    }
+
+    /// <summary>
+    /// Drags from one point to another with the mouse, which is what
+    /// Godot's drag and drop listens for: a press, several motions with
+    /// the button held, then a release. One motion is not enough - the
+    /// drag only starts once the pointer has moved far enough while
+    /// down - so this walks there in steps, a frame apart.
+    ///
+    /// --press may name a button to hit first, so a panel can be opened
+    /// in the same run.
+    /// </summary>
+    async void Drag(string path, int settle, string spec, string press)
+    {
+        for (int i = 0; i < Math.Max(1, settle); i++)
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        if (press != null)
+        {
+            Button b = FindButton(GetTree().Root, press);
+            if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed {press}"); }
+            else GD.Print($"[SceneShot] no button called {press}");
+            for (int i = 0; i < 30; i++)
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        }
+
+        string[] p = spec.Split(',');
+        if (p.Length != 4 ||
+            !float.TryParse(p[0], out float x1) || !float.TryParse(p[1], out float y1) ||
+            !float.TryParse(p[2], out float x2) || !float.TryParse(p[3], out float y2))
+        {
+            GD.Print($"[SceneShot] --drag wants x1,y1,x2,y2, got {spec}");
+        }
+        else
+        {
+            var a = new Vector2(x1, y1);
+            var b = new Vector2(x2, y2);
+
+            Input.WarpMouse(a);
+            Input.ParseInputEvent(new InputEventMouseButton
+            { ButtonIndex = MouseButton.Left, ButtonMask = MouseButtonMask.Left, Position = a, GlobalPosition = a, Pressed = true });
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+            const int steps = 12;
+            Vector2 last = a;
+            for (int i = 1; i <= steps; i++)
+            {
+                Vector2 at = a.Lerp(b, (float)i / steps);
+                Input.ParseInputEvent(new InputEventMouseMotion
+                {
+                    Position = at, GlobalPosition = at, Relative = at - last,
+                    ButtonMask = MouseButtonMask.Left,
+                });
+                last = at;
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
+
+            Input.ParseInputEvent(new InputEventMouseButton
+            { ButtonIndex = MouseButton.Left, Position = b, GlobalPosition = b, Pressed = false });
+            GD.Print($"[SceneShot] dragged {a} -> {b}");
         }
 
         for (int i = 0; i < 60; i++)

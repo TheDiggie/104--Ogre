@@ -256,6 +256,7 @@ public partial class GameView : Node2D
             _bag.UseItem     += item => Act(() => _client.UseUnuseApply(item));
             _bag.DropItem    += item => Act(() => _client.SendReqDropMessage(new ObjectID(item.ID)));
             _bag.LookItem    += item => Act(() => _client.SendReqLookMessage(item.ID));
+            _bag.MoveItem    += (from, to) => Act(() => MoveInBag(from, to));
             _ui.AddChild(_bag);
         });
 
@@ -589,6 +590,29 @@ public partial class GameView : Node2D
         int lit = Math.Max(room.AmbientLight, room.AvatarLight);
         if (lit <= 0) return 1f;
         return lit / 255f;
+    }
+
+    /// <summary>
+    /// Moves one carried item to where another sits.
+    ///
+    /// `Inventory::OnItemDropped` takes the item out of the client's own
+    /// inventory list and puts it back at the other one's position, and
+    /// only then tells the server - so the bag settles under the finger
+    /// rather than after a round trip. The message carries the two object
+    /// ids, because each slot's window id is the object's id.
+    /// </summary>
+    void MoveInBag(InventoryObject from, InventoryObject to)
+    {
+        var bag = _client?.Data?.InventoryObjects;
+        if (bag == null || from == null || to == null || ReferenceEquals(from, to)) return;
+
+        int at = bag.IndexOf(from), onto = bag.IndexOf(to);
+        if (at < 0 || onto < 0) return;
+
+        bag.RemoveAt(at);
+        bag.Insert(onto, from);
+
+        _client.SendReqInventoryMoveMessage(from.ID, to.ID);
     }
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>

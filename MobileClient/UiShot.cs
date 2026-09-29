@@ -46,6 +46,29 @@ public partial class UiShot : Node
         if (pick != null && int.TryParse(pick, out int n) && n >= 0 && n < items.Count)
             bag.Choose(items[n]);
 
+        // The bag only rearranges its own view; moving the item in the
+        // list is the client's job, so the harness does here what
+        // GameView.MoveInBag does against the real one.
+        bag.MoveItem += (from, to) =>
+        {
+            int at = items.IndexOf(from), onto = items.IndexOf(to);
+            if (at < 0 || onto < 0) return;
+            items.RemoveAt(at);
+            items.Insert(onto, from);
+            bag.Sync(items);
+            GD.Print($"[UiShot] moved {from.Name} onto {to.Name}");
+            GD.Print("[UiShot] order now: " + string.Join(", ", items.ConvertAll(i => i.Name)));
+        };
+
+        // --drag i,j drags the i-th slot onto the j-th, as a finger does.
+        string drag = Arg("--drag", null);
+        if (drag != null)
+        {
+            GD.Print("[UiShot] order was: " + string.Join(", ", items.ConvertAll(i => i.Name)));
+            DragSlots(drag, outPath);
+            return;
+        }
+
         Shoot(outPath);
     }
 
@@ -101,6 +124,67 @@ public partial class UiShot : Node
     }
 
     /// <summary>A pack of things, built from whatever art is to hand.</summary>
+    /// <summary>
+    /// Drags one slot onto another with real mouse events, because that
+    /// is the only way to run Godot's own drag and drop: a press, enough
+    /// motion while held for it to decide a drag has begun, a release
+    /// over the target.
+    /// </summary>
+    async void DragSlots(string spec, string outPath)
+    {
+        for (int i = 0; i < 10; i++)
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        string[] p = spec.Split(',');
+        var slots = new List<InventorySlot>();
+        Collect(GetTree().Root, slots);
+
+        if (p.Length != 2 || !int.TryParse(p[0], out int fromIdx) || !int.TryParse(p[1], out int toIdx) ||
+            fromIdx < 0 || toIdx < 0 || fromIdx >= slots.Count || toIdx >= slots.Count)
+        {
+            GD.Print($"[UiShot] --drag wants i,j within 0..{slots.Count - 1}, got {spec}");
+        }
+        else
+        {
+            Vector2 a = slots[fromIdx].GetGlobalRect().GetCenter();
+            Vector2 b = slots[toIdx].GetGlobalRect().GetCenter();
+
+            Input.WarpMouse(a);
+            Input.ParseInputEvent(new InputEventMouseButton
+            { ButtonIndex = MouseButton.Left, ButtonMask = MouseButtonMask.Left,
+              Position = a, GlobalPosition = a, Pressed = true });
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+            Vector2 last = a;
+            for (int i = 1; i <= 12; i++)
+            {
+                Vector2 at = a.Lerp(b, i / 12f);
+                Input.ParseInputEvent(new InputEventMouseMotion
+                { Position = at, GlobalPosition = at, Relative = at - last, ButtonMask = MouseButtonMask.Left });
+                last = at;
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
+
+            Input.ParseInputEvent(new InputEventMouseButton
+            { ButtonIndex = MouseButton.Left, Position = b, GlobalPosition = b, Pressed = false });
+            GD.Print($"[UiShot] dragged slot {fromIdx} onto {toIdx}");
+        }
+
+        for (int i = 0; i < 30; i++)
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+        GetViewport().GetTexture().GetImage().SavePng(outPath);
+        GD.Print($"[UiShot] wrote {outPath}");
+        GetTree().Quit();
+    }
+
+    static void Collect(Node from, List<InventorySlot> into)
+    {
+        if (from is InventorySlot s) into.Add(s);
+        foreach (Node c in from.GetChildren()) Collect(c, into);
+    }
+
     static List<InventoryObject> Fake(string res)
     {
         (string file, string name, uint count, bool used)[] wanted =

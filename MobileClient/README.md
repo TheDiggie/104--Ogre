@@ -43,8 +43,9 @@ this branch cannot log in until that is settled.
   reference client does too. See "Light is the room's ambient" below.
 - `WF_BACKWARDS` direction, and which way scrolling water flows, both
   need somebody who knows what these rooms should look like.
-- Inventory containers and `SendReqInventoryMoveMessage` - the bag does
-  not open containers or rearrange itself.
+- Inventory containers - the bag does not open them, and dropping an
+  item onto a container object in the room (`SendReqPut`) is not wired
+  up. Rearranging the bag itself is done; see below.
 - Slope seams at flat-span boundaries.
 
 ## Requirements
@@ -528,8 +529,30 @@ Two things are deliberately not the game's. The slots grow to fill a
 phone's width instead of holding the game's fixed 52 pixels in a window
 284 wide - five across either way. And a tap selects while a second tap
 uses, where the game targets on a left click and uses on a left double
-click; drag-to-rearrange is not built yet, so
-`SendReqInventoryMoveMessage` is still on the list.
+click.
+
+Dragging one item onto another rearranges the bag, as it does there.
+`Inventory::OnItemDropped` takes the item out of the client's own
+inventory list and reinserts it at the other one's position, and only
+then sends `SendReqInventoryMoveMessage(from, to)` - so the bag settles
+under the finger rather than after a round trip, and the two ids in the
+message are object ids, because each slot's window id is set to the
+object's id. Dropping onto an empty slot is ignored there, because the
+index falls outside the data list, so it is ignored here.
+
+The slot is its own control (`InventorySlot.cs`) and handles its own
+tap. A Button laid over the top swallows the press, and then nothing is
+ever a drag.
+
+`UiShot.tscn --drag i,j` runs it with real mouse events, which is the
+only way to make Godot's drag and drop happen:
+
+```
+[UiShot] order was: long sword, nerudite axe, cookie, ear of corn, ...
+[UiShot] dragged slot 0 onto 2
+[UiShot] moved long sword onto cookie
+[UiShot] order now: nerudite axe, cookie, long sword, ear of corn, ...
+```
 
 ## Sound is the server's, mixed by distance
 

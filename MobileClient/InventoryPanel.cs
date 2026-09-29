@@ -43,6 +43,12 @@ public partial class InventoryPanel : Control
     public event Action<InventoryObject> LookItem;
     /// <summary>Raised when the panel is opened, to ask the server for a fresh list.</summary>
     public event Action Opened;
+    /// <summary>
+    /// One item dragged onto another: move the first to where the second
+    /// is. The game reorders its own inventory list and tells the server,
+    /// in that order, so the view does not wait for a round trip.
+    /// </summary>
+    public event Action<InventoryObject, InventoryObject> MoveItem;
 
     Button _open;
     ColorRect _panel;
@@ -231,7 +237,12 @@ public partial class InventoryPanel : Control
     /// </summary>
     Control Slot(InventoryObject o)
     {
-        var slot = new Panel { CustomMinimumSize = new Vector2(SlotSize, SlotSize) };
+        var slot = new InventorySlot
+        {
+            CustomMinimumSize = new Vector2(SlotSize, SlotSize),
+            Item = o,
+            MouseFilter = MouseFilterEnum.Stop,
+        };
 
         var box = new StyleBoxFlat
         {
@@ -285,16 +296,17 @@ public partial class InventoryPanel : Control
         }
 
         // A tap picks the item - the game targets it on a left click -
-        // and a second tap uses it, as a double click does there.
-        var hit = new Button { Flat = true, MouseFilter = MouseFilterEnum.Stop };
-        hit.SetAnchorsPreset(LayoutPreset.FullRect);
-        hit.TooltipText = captured.Name;
-        hit.Pressed += () =>
+        // and a second tap uses it, as a double click does there. The
+        // slot handles it itself, because a Button laid over the top
+        // would swallow the press a drag has to start from.
+        slot.TooltipText = captured.Name;
+        slot.Preview = icon.Texture;
+        slot.Tapped += item =>
         {
-            if (ReferenceEquals(_picked, captured)) UseItem?.Invoke(captured);
-            else Pick(captured);
+            if (ReferenceEquals(_picked, item)) UseItem?.Invoke(item);
+            else Pick(item);
         };
-        slot.AddChild(hit);
+        slot.Moved += (from, to) => MoveItem?.Invoke(from, to);
 
         return slot;
     }
