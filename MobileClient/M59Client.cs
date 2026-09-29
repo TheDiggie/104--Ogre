@@ -1,4 +1,5 @@
 using System;
+using Godot;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -318,8 +319,23 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
         Say(Message.Message);
     }
 
+    /// <summary>
+    /// The connection failed. Raised as well as logged, because a
+    /// dropped socket has to reach the screen.
+    ///
+    /// Watching ConnectionState instead does not work: only an explicit
+    /// Disconnect sets it to Offline
+    /// (`ServerConnection.cs:292`), so after a broken pipe the client
+    /// still reports itself as playing and nothing can tell that the
+    /// world on screen is a photograph. The error event is the only
+    /// honest signal there is.
+    /// </summary>
+    public event Action<string> ConnectionLost;
+
     protected override void OnServerConnectionException(Exception Error)
     {
         Say($"Connection error: {Error.GetType().Name}: {Error.Message}");
+        try { ConnectionLost?.Invoke($"{Error.GetType().Name}: {Error.Message}"); }
+        catch (Exception e) { GD.PrintErr($"[M59Client] lost: {e.Message}"); }
     }
 }

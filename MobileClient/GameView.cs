@@ -72,6 +72,8 @@ public partial class GameView : Node2D
     ActionBar _actions;
     CharacterPicker _picker;
     MiniMap _map;
+    LostConnection _lost;
+    bool _wasInGame;
     RoomBuffsPanel _roomBuffs;
     Button _loot;
     LootPanel _lootList;
@@ -323,9 +325,26 @@ public partial class GameView : Node2D
             if (_log.Count > 6) _log.RemoveAt(0);
             _chat?.Local(s);
         };
+        // A connection that has gone away, said plainly. The socket
+        // going down produced one line of .NET exception text in the
+        // log and nothing else: the last frame of the world stayed up
+        // with every button still looking live. On a phone that is not
+        // an error case, it is Tuesday - a lift, a tunnel, the app put
+        // in the background - so it needs a sentence and a way back in.
+        _client.ConnectionLost += why =>
+        {
+            if (!_wasInGame) return;
+            // Disconnect first. Nothing else marks the connection
+            // offline after a broken pipe, and Connect refuses to run
+            // while it thinks it is still up - so without this the
+            // Reconnect button would do nothing at all.
+            try { _client.Disconnect(); } catch { }
+            _lost?.Show(why);
+        };
         _client.EnteredGame += name =>
         {
             _state = $"playing as {name}";
+            _wasInGame = true;
             // In the world - the login screen has done its job.
             if (_login != null) { _login.QueueFree(); _login = null; }
         };
@@ -632,6 +651,16 @@ public partial class GameView : Node2D
             _ui.AddChild(_sheet);
         });
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
+        Widget("lost", () =>
+        {
+            _lost = new LostConnection();
+            _lost.Retry += () =>
+            {
+                _chat?.Local("Reconnecting...");
+                Connect();
+            };
+            _ui.AddChild(_lost);
+        });
         Widget("statusbar", () =>
         {
             _bar = new StatusBar();
