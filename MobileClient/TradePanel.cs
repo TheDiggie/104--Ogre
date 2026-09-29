@@ -254,7 +254,8 @@ public partial class TradePanel : Control
         var mine = new System.Text.StringBuilder();
         if (trade.ItemsYou != null)
             foreach (ObjectBase o in trade.ItemsYou)
-                mine.Append(o?.ID).Append(':').Append(o?.Count).Append(':').Append(o?.Name).Append(';');
+                mine.Append(o?.ID).Append(':').Append(o?.Count).Append(':').Append(o?.Name).Append(':')
+                    .Append(o?.Flags != null && o.Flags.IsEquipped).Append(';');
         string nowMine = mine.ToString();
         if (nowMine != _mineSignature)
         {
@@ -267,7 +268,9 @@ public partial class TradePanel : Control
 
         var sb = new System.Text.StringBuilder();
         if (trade.ItemsPartner != null)
-            foreach (ObjectBase o in trade.ItemsPartner) sb.Append(o?.ID).Append(':').Append(o?.Count).Append(';');
+            foreach (ObjectBase o in trade.ItemsPartner)
+                sb.Append(o?.ID).Append(':').Append(o?.Count).Append(':').Append(o?.Name).Append(':')
+                  .Append(o?.Flags != null && o.Flags.IsEquipped).Append(';');
         string now = sb.ToString();
         if (now == _theirSignature) return;
         _theirSignature = now;
@@ -286,6 +289,19 @@ public partial class TradePanel : Control
         foreach (Node n in _rowsTheirs.GetChildren()) { _rowsTheirs.RemoveChild(n); n.QueueFree(); }
     }
 
+    /// <summary>
+    /// The row's name, with the game's own suffix on anything its owner
+    /// is wearing or wielding: " (in use)", from EN_MISC
+    /// (`Language.cpp:118`, appended at `UITrade.cpp:203`). In a trade
+    /// this is not decoration - it says which of their things are
+    /// actually on them.
+    /// </summary>
+    static string Named(ObjectBase o)
+    {
+        string name = string.IsNullOrWhiteSpace(o.Name) ? "(unnamed)" : o.Name;
+        return o.Flags != null && o.Flags.IsEquipped ? name + " (in use)" : name;
+    }
+
     Control Row(ObjectBase o, int count, bool mine)
     {
         var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
@@ -302,7 +318,7 @@ public partial class TradePanel : Control
         uint argb = o.Flags != null ? NameColors.GetColorFor(o.Flags) : NameColors.NORMAL;
         var name = new Label
         {
-            Text = string.IsNullOrWhiteSpace(o.Name) ? "(unnamed)" : o.Name,
+            Text = Named(o),
             VerticalAlignment = VerticalAlignment.Center,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             MouseFilter = MouseFilterEnum.Ignore,

@@ -238,7 +238,8 @@ public partial class LootPanel : Control
         foreach (ObjectBase o in items)
             sb.Append(o?.ID).Append(':').Append(o?.Count).Append(':')
               .Append(o?.Name).Append(':')
-              .Append(o?.Flags != null ? NameColors.GetColorFor(o.Flags) : 0u).Append(';');
+              .Append(o?.Flags != null ? NameColors.GetColorFor(o.Flags) : 0u).Append(':')
+              .Append(o?.Flags != null && o.Flags.IsEquipped).Append(';');
         string now = sb.ToString();
         if (now == _signature) return;
         _signature = now;
@@ -281,7 +282,7 @@ public partial class LootPanel : Control
 
         var name = new Label
         {
-            Text = string.IsNullOrWhiteSpace(o.Name) ? "(unnamed)" : o.Name,
+            Text = Named(o),
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             VerticalAlignment = VerticalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore,
@@ -306,6 +307,20 @@ public partial class LootPanel : Control
         }
 
         return button;
+    }
+
+    /// <summary>
+    /// The row's name, with the game's own suffix on anything the owner
+    /// is wearing or wielding: " (in use)", from EN_MISC
+    /// (`Language.cpp:118`, appended at `UIObjectContents.cpp:192`).
+    /// Without it a list of someone's things gives no hint which of them
+    /// are on them - and that is the difference between a sword you can
+    /// take and one you cannot.
+    /// </summary>
+    static string Named(ObjectBase o)
+    {
+        string name = string.IsNullOrWhiteSpace(o.Name) ? "(unnamed)" : o.Name;
+        return o.Flags != null && o.Flags.IsEquipped ? name + " (in use)" : name;
     }
 
     void Pick(ObjectBase o)

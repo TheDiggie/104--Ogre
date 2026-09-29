@@ -371,7 +371,7 @@ public partial class SceneShot : Node
         string[] names = (press ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
         bool placed = false;
         foreach (string raw in names)
-        { string t = raw.Trim(); if (t == "@slot" || t == "@tap") placed = true; }
+        { string t = raw.Trim(); if (t == "@slot" || t == "@tap" || t.StartsWith("@tap:")) placed = true; }
 
         var steps = new List<string>();
         if (placed) steps.AddRange(names);
@@ -381,12 +381,22 @@ public partial class SceneShot : Node
         foreach (string raw in steps)
         {
             string step = raw.Trim();
-            if (step == "@tap")
+            if (step == "@tap" || step.StartsWith("@tap:"))
             {
                 // A tap at a point, placed in the sequence rather than
                 // before it - Poke taps first, which is no use when the
                 // thing to tap only exists after a button is pressed.
-                string[] xy = (spot ?? "").Split(',');
+                //
+                // "@tap" uses --tap; "@tap:640x1050" carries its own
+                // point, so one run can tap two different places - which
+                // is the only way to script targeting something and then
+                // targeting something else. The separator is an x rather
+                // than a comma because the press list is comma
+                // separated.
+                string where = step.StartsWith("@tap:")
+                    ? step.Substring(5).Replace('x', ',')
+                    : spot;
+                string[] xy = (where ?? "").Split(',');
                 if (xy.Length == 2 &&
                     float.TryParse(xy[0], out float tx) && float.TryParse(xy[1], out float ty))
                 {
@@ -396,7 +406,7 @@ public partial class SceneShot : Node
                     Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = at, Pressed = false });
                     GD.Print($"[SceneShot] tapped {at}");
                 }
-                else GD.Print($"[SceneShot] @tap wants --tap x,y, got {spot}");
+                else GD.Print($"[SceneShot] @tap wants --tap x,y or @tap:XxY, got {where}");
             }
             else if (step == "@type")
             {

@@ -708,10 +708,20 @@ static class FakeServer
         Send(ns, ctrl, new InventoryMessage(bag));
     }
 
+    /// <summary>
+    /// inUse is the inventory window's own "this is worn" state; the
+    /// EQUIPPED flag is the wire bit the loot and trade lists read to
+    /// put " (in use)" after a name. They are different things and the
+    /// fixture used to set only the first, so the suffix could not be
+    /// tested - and its absence looked exactly like a client that never
+    /// wrote it.
+    /// </summary>
+    const uint OF_EQUIPPED = 0x00008000;
+
     static InventoryObject Carry(uint id, uint bgfRid, uint nameRid, uint count, bool inUse)
     {
         return new InventoryObject(
-            id, count, bgfRid, nameRid, 0,
+            id, count, bgfRid, nameRid, inUse ? OF_EQUIPPED : 0u,
             new LightingInfo(),
             AnimationType.NONE, 0, 0,
             new AnimationNone(),
