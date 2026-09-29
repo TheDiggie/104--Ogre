@@ -63,3 +63,6 @@ Tools/*/bin/
 Tools/*/obj/
 # local nuget source pointing at an unpacked Godot's nupkgs, machine-specific
 MobileClient/nuget.config
+
+# Export output - Meridian59.exe/.apk and their payloads.
+/build/
