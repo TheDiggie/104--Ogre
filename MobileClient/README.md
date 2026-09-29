@@ -79,10 +79,23 @@ The output is `Meridian59.exe`, `Meridian59.pck` and a
 `data_Meridian59_windows_x86_64` folder of .NET assemblies. All three
 have to stay together.
 
-The main scene decides what it opens: `FirstPerson.tscn` is the offline
-room browser, which is what you want for showing someone - it needs no
-account and walks all 362 rooms. `Game.tscn` is the live client and
-wants `M59USER`/`M59PASS` in the environment.
+The main scene is `Game.tscn`, the live client. It asks who you are on
+a login screen (`LoginPrompt.cs`) rather than refusing to start without
+`M59USER`/`M59PASS` - nobody double-clicks a game and then goes to set
+environment variables. The environment still wins when it is set, which
+is what the screenshot harnesses rely on. The account name is remembered
+in `user://`; the password is not, because storing it would mean writing
+a real credential to disk in the clear.
+
+`FirstPerson.tscn` is still there as the offline room browser - no
+account, all 362 rooms - if you want a build that demonstrates the
+renderer without a server.
+
+One trap worth knowing: `Image.LoadFromFile("res://...")` works from the
+editor and quietly does nothing in an exported build, where `res://` is
+an entry in the pck rather than a file on disk. The minimap dial was
+loaded that way and would have been missing from every export. Anything
+under `res://` has to go through `GD.Load`.
 
 ## Requirements
 

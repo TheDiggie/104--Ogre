@@ -92,12 +92,14 @@ public partial class MiniMap : Control
         _toggle.Pressed += () => { _shown = !_shown; QueueRedraw(); };
         AddChild(_toggle);
 
-        // The game's own minimap face. Missing art is not worth a crash -
-        // the map falls back to a plain disc.
+        // The game's own minimap face. Loaded as a resource rather than
+        // read off disk: Image.LoadFromFile works from the editor and
+        // quietly does nothing in an exported build, where res:// is an
+        // entry in the pck and not a file. Missing art is not worth a
+        // crash either - the map falls back to a plain disc.
         try
         {
-            Image img = Image.LoadFromFile("res://art/minimap-bg.png");
-            if (img != null) _dial = ImageTexture.CreateFromImage(img);
+            _dial = GD.Load<Texture2D>("res://art/minimap-bg.png");
         }
         catch (Exception e) { GD.PrintErr($"[MiniMap] no dial: {e.Message}"); }
 

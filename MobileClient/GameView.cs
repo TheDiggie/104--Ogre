@@ -45,6 +45,8 @@ public partial class GameView : Node2D
     LootPanel _lootList;
     LootPanel _contents;
     BuyPanel _shop;
+    LoginPrompt _login;
+    string _resDir = "";
     NameTags _names;
     ActionButtons _hotbar;
     LookPanel _look;
@@ -148,19 +150,39 @@ public partial class GameView : Node2D
     void Start(string dir)
     {
         if (!_assets.Init(dir)) { Fail(_assets.Error); return; }
+        _resDir = dir;
 
         string user = !string.IsNullOrWhiteSpace(Username)
             ? Username : System.Environment.GetEnvironmentVariable("M59USER");
         string pass = !string.IsNullOrWhiteSpace(Password)
             ? Password : System.Environment.GetEnvironmentVariable("M59PASS");
 
+        // Nobody double-clicks a game and then goes to set environment
+        // variables, so an exported build asks instead of refusing to
+        // start. The environment still wins when it is set, which is
+        // what the screenshot harnesses rely on.
         if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
         {
-            Fail("No credentials. Set M59USER and M59PASS in the environment,\n" +
-                 "or Username/Password on this node.");
+            Ask();
             return;
         }
 
+        Begin(user, pass);
+    }
+
+    /// <summary>Puts the login screen up and waits for it.</summary>
+    void Ask()
+    {
+        if (_login != null) return;
+        _login = new LoginPrompt();
+        _login.Server(Host, Port);
+        _login.Submitted += (u, p) => Begin(u, p);
+        _ui.AddChild(_login);
+    }
+
+    /// <summary>Builds the client and connects, once we know who we are.</summary>
+    void Begin(string user, string pass)
+    {
         _client = new M59Client
         {
             PreferredCharacter = Character,
@@ -171,10 +193,20 @@ public partial class GameView : Node2D
         _client.Notice += s =>
         {
             _log.Add(s); GD.Print("[M59] " + s);
+            // Anything that means "you are not getting in" belongs on the
+            // login screen, not only in a log nobody can see yet.
+            if (_login != null &&
+                (s.StartsWith("Connection error") || s.Contains("ailed") || s.Contains("efused")))
+                _login.Trouble(s);
             if (_log.Count > 6) _log.RemoveAt(0);
             _chat?.Local(s);
         };
-        _client.EnteredGame += name => _state = $"playing as {name}";
+        _client.EnteredGame += name =>
+        {
+            _state = $"playing as {name}";
+            // In the world - the login screen has done its job.
+            if (_login != null) { _login.QueueFree(); _login = null; }
+        };
 
         // Each overlay is built on its own. None of this has run on a
         // device yet, and a widget that throws while being set up should
@@ -341,9 +373,9 @@ public partial class GameView : Node2D
         catch (Exception e) { GD.Print($"[M59] no configuration loaded: {e.Message}"); }
 
         // ResourcesPath before Init, not after: Init is what reads it.
-        _client.Config.ResourcesPath = dir;
+        _client.Config.ResourcesPath = _resDir;
         _client.Init();
-        string strings = M59Client.FindStringDictionary(dir);
+        string strings = M59Client.FindStringDictionary(_resDir);
         GD.Print($"[M59] string file: {strings}");
         _client.Config.Connections.Add(new ConnectionInfo(
             "server", Host, (ushort)Port, strings, user, pass, Character, null));

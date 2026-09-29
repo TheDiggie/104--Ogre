@@ -56,6 +56,8 @@ public partial class SceneShot : Node
         // thumb on the stick does.
         if (int.TryParse(Arg("--walk", "0"), out int walk) && walk > 0)
             Walk(outPath, wait, walk, Arg("--keys", "W"));
+        else if (Arg("--login", null) != null)
+            SignIn(outPath, wait, Arg("--login", null));
         else if (Arg("--drag", null) != null)
             Drag(outPath, wait, Arg("--drag", null), Arg("--press", null));
         else if (Arg("--tap", null) != null || Arg("--press", null) != null)
@@ -233,6 +235,47 @@ public partial class SceneShot : Node
         img.SavePng(path);
         GD.Print($"[SceneShot] wrote {path}");
         GetTree().Quit();
+    }
+
+    /// <summary>
+    /// Types an account and password into the login screen and presses
+    /// Connect, so the exported build's own path gets exercised rather
+    /// than the environment-variable shortcut the harnesses use.
+    /// </summary>
+    async void SignIn(string path, int settle, string spec)
+    {
+        for (int i = 0; i < Math.Max(1, settle); i++)
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        string[] p = spec.Split(',');
+        var boxes = new List<LineEdit>();
+        Boxes(GetTree().Root, boxes);
+
+        if (p.Length != 2 || boxes.Count < 2)
+            GD.Print($"[SceneShot] --login wants user,pass and a login screen; found {boxes.Count} fields");
+        else
+        {
+            boxes[0].Text = p[0];
+            boxes[1].Text = p[1];
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            Button go = FindButton(GetTree().Root, "Connect");
+            if (go != null) { go.EmitSignal(BaseButton.SignalName.Pressed); GD.Print("[SceneShot] pressed Connect"); }
+            else GD.Print("[SceneShot] no Connect button");
+        }
+
+        for (int i = 0; i < 180; i++)
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+        GetViewport().GetTexture().GetImage().SavePng(path);
+        GD.Print($"[SceneShot] wrote {path}");
+        GetTree().Quit();
+    }
+
+    static void Boxes(Node from, List<LineEdit> into)
+    {
+        if (from is LineEdit e && e.Visible) into.Add(e);
+        foreach (Node c in from.GetChildren()) Boxes(c, into);
     }
 
     static Button FindButton(Node from, string text)
