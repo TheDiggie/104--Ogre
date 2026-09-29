@@ -451,6 +451,13 @@ static class FakeServer
                             gettingCount > 0 ? gettingCount : 17, false);
                         takenSoFar.Add(got);
                         Send(ns, ctrl, new InventoryAddMessage(got));
+                        // And it leaves the floor. Without this the thing
+                        // went into the pack and stayed lying in the room
+                        // as well, so nothing downstream of a successful
+                        // get - the loot window emptying, the object
+                        // going from the room and from the minimap - was
+                        // being tested. A real server sends this.
+                        Send(ns, ctrl, new RemoveMessage(getting));
                         Say(ns, ctrl, RID_ECHO);
                     }
                     break;
