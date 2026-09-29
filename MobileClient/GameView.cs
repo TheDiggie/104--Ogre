@@ -74,6 +74,8 @@ public partial class GameView : Node2D
     MiniMap _map;
     LostConnection _lost;
     bool _wasInGame;
+    bool _bagWasOpen;
+    uint _targetBeforeBag = uint.MaxValue;
     RoomBuffsPanel _roomBuffs;
     Button _loot;
     LootPanel _lootList;
@@ -757,10 +759,17 @@ public partial class GameView : Node2D
             _bag.Selected    += item => Act(() =>
             {
                 // The library resolves the id against the room and then
-                // the inventory, so this targets the carried thing.
-                // Clearing goes back to nothing rather than to whatever
-                // was targeted in the world before the bag was opened.
-                _client.Data.TargetID = item != null ? item.ID : uint.MaxValue;
+                // the inventory, so this targets the carried thing -
+                // which is what the game does on a click
+                // (`UIInventory.cpp`).
+                //
+                // Only when something was actually picked. Setting it to
+                // nothing on a null selection threw away whatever you
+                // had targeted in the world, and the panel clears its
+                // selection when it opens - so opening the bag lost your
+                // target. What you had before is put back when the bag
+                // closes; see the restore in Pump.
+                if (item != null) _client.Data.TargetID = item.ID;
             });
             _bag.Picked      += item =>
             {
@@ -1039,6 +1048,18 @@ public partial class GameView : Node2D
         foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _face, _vitals, _chat })
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;
+
+        // Your target survives a look in the bag. Picking a carried
+        // thing targets it, which the game does too, but that is a
+        // detour: coming back out you should still be facing whatever
+        // you were facing.
+        bool bagOpen = _bag != null && _bag.IsOpen;
+        if (_client.Data != null)
+        {
+            if (bagOpen && !_bagWasOpen) _targetBeforeBag = _client.Data.TargetID;
+            else if (!bagOpen && _bagWasOpen) _client.Data.TargetID = _targetBeforeBag;
+        }
+        _bagWasOpen = bagOpen;
 
         bool covered = PanelUp;
         if (_hotbar != null) _hotbar.Visible = inWorld && !covered;
