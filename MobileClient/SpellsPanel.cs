@@ -117,8 +117,12 @@ public partial class SpellsPanel : Control
         // portrait are drawn over this panel otherwise.
         float top = Mathf.Max(side, TopReserve);
 
+        // Down to the bottom edge, not to `side` above it. The close
+        // button sits in the last row of the panel, and a panel that
+        // stopped short of the screen left that row - and the button -
+        // floating over the world with the room visible around it.
         _panel.Position = new Vector2(side * 0.5f, top);
-        _panel.Size = new Vector2(v.X - side, v.Y - top - side);
+        _panel.Size = new Vector2(v.X - side, v.Y - top);
 
         _title.Position = new Vector2(side, top + 8f);
         _scroll.Position = new Vector2(side, top + FontSize * 4.6f);
