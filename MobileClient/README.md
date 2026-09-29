@@ -807,7 +807,15 @@ message and stack, over the screen, with
 `AppDomain.UnhandledException` and `TaskScheduler.UnobservedTaskException`
 covering what never comes back through a `try`.
 
-The cause found so far is the connection. `ServerConnection` opens a
+The crash happens before `GameView._Ready` - the reporter shipped in
+the apk and never ran, so nothing inside the view can say anything
+about it. `Probe.tscn` exists for that: a scene that touches one thing
+at a time and writes each step to the screen as it passes, so the last
+line standing names the step that failed, and a blank screen means the
+assembly itself did not load. `build-apk.ps1 -Probe` builds it in place
+of the game.
+
+One thing fixed on the way, which was wrong regardless. `ServerConnection` opens a
 dual-stack IPv6 socket and sets `IPV6_V6ONLY` off, falling back to
 plain IPv4 when that fails - but it only caught `SocketException`.
 Android refuses that socket option, and .NET reports an unsupported

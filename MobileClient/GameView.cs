@@ -45,6 +45,7 @@ public partial class GameView : Node2D
     LootPanel _lootList;
     LootPanel _contents;
     BuyPanel _shop;
+    AttributesPanel _sheet;
     LoginPrompt _login;
     RichTextLabel _crash;
     string _resDir = "";
@@ -319,6 +320,14 @@ public partial class GameView : Node2D
             if (_chat != null) _actions.BottomReserve = _chat.BlockHeight;
         });
 
+        Widget("sheet", () =>
+        {
+            // Right of the Book button, left of the Bag.
+            _sheet = new AttributesPanel { ButtonRight = 12f + 70f + 8f + 76f + 8f + 76f + 8f };
+            _sheet.Opened += () => Act(() =>
+                _client.SendSendStatsMessage(Meridian59.Common.Enums.StatGroup.Attributes));
+            _ui.AddChild(_sheet);
+        });
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
         Widget("names", () => { _names = new NameTags(); _ui.AddChild(_names); });
         Widget("look", () => { _look = new LookPanel(); _ui.AddChild(_look); });
@@ -527,6 +536,13 @@ public partial class GameView : Node2D
         _lootList?.Sync(_client.Data?.RoomObjectsLoot);
         _contents?.Sync(_client.Data?.ObjectContents);
         _shop?.Sync(_client.Data?.Buy);
+        _sheet?.Sync(_client.Data?.AvatarAttributes);
+
+        // The button rows sit over the world, which is fine until a panel
+        // covers the world.
+        bool covered = PanelUp;
+        if (_hotbar != null) _hotbar.Visible = !covered;
+        if (_actions != null) _actions.Visible = !covered;
         // Seeded every frame rather than once: the client clears its
         // lists when the world changes under it - a room change or a
         // relogin - and a row that was filled at startup would empty and
@@ -581,13 +597,7 @@ public partial class GameView : Node2D
         if (avatar == null || _world.Room == null) return;
         // Anything covering the screen or owning the keyboard stops
         // movement, so a drag meant for a list does not also walk you.
-        if ((_chat != null && (_chat.Capturing || _chat.ShowingHistory))
-            || (_bag != null && _bag.IsOpen)
-            || (_lootList != null && _lootList.IsOpen)
-            || (_contents != null && _contents.IsOpen)
-            || (_shop != null && _shop.IsOpen)
-            || (_look != null && _look.IsOpen)
-            || (_book != null && _book.IsOpen))
+        if ((_chat != null && (_chat.Capturing || _chat.ShowingHistory)) || PanelUp)
         { avatar.HorizontalSpeed = 0f; return; }
 
         float turn = 0f, fwd = 0f, strafe = 0f;
@@ -760,6 +770,21 @@ public partial class GameView : Node2D
 
         _client.SendReqInventoryMoveMessage(from.ID, to.ID);
     }
+
+    /// <summary>
+    /// Whether something is covering the screen. Movement stops while one
+    /// is up - a drag meant for a list should not also walk you - and the
+    /// rows of buttons that live over the world get out of the way, since
+    /// they were drawing straight through the middle of the panel.
+    /// </summary>
+    bool PanelUp =>
+           (_bag != null && _bag.IsOpen)
+        || (_lootList != null && _lootList.IsOpen)
+        || (_contents != null && _contents.IsOpen)
+        || (_shop != null && _shop.IsOpen)
+        || (_sheet != null && _sheet.IsOpen)
+        || (_look != null && _look.IsOpen)
+        || (_book != null && _book.IsOpen);
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>
     void SyncRoom()

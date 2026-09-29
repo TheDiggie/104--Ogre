@@ -63,6 +63,12 @@ static class FakeServer
     const uint RID_BUFF1 = 60070;
     const uint RID_BUFF2 = 60071;
     static int stopAfter;
+    const uint RID_MIGHT = 60090;
+    const uint RID_INTELLECT = 60091;
+    const uint RID_STAMINA = 60092;
+    const uint RID_AGILITY = 60093;
+    const uint RID_MYSTICISM = 60094;
+    const uint RID_AIM = 60095;
     const uint RID_RATSOUND = 60080;
     const uint RID_MUSIC = 60081;
 
@@ -135,6 +141,12 @@ static class FakeServer
             // Sound files are named as .wav in the string table and the
             // library swaps the extension to .ogg, which is what is
             // actually on disk.
+            new RsbResourceID(RID_MIGHT,      "might",            4),
+            new RsbResourceID(RID_INTELLECT,  "intellect",        4),
+            new RsbResourceID(RID_STAMINA,    "stamina",          4),
+            new RsbResourceID(RID_AGILITY,    "agility",          4),
+            new RsbResourceID(RID_MYSTICISM,  "mysticism",        4),
+            new RsbResourceID(RID_AIM,        "aim",              4),
             new RsbResourceID(RID_RATSOUND,   "Rat_awr.wav",      4),
             new RsbResourceID(RID_MUSIC,      "AMBCave.wav",      4),
             new RsbResourceID(RID_RATLOOK,
@@ -292,12 +304,24 @@ static class FakeServer
                     break;
 
                 case MessageTypeGameMode.SendStats:
-                    // The client asks for its stats once it is in the
-                    // world. The condition group is the one behind the
-                    // bars: hit points, mana, vigor, and vanilla's fourth,
-                    // the chance of getting tougher.
-                    Console.WriteLine("  <- SendStats");
-                    SendConditions(ns, ctrl);
+                    // The client asks for a named group, and the group is
+                    // the byte after the header - answering with the wrong
+                    // one is how a window ends up permanently empty.
+                    // Condition is the one behind the bars: hit points,
+                    // mana, vigor and vanilla's fourth, the chance of
+                    // getting tougher. Attributes is the character sheet.
+                    // The group is the byte after the PI - on the wire
+                    // this message is just 29-01 for Condition, 29-02 for
+                    // Attributes. Parsing it with SendStatsMessage does
+                    // not work here: body still carries the PI that the
+                    // message's own ReadFrom expects to have been handled
+                    // already, so it reads the group from the wrong
+                    // offset and every request looks like Condition.
+                    StatGroup want = body.Length > 1
+                        ? (StatGroup)body[1] : StatGroup.Condition;
+                    Console.WriteLine($"  <- SendStats {want}");
+                    if (want == StatGroup.Attributes) SendAttributes(ns, ctrl);
+                    else SendConditions(ns, ctrl);
                     break;
 
                 case MessageTypeGameMode.SayTo:
@@ -334,6 +358,27 @@ static class FakeServer
         };
 
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Condition, stats));
+    }
+
+    /// <summary>
+    /// The character sheet. Same StatNumeric shape as the condition bars,
+    /// and the window fills each bar between ValueRenderMin and
+    /// ValueRenderMax rather than against the maximum - so these are
+    /// deliberately not all on the same scale, to prove it.
+    /// </summary>
+    static void SendAttributes(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var stats = new Stat[]
+        {
+            new StatNumeric(1, RID_MIGHT,     0, 42, 0, 100, 100),
+            new StatNumeric(2, RID_INTELLECT, 0, 17, 0,  50,  50),   // half scale
+            new StatNumeric(3, RID_STAMINA,   0, 68, 0, 100, 100),
+            new StatNumeric(4, RID_AGILITY,   0,  9, 0,  20,  20),   // fifth scale
+            new StatNumeric(5, RID_MYSTICISM, 0, 55, 0, 100, 100),
+            new StatNumeric(6, RID_AIM,       0, 30, 0, 100, 100)
+        };
+
+        Send(ns, ctrl, new StatGroupMessage(StatGroup.Attributes, stats));
     }
 
     /// <summary>
