@@ -44,6 +44,7 @@ public partial class GameView : Node2D
     Button _loot;
     LootPanel _lootList;
     LootPanel _contents;
+    BuyPanel _shop;
     NameTags _names;
     ActionButtons _hotbar;
     LookPanel _look;
@@ -299,6 +300,20 @@ public partial class GameView : Node2D
                 _client.SendReqGetMessage(new ObjectID(item.ID, item.Count)));
             _ui.AddChild(_contents);
 
+            // The shop. One message buys everything ticked, which is what
+            // Buy::OnOKClicked sends - not one per item.
+            _shop = new BuyPanel();
+            _shop.Buy += want => Act(() =>
+            {
+                ObjectBase who = _client.Data?.Buy?.TradePartner;
+                if (who == null) return;
+                var ids = new ObjectID[want.Count];
+                for (int i = 0; i < want.Count; i++)
+                    ids[i] = new ObjectID(want[i].ID, want[i].Count);
+                _client.SendReqBuyItemsMessage(who.ID, ids);
+            });
+            _ui.AddChild(_shop);
+
             LayoutLoot();
             GetViewport().SizeChanged += LayoutLoot;
         });
@@ -398,6 +413,7 @@ public partial class GameView : Node2D
         _bag?.Sync(_client.Data?.InventoryObjects);
         _lootList?.Sync(_client.Data?.RoomObjectsLoot);
         _contents?.Sync(_client.Data?.ObjectContents);
+        _shop?.Sync(_client.Data?.Buy);
         // Seeded every frame rather than once: the client clears its
         // lists when the world changes under it - a room change or a
         // relogin - and a row that was filled at startup would empty and
@@ -456,6 +472,7 @@ public partial class GameView : Node2D
             || (_bag != null && _bag.IsOpen)
             || (_lootList != null && _lootList.IsOpen)
             || (_contents != null && _contents.IsOpen)
+            || (_shop != null && _shop.IsOpen)
             || (_look != null && _look.IsOpen)
             || (_book != null && _book.IsOpen))
         { avatar.HorizontalSpeed = 0f; return; }

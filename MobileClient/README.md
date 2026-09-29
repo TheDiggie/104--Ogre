@@ -48,6 +48,42 @@ this branch cannot log in until that is settled.
   up. Rearranging the bag itself is done; see below.
 - Slope seams at flat-span boundaries.
 
+## Building a standalone .exe
+
+`export_presets.cfg` has a **Windows Desktop** preset next to the
+Android one. It excludes `resource/*`, so the build does not carry the
+art: it finds an installed one through `M59Paths.Resolve` the same way
+running from the editor does. That keeps the output around 105 MB
+instead of 570, and means the exe only runs on a machine that has the
+game installed.
+
+Two things Godot needs that are easy to miss:
+
+- **A solution file.** Exporting a C# project fails with "no solution
+  file was found" unless `MobileClient.sln` exists beside the csproj,
+  and it has to carry Godot's own configurations - `Debug`,
+  `ExportDebug` and `ExportRelease`. A plain `dotnet new sln` writes
+  only Debug and Release, and the export then fails at the publish step
+  instead. The checked-in one has all three.
+- **Export templates** for the exact version, in
+  `%APPDATA%\Godot\export_templates\<version>.mono\`. They are a
+  separate ~1 GB download from the same release as the editor.
+
+Then, headless:
+
+```
+godot --headless --path MobileClient --export-release "Windows Desktop" ..\build\Meridian59.exe
+```
+
+The output is `Meridian59.exe`, `Meridian59.pck` and a
+`data_Meridian59_windows_x86_64` folder of .NET assemblies. All three
+have to stay together.
+
+The main scene decides what it opens: `FirstPerson.tscn` is the offline
+room browser, which is what you want for showing someone - it needs no
+account and walks all 362 rooms. `Game.tscn` is the live client and
+wants `M59USER`/`M59PASS` in the environment.
+
 ## Requirements
 
 - Godot **.NET** build - the download labelled "Windows - .NET", file
