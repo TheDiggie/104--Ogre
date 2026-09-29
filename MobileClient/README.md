@@ -841,6 +841,33 @@ goes wrong reaching for dual-stack, IPv4 is the answer.
 A connection failure also only reached a status line that the login
 screen was covering, so it now shows on the login screen itself.
 
+## Dropping part of a stack
+
+`UIInventory.cpp` forks on one flag. Dropping something that is not
+stackable sends `ReqDrop(id, 0)` straight away; dropping a stack opens
+the amount dialog prefilled with the whole count
+(`Amount::ShowValues(dataItem->ID, dataItem->Count)`), and its OK sends
+`ReqDrop(id, amount)`. This client sent a count of zero for everything,
+which for a stack means all of it whether you meant that or not.
+
+The game's dialog is one box and an OK. This one has the same box with
+a minus, a plus and an All beside it, because typing a number on a
+phone to drop four arrows is worse than tapping twice. The value is
+clamped to the stack, and the prompt never opens for something that is
+not one.
+
+Checked against the fake server, which carries an axe, a book and
+twenty-five doubloons:
+
+```
+<- ReqDrop id 268443459 count 25     (the stack, through the prompt)
+<- ReqDrop (5 bytes)                 (the axe, no count at all)
+```
+
+`SceneShot.tscn --slot n --press "Bag,Drop,OK"` walks that path: the
+list of buttons is pressed in order with the slot tapped after the
+first, so a whole flow runs in one go.
+
 ## Known limits
 
 - **Speed.** A uniform spatial grid (`WallGrid.cs`) means a ray only

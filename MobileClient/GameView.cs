@@ -46,6 +46,7 @@ public partial class GameView : Node2D
     LootPanel _contents;
     BuyPanel _shop;
     AttributesPanel _sheet;
+    AmountPrompt _amount;
     LoginPrompt _login;
     RichTextLabel _crash;
     string _resDir = "";
@@ -320,6 +321,13 @@ public partial class GameView : Node2D
             if (_chat != null) _actions.BottomReserve = _chat.BlockHeight;
         });
 
+        Widget("amount", () =>
+        {
+            _amount = new AmountPrompt();
+            _amount.Chosen += (id, many) => Act(() =>
+                _client.SendReqDropMessage(new ObjectID(id, (uint)many)));
+            _ui.AddChild(_amount);
+        });
         Widget("sheet", () =>
         {
             // Right of the Book button, left of the Bag.
@@ -369,7 +377,16 @@ public partial class GameView : Node2D
             _bag = new InventoryPanel();
             _bag.Opened      += () => Act(() => _client.SendReqInventoryMessage());
             _bag.UseItem     += item => Act(() => _client.UseUnuseApply(item));
-            _bag.DropItem    += item => Act(() => _client.SendReqDropMessage(new ObjectID(item.ID)));
+            // UIInventory.cpp: something that is not a stack drops
+            // straight away with a count of zero, and a stack asks how
+            // many first, prefilled with the lot.
+            _bag.DropItem    += item => Act(() =>
+            {
+                if (item.IsStackable && _amount != null)
+                    _amount.Ask(item.ID, (int)item.Count, item.Name);
+                else
+                    _client.SendReqDropMessage(new ObjectID(item.ID));
+            });
             _bag.LookItem    += item => Act(() => _client.SendReqLookMessage(item.ID));
             _bag.MoveItem    += (from, to) => Act(() => MoveInBag(from, to));
             _ui.AddChild(_bag);
@@ -784,7 +801,8 @@ public partial class GameView : Node2D
         || (_shop != null && _shop.IsOpen)
         || (_sheet != null && _sheet.IsOpen)
         || (_look != null && _look.IsOpen)
-        || (_book != null && _book.IsOpen);
+        || (_book != null && _book.IsOpen)
+        || (_amount != null && _amount.IsOpen);
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>
     void SyncRoom()

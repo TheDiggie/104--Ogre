@@ -7,6 +7,7 @@ using System.Net.Sockets;
 using System.Threading;
 using Meridian59.Common;
 using Meridian59.Common.Enums;
+using Meridian59.Data.Lists;
 using Meridian59.Data.Models;
 using Meridian59.Files.RSB;
 using Meridian59.Protocol;
@@ -284,6 +285,23 @@ static class FakeServer
                     Say(ns, ctrl, RID_ECHO);
                     break;
 
+                case MessageTypeGameMode.ReqInventory:
+                    Console.WriteLine("  <- ReqInventory");
+                    SendBag(ns, ctrl);
+                    break;
+
+                case MessageTypeGameMode.ReqDrop:
+                    // A count of zero means the whole thing; anything
+                    // else came from the amount prompt.
+                    // PI, then the ObjectID: four bytes of id and four
+                    // of count. Zero count means the whole thing.
+                    if (body.Length >= 9)
+                        Console.WriteLine($"  <- ReqDrop id {BitConverter.ToUInt32(body, 1)} count {BitConverter.ToUInt32(body, 5)}");
+                    else
+                        Console.WriteLine($"  <- ReqDrop ({body.Length} bytes)");
+                    Say(ns, ctrl, RID_ECHO);
+                    break;
+
                 case MessageTypeGameMode.SendObjectContents:
                     // Opening a container: the client asks for what is
                     // inside, and the answer is the same kind of list the
@@ -358,6 +376,34 @@ static class FakeServer
         };
 
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Condition, stats));
+    }
+
+    /// <summary>
+    /// What the player is carrying. One of them is a stack, because the
+    /// drop path forks on that: a single thing goes straight out with a
+    /// count of zero and a stack asks how many first.
+    /// </summary>
+    static void SendBag(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var bag = new[]
+        {
+            Carry(8001, RID_AXEBGF,  RID_AXE,   0, true),
+            Carry(8002, RID_BOOKBGF, RID_BOOK,  0, false),
+            Carry(8003, RID_COINBGF, RID_COIN, 25, false),
+        };
+
+        Send(ns, ctrl, new InventoryMessage(bag));
+    }
+
+    static InventoryObject Carry(uint id, uint bgfRid, uint nameRid, uint count, bool inUse)
+    {
+        return new InventoryObject(
+            id, count, bgfRid, nameRid, 0,
+            new LightingInfo(),
+            AnimationType.NONE, 0, 0,
+            new AnimationNone(),
+            new BaseList<SubOverlay>(),
+            inUse);
     }
 
     /// <summary>
