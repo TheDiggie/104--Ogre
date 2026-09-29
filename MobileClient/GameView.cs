@@ -755,10 +755,6 @@ public partial class GameView : Node2D
         Widget("hotbar", () =>
         {
             _hotbar = new ActionButtons();
-            // A press that the library will quietly drop says so in the
-            // chat log, where every other thing that happens to you is
-            // already reported.
-            _hotbar.Notice += line => _chat?.Local(line);
             ActionButtons.Seed(_client.Data);
             // Above the target row, which is itself above the chat block:
             // the row is one button tall plus the name label over it.
