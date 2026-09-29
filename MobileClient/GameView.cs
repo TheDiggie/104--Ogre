@@ -416,6 +416,7 @@ public partial class GameView : Node2D
             _book.Opened += () => Act(() => { _client.SendSendSpellsMessage(); _client.SendSendSkillsMessage(); });
             _book.Cast += id => Act(() => _client.SendReqCastMessage(id));
             _book.Perform += id => Act(() => _client.SendReqPerformMessage(id));
+            _book.Look += id => Act(() => _client.SendReqLookMessage(id));
             _ui.AddChild(_book);
         });
         Widget("hotbar", () =>

@@ -988,6 +988,30 @@ through the portrait; and the code that hides the button rows behind an
 open panel set `Visible` every frame, which put the empty target row
 back whenever nothing was targeted.
 
+## Spell and skill descriptions
+
+`UISpellDetails.cpp` and `UISkillDetails.cpp` are two windows of the
+same shape as the look window, over `Data->LookSpell` and
+`Data->LookSkill`, each with its own `IsVisible`. A spell shows its
+school, level, mana and vigor; a skill shows school and level. Every one
+of those is a `ServerString` the server has already worded, so nothing
+is composed here - the client prints what it is given.
+
+They are the look window with one extra line, so that is what they are:
+`LookPanel` checks the spell and the skill before the object.
+
+Two things came out of building it. The game asks for a description
+with the **same** `ReqLook` an object gets - there is no separate
+request - and the server decides whether to answer with `Look`,
+`LookSpell` or `LookSkill` from the id. And `UISpells.cpp` sends that
+look on a **single** click and casts only on a double; this client cast
+on a single tap, which is both backwards and a good way to throw a
+spell you meant to read about. First tap describes, second casts.
+
+The description also has to be moved to the front when it opens: it is
+asked for from the spell book, which is a sibling added later and draws
+over it.
+
 ## Known limits
 
 - **Speed.** A uniform spatial grid (`WallGrid.cs`) means a ray only

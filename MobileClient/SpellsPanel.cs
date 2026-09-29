@@ -32,6 +32,13 @@ public partial class SpellsPanel : Control
     public event Action<uint> Cast;
     /// <summary>Perform this skill.</summary>
     public event Action<uint> Perform;
+    /// <summary>
+    /// Describe this one. `UISpells.cpp` sends `ReqLook` on a single
+    /// click and casts only on a double - a tap that casts is both
+    /// backwards from the game and a good way to throw a spell you
+    /// meant to read about.
+    /// </summary>
+    public event Action<uint> Look;
     /// <summary>Raised on opening, to ask the server for a fresh list.</summary>
     public event Action Opened;
 
@@ -170,16 +177,33 @@ public partial class SpellsPanel : Control
         foreach (StatList s in list) _rows.AddChild(Row(s));
     }
 
+    /// <summary>The row tapped once, waiting to see if it is tapped again.</summary>
+    uint _chosen;
+
     Control Row(StatList s)
     {
         uint id = s.ObjectID;
         bool spell = _showingSpells;
 
         var button = new Button { CustomMinimumSize = new Vector2(0, RowHeight) };
+        // Named so a test can press a row: the row's text lives in a
+        // child label, so there is nothing to find it by otherwise.
+        button.Name = $"row{id}";
         button.Pressed += () =>
         {
-            if (spell) Cast?.Invoke(id);
-            else Perform?.Invoke(id);
+            // First tap describes, second casts - the phone's version of
+            // the game's click and double click.
+            if (_chosen == id)
+            {
+                _chosen = 0;
+                if (spell) Cast?.Invoke(id);
+                else Perform?.Invoke(id);
+            }
+            else
+            {
+                _chosen = id;
+                Look?.Invoke(id);
+            }
         };
 
         var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };

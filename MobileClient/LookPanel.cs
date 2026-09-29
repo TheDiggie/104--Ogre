@@ -32,6 +32,7 @@ public partial class LookPanel : Control
     Label _name;
     RichTextLabel _description;
     Label _inscription;
+    Label _detail;
     Button _close;
 
     uint _shown;
@@ -70,6 +71,13 @@ public partial class LookPanel : Control
         _inscription.AddThemeColorOverride("font_color", new Color(0.8f, 0.78f, 0.6f));
         AddChild(_inscription);
 
+        // School, level and costs for a spell; school and level for a
+        // skill; nothing for an object. One line under the name.
+        _detail = new Label { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _detail.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        _detail.AddThemeColorOverride("font_color", new Color(0.72f, 0.78f, 0.9f));
+        AddChild(_detail);
+
         _close = new Button { Text = "Close", Visible = false };
         _close.AddThemeFontSizeOverride("font_size", FontSize);
         _close.Pressed += Close;
@@ -104,6 +112,9 @@ public partial class LookPanel : Control
         _inscription.Position = new Vector2(side, top + h - FontSize * 4.4f);
         _inscription.Size = new Vector2(w - side, FontSize * 2f);
 
+        _detail.Position = new Vector2(side, top + h - FontSize * 6.4f);
+        _detail.Size = new Vector2(w - side, FontSize * 1.8f);
+
         _close.Position = new Vector2(side, top + h - FontSize * 2.4f - 8f);
         _close.Size = new Vector2(w - side, FontSize * 2.4f);
     }
@@ -118,11 +129,18 @@ public partial class LookPanel : Control
 
     void Show(bool on)
     {
+        // A description is asked for from somewhere - the spell book,
+        // the quest log, a tap on the world - and has to land in front
+        // of whatever asked. Those panels are siblings added later, so
+        // without this it opens behind them.
+        if (on) GetParent()?.MoveChild(this, -1);
+
         _panel.Visible = on;
         _picture.Visible = on && _picture.Texture != null;
         _name.Visible = on;
         _description.Visible = on;
         _inscription.Visible = on && !string.IsNullOrWhiteSpace(_inscription.Text);
+        _detail.Visible = on && !string.IsNullOrWhiteSpace(_detail.Text);
         _close.Visible = on;
     }
 
@@ -135,6 +153,14 @@ public partial class LookPanel : Control
     /// </summary>
     public void Sync(DataController data)
     {
+        // A spell or a skill description arrives in its own place -
+        // LookSpell and LookSkill, each with its own IsVisible - and the
+        // game gives each its own window (UISpellDetails.cpp,
+        // UISkillDetails.cpp). They are the same window with different
+        // lines on it, so this one does all three, and the extra lines
+        // come from the same places the game reads them.
+        if (Spell(data) || Skill(data)) return;
+
         _info = data?.LookObject;
         if (_info == null) { if (IsOpen) Show(false); return; }
 
@@ -143,6 +169,7 @@ public partial class LookPanel : Control
         ObjectBase o = _info.ObjectBase;
         string text = _info.Message?.FullString ?? "";
         string ins = _info.Inscription?.FullString ?? "";
+        _detail.Text = "";
 
         uint id = o?.ID ?? 0;
         if (id != _shown || text != _lastText)
@@ -173,6 +200,92 @@ public partial class LookPanel : Control
         }
 
         if (!IsOpen) Show(true);
+    }
+
+    /// <summary>
+    /// A spell description. `UISpellDetails.cpp` shows the name, the
+    /// school, the level, and what it costs in mana and vigor - each a
+    /// `ServerString` the server sends already worded, so none of it is
+    /// composed here.
+    /// </summary>
+    bool Spell(DataController data)
+    {
+        SpellInfo info = data?.LookSpell;
+        if (info == null || !info.IsVisible) return false;
+
+        ObjectBase o = info.ObjectBase;
+        string text = info.Message?.FullString ?? "";
+        uint id = o?.ID ?? 0;
+
+        if (id != _shown || text != _lastText)
+        {
+            _shown = id; _lastText = text;
+            _name.Text = o?.Name ?? "";
+            Tint(o);
+            _description.Text = text;
+            _inscription.Text = "";
+            _detail.Text = Join(
+                info.SchoolName?.FullString,
+                info.SpellLevel?.FullString,
+                info.ManaCost?.FullString,
+                info.VigorCost?.FullString);
+            Picture(o);
+        }
+
+        if (!IsOpen) Show(true);
+        return true;
+    }
+
+    /// <summary>
+    /// A skill description - the same window with two lines instead of
+    /// four, which is all `UISkillDetails.cpp` has.
+    /// </summary>
+    bool Skill(DataController data)
+    {
+        SkillInfo info = data?.LookSkill;
+        if (info == null || !info.IsVisible) return false;
+
+        ObjectBase o = info.ObjectBase;
+        string text = info.Message?.FullString ?? "";
+        uint id = o?.ID ?? 0;
+
+        if (id != _shown || text != _lastText)
+        {
+            _shown = id; _lastText = text;
+            _name.Text = o?.Name ?? "";
+            Tint(o);
+            _description.Text = text;
+            _inscription.Text = "";
+            _detail.Text = Join(info.SchoolName?.FullString, info.SkillLevel?.FullString);
+            Picture(o);
+        }
+
+        if (!IsOpen) Show(true);
+        return true;
+    }
+
+    static string Join(params string[] parts)
+    {
+        var kept = new System.Collections.Generic.List<string>();
+        foreach (string p in parts)
+            if (!string.IsNullOrWhiteSpace(p)) kept.Add(p.Trim());
+        return string.Join("   ", kept);
+    }
+
+    void Tint(ObjectBase o)
+    {
+        if (o?.Flags == null) return;
+        uint argb = NameColors.GetColorFor(o.Flags);
+        _name.AddThemeColorOverride("font_color", new Color(
+            ((argb >> 16) & 0xFF) / 255f,
+            ((argb >> 8) & 0xFF) / 255f,
+            (argb & 0xFF) / 255f));
+    }
+
+    void Picture(ObjectBase o)
+    {
+        try { _picture.Texture = M59Assets.FromTex(Viewer(o, PictureSize)); }
+        catch (Exception e) { GD.PrintErr($"[Look] {o?.Name}: {e.Message}"); }
     }
 
     /// <summary>

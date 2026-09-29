@@ -64,6 +64,11 @@ static class FakeServer
     const uint RID_BUFF1 = 60070;
     const uint RID_BUFF2 = 60071;
     static int stopAfter;
+    const uint RID_SPELLDESC = 60110;
+    const uint RID_SCHOOL = 60111;
+    const uint RID_LEVEL = 60112;
+    const uint RID_MANA = 60113;
+    const uint RID_VIGOR = 60114;
     const uint RID_QHEAD1 = 60100;
     const uint RID_QHEAD2 = 60101;
     const uint RID_QUEST1 = 60102;
@@ -147,6 +152,12 @@ static class FakeServer
             // Sound files are named as .wav in the string table and the
             // library swaps the extension to .ogg, which is what is
             // actually on disk.
+            new RsbResourceID(RID_SPELLDESC,
+                "Lays a hand on a wound and closes it, at some cost to the caster.", 4),
+            new RsbResourceID(RID_SCHOOL,     "School: Shal'ille", 4),
+            new RsbResourceID(RID_LEVEL,      "Level 2",           4),
+            new RsbResourceID(RID_MANA,       "Mana 8",            4),
+            new RsbResourceID(RID_VIGOR,      "Vigor 3",           4),
             new RsbResourceID(RID_QHEAD1,     "Available",        4),
             new RsbResourceID(RID_QHEAD2,     "In progress",      4),
             new RsbResourceID(RID_QUEST1,     "Clear the cellar", 4),
@@ -269,8 +280,15 @@ static class FakeServer
                     // the description, and an inscription if it has one.
                     // The client's own LookObject is what goes up on
                     // screen, so this is all the window needs.
-                    Console.WriteLine("  <- ReqLook");
-                    SendLook(ns, ctrl);
+                    // There is no separate request for a spell's
+                    // description: the client sends ReqLook with the
+                    // spell's id and the server decides to answer with
+                    // LookSpell rather than Look. The ids the spell list
+                    // hands out are the ones sent in the Spells message.
+                    uint lookAt = body.Length >= 5 ? BitConverter.ToUInt32(body, 1) : 0;
+                    Console.WriteLine($"  <- ReqLook {lookAt}");
+                    if (lookAt == 5001 || lookAt == 5002) SendLookSpell(ns, ctrl);
+                    else SendLook(ns, ctrl);
                     break;
 
                 case MessageTypeGameMode.ReqGet:
@@ -606,6 +624,30 @@ static class FakeServer
                                   new ServerString(ChatMessageType.SystemMessage));
         Send(ns, ctrl, new LookMessage(info, strings));
     }
+
+    /// <summary>
+    /// A spell's description. Everything on that window is a
+    /// ServerString the server words itself - school, level, mana and
+    /// vigor included - so the client composes none of it.
+    /// </summary>
+    static void SendLookSpell(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        ObjectBase spell = Item(5001, RID_BOOKBGF, RID_SPELL1, 0);
+
+        var info = new SpellInfo(
+            spell,
+            Line(RID_SPELLDESC),
+            Line(RID_SCHOOL),
+            Line(RID_LEVEL),
+            Line(RID_MANA),
+            Line(RID_VIGOR));
+
+        Send(ns, ctrl, new LookSpellMessage(info, strings));
+    }
+
+    static ServerString Line(uint rid)
+        => new ServerString(ChatMessageType.SystemMessage, strings, rid,
+                            new List<InlineVariable>(), new List<ChatStyle>());
 
     static int lootLeft = 3;
     static bool lootOpen;

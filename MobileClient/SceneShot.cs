@@ -56,8 +56,12 @@ public partial class SceneShot : Node
         // thumb on the stick does.
         if (int.TryParse(Arg("--walk", "0"), out int walk) && walk > 0)
             Walk(outPath, wait, walk, Arg("--keys", "W"));
-        else if (Arg("--slot", null) != null)
-            Slot(outPath, wait, Arg("--slot", null), Arg("--press", null));
+        // Anything with a sequence in it - several presses, or a tap or
+        // a slot placed among them - goes through the walker.
+        else if (Arg("--slot", null) != null
+                 || (Arg("--press", null) ?? "").Contains('@')
+                 || (Arg("--press", null) ?? "").Contains(','))
+            Slot(outPath, wait, Arg("--slot", null), Arg("--press", null), Arg("--tap", null));
         else if (Arg("--tick", null) != null)
             Tick(outPath, wait, Arg("--tick", null), Arg("--press", null));
         else if (Arg("--login", null) != null)
@@ -347,7 +351,7 @@ public partial class SceneShot : Node
     /// --press takes a comma-separated list here, so a whole path -
     /// open the bag, pick the third thing, drop it - runs in one go.
     /// </summary>
-    async void Slot(string path, int settle, string which, string press)
+    async void Slot(string path, int settle, string which, string press, string spot = null)
     {
         for (int i = 0; i < Math.Max(1, settle); i++)
             await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
@@ -359,7 +363,8 @@ public partial class SceneShot : Node
         // is what the shorter paths want.
         string[] names = (press ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
         bool placed = false;
-        foreach (string raw in names) if (raw.Trim() == "@slot") placed = true;
+        foreach (string raw in names)
+        { string t = raw.Trim(); if (t == "@slot" || t == "@tap") placed = true; }
 
         var steps = new List<string>();
         if (placed) steps.AddRange(names);
@@ -369,7 +374,31 @@ public partial class SceneShot : Node
         foreach (string raw in steps)
         {
             string step = raw.Trim();
-            if (step == "@slot")
+            if (step == "@tap")
+            {
+                // A tap at a point, placed in the sequence rather than
+                // before it - Poke taps first, which is no use when the
+                // thing to tap only exists after a button is pressed.
+                string[] xy = (spot ?? "").Split(',');
+                if (xy.Length == 2 &&
+                    float.TryParse(xy[0], out float tx) && float.TryParse(xy[1], out float ty))
+                {
+                    var at = new Vector2(tx, ty);
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = at, Pressed = true });
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = at, Pressed = false });
+                    GD.Print($"[SceneShot] tapped {at}");
+                }
+                else GD.Print($"[SceneShot] @tap wants --tap x,y, got {spot}");
+            }
+            else if (step.StartsWith("@name:"))
+            {
+                string want = step.Substring(6);
+                Button b = FindNamed(GetTree().Root, want);
+                if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed node {want}"); }
+                else GD.Print($"[SceneShot] no node called {want}");
+            }
+            else if (step == "@slot")
             {
                 if (!int.TryParse(which, out int n)) continue;
                 var slots = new List<InventorySlot>();
@@ -404,6 +433,22 @@ public partial class SceneShot : Node
         GetViewport().GetTexture().GetImage().SavePng(path);
         GD.Print($"[SceneShot] wrote {path}");
         GetTree().Quit();
+    }
+
+    /// <summary>
+    /// A button found by node name rather than by its text - list rows
+    /// keep their text in a child label, so there is nothing else to
+    /// find them by.
+    /// </summary>
+    static Button FindNamed(Node from, string name)
+    {
+        if (from is Button b && b.Visible && b.Name == name) return b;
+        foreach (Node child in from.GetChildren())
+        {
+            Button found = FindNamed(child, name);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     static Button FindButton(Node from, string text)
