@@ -65,12 +65,12 @@ KIT_DIR = "Future Project MDs"           # the grab-copy folder (repo root)
 KIT_ONLY = {"0 - READ ME FIRST.md", "UPGRADES.md",  # no repo-root original (front door renamed 2026-09-14: it is an install runbook, not a CLAUDE.md)
             "CONTRIBUTING.md", "FLAGS.md", "hooks/README.txt", "hooks/settings.json"}
 SKILLS_DIR = ".claude/skills"
-HOOKS_DIR = "tools/hooks"
+HOOKS_DIR = "Tools/hooks"
 REF_TOOLS_DIR = KIT_DIR + "/reference tools"
 CORE_FILE = "CLAUDE.md"                  # its lint runs on edit
 CORE_CONTRACT = ("docs/index/MASTER_INDEX.md", ".claude/rules/")   # the one door + the path-scoped rules: same lint (the pointer core, 2026-09-14)
-CORE_LINT = ["python", "tools/check_claude_md.py"]
-KIT_SYNC = "python tools/sync_kit_repo.py"
+CORE_LINT = ["python", "Tools/check_claude_md.py"]
+KIT_SYNC = "python Tools/sync_kit_repo.py"
 README_HINT = "the public README (rootstock-os/README.md) if a pillar, skill, hook or box item changed"
 WIKI_DIRS = ("docs/systems/",)           # See-also lint scope (= check_wiki_links.py)
 PLAYER_TEXT = (                           # dash doctrine scope
@@ -139,7 +139,7 @@ def kit_refresh(r, run_lint=True):
         return ("KIT REFRESH: hook %s is portable - refresh '%s/hooks/%s', its HOOKS_METHOD.md "
                 "tier text and hooks/README.txt in this batch; %s; then %s"
                 % (name, KIT_DIR, name, README_HINT, KIT_SYNC))
-    if r.startswith("tools/") and r.count("/") == 1 and r.endswith(".py"):
+    if r.startswith("Tools/") and r.count("/") == 1 and r.endswith(".py"):
         try:
             refs = set(os.listdir(os.path.join(ROOT, REF_TOOLS_DIR)))
         except OSError:
@@ -157,7 +157,7 @@ def kit_refresh(r, run_lint=True):
                     % (sub, README_HINT.split(" if ")[0], KIT_SYNC))
         if sub.startswith("reference tools/") or sub.startswith("hooks/") or sub.startswith("skills/"):
             return ("KIT COPY: %s is a grab-copy - the ORIGINAL lives in the repo (tools/, "
-                    "tools/hooks/ or .claude/skills/); edit that and refresh the copy, "
+                    "Tools/hooks/ or .claude/skills/); edit that and refresh the copy, "
                     "then %s" % (r, KIT_SYNC))
         if os.path.basename(sub) in KIT_MDS:
             return ("KIT COPY: %s is a grab-copy - edit the repo-root ORIGINAL %s and refresh "
@@ -267,11 +267,11 @@ def _selftest():
           and "Future Project MDs/WIKI_METHOD.md" in c[0] and "README" in c[0])
     b, c = run("Edit", ap(".claude/skills/ship/SKILL.md"), old_string="a", new_string="b")
     check("skill -> kit refresh line naming skills/ship", c and "skills/ship/SKILL.md" in c[0])
-    b, c = run("Edit", ap("tools/hooks/diet_guard.py"), old_string="a", new_string="b")
+    b, c = run("Edit", ap("Tools/hooks/diet_guard.py"), old_string="a", new_string="b")
     check("hook -> kit refresh line naming hooks/ copy", c and "hooks/diet_guard.py" in c[0])
-    b, c = run("Edit", ap("tools/standup.py"), old_string="a", new_string="b")
+    b, c = run("Edit", ap("Tools/standup.py"), old_string="a", new_string="b")
     check("reference tool -> refresh line", c and "reference tools/standup.py" in c[0])
-    b, c = run("Edit", ap("tools/run_tests.py"), old_string="a", new_string="b")
+    b, c = run("Edit", ap("Tools/run_tests.py"), old_string="a", new_string="b")
     check("non-kit tool is silent", b is None and c == [])
     b, c = run("Edit", ap("Future Project MDs/WIKI_METHOD.md"), old_string="a", new_string="b")
     check("kit copy -> 'edit the original'", c and "KIT COPY" in c[0] and "WIKI_METHOD.md" in c[0])

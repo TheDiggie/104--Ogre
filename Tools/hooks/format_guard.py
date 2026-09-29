@@ -22,9 +22,9 @@ Edit this guard can see. `--selftest` runs the in-process checks.
 
 Search keys: format guard, safety wiring, settings.json guard, unwire a
 hook, PostToolUse block, format law hook, Tier 3b.
-See also: tools/format_lint.py (the checks + the rewrite); tools/hooks/
-hygiene_guard.py (Tier 3, the reminders); tools/hooks/stop_tick.py (the
-Stop twin); tools/hooks/bash_guard.py (the shell twin); HOOKS_METHOD.md
+See also: Tools/format_lint.py (the checks + the rewrite); Tools/hooks/
+hygiene_guard.py (Tier 3, the reminders); Tools/hooks/stop_tick.py (the
+Stop twin); Tools/hooks/bash_guard.py (the shell twin); HOOKS_METHOD.md
 (Tier 3b); "Future Project MDs/CONTRIBUTING.md" (the law for
 contributors); WORKFLOWS.md "Add or change a harness hook".
 """
@@ -61,11 +61,11 @@ def would_be_text(tool, tin, current):
 
 
 def hooks_dir_for(path):
-    """The hooks folder a settings file wires: beside it in the kit, tools/hooks/ in the repo."""
+    """The hooks folder a settings file wires: beside it in the kit, Tools/hooks/ in the repo."""
     d = os.path.dirname(os.path.abspath(path))
     if os.path.basename(d).lower() == "hooks":
         return d
-    return os.path.join(ROOT, "tools", "hooks")
+    return os.path.join(ROOT, "Tools", "hooks")
 
 
 def evaluate(data):
@@ -105,7 +105,7 @@ def evaluate(data):
         if probs:
             rel = os.path.relpath(p, ROOT).replace("\\", "/")
             fix = ("fix the JSON by hand" if cls == "settings" else
-                   "after a read-only look: `python tools/format_lint.py --rewrite \"%s\" --purpose \"...\" "
+                   "after a read-only look: `python Tools/format_lint.py --rewrite \"%s\" --purpose \"...\" "
                    "--intent \"...\"` (add --keys / --also for a script or method file)" % rel)
             return "block", ("THE FORMAT LAW (the CEO 2026-09-13): %s is a kit thing and fails the format "
                              "lint - %s. Fix it before moving on: %s" % (rel, "; ".join(probs), fix))
@@ -149,14 +149,14 @@ def _selftest():
                      "tool_input": {"file_path": settings, "content": "{broken"}, "cwd": ROOT})
     check("Write of unparsable settings is DENIED", d == "deny" and "parse" in r)
     d, r = evaluate({"hook_event_name": "PreToolUse", "tool_name": "Write",
-                     "tool_input": {"file_path": os.path.join(ROOT, "tools", "hooks", "diet_guard.py"),
+                     "tool_input": {"file_path": os.path.join(ROOT, "Tools", "hooks", "diet_guard.py"),
                                     "content": "x"}, "cwd": ROOT})
     check("PreToolUse ignores non-settings files", d is None)
     with tempfile.TemporaryDirectory() as td:
         # PostToolUse on an in-scope file: simulate via a kit-relative temp inside the kit? No -
         # never write junk into the kit. Use the classify + check path on a real passing file instead.
         d, r = evaluate({"hook_event_name": "PostToolUse", "tool_name": "Edit",
-                         "tool_input": {"file_path": os.path.join(ROOT, "tools", "hooks", "format_guard.py"),
+                         "tool_input": {"file_path": os.path.join(ROOT, "Tools", "hooks", "format_guard.py"),
                                         "old_string": "a", "new_string": "b"}, "cwd": ROOT})
         check("PostToolUse on a formatted hook is silent", d is None)
         out = os.path.join(td, "x.gd")

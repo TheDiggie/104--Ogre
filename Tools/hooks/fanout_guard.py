@@ -37,12 +37,12 @@ never locked out of its own tools for more than a cooldown.
   The first sight of a file backfills totals without feeding velocity,
   so a mid-session install never halts on catch-up.
 
-  python tools/hooks/fanout_guard.py --status     # what the meter sees
-  python tools/hooks/fanout_guard.py --resume     # clear a halt/burst now
-  python tools/hooks/fanout_guard.py --selftest   # the pipe tests, in-process
-  python tools/hooks/fanout_guard.py --limits     # every number, current vs default
-  python tools/hooks/fanout_guard.py --set burst_cap=12 flood_cap=40   # tune
-  python tools/hooks/fanout_guard.py --defaults   # forget the tuning
+  python Tools/hooks/fanout_guard.py --status     # what the meter sees
+  python Tools/hooks/fanout_guard.py --resume     # clear a halt/burst now
+  python Tools/hooks/fanout_guard.py --selftest   # the pipe tests, in-process
+  python Tools/hooks/fanout_guard.py --limits     # every number, current vs default
+  python Tools/hooks/fanout_guard.py --set burst_cap=12 flood_cap=40   # tune
+  python Tools/hooks/fanout_guard.py --defaults   # forget the tuning
 
 THE NUMBERS (the CEO's ask 2026-09-10, the /runaway skill): DEFAULTS
 below are the script's; the owner's TUNED numbers live in
@@ -66,7 +66,7 @@ INTENT: I want Rootstock to prevent this type of catastrophe at the harness
 Search keys: fan-out, sub-agent cap, agent limit, token budget, spend
 meter, runaway agents, runaway numbers, tune limits, circuit breaker,
 halt, cooldown.
-See also: tools/hooks/_hooklib.py; SUBAGENTS.md rule 12 (THE FAN-OUT
+See also: Tools/hooks/_hooklib.py; SUBAGENTS.md rule 12 (THE FAN-OUT
 LAW); HOOKS_METHOD.md Tier 2b (portable); docs/systems/tooling.md (The
 hooks).
 """
@@ -420,7 +420,7 @@ def _cli(argv):
         _save(STATE, st)
         print("resumed: velocity meters and spawn windows cleared")
         return 0
-    print(__doc__.split("  python tools/hooks")[0].split("THE SPEND METER")[0])
+    print(__doc__.split("  python Tools/hooks")[0].split("THE SPEND METER")[0])
     return 0
 
 

@@ -3,7 +3,7 @@
 The checkpoint counter's twin. When the manager finishes a reply, this
 hook reads the turn's slice of the harness transcript (everything since
 the last Stop, by a per-transcript line pointer in .claude/lesson_state.json)
-and asks tools/lesson_log.py for trial-and-error signals: the same command
+and asks Tools/lesson_log.py for trial-and-error signals: the same command
 run again after an error, repeated edit misses, a FAIL followed by a PASS,
 an intent claim resolved DIFFERENT, an employee briefed twice, a prompt that
 reads as a correction. When it sees one it REFUSES to end the turn once
@@ -29,8 +29,8 @@ INTENT: the CEO 2026-09-20: "something to push you to write what you
 
 Search keys: lesson advised, stop hook, lesson loop, trial and error,
 knowledge capture, lesson state.
-See also: tools/lesson_log.py (the signals + the ledger); LESSONS.md (the
-book + the law); tools/hooks/stop_tick.py (the checkpoint twin);
+See also: Tools/lesson_log.py (the signals + the ledger); LESSONS.md (the
+book + the law); Tools/hooks/stop_tick.py (the checkpoint twin);
 tools/hooks/prompt_gauge.py (the prompt end).
 """
 import hashlib

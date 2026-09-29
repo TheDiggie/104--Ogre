@@ -2,9 +2,9 @@
 the Readme from falling behind so far and missing information like that
 in the future?" - "Lets build it.")
 
-    python tools/readme_lint.py            # check, ledger a line, exit 1 on FAIL
-    python tools/readme_lint.py --quiet    # one summary line only
-    python tools/readme_lint.py --selftest # prove the checks bite
+    python Tools/readme_lint.py            # check, ledger a line, exit 1 on FAIL
+    python Tools/readme_lint.py --quiet    # one summary line only
+    python Tools/readme_lint.py --selftest # prove the checks bite
 
 The public README (rootstock-os/README.md) lives only in the kit repo and
 no script used to read its CLAIMS - only its version line. The 09-13
@@ -45,8 +45,8 @@ INTENT: the CEO 2026-09-13: 'What can we do to prevent the Readme from
 
 Search keys: readme lint, readme parity, readme drift, kit readme, public
 readme, box table, count check, rootstock readme.
-See also: tools/sync_kit_repo.py (the refusal); tools/readme_audit.py (the
-cadence for the unwritten-answer class); tools/ledger_trends.py (proposes
+See also: Tools/sync_kit_repo.py (the refusal); Tools/readme_audit.py (the
+cadence for the unwritten-answer class); Tools/ledger_trends.py (proposes
 an audit); WORKFLOWS.md "Edit the future-project kit (Rootstock)";
 docs/systems/tooling.md "The README parity lint and audit cadence".
 """
@@ -78,9 +78,9 @@ LEDGER = os.path.join(ROOT, "docs", "history", "readme_lint_runs.txt")
 # prose slip that no count expresses; never remove one (a slip that
 # happened once can happen again).
 CLAIMS = [
-    ("settings.json merges into .claude/settings.json (not tools/hooks)",
+    ("settings.json merges into .claude/settings.json (not Tools/hooks)",
      r"merge into `\.claude/settings\.json`",
-     r"settings template.*into `tools/hooks/`"),
+     r"settings template.*into `Tools/hooks/`"),
     ("the checkpoint counter ticks when work happened (not after every task)",
      r"ticks the checkpoint counter when\s+work actually happened",
      r"ticks (the counter )?after every task"),
@@ -309,7 +309,7 @@ def selftest():
     expect(any(not r[0] and "six laws" in r[1] for r in checks(bad, t)),
            "a 'six laws' claim is caught")
     bad = re.sub(r"merge into `\.claude/settings\.json`",
-                 "drop into `tools/hooks/`", good)
+                 "drop into `Tools/hooks/`", good)
     expect(any(not r[0] and "settings.json" in r[1] for r in checks(bad, t)),
            "the settings.json destination slip is caught")
     bad = re.sub(r"(Kit version:\s*\**v)(\d+\.\d+)", r"\g<1>0.1", good)

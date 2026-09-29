@@ -186,7 +186,7 @@ def run_selftest():
             "rows": [
                 ("M", "README.md"),
                 ("M", "CHANGELOG.md"),
-                ("M", "tools/other.py"),
+                ("M", "Tools/other.py"),
             ],
             "expected": ("none", "docs and tools only"),
         },

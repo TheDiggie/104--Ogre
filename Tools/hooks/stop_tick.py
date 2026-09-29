@@ -17,7 +17,7 @@ leaves a safety hook unwired in .claude/settings.json is refused once
 (tools/format_lint.py's SAFETY table), so a prompt that switched a guard
 off cannot end quietly.
 
-THE CHANGELOG WARNING (the CEO's ruling 2026-09-14): if tools/
+THE CHANGELOG WARNING (the CEO's ruling 2026-09-14): if Tools/
 .changelog_anchor exists and HEAD has moved past it, one context line is
 added to whatever this hook already emits (or, if it would otherwise emit
 nothing, its own systemMessage) naming how many commits are unexported.
@@ -79,9 +79,9 @@ INTENT: makes the checkpoint discipline mechanical rather than a reminder
 Search keys: stop hook, auto tick, checkpoint counter, dire, block stop,
 safety wiring, changelog warning, changelog anchor, checkpoint named,
 reply names a checkpoint, proposal named, the proposal law, do not ask.
-See also: tools/checkpoint.py (counter, fingerprint, --reset);
+See also: Tools/checkpoint.py (counter, fingerprint, --reset);
 tools/export_changelog.py (the anchor file); .claude/skills/checkpoint
-(the ritual the warning asks for); tools/lesson_log.py (the transcript
+(the ritual the warning asks for); Tools/lesson_log.py (the transcript
 reader the named check borrows).
 """
 import datetime
@@ -195,7 +195,7 @@ def changelog_note(mine, n_commits):
         return None
     mine["changelog_warned_n"] = n_commits
     return ("[stop_tick] CHANGELOG UNEXPORTED: %d commit(s) since the last "
-            "export - MANAGER: run `python tools/export_changelog.py` and push "
+            "export - MANAGER: run `python Tools/export_changelog.py` and push "
             "before this reply ends (a step, never a note for the CEO; "
             "make_builds runs it itself)" % n_commits)
 
@@ -352,7 +352,7 @@ def main():
 def _selftest():
     """The Stop twin's safety check bites on a broken wiring and passes the
     live file; the changelog warning is checked on temp anchor files only
-    (never the real tools/.changelog_anchor)."""
+    (never the real Tools/.changelog_anchor)."""
     import json
     import tempfile
     import format_lint as fl

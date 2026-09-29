@@ -28,8 +28,8 @@ INTENT: the CEO 2026-09-26: "Can we make these processes more fool proof
 
 Search keys: delegation auditor, fabrication check, rule 9, metered
 tokens, tool_uses, pending ledger, RESOLVED line, TOOLS line mismatch.
-See also: SUBAGENTS.md (rules 3, 5, 9); tools/hooks/verify_advisor.py
-(the stop end); tools/hooks/brief_guard.py (the dispatch end);
+See also: SUBAGENTS.md (rules 3, 5, 9); Tools/hooks/verify_advisor.py
+(the stop end); Tools/hooks/brief_guard.py (the dispatch end);
 docs/history/delegation_pending.txt (the pending ledger).
 """
 import hashlib

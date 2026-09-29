@@ -6,7 +6,7 @@ a pull: prints a ~20-line digest - recent commits, the newest WS-note
 headlines, the tail of every history ledger, and the open roadmap index. The
 manager reads THIS, then opens full notes only where the digest points.
 
-Usage:  python tools/standup.py [--commits N] [--no-usage] [--selftest]   (default 5)
+Usage:  python Tools/standup.py [--commits N] [--no-usage] [--selftest]   (default 5)
 
 THE DIGEST DIET (the CEO 2026-09-14, "the most important pieces are context
 and efficiency. As long as there is no loss there, I'm happy"): the digest
@@ -39,10 +39,10 @@ INTENT: the CEO 2026-09-02: 'this goes along with my rules of creating a
 
 Search keys: standup, pull digest, session start, catch-up, the budget,
 weighted spend, digest diet, loss test, quiet ledgers. See also: TOKEN_IDEAS.md ideas 7 + 20; docs/history/
-ledgers; NEXT_STEPS.md; tools/usage_report.py (the daily line).
+ledgers; NEXT_STEPS.md; Tools/usage_report.py (the daily line).
 See also: TOKEN_IDEAS.md ideas 7 and 20; docs/history ledgers;
-  NEXT_STEPS.md; tools/usage_report.py (the daily line);
-  tools/ledger_trends.py (the proposals block).
+  NEXT_STEPS.md; Tools/usage_report.py (the daily line);
+  Tools/ledger_trends.py (the proposals block).
 """
 import argparse
 import glob
@@ -202,7 +202,7 @@ def print_budget():
     """THE BUDGET: refresh the usage sheet quietly, then the daily line's
     tail - each day's weighted spend vs the previous 7 active days. A
     missing script or transcript set degrades to one line, never a crash."""
-    script = os.path.join(ROOT, "tools", "usage_report.py")
+    script = os.path.join(ROOT, "Tools", "usage_report.py")
     daily = os.path.join(ROOT, "docs", "history", "usage_daily.txt")
     if not os.path.isfile(script):
         return
@@ -218,7 +218,7 @@ def print_budget():
         with open(daily, encoding="utf-8") as fh:
             lines = [ln.rstrip() for ln in fh if ln.strip()]
     except OSError:
-        print("  (no usage_daily.txt yet - run tools/usage_report.py)")
+        print("  (no usage_daily.txt yet - run Tools/usage_report.py)")
         return
     header = [ln for ln in lines if ln.startswith("#")]
     body = [ln for ln in lines if not ln.startswith("#")]
@@ -235,7 +235,7 @@ def print_open_questions():
     oldest first, so a question waiting on the owner never scrolls off a
     ledger nobody rereads. Silent on any failure - never blocks standup."""
     try:
-        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        sys.path.insert(0, os.path.join(ROOT, "Tools"))
         import open_questions
         ages = open_questions.open_rows()
     except Exception:
@@ -249,7 +249,7 @@ def print_open_questions():
 
 # THE LOOP LAW (the CEO's ruling: "Any script that should be run multiple
 # times must be called by the main looping script; every action, every
-# standup"). Fixed list matching tools/run_all.py's GROUPS keys (check,
+# standup"). Fixed list matching Tools/run_all.py's GROUPS keys (check,
 # regen, tests, metrics, probes, builds, session) - a plain list rather
 # than importing run_all.py, which would run its module-level code.
 LOOP_GROUPS = ["check", "regen", "metrics", "survey", "standup", "session"]
@@ -537,7 +537,7 @@ def main():
 
     # THE LEARNING LOOP's closing step (the CEO 2026-09-10): ledger trends
     # become proposals the owner rules on; nothing is applied by a script.
-    out = sh([sys.executable, os.path.join(ROOT, "tools", "ledger_trends.py")])
+    out = sh([sys.executable, os.path.join(ROOT, "Tools", "ledger_trends.py")])
     if out:
         print(out.rstrip())
 
@@ -560,9 +560,9 @@ def main():
 
     # THE POINTER CORE (2026-09-14): the notes live in docs/index/notes.md now;
     # the core's size is said out loud here so the owner sees it every session.
-    print("== THE CORE (CLAUDE.md; tools/check_claude_md.py; Anthropic: under 200 lines)")
+    print("== THE CORE (CLAUDE.md; Tools/check_claude_md.py; Anthropic: under 200 lines)")
     try:
-        out = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "check_claude_md.py")],
+        out = subprocess.run([sys.executable, os.path.join(ROOT, "Tools", "check_claude_md.py")],
                              cwd=ROOT, capture_output=True, text=True, timeout=20).stdout.strip()
         print("  " + (out.splitlines()[0] if out else "(no output)"))
         for ln in out.splitlines()[1:6]:

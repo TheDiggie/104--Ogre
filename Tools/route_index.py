@@ -7,8 +7,8 @@ reference tool's Search keys line, and name the scripted way before the
 first tool call, so the routing is a lookup and not a per-turn inference.
 
 Usage:
-    python tools/route_index.py --match "<prompt text>"   # what the prompt hook would say
-    python tools/route_index.py --selftest
+    python Tools/route_index.py --match "<prompt text>"   # what the prompt hook would say
+    python Tools/route_index.py --selftest
 
 No ledger: a route hit is a pointer, not a result (the tool it names keeps
 its own ledger). Scoring is lesson_log's: a multi-word key needs every word
@@ -16,7 +16,7 @@ its own ledger). Scoring is lesson_log's: a multi-word key needs every word
 match; at most two workflows and two tools are named, best first.
 
 PURPOSE: Match a prompt against the headings and WHEN lines of WORKFLOWS.md
-  and the Search keys of every tools/ and tools/hooks/ script, and print the
+  and the Search keys of every Tools/ and Tools/hooks/ script, and print the
   ROUTE line the prompt hook relays, so an existing workflow or script is
   named before the manager re-derives it.
 INTENT: the CEO 2026-09-28, adopting the ZTA gate: "get done what you think
@@ -25,8 +25,8 @@ INTENT: the CEO 2026-09-28, adopting the ZTA gate: "get done what you think
 
 Search keys: route line, route index, which workflow, which script, scripted
 way, zero token, script rule prompt end, existing tool lookup.
-See also: WORKFLOWS.md (the registry it reads); tools/lesson_log.py (the
-matcher and stopwords it reuses); tools/hooks/prompt_gauge.py (the hook that
+See also: WORKFLOWS.md (the registry it reads); Tools/lesson_log.py (the
+matcher and stopwords it reuses); Tools/hooks/prompt_gauge.py (the hook that
 prints the line); docs/index/laws.md "The script rule".
 """
 import glob
@@ -35,11 +35,11 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "tools"))
+sys.path.insert(0, os.path.join(ROOT, "Tools"))
 import lesson_log as _ll  # noqa: E402
 
 REGISTRY = os.path.join(ROOT, "WORKFLOWS.md")
-TOOL_GLOBS = ("tools/*.py", "tools/hooks/*.py")
+TOOL_GLOBS = ("Tools/*.py", "Tools/hooks/*.py")
 WF_MIN_SCORE = 3       # a heading word plus a WHEN phrase, or three heading words
 TOOL_MIN_SCORE = 2     # one multi-word Search key, or two single keys
 WF_CAP = 2
@@ -149,7 +149,7 @@ def _selftest():
         "ship this docs-only batch: commit, export the changelog and push, no build"))
     print(("PASS  " if ok else "FAIL  ") + "a ship prompt names a WORKFLOWS entry")
     fails += not ok
-    ok = any("tools/checkpoint.py" in x for x in match_lines(
+    ok = any("Tools/checkpoint.py" in x for x in match_lines(
         "reset the checkpoint counter and read the context budget before we clear"))
     print(("PASS  " if ok else "FAIL  ") + "a checkpoint prompt names the checkpoint tool by its Search keys")
     fails += not ok

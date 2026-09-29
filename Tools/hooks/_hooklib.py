@@ -17,7 +17,7 @@ INTENT: are there any hooks we could create and add to our workflows?
 
 Search keys: hooks, harness hooks, settings.json, hook input, deny, block.
 See also: docs/systems/tooling.md (the hooks section); HOOKS_METHOD.md
-(portable method); tools/checkpoint.py (the counter the Stop hook ticks).
+(portable method); Tools/checkpoint.py (the counter the Stop hook ticks).
 """
 import json
 import os

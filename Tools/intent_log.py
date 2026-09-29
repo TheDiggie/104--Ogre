@@ -4,13 +4,13 @@ intent. Then, there needs to be a comparison of how many times your
 intention or that of a subagent was the same, similar, or different than
 mine.")
 
-    python tools/intent_log.py --claim --actor fable --task "<3-8 words>" \\
+    python Tools/intent_log.py --claim --actor fable --task "<3-8 words>" \\
         --mine "<what I understood the ask to be, before building>"
-    python tools/intent_log.py --resolve I0007 --theirs "<the CEO's intent>" \\
+    python Tools/intent_log.py --resolve I0007 --theirs "<the CEO's intent>" \\
         --verdict same|similar|different --source stated|correction|inferred \\
         [--intent-ref "<INTENT.md heading>"]
-    python tools/intent_log.py --pending        # open claims
-    python tools/intent_log.py --last           # newest id + line
+    python Tools/intent_log.py --pending        # open claims
+    python Tools/intent_log.py --last           # newest id + line
 
 THE RECORD: one line per claim in docs/history/intent_log.txt (append-only;
 a resolve appends a RESOLVED line that supersedes the claim's PENDING
@@ -26,8 +26,8 @@ honest by naming it). The verdict is the comparison:
   DIFFERENT  a correction or rebuild was needed
 tools/intent_report.py turns the log into day/week/month agreement rates
 (txt for us, csv + xlsx for a human) and says improving / steady /
-declining; tools/ledger_trends.py proposes when the trend declines or
-claims sit pending. tools/correction_log.py resolves a claim as DIFFERENT
+declining; Tools/ledger_trends.py proposes when the trend declines or
+claims sit pending. Tools/correction_log.py resolves a claim as DIFFERENT
 by itself when a correction names it.
 
 GOTCHA (2026-09-13, first day): under Git Bash / MSYS an argument that STARTS
@@ -48,7 +48,7 @@ INTENT: the CEO's ruling 2026-09-13: When you or an agent has a concept,
 
 Search keys: intent log, intent claim, same similar different, agreement,
 mazhron intent, manager intent, employee intent, feedback loop.
-See also: INTENT.md (the why of every ruling); tools/intent_report.py;
+See also: INTENT.md (the why of every ruling); Tools/intent_report.py;
 tools/correction_log.py; INTENT_METHOD.md (portable); WORKFLOWS.md
 "Record an intent" and "Correct a mistake"; docs/systems/tooling.md
 "The intent loop".

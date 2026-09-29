@@ -2,8 +2,8 @@
 updated and pushed whenever it is discussed").
 
 PURPOSE: copy every portable ORIGINAL to its grab-copy in the kit folder
-  (repo-root MDs, .claude/skills/*/SKILL.md, tools/hooks/*.py, the
-  tools/*.py that have a reference copy, and the .claude/rules/*.md files
+  (repo-root MDs, .claude/skills/*/SKILL.md, Tools/hooks/*.py, the
+  Tools/*.py that have a reference copy, and the .claude/rules/*.md files
   named in PORTABLE_RULES), with the one substitution the
   kit carries in scripts (the owner's name -> "the CEO"); report the
   hand-adapted files it must never overwrite; `--check` only says what
@@ -14,10 +14,10 @@ INTENT: the CEO 2026-09-13: "Every time I discuss rootstock-os, or it's
   with updated readme and files whenever applicable." Refreshing by hand
   was the step that slipped; a script does it the same way every time.
 
-    python tools/refresh_kit.py            # refresh every copy that differs; print what changed
-    python tools/refresh_kit.py --check    # report only (exit 1 if anything is out of step)
-    python tools/refresh_kit.py --dry-run  # show what would change
-    python tools/refresh_kit.py --adopt tools/x.py   # add a NEW reference tool (or skill dir) to the kit
+    python Tools/refresh_kit.py            # refresh every copy that differs; print what changed
+    python Tools/refresh_kit.py --check    # report only (exit 1 if anything is out of step)
+    python Tools/refresh_kit.py --dry-run  # show what would change
+    python Tools/refresh_kit.py --adopt Tools/x.py   # add a NEW reference tool (or skill dir) to the kit
 
 Never deletes: a file the kit has and the repo does not is reported, not
 removed. ADAPTED files (hand-tailored copies, e.g. the shell guard with
@@ -27,8 +27,8 @@ folder with the public repo clone so one line says both halves.
 
 Search keys: kit refresh, grab-copy, refresh copies, kit unsynced, portable
 originals, adopt a reference tool, CEO substitution, rootstock mirror.
-See also: tools/sync_kit_repo.py (kit folder -> public repo; runs this
-first); tools/hooks/prompt_gauge.py (the KIT UNSYNCED line); tools/hooks/
+See also: Tools/sync_kit_repo.py (kit folder -> public repo; runs this
+first); Tools/hooks/prompt_gauge.py (the KIT UNSYNCED line); Tools/hooks/
 hygiene_guard.py (the reminder at the edit); WORKFLOWS.md "Edit the
 future-project kit (Rootstock)"; INTENT.md.
 """
@@ -40,8 +40,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # ----------------------------------------------------------- CONFIG --
 KIT_DIR = os.path.join(ROOT, "Future Project MDs")
 KIT_REPO = os.path.normpath(os.path.join(ROOT, "..", "..", "..", "rootstock-os"))
-HOOKS_DIR = os.path.join(ROOT, "tools", "hooks")
-TOOLS_DIR = os.path.join(ROOT, "tools")
+HOOKS_DIR = os.path.join(ROOT, "Tools", "hooks")
+TOOLS_DIR = os.path.join(ROOT, "Tools")
 SKILLS_DIR = os.path.join(ROOT, ".claude", "skills")
 RULES_DIR = os.path.join(ROOT, ".claude", "rules")
 PORTABLE_RULES = {"wiki.md"}                # path-scoped rules that travel; game rules stay per project
@@ -144,8 +144,8 @@ def check_line():
         parts.append("%d kit file(s) not yet in the public mirror" % len(md))
     if not parts:
         return None
-    return ("KIT UNSYNCED: " + "; ".join(parts) + " - `python tools/refresh_kit.py` then "
-            "`python tools/sync_kit_repo.py` before the arc closes (the CEO 2026-09-13: "
+    return ("KIT UNSYNCED: " + "; ".join(parts) + " - `python Tools/refresh_kit.py` then "
+            "`python Tools/sync_kit_repo.py` before the arc closes (the CEO 2026-09-13: "
             "whenever Rootstock is discussed, the kit and the public repo are updated)")
 
 
@@ -178,7 +178,7 @@ def adopt(path):
         rel = "hooks/" + os.path.basename(p)
         write(os.path.join(KIT_DIR, rel), transform(read(p), True))
     else:
-        raise SystemExit("adopt takes a tools/*.py, a tools/hooks/*.py or a .claude/skills/<name> dir")
+        raise SystemExit("adopt takes a Tools/*.py, a Tools/hooks/*.py or a .claude/skills/<name> dir")
     print("adopted %s -> %s (add its UPGRADES.md entry, README box line and front-door step this batch)"
           % (path, rel))
 

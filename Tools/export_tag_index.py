@@ -1,7 +1,7 @@
 """Compile the KNOWLEDGE INDEX from Tags: lines across the wiki.
 
-    python tools/export_tag_index.py            # write KNOWLEDGE_INDEX.md
-    python tools/export_tag_index.py --dry-run  # print summary only
+    python Tools/export_tag_index.py            # write KNOWLEDGE_INDEX.md
+    python Tools/export_tag_index.py --dry-run  # print summary only
 
 THE TAG CONVENTION (the CEO approved 2026-09-03): any section whose content
 is hard-won knowledge (a lesson, a trap, a doctrine) carries, directly under
@@ -26,7 +26,7 @@ INTENT: makes the wiki's hard-won lessons browsable by tag without
   2026-09-03.
 
 Search keys: knowledge index, tags, lessons compiled, browsable pitfalls.
-See also: WIKI_METHOD.md (the convention), tools/export_wiki_view.py.
+See also: WIKI_METHOD.md (the convention), Tools/export_wiki_view.py.
 """
 import argparse
 import os
@@ -100,7 +100,7 @@ def main():
         "# KNOWLEDGE INDEX (GENERATED - do not hand-edit)",
         "",
         "Every hard-won fact in this project's wiki, grouped by tag and linked",
-        "to its one true home. Regenerate: `python tools/export_tag_index.py`.",
+        "to its one true home. Regenerate: `python Tools/export_tag_index.py`.",
         "Tag a section by putting `Tags: tag1, tag2 | one-line brief` directly",
         "under its heading (convention: WIKI_METHOD.md).",
         "",

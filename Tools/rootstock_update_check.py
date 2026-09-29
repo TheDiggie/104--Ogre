@@ -20,7 +20,7 @@ POLICIES (the CEO sets the word in the stamp line, changeable any time):
 Checks are rate-limited to once a week (--force bypasses) and every check
 appends one line to its ledger, so standup can carry the result for free.
 
-Usage:  python tools/rootstock_update_check.py [--force] [--stamp vX.Y]
+Usage:  python Tools/rootstock_update_check.py [--force] [--stamp vX.Y]
         (--stamp overrides the CLAUDE.md stamp, for testing)
 
 ADAPT ON INSTALL: set KIT_CLONE if the CEO keeps a local clone, point

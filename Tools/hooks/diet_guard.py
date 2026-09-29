@@ -42,7 +42,7 @@ INTENT: section or split ... should not require my approval ... part of the
 
 Search keys: diet guard, read diet, output diet, big read, whole-file read,
 chatty command, limiter, pretooluse warn, 10k rule.
-See also: tools/hooks/fanout_guard.py (the same warn shape); TOKEN_IDEAS.md
+See also: Tools/hooks/fanout_guard.py (the same warn shape); TOKEN_IDEAS.md
 ideas 15-18; WIKI_METHOD.md (the read diet + the output diet laws);
 tools/usage_report.py (the daily line that grades the outcome);
 docs/systems/tooling.md (The hooks).
@@ -316,7 +316,7 @@ def _selftest():
     check("git log | head silent", run("Bash", command="git log | head -20") == "")
     check("bare git diff warns", "git diff" in run("Bash", command="git diff"))
     check("git diff --stat silent", run("Bash", command="git diff --stat") == "")
-    check("git diff path silent", run("Bash", command="git diff tools/x.py") == "")
+    check("git diff path silent", run("Bash", command="git diff Tools/x.py") == "")
     check("git diff HEAD~1 -- path silent", run("Bash", command="git diff HEAD~1 -- tools") == "")
     check("find without limiter warns", "recursive" in run("Bash", command="find . -type f"))
     check("find -name silent", run("Bash", command="find . -name '*.py'") == "")

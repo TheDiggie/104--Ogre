@@ -36,7 +36,7 @@ INTENT: carries out the preservation law's cold shelf for wiki knowledge
 Search keys: cold shelf, move section, prune, rarely used, restore section,
 preservation law.
 See also: WIKI_METHOD.md (the cold shelf); docs/cold/INDEX.md (the index);
-tools/wiki_heat.py (the candidates); tools/check_wiki_links.py (link checker).
+tools/wiki_heat.py (the candidates); Tools/check_wiki_links.py (link checker).
 """
 
 import argparse
@@ -59,7 +59,7 @@ INDEX_HEADER = (
     "# THE COLD SHELF INDEX (append-only; one line per move or restore)\n"
     "Rarely-used wiki sections live in docs/cold/, verbatim, and are read ONLY "
     "when a hot file's stub says the topic moved here. Nothing is ever deleted "
-    "(the preservation law). Mover: tools/cold_shelf.py.\n"
+    "(the preservation law). Mover: Tools/cold_shelf.py.\n"
     "Search keys: cold shelf, pruned, rarely used, archived knowledge, moved sections.\n"
     "See also: WIKI_METHOD.md (the cold shelf section); "
     "docs/history/wiki_heat.txt (the candidates list).\n"
@@ -457,7 +457,7 @@ def build_parser():
     p.add_argument("--reason", type=str, default=None, help="required with --move")
     p.add_argument("--dry-run", action="store_true", help="print the plan, write nothing")
     p.add_argument("--root", type=str, default=None,
-                    help="repo root override (default: parent of this script's tools/ dir)")
+                    help="repo root override (default: parent of this script's Tools/ dir)")
     return p
 
 

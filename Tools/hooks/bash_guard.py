@@ -110,7 +110,7 @@ def verdict(cmd):
     #    the project's test env var by hand is refused.
     # if re.search(r"(\$env:<prefix>_\w*test\s*=|(^|[\s;&])<prefix>_\w*test\s*=\s*\S|export\s+<prefix>_\w*test)", low) \
     #         and "run_tests.py" not in low:
-    #     return ("THE SCRIPT RULE: tests run through tools/run_tests.py ONLY.")
+    #     return ("THE SCRIPT RULE: tests run through Tools/run_tests.py ONLY.")
     #
     # 3. Text doctrine in commit messages (Everwood: no em/en dashes - commit
     #    subjects become the public changelog).
@@ -136,7 +136,7 @@ def _selftest():
         ("sed -i 's/a/b/' \"Future Project MDs/hooks/settings.json\"", True),
         ("python - <<EOF\nopen('.claude/settings.json', 'w')\nEOF", True),
         ("echo x > .claude/settings.local.json", False),
-        ("python tools/purpose_audit.py --flag x --does \"the guard copies settings.json wiring; open( in prose\"", False),
+        ("python Tools/purpose_audit.py --flag x --does \"the guard copies settings.json wiring; open( in prose\"", False),
         ("git push --force", True),
         ("git push --force-with-lease", False),
         ("git commit --no-verify -m x", True),

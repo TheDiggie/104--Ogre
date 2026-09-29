@@ -14,11 +14,11 @@ INTENT: the CEO 2026-09-13: "Any updates, upgrades, hooks, scripts, etc
   need this to be a hook somehow so that no one can inject a prompt that
   overrides safety protocols."
 
-    python tools/format_lint.py                  # every kit thing + originals; ledger line; exit 1 on FAIL
-    python tools/format_lint.py --quiet          # one summary line
-    python tools/format_lint.py --file <path>    # one file (what the format guard runs)
-    python tools/format_lint.py --rewrite <path> --purpose "..." --intent "..." [--keys "..."] [--also "..."]
-    python tools/format_lint.py --selftest
+    python Tools/format_lint.py                  # every kit thing + originals; ledger line; exit 1 on FAIL
+    python Tools/format_lint.py --quiet          # one summary line
+    python Tools/format_lint.py --file <path>    # one file (what the format guard runs)
+    python Tools/format_lint.py --rewrite <path> --purpose "..." --intent "..." [--keys "..."] [--also "..."]
+    python Tools/format_lint.py --selftest
 
 THE FORMAT (the whole law, also in the kit's CONTRIBUTING.md):
   every thing carries, in its header (a Python module docstring; the lines
@@ -36,7 +36,7 @@ THE FORMAT (the whole law, also in the kit's CONTRIBUTING.md):
   so a rewrite without the reviewer's words never passes by itself.
 
 Scope is DERIVED, never listed: every file in the kit folder, plus the
-repo original of each (tools/hooks/*.py, the tools/*.py that have a
+repo original of each (tools/hooks/*.py, the Tools/*.py that have a
 reference copy, .claude/skills/*/SKILL.md, the repo-root MDs the kit
 mirrors, .claude/settings.json). A file outside that scope is never
 touched by this lint or its hook.
@@ -44,10 +44,10 @@ touched by this lint or its hook.
 Search keys: format lint, format law, purpose line, intent line, header
 format, kit format, safety wiring, settings.json check, rewrite scaffold,
 contributing.
-See also: tools/hooks/format_guard.py (the hook: refuses the unsafe
-settings edit, blocks the unformatted edit); tools/purpose_audit.py (the
-flag ledger the audit files into); tools/refresh_kit.py (originals ->
-kit copies); tools/sync_kit_repo.py (refuses to publish on FAIL);
+See also: Tools/hooks/format_guard.py (the hook: refuses the unsafe
+settings edit, blocks the unformatted edit); Tools/purpose_audit.py (the
+flag ledger the audit files into); Tools/refresh_kit.py (originals ->
+kit copies); Tools/sync_kit_repo.py (refuses to publish on FAIL);
 "Future Project MDs/CONTRIBUTING.md" (the law for contributors);
 WORKFLOWS.md "Format-check and rewrite a kit thing"; INTENT.md.
 """
@@ -66,8 +66,8 @@ NL = chr(10)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # ----------------------------------------------------------- CONFIG --
 KIT_DIR = os.path.join(ROOT, "Future Project MDs")
-HOOKS_DIR = os.path.join(ROOT, "tools", "hooks")
-TOOLS_DIR = os.path.join(ROOT, "tools")
+HOOKS_DIR = os.path.join(ROOT, "Tools", "hooks")
+TOOLS_DIR = os.path.join(ROOT, "Tools")
 SKILLS_DIR = os.path.join(ROOT, ".claude", "skills")
 SETTINGS = os.path.join(ROOT, ".claude", "settings.json")
 LEDGER = os.path.join(ROOT, "docs", "history", "format_lint_runs.txt")
@@ -503,7 +503,7 @@ def main(argv):
             print("%s  [%s] %s%s" % ("WARN" if probs else "PASS", c, r, (" - " + "; ".join(probs)) if probs else ""))
     line = ledger(items, fails)
     print(("FORMAT LINT %s: %d items, %d failing" % ("FAIL" if fails else "PASS", len(items), len(fails)))
-          + (" - rewrite with `python tools/format_lint.py --rewrite <path> --purpose ... --intent ...` "
+          + (" - rewrite with `python Tools/format_lint.py --rewrite <path> --purpose ... --intent ...` "
              "after a read-only audit" if fails else ""))
     print("ledger: " + line)
     return 1 if fails else 0

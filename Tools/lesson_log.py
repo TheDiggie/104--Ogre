@@ -12,16 +12,16 @@ so the Stop hook can say LESSON ADVISED. The check end: lint every entry's
 shape and ledger the counts so the loop is measured.
 
 Usage:
-    python tools/lesson_log.py --match "<prompt text>"   # what the prompt hook would say
-    python tools/lesson_log.py --scan [transcript.jsonl] # signals in the newest turn slice
-    python tools/lesson_log.py --check                   # lint LESSONS.md + ledger line (run_all check)
-    python tools/lesson_log.py --selftest
+    python Tools/lesson_log.py --match "<prompt text>"   # what the prompt hook would say
+    python Tools/lesson_log.py --scan [transcript.jsonl] # signals in the newest turn slice
+    python Tools/lesson_log.py --check                   # lint LESSONS.md + ledger line (run_all check)
+    python Tools/lesson_log.py --selftest
 
 THE LEDGER: docs/history/lesson_runs.txt, append-only, one line per event:
 date time | ws | kind | detail. Kinds: MATCHED (the prompt hook named
 entries), ADVISED (the Stop hook asked for a lesson), WRITTEN (LESSONS.md
 was edited inside an advised turn), CHECK (the lint's counts). The CHECK
-line goes through tools/_ledger.py so an unchanged rerun does not grow it.
+line goes through Tools/_ledger.py so an unchanged rerun does not grow it.
 
 PURPOSE: Serve the lesson loop's three ends: match a prompt against the
   Keys lines of LESSONS.md entries and name the ones to read first; scan a
@@ -33,10 +33,10 @@ INTENT: the CEO 2026-09-20: a lesson is written the moment it is learned
 
 Search keys: lesson loop, lesson log, lesson advised, one right way, prompt
 match, trial and error signals, lessons ledger, knowledge capture.
-See also: LESSONS.md (the book + the law); tools/hooks/lesson_advisor.py
-(the Stop twin); tools/hooks/prompt_gauge.py (the match line);
-tools/_ledger.py (trust the ledger for the CHECK line); tools/run_all.py
-(check group); tools/ledger_trends.py (rule 14).
+See also: LESSONS.md (the book + the law); Tools/hooks/lesson_advisor.py
+(the Stop twin); Tools/hooks/prompt_gauge.py (the match line);
+tools/_ledger.py (trust the ledger for the CHECK line); Tools/run_all.py
+(check group); Tools/ledger_trends.py (rule 14).
 """
 import datetime
 import json

@@ -62,9 +62,9 @@ INTENT: the CEO's ask 2026-09-10: 'Is Rootstock implementing learning
 Search keys: learning loop, proposals, ledger trends, thresholds, rule
 change proposal, standup proposals, escalation, cold shelf sweep, open
 questions nudge, digest size, loop staleness, trend limits.
-See also: tools/standup.py (prints this block); docs/systems/tooling.md
-(the learning loop); SUBAGENTS.md rule 6 (escalation); tools/wiki_heat.py;
-tools/check_wiki_links.py; tools/usage_report.py; tools/open_questions.py;
+See also: Tools/standup.py (prints this block); docs/systems/tooling.md
+(the learning loop); SUBAGENTS.md rule 6 (escalation); Tools/wiki_heat.py;
+tools/check_wiki_links.py; Tools/usage_report.py; Tools/open_questions.py;
 .claude/trend_limits.json; .claude/fanout_limits.json (the sibling
 pattern); WORKFLOWS.md "Track an open question to the CEO".
 """
@@ -130,7 +130,7 @@ def load_limits(path=CONFIG):
 def limits_table():
     """The --limits printout: key, current, default, source (default/json)."""
     limits = load_limits()
-    lines_out = ["ledger_trends limits (DEFAULTS in tools/ledger_trends.py, "
+    lines_out = ["ledger_trends limits (DEFAULTS in Tools/ledger_trends.py, "
                  "owner tuning in .claude/trend_limits.json)"]
     lines_out.append("  %-30s %12s %12s  %s" % ("key", "current", "default", "source"))
     for k, dv in DEFAULTS.items():
@@ -192,15 +192,15 @@ CLEARS = {"systems_audit_runs.txt", "readme_audit_runs.txt", "digest_size.txt",
           "loop_runs.txt", "wiki_link_runs.txt", "lesson_runs.txt", "intent_log.txt"}
 HOW = {
     "systems_audit_runs.txt": "WORKFLOWS.md 'Audit the operating system': four read-only "
-                              "employees (the /brief skill), then `python tools/systems_audit.py --record`",
+                              "employees (the /brief skill), then `python Tools/systems_audit.py --record`",
     "readme_audit_runs.txt": "WORKFLOWS.md 'Audit the public README': four read-only employees, "
-                             "then `python tools/readme_audit.py --record`",
-    "digest_size.txt": "tools/standup.py, the loss test (INTENT.md 'The digest diet'), then "
-                       "`python tools/standup.py | wc -c` under digest_warn_bytes",
-    "loop_runs.txt": "`python tools/run_all.py --group <group>`, then fix what bypassed the loop",
+                             "then `python Tools/readme_audit.py --record`",
+    "digest_size.txt": "Tools/standup.py, the loss test (INTENT.md 'The digest diet'), then "
+                       "`python Tools/standup.py | wc -c` under digest_warn_bytes",
+    "loop_runs.txt": "`python Tools/run_all.py --group <group>`, then fix what bypassed the loop",
     "wiki_link_runs.txt": "fix the targets listed in docs/history/wiki_links.txt",
-    "lesson_runs.txt": "write the LESSONS.md entry (the /lesson shape) or tune tools/lesson_log.py",
-    "intent_log.txt": "`python tools/intent_log.py --resolve <id> ...` for each stale claim",
+    "lesson_runs.txt": "write the LESSONS.md entry (the /lesson shape) or tune Tools/lesson_log.py",
+    "intent_log.txt": "`python Tools/intent_log.py --resolve <id> ...` for each stale claim",
 }
 _LEDGER_RE = re.compile(r"^PROPOSE \(([^)]+)\)")
 
@@ -243,7 +243,7 @@ def proposals(th=None):
     if len(checks) >= th["usage_check_days"]:
         out.append("PROPOSE (usage_daily.txt): %d of the last %d days carry a READ-DIET "
                    "CHECK (heavy whole reads, low section share or cache misses). "
-                   "The files: docs/history/big_reads.txt (`python tools/big_reads.py`) "
+                   "The files: docs/history/big_reads.txt (`python Tools/big_reads.py`) "
                    "- the manager sections or splits them on that report's word, no "
                    "approval needed (the CEO 2026-09-10); misses -> batch CLAUDE.md/"
                    "MEMORY edits at checkpoint." % (len(checks), len(lines)))
@@ -328,13 +328,13 @@ def proposals(th=None):
     # that the README never says. Propose one when the kit has moved past
     # a commit count or an age since the last recorded audit.
     try:
-        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        sys.path.insert(0, os.path.join(ROOT, "Tools"))
         import readme_audit  # noqa: E402 - sibling script, same folder
         stamp, days, commits = readme_audit.status()
         if stamp is None:
             out.append("PROPOSE (readme_audit_runs.txt): no README audit on record - run the "
                        "four-employee cross-reference (WORKFLOWS.md 'Audit the public README') "
-                       "and `python tools/readme_audit.py --record \"...\"`.")
+                       "and `python Tools/readme_audit.py --record \"...\"`.")
         elif commits >= th["readme_audit_kit_commits"] or (days or 0) >= th["readme_audit_days"]:
             out.append("PROPOSE (readme_audit_runs.txt): %d kit-folder commit(s) and %s day(s) "
                        "since the last README audit (%s) - the lint keeps the counts honest, "
@@ -354,7 +354,7 @@ def proposals(th=None):
                        "DIFFERENT lines in docs/history/intent_log.txt and file the missing "
                        "INTENT.md sections (the why) before the next build." % last.split(" | ")[-1])
     try:
-        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        sys.path.insert(0, os.path.join(ROOT, "Tools"))
         import intent_log  # noqa: E402
         st, order = intent_log.state()
         cutoff = (datetime.datetime.now() - datetime.timedelta(
@@ -362,7 +362,7 @@ def proposals(th=None):
         stale = [i for i in order if st[i]["verdict"] == "PENDING" and st[i]["when"] < cutoff]
         if stale:
             out.append("PROPOSE (intent_log.txt): %d intent claim(s) pending past %d days (%s) - "
-                       "resolve each (`python tools/intent_log.py --resolve <id> ...`); an "
+                       "resolve each (`python Tools/intent_log.py --resolve <id> ...`); an "
                        "unresolved claim is a comparison never made."
                        % (len(stale), th["intent_pending_days"], ", ".join(stale[:5])))
     except Exception:  # noqa: BLE001
@@ -378,7 +378,7 @@ def proposals(th=None):
     if len(corr) >= th["corrections_7d"] and not (named and max(named) > newest_record):
         out.append("PROPOSE (corrections.txt): %d corrections in the last 7 days - a law or an "
                    "INTENT.md section is missing; read their 'what was wrong' words together, "
-                   "name the pattern to the CEO and record it (`python tools/correction_log.py "
+                   "name the pattern to the CEO and record it (`python Tools/correction_log.py "
                    "--pattern <ids> --law \"...\"`)." % len(corr))
     try:
         import systems_audit  # noqa: E402
@@ -386,7 +386,7 @@ def proposals(th=None):
         if stamp is None:
             out.append("PROPOSE (systems_audit_runs.txt): no systems audit on record - run the "
                        "four-lane audit (WORKFLOWS.md 'Audit the operating system') and "
-                       "`python tools/systems_audit.py --record \"...\"`.")
+                       "`python Tools/systems_audit.py --record \"...\"`.")
         elif (days or 0) >= th["systems_audit_days"] or dfs >= th["systems_audit_day_files"]:
             out.append("PROPOSE (systems_audit_runs.txt): %s day(s) and %d day file(s) since the "
                        "last systems audit (%s) - run the four-lane audit (tokens, process, "
@@ -399,7 +399,7 @@ def proposals(th=None):
     # the owner can answer, waiting past open_question_days, is a nudge -
     # never a decision made for them.
     try:
-        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        sys.path.insert(0, os.path.join(ROOT, "Tools"))
         import open_questions  # noqa: E402
         stale = [(age, r) for age, r in open_questions.open_rows()
                  if age >= th["open_question_days"]]
@@ -459,7 +459,7 @@ def proposals(th=None):
     grew = len(ents) >= 2 and ents[-1] > ents[0]
     if advised >= th["lesson_advised_unwritten"] and not written and not grew:
         out.append("PROPOSE (lesson_runs.txt): LESSON ADVISED %d time(s) in 7 d and LESSONS.md "
-                   "gained no entry - either the signals are noise (tune tools/lesson_log.py) "
+                   "gained no entry - either the signals are noise (tune Tools/lesson_log.py) "
                    "or the lesson law is being skipped; read the ADVISED lines and decide."
                    % advised)
     return out
@@ -499,7 +499,7 @@ def main(argv):
     props = proposals(load_limits())
     print("== PROPOSALS ([DO] = done in this reply by a script, a hook or an employee, "
           "THE PROPOSAL LAW 2026-09-29; [ASK] = only the owner can answer; "
-          "`python tools/ledger_trends.py --limits`)")
+          "`python Tools/ledger_trends.py --limits`)")
     if props:
         for p in props:
             print("  " + tagged(p))

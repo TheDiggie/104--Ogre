@@ -5,8 +5,8 @@ usage (without losing efficiency or context), add txt data structures for
 increased knowledge, etc?" - we did not; the loop measured, it never
 thought).
 
-    python tools/systems_audit.py                    # status: last audit, what moved since
-    python tools/systems_audit.py --record "<summary>"   # ledger a finished audit
+    python Tools/systems_audit.py                    # status: last audit, what moved since
+    python Tools/systems_audit.py --record "<summary>"   # ledger a finished audit
 
 The audit itself is a handful of READ-ONLY employees (four lanes: TOKENS -
 the usage sheet, big reads, the diet; PROCESS - the workflows, skills,
@@ -17,7 +17,7 @@ script, a hook, a data file or a cheaper model). Each returns PROPOSALS
 only - the owner decides, nothing is applied (WORKFLOWS.md "Audit the
 operating system"). When one finishes, `--record` appends one line to
 docs/history/systems_audit_runs.txt (date, ws, day files and commits since
-the previous audit, summary). tools/ledger_trends.py proposes the next
+the previous audit, summary). Tools/ledger_trends.py proposes the next
 audit when the day-file count or the age since the last line crosses the
 owner's thresholds (systems_audit_day_files / systems_audit_days).
 
@@ -33,7 +33,7 @@ INTENT: the CEO's ask 2026-09-13: 'Do we have anything in our loops that
 
 Search keys: systems audit, efficiency audit, token audit, process audit,
 knowledge audit, feature audit, audit cadence, auditor.
-See also: tools/readme_audit.py (the same shape for the public README);
+See also: Tools/readme_audit.py (the same shape for the public README);
 tools/ledger_trends.py (rule 10); TOKEN_IDEAS.md (where a token proposal
 lands); WORKFLOWS.md "Audit the operating system"; docs/systems/tooling.md
 "The intent loop".

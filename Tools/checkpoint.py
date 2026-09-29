@@ -13,9 +13,9 @@ pushed, day file's WHERE-WE-LEFT-OFF refreshed, tree clean) - it also
 stores the fingerprint, so the checkpoint commit itself is not a task.
 
 Usage:
-  python tools/checkpoint.py --tick     # +1 task (hookless machines only)
-  python tools/checkpoint.py --status   # just look
-  python tools/checkpoint.py --reset    # checkpoint done - count to zero
+  python Tools/checkpoint.py --tick     # +1 task (hookless machines only)
+  python Tools/checkpoint.py --status   # just look
+  python Tools/checkpoint.py --reset    # checkpoint done - count to zero
 
 Thresholds: >=8 CHECKPOINT ADVISED; >=15 CHECKPOINT URGENT (dire).
 
@@ -42,7 +42,7 @@ INTENT: the CEO's rule 2026-09-04: regardless of the tasks 3/8, 5/8, if the
 
 Search keys: checkpoint counter, task count, clear warning, context budget,
 context gauge, auto compact.
-See also: TOKEN_IDEAS.md 9b (the protocol); tools/standup.py (resumption);
+See also: TOKEN_IDEAS.md 9b (the protocol); Tools/standup.py (resumption);
 docs/history/days/ (the day files that make /clear lossless).
 """
 import argparse

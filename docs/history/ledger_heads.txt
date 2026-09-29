@@ -1,10 +1,10 @@
 # LEDGER HEADS (rewritten in place; one line per ledger). Used by
-# tools/_ledger.py to know whether HEAD/tree changed since a ledger's
+# Tools/_ledger.py to know whether HEAD/tree changed since a ledger's
 # last appended line - not append-only, this one small state file is
 # meant to be rewritten (the ledgers themselves never are).
 # ledger basename | head hash | dirty signature | last appended date time
-core_diet_runs.txt | 87fdd80 | 56c4da5eacc6 | 2026-09-29 14:52
-format_lint_runs.txt | 87fdd80 | 56c4da5eacc6 | 2026-09-29 14:53
-lesson_runs.txt | 87fdd80 | 56c4da5eacc6 | 2026-09-29 14:53
-purpose_audit_runs.txt | 87fdd80 | 56c4da5eacc6 | 2026-09-29 14:53
-wiki_link_runs.txt | 87fdd80 | 56c4da5eacc6 | 2026-09-29 14:53
+core_diet_runs.txt | 189ff62 | 1e8488b544ab | 2026-09-29 14:56
+format_lint_runs.txt | 189ff62 | 1e8488b544ab | 2026-09-29 14:57
+lesson_runs.txt | 189ff62 | 1e8488b544ab | 2026-09-29 14:57
+purpose_audit_runs.txt | 189ff62 | 1e8488b544ab | 2026-09-29 14:57
+wiki_link_runs.txt | 189ff62 | 1e8488b544ab | 2026-09-29 14:57

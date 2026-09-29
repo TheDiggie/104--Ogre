@@ -12,7 +12,7 @@ without the owner's express permission, given twice. The ritual:
      .claude/delete_grant.json (gitignored, expires in --minutes, default
      15, single use) and appends the committed ledger
      docs/history/delete_grants.txt. Then the one deleting command runs;
-     tools/hooks/preserve_guard.py lets exactly one command that names
+     Tools/hooks/preserve_guard.py lets exactly one command that names
      the target through and marks the grant used.
 Nothing here deletes anything; `--status` shows the live grant. A target
 in the never-list (a drive root, the home folder, the repo root or its
@@ -28,7 +28,7 @@ INTENT: carries out the preservation law's double-acknowledgment ritual so a
 
 Search keys: delete grant, permission, double acknowledgment, preservation
 law, approved deletion, delete ledger.
-See also: tools/hooks/preserve_guard.py (the guard that honors it);
+See also: Tools/hooks/preserve_guard.py (the guard that honors it);
 tools/retire.py (the move that usually replaces a delete); WORKFLOWS.md
 "Delete something (the grant ritual)"; docs/history/delete_grants.txt.
 """
@@ -53,7 +53,7 @@ def workstation():
 
 def check_target(target):
     """None if `target` may be granted, else the never-list reason it can't be."""
-    sys.path.insert(0, os.path.join(ROOT, "tools", "hooks"))
+    sys.path.insert(0, os.path.join(ROOT, "Tools", "hooks"))
     from preserve_guard import _norm, never_reason  # noqa: E402
     return never_reason([_norm(target)])
 

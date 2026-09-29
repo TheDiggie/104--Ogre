@@ -40,7 +40,7 @@ What it lets through:
     (%TEMP%/claude/...), the harness's own per-session junk;
   - a heredoc BODY fed to cat/tee (a file write that merely mentions a
     verb) - a body fed to an interpreter is scanned;
-  - ONE command matching a live GRANT: tools/delete_grant.py records the
+  - ONE command matching a live GRANT: Tools/delete_grant.py records the
     manager's question and the owner's two acknowledgments (verbatim) in
     .claude/delete_grant.json + the docs/history/delete_grants.txt ledger;
     the guard consumes the grant on first use (marks it used, never
@@ -72,8 +72,8 @@ INTENT: stops the manager or an employee from deleting anything without the
 
 Search keys: preservation law, delete guard, never delete, grant,
 double acknowledgment, retire, cold shelf, rm guard, git reset hard.
-See also: tools/delete_grant.py (the grant); tools/retire.py (files move,
-never die); tools/cold_shelf.py (wiki sections); docs/systems/tooling.md
+See also: Tools/delete_grant.py (the grant); Tools/retire.py (files move,
+never die); Tools/cold_shelf.py (wiki sections); docs/systems/tooling.md
 (The hooks); HOOKS_METHOD.md (portable); WIKI_METHOD.md (the cold shelf).
 """
 import json
@@ -89,10 +89,10 @@ GRANT = os.path.join(ROOT, ".claude", "delete_grant.json")
 LAW = ("THE PRESERVATION LAW (the CEO's ruling 2026-09-10): nothing is "
        "deleted or discarded without the owner's express, double-acknowledged "
        "permission, and no script is written that deletes. ")
-HOW = ("MOVE instead: `python tools/retire.py <path> --reason ...` (files -> "
-       "_retired/, ledgered) or `python tools/cold_shelf.py --move` (wiki "
+HOW = ("MOVE instead: `python Tools/retire.py <path> --reason ...` (files -> "
+       "_retired/, ledgered) or `python Tools/cold_shelf.py --move` (wiki "
        "sections -> docs/cold/). If the CEO has approved THIS exact deletion "
-       "twice, record both acknowledgments verbatim: `python tools/delete_grant.py "
+       "twice, record both acknowledgments verbatim: `python Tools/delete_grant.py "
        "--target \"<path>\" --ask \"<your question>\" --ack1 \"<first yes>\" "
        "--ack2 \"<second yes>\"`, then retry ONCE.")
 
@@ -399,7 +399,7 @@ def crude_reason(tool, tin):
                        "robocopy", "rsync", "-delete", "filter-branch", "--force"):
             if needle in text:
                 return (LAW + "The guard hit an internal error and fell back to a "
-                        "crude check, which saw %r. Fix the guard (python tools/hooks/"
+                        "crude check, which saw %r. Fix the guard (python Tools/hooks/"
                         "preserve_guard.py --selftest) before retrying." % needle)
     return None
 
@@ -481,7 +481,7 @@ def evaluate(data, grant=None, consume=True):
                     return None
                 return (LAW + "This write puts deletion code (%s) into %s. Scripts "
                         "never delete: retire or move instead (tools/retire.py, "
-                        "tools/cold_shelf.py). A script's own temp file from the "
+                        "Tools/cold_shelf.py). A script's own temp file from the "
                         "same run is the one fair case - if that is what this is, "
                         "ask the CEO and record a grant naming this file, then "
                         "retry once." % (m.group(0).strip(), os.path.basename(target)))
@@ -538,19 +538,19 @@ def selftest():
     check("bash heredoc running rm is refused",
           run("Bash", command="bash <<'EOF'\nrm -rf docs/x\nEOF") is not None)
     check("Write with os.remove is refused",
-          run("Write", file_path="tools/x.py", content="import os\nos.remove(p)\n") is not None)
+          run("Write", file_path="Tools/x.py", content="import os\nos.remove(p)\n") is not None)
     check("Write with shutil.rmtree is refused",
-          run("Write", file_path="tools/x.py", content="shutil.rmtree(d)") is not None)
+          run("Write", file_path="Tools/x.py", content="shutil.rmtree(d)") is not None)
     check("Write with Path.unlink is refused",
-          run("Write", file_path="tools/x.py", content="Path(p).unlink()") is not None)
+          run("Write", file_path="Tools/x.py", content="Path(p).unlink()") is not None)
     check("Edit adding DirAccess.remove_absolute is refused",
           run("Edit", file_path="scripts/a.gd", old_string="x", new_string="DirAccess.remove_absolute(p)") is not None)
     check("Edit with plain prose passes",
           run("Edit", file_path="docs/a.md", old_string="x", new_string="never delete; retire instead (os.remove is banned)") is None)
     check("Write with a grant naming the file passes",
-          run("Write", grant={**g, "target": "tools/x.py"}, file_path="tools/x.py", content="os.remove(p)") is None)
+          run("Write", grant={**g, "target": "Tools/x.py"}, file_path="Tools/x.py", content="os.remove(p)") is None)
     check("MultiEdit with rm -rf in a script is refused",
-          run("MultiEdit", file_path="tools/x.sh", edits=[{"new_string": "rm -rf $DIR"}]) is not None)
+          run("MultiEdit", file_path="Tools/x.sh", edits=[{"new_string": "rm -rf $DIR"}]) is not None)
     check("Read is ignored", run("Read", file_path="x") is None)
     # Split so this file never matches its own patterns.
     verbs = "Remove" + "-Item -Recurse $d, " + "rm " + "-rf $d and the rmtree call"
@@ -558,7 +558,7 @@ def selftest():
           run("Edit", file_path="docs/systems/tooling.md", old_string="x",
               new_string="| the guard refuses %s |" % verbs) is None)
     check("a .py naming the same verbs is still refused",
-          run("Write", file_path="tools/x.py", content="# %s\n" % verbs) is not None)
+          run("Write", file_path="Tools/x.py", content="# %s\n" % verbs) is not None)
     # 2026-09-20 hardening (the 48k-file public report). Literals are split
     # so this file never matches its own patterns.
     RMRF = "rm " + "-rf"
@@ -596,8 +596,8 @@ def selftest():
     check("fs.promises.rm in a one-liner is refused",
           run("Bash", command="node -e \"require('fs').promises." + "rm('x')\"") is not None)
     check("subprocess with the rd switch in a write is refused",
-          run("Write", file_path="tools/x.py", content="subprocess.run(['cmd','/c','r" + "d','/s','/q',p])") is not None)
-    check("the rd switch in a .bat write is refused", run("Write", file_path="tools/x.bat", content="rd" + " /s /q build") is not None)
+          run("Write", file_path="Tools/x.py", content="subprocess.run(['cmd','/c','r" + "d','/s','/q',p])") is not None)
+    check("the rd switch in a .bat write is refused", run("Write", file_path="Tools/x.bat", content="rd" + " /s /q build") is not None)
     # An untracked script that deletes is caught when it is RUN, whatever wrote it.
     import tempfile
     tmpd = tempfile.mkdtemp(prefix="everwood_preserve_selftest_")
@@ -613,7 +613,7 @@ def selftest():
     check("running it with flags in between is still refused", run("Bash", command="python -u -X dev \"%s\"" % bad) is not None)
     check("running it after && is still refused", run("Bash", command="cd x && \"%s\"" % bad) is not None)
     check("a grant naming the script lets it run", run("Bash", grant={**g, "target": bad}, command="python \"%s\"" % bad) is None)
-    check("running a tracked, clean script passes", run("Bash", command="python tools/hooks/preserve_guard.py --selftest") is None)
+    check("running a tracked, clean script passes", run("Bash", command="python Tools/hooks/preserve_guard.py --selftest") is None)
     check("a settings.json deny RULE naming the verb passes",
           run("Edit", file_path=".claude/settings.json", old_string="x",
               new_string="\"deny\": [\"Bash(" + RMRF + " /)\", \"Bash(git push --for" + "ce:*)\"]") is None)

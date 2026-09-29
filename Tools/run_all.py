@@ -3,18 +3,18 @@ the scripts we use every session, in order. Any script that becomes a
 per-session habit gets ADDED to a group here - never chained by hand again.
 
 Usage:
-  python tools/run_all.py --list             # show the groups
-  python tools/run_all.py check              # one group
-  python tools/run_all.py regen check metrics  # several, in the order given
-  python tools/run_all.py session            # the standard end-of-session chain
-  python tools/run_all.py --stale            # last run + age (days) per group
+  python Tools/run_all.py --list             # show the groups
+  python Tools/run_all.py check              # one group
+  python Tools/run_all.py regen check metrics  # several, in the order given
+  python Tools/run_all.py session            # the standard end-of-session chain
+  python Tools/run_all.py --stale            # last run + age (days) per group
 
 THE LOOP LEDGER (the CEO's ruling 2026-09-14, "any script that should be run
 multiple times must be called by the main looping script"): every group run
 appends one line to docs/history/loop_runs.txt (date/ws/group/seconds/result)
 so a stale habitual script shows up instead of silently drifting (metrics_
 report.py's ledger once stalled at 09-03 while sibling scripts in the same
-group ran by hand). tools/hooks/session_start.py reads this ledger's
+group ran by hand). Tools/hooks/session_start.py reads this ledger's
 `last_run("session")` to decide whether to run the session group itself.
 
 Groups (edit GROUPS to add a script - the Script Rule applies to this file
@@ -40,8 +40,8 @@ INTENT: any script that should be run multiple times must be called by the
 
 Search keys: run all, parent script, session chain, script groups, loop
 ledger, stale groups.
-See also: REPORTING_METHOD.md; tools/run_tests.py; docs/systems/testing.md;
-docs/history/loop_runs.txt; tools/hooks/session_start.py (THE LOOP).
+See also: REPORTING_METHOD.md; Tools/run_tests.py; docs/systems/testing.md;
+docs/history/loop_runs.txt; Tools/hooks/session_start.py (THE LOOP).
 """
 import datetime
 import os
@@ -56,25 +56,25 @@ LOOP_LEDGER = os.path.join(ROOT, "docs", "history", "loop_runs.txt")
 GROUPS = {
     # THE LOOP LAW: every habitual script is called from here. Adding a
     # script means adding it to a group, not running it by hand.
-    "check":   [["tools/core_diet.py", "--move"],   # moves cold routed CLAUDE.md units BEFORE the lint judges the size
-                ["tools/check_claude_md.py"],
-                ["tools/check_wiki_links.py"],
-                ["tools/format_lint.py", "--quiet"],
-                ["tools/purpose_audit.py", "--pending"],
-                ["tools/lesson_log.py", "--check"],
-                ["tools/law_gaps.py"]],
-    "regen":   [["tools/export_tag_index.py"],
-                ["tools/route_index.py"]],
-    "metrics": [["tools/usage_report.py"],
-                ["tools/wiki_heat.py"],
-                ["tools/big_reads.py"],
-                ["tools/intent_report.py"],
-                ["tools/ledger_trends.py"]],
+    "check":   [["Tools/core_diet.py", "--move"],   # moves cold routed CLAUDE.md units BEFORE the lint judges the size
+                ["Tools/check_claude_md.py"],
+                ["Tools/check_wiki_links.py"],
+                ["Tools/format_lint.py", "--quiet"],
+                ["Tools/purpose_audit.py", "--pending"],
+                ["Tools/lesson_log.py", "--check"],
+                ["Tools/law_gaps.py"]],
+    "regen":   [["Tools/export_tag_index.py"],
+                ["Tools/route_index.py"]],
+    "metrics": [["Tools/usage_report.py"],
+                ["Tools/wiki_heat.py"],
+                ["Tools/big_reads.py"],
+                ["Tools/intent_report.py"],
+                ["Tools/ledger_trends.py"]],
     # Machine-local, and honest about whichever machine it runs on: the
     # Windows box has dotnet and Godot, the bridge VM does not. Kept out
     # of "session" so a bridge run does not stop the chain.
-    "survey":  [["tools/workstation_survey.py"]],
-    "standup": [["tools/standup.py"]],
+    "survey":  [["Tools/workstation_survey.py"]],
+    "standup": [["Tools/standup.py"]],
 }
 GROUPS["session"] = GROUPS["regen"] + GROUPS["check"] + GROUPS["metrics"]
 COMPOSITES = {"session": ("regen", "check", "metrics")}

@@ -53,9 +53,9 @@ INTENT: the CEO 2026-09-20: /clear should check for a checkpoint and do one
 
 Search keys: session end hook, auto checkpoint, clear hook, unbanked work,
 safety net, lossless clear, transcript miner.
-See also: .claude/skills/checkpoint (the manager's ritual); tools/checkpoint.py
-(the counter + fingerprint); tools/standup.py (_mine_exchange, and the WHERE
-WE LEFT OFF replay); tools/backup_push.py (THE LOCAL MIRROR); HOOKS_METHOD.md
+See also: .claude/skills/checkpoint (the manager's ritual); Tools/checkpoint.py
+(the counter + fingerprint); Tools/standup.py (_mine_exchange, and the WHERE
+WE LEFT OFF replay); Tools/backup_push.py (THE LOCAL MIRROR); HOOKS_METHOD.md
 "The kit hooks"; docs/systems/tooling.md "The hooks".
 """
 import datetime
@@ -250,7 +250,7 @@ def auto_checkpoint(root, ws, reason, transcript_path, now, version="?",
     git(["add", "-A"], root)
     subject = "Checkpoint (auto): the session ended with unbanked work, banked by the SessionEnd hook"
     body = ("Reason: %s. Files banked: %d. Unpushed commits before this: %d.\n%s\n\n"
-            "Made by tools/hooks/session_end.py, not by the manager; the day "
+            "Made by Tools/hooks/session_end.py, not by the manager; the day "
             "file's WHERE WE LEFT OFF is marked AUTO.\n\n"
             "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>" % (
                 reason, len(work), unpushed, "\n".join("- " + p for p in work[:40])))

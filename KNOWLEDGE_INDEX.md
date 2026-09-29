@@ -1,7 +1,7 @@
 # KNOWLEDGE INDEX (GENERATED - do not hand-edit)
 
 Every hard-won fact in this project's wiki, grouped by tag and linked
-to its one true home. Regenerate: `python tools/export_tag_index.py`.
+to its one true home. Regenerate: `python Tools/export_tag_index.py`.
 Tag a section by putting `Tags: tag1, tag2 | one-line brief` directly
 under its heading (convention: WIKI_METHOD.md).
 

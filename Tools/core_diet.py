@@ -44,12 +44,12 @@ Outputs:
   docs/history/core_diet_runs.txt  append-only ledger, one line per run
 
 Usage:
-    python tools/core_diet.py                       # report + ledger (nothing moves)
-    python tools/core_diet.py --move                # the loop's mode: move cold routed units, then to budget
-    python tools/core_diet.py --move --dry-run      # say what would move
-    python tools/core_diet.py --move-section "The checkpoint protocol" --reason "..."
-    python tools/core_diet.py --restore "The checkpoint protocol"
-    python tools/core_diet.py --selftest            # temp-dir round trip: move, stub, restore
+    python Tools/core_diet.py                       # report + ledger (nothing moves)
+    python Tools/core_diet.py --move                # the loop's mode: move cold routed units, then to budget
+    python Tools/core_diet.py --move --dry-run      # say what would move
+    python Tools/core_diet.py --move-section "The checkpoint protocol" --reason "..."
+    python Tools/core_diet.py --restore "The checkpoint protocol"
+    python Tools/core_diet.py --selftest            # temp-dir round trip: move, stub, restore
 
 PURPOSE: Measure the heat of every CLAUDE.md section from the transcript
   read cache, git recency and pointer follows, report it, and move cold or
@@ -64,8 +64,8 @@ INTENT: the CEO 2026-09-14: "make something so that this doesn't happen
 
 Search keys: core diet, CLAUDE.md budget, sub-index, docs/index, hot core,
   section heat, move section, restore section, token budget, lean core
-See also: tools/check_claude_md.py (the token budget it serves);
-  tools/wiki_heat.py (the read cache it reuses); tools/cold_shelf.py (the
+See also: Tools/check_claude_md.py (the token budget it serves);
+  Tools/wiki_heat.py (the read cache it reuses); Tools/cold_shelf.py (the
   sibling mover for rarely-read topic sections); WIKI_METHOD.md "The hot
   core and the sub-indexes"; WORKFLOWS.md "Diet the core (move a CLAUDE.md
   section to a sub-index)"; docs/systems/self-audit.md.
@@ -87,7 +87,7 @@ CORE_NAME = "CLAUDE.md"
 MASTER_REL = os.path.join("docs", "index", "MASTER_INDEX.md")   # the stub block lives here (the pointer core, 2026-09-14)
 INDEX_DIRNAME = os.path.join("docs", "index")
 BLOCK_HEADING = "## The sub-indexes"
-BLOCK_INTRO = ("(moved out by tools/core_diet.py, verbatim: heading -> sub-index | brief; "
+BLOCK_INTRO = ("(moved out by Tools/core_diet.py, verbatim: heading -> sub-index | brief; "
                "`--restore \"<heading>\"` brings one back)")
 DEFAULT_COLD_DAYS = 30
 PROVENANCE = "<!-- core diet: moved from {core} on {day}, level {level}, after \"{after}\", reason: {reason}, {n} lines -->"
@@ -105,7 +105,7 @@ INDEX_FILE_HEADER = (
     "Search keys: {name} index, sub-index, core diet, moved from CLAUDE.md.\n"
     "See also: docs/index/MASTER_INDEX.md (the one door, \"The sub-indexes\" block);\n"
     "  CLAUDE.md (the pointer core); "
-    "  WIKI_METHOD.md \"The hot core and the sub-indexes\"; tools/core_diet.py.\n"
+    "  WIKI_METHOD.md \"The hot core and the sub-indexes\"; Tools/core_diet.py.\n"
 )
 
 
@@ -314,7 +314,7 @@ MASTER_HEADER = (
     "INTENT: CLAUDE.md should simply point to everything else (the owner, 2026-09-14).\n"
     "\n"
     "Search keys: master index, the one door, sub-indexes, rules.\n"
-    "See also: CLAUDE.md; docs/index/*.md; .claude/rules/*.md; tools/core_diet.py.\n"
+    "See also: CLAUDE.md; docs/index/*.md; .claude/rules/*.md; Tools/core_diet.py.\n"
 )
 
 

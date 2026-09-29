@@ -5,14 +5,14 @@ Some questions only the owner can answer - a design ruling, a playtest
 judgment call, a pillar-level tradeoff. Rather than let one sit inside a
 CLAUDE.md cross-workstation note until someone remembers it, it goes here:
 one line per question, append-only, visible in every standup, and nudged
-by tools/ledger_trends.py (rule 11) once it has waited past
+by Tools/ledger_trends.py (rule 11) once it has waited past
 open_question_days (default 7, tunable in .claude/trend_limits.json).
 
 Usage:
-  python tools/open_questions.py --add "<question text>" [--raised YYYY-MM-DD]
-  python tools/open_questions.py --resolve Q0001 --answer "<owner's words>"
-  python tools/open_questions.py --open      # oldest first, with age in days
-  python tools/open_questions.py --last
+  python Tools/open_questions.py --add "<question text>" [--raised YYYY-MM-DD]
+  python Tools/open_questions.py --resolve Q0001 --answer "<owner's words>"
+  python Tools/open_questions.py --open      # oldest first, with age in days
+  python Tools/open_questions.py --last
 
 THE RECORD: one line per event in docs/history/open_questions.txt
 (append-only; a resolution is a new RESOLVED line for the same id, never
@@ -27,9 +27,9 @@ INTENT: the CEO's ruling 2026-09-14: open questions to the owner get a
 
 Search keys: open questions, ask mazhron, owner decision, design ruling,
 pillar question, nudge, waiting on the owner.
-See also: tools/ledger_trends.py rule 11 (the nudge); tools/standup.py
+See also: Tools/ledger_trends.py rule 11 (the nudge); Tools/standup.py
 (the OPEN QUESTIONS TO MAZHRON block); WORKFLOWS.md "Track an open
-question to the CEO"; tools/intent_log.py (the sibling ledger this one
+question to the CEO"; Tools/intent_log.py (the sibling ledger this one
 copies its shape from); CLAUDE.md "Cross-workstation notes".
 """
 import datetime

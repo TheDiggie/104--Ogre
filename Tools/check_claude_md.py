@@ -1,6 +1,6 @@
 """Guards the CLAUDE.md token diet (2026-08-24 restructure).
 
-    python tools/check_claude_md.py
+    python Tools/check_claude_md.py
 
 Warns (exit 1) when the lean core bloats past its budget or the library
 index drifts from the files on disk. Run it whenever CLAUDE.md grows; the
@@ -19,7 +19,7 @@ INTENT: keeps CLAUDE.md lean from the 2026-08-24 token diet restructure by
   after a Reddit reader measured the kit's front door at ~5k tokens): the
   core is the one file loaded whole every session, so its size is judged in
   tokens (bytes/4, the digest_size rule) and the answer to a FAIL is
-  tools/core_diet.py (route a section, let the loop move it), never a
+  Tools/core_diet.py (route a section, let the loop move it), never a
   raised budget. THE POINTER CORE (the CEO 2026-09-14, after reading
   Anthropic's memory doc: "Claude.md should simply point to everything
   else"): the line budget is Anthropic's 200, the token budget 2,000 is
@@ -30,9 +30,9 @@ Search keys: claude.md check, token diet, token budget, line budget, warn
   tokens, master index, rules paths, index drift, knowledge file count
 See also: CLAUDE.md (the file guarded), docs/index/MASTER_INDEX.md (the one
   door checked), docs/systems/ + docs/index/ (the files it must list),
-  .claude/rules/ (paths checked), tools/core_diet.py (the mover that
-  answers a budget FAIL), tools/standup.py (prints the OK/WARN line),
-  tools/run_all.py (check group), https://code.claude.com/docs/en/memory.
+  .claude/rules/ (paths checked), Tools/core_diet.py (the mover that
+  answers a budget FAIL), Tools/standup.py (prints the OK/WARN line),
+  Tools/run_all.py (check group), https://code.claude.com/docs/en/memory.
 """
 import os
 import re
@@ -81,7 +81,7 @@ if __name__ == "__main__":
                     "a sub-index" % f)
   if tokens > TOKEN_BUDGET:
     problems.append("CLAUDE.md is ~%d tokens (budget %d): route a section with an "
-                    "`Index: <name>` line and run `python tools/core_diet.py --move`, or move a "
+                    "`Index: <name>` line and run `python Tools/core_diet.py --move`, or move a "
                     "rule set to .claude/rules/ with a paths: field; never raise the budget."
                     % (tokens, TOKEN_BUDGET))
   if len(lines) > LINE_BUDGET:

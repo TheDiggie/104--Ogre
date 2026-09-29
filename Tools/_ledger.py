@@ -5,18 +5,18 @@ PURPOSE: One append_unless_identical() call site for the check-script
   2026-09-20, lesson_log's CHECK line) so a rerun at an unchanged tree does not
   grow duplicate rows.
 INTENT: 2026-09-14 owner ruling, on duplicate ledger rows appearing minutes
-  apart (once via `python tools/run_all.py check`, again inside
-  tools/sync_kit_repo.py's push gates, at an unchanged kit version): "How
+  apart (once via `python Tools/run_all.py check`, again inside
+  Tools/sync_kit_repo.py's push gates, at an unchanged kit version): "How
   do we solve this?" - and on adding a trust-the-ledger guard here too:
   "Add the trust-the-ledger guard if it makes sense... The manager's
   decision: it makes sense - one shared helper, four call sites. Mirrors
-  the spirit and wording of tools/run_tests.py's existing TRUST THE LEDGER
+  the spirit and wording of Tools/run_tests.py's existing TRUST THE LEDGER
   guard for test groups, applied to these four result ledgers instead.
 
 Search keys: trust the ledger, duplicate ledger rows, append_unless_identical,
 ledger dedupe, ledger_heads, identical result not re-appended.
-See also: tools/run_tests.py (the original TRUST THE LEDGER guard, test
-groups); tools/format_lint.py, tools/purpose_audit.py, tools/readme_lint.py,
+See also: Tools/run_tests.py (the original TRUST THE LEDGER guard, test
+groups); Tools/format_lint.py, Tools/purpose_audit.py, Tools/readme_lint.py,
 tools/check_wiki_links.py (the four callers); docs/history/ledger_heads.txt
 (the sidecar state this module keeps); REPORTING_METHOD.md (the ledger law).
 """
@@ -98,7 +98,7 @@ def _read_state(state_path):
 def _write_state(state_path, entries):
     os.makedirs(os.path.dirname(state_path), exist_ok=True)
     lines = ["# LEDGER HEADS (rewritten in place; one line per ledger). Used by\n",
-             "# tools/_ledger.py to know whether HEAD/tree changed since a ledger's\n",
+             "# Tools/_ledger.py to know whether HEAD/tree changed since a ledger's\n",
              "# last appended line - not append-only, this one small state file is\n",
              "# meant to be rewritten (the ledgers themselves never are).\n",
              "# ledger basename | head hash | dirty signature | last appended date time\n"]
@@ -230,5 +230,5 @@ def selftest():
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         sys.exit(selftest())
-    print("tools/_ledger.py is a library module - import append_unless_identical(); "
+    print("Tools/_ledger.py is a library module - import append_unless_identical(); "
           "run with --selftest to exercise it.")

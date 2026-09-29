@@ -23,7 +23,7 @@ every injected digest appends one line to docs/history/digest_size.txt
 (bytes + a bytes/4 token estimate + the trigger) so digest bloat shows up
 in a ledger instead of only being felt.
 
-PURPOSE: SessionStart hook that runs tools/standup.py and injects its digest
+PURPOSE: SessionStart hook that runs Tools/standup.py and injects its digest
   into the manager's context on startup, resume, /clear and after a
   compaction, with a header telling the manager not to re-run standup and
   how to relay the last exchange; also runs the session group itself when
@@ -36,9 +36,9 @@ INTENT: closes the gap where after a /clear the manager has no memory of the
 
 Search keys: session start hook, auto standup, resume after clear, compact,
 loop law, session group, digest size.
-See also: tools/standup.py (the digest); tools/run_all.py (THE LOOP LEDGER,
+See also: Tools/standup.py (the digest); Tools/run_all.py (THE LOOP LEDGER,
 last_run); docs/history/loop_runs.txt; docs/history/digest_size.txt;
-.claude/skills/standup (the ritual this automates); tools/hooks/_hooklib.py.
+.claude/skills/standup (the ritual this automates); Tools/hooks/_hooklib.py.
 """
 import datetime
 import os
@@ -67,7 +67,7 @@ def header_for(source):
 
 
 def run_standup():
-    """Runs tools/standup.py and returns its digest text (or an error note)."""
+    """Runs Tools/standup.py and returns its digest text (or an error note)."""
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     try:
         r = subprocess.run([sys.executable, os.path.join(TOOLS, "standup.py")],
@@ -163,10 +163,10 @@ def _selftest():
     print(("PASS  " if ok else "FAIL  ") + "header_for carries trigger + the no-rerun line")
     fails += not ok
     ok = os.path.isfile(os.path.join(TOOLS, "standup.py"))
-    print(("PASS  " if ok else "FAIL  ") + "tools/standup.py exists")
+    print(("PASS  " if ok else "FAIL  ") + "Tools/standup.py exists")
     fails += not ok
     ok = os.path.isfile(os.path.join(TOOLS, "run_all.py"))
-    print(("PASS  " if ok else "FAIL  ") + "tools/run_all.py exists")
+    print(("PASS  " if ok else "FAIL  ") + "Tools/run_all.py exists")
     fails += not ok
 
     now = datetime.datetime(2026, 9, 14, 12, 0)

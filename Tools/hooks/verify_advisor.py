@@ -24,7 +24,7 @@ INTENT: the CEO 2026-09-26: "Can we make these processes more fool proof
 
 Search keys: verify advisor, ledger advised, stop hook, delegation
 pending, RESOLVED line, unverified delegation, rule 5.
-See also: tools/hooks/delegation_auditor.py (writes the PENDING lines);
+See also: Tools/hooks/delegation_auditor.py (writes the PENDING lines);
 tools/hooks/lesson_advisor.py (the pattern); SUBAGENTS.md (rules 4, 5);
 LESSONS.md "An append-only tracker is read at its tail".
 """

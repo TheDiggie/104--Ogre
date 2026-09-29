@@ -1,8 +1,8 @@
 """Workstation survey: is THIS machine up to par with WORKSTATION.md?
 
 Usage:
-  python tools/workstation_survey.py            # HAVE / MISSING table + one ledger line
-  python tools/workstation_survey.py --no-ledger
+  python Tools/workstation_survey.py            # HAVE / MISSING table + one ledger line
+  python Tools/workstation_survey.py --no-ledger
 
 Prints one line per requirement from the CHECKS table (a mirror of the
 "What a workstation needs" section in WORKSTATION.md - keep the two in

@@ -3,8 +3,8 @@ the README falling behind": the lint catches drift in facts a script can
 derive; only an AUDIT catches an answer we know that the README never
 says).
 
-    python tools/readme_audit.py                 # status: last audit, what moved since
-    python tools/readme_audit.py --record "<summary>"   # ledger a finished audit
+    python Tools/readme_audit.py                 # status: last audit, what moved since
+    python Tools/readme_audit.py --record "<summary>"   # ledger a finished audit
 
 An audit is the manager's four-employee cross-reference (read-only
 employees compare the public README against every method file, the
@@ -12,7 +12,7 @@ skills, the hooks and the front door; the manager applies the findings).
 When one finishes, `--record` appends one line to
 docs/history/readme_audit_runs.txt with the date, workstation, kit
 version, and how many kit-folder commits landed since the previous
-audit. tools/ledger_trends.py reads the tail and PROPOSES a fresh audit
+audit. Tools/ledger_trends.py reads the tail and PROPOSES a fresh audit
 at standup when the kit has moved past a threshold of commits or days
 since the last line (readme_audit_kit_commits / readme_audit_days in its
 THRESHOLDS - the owner's numbers). Nothing runs an audit by itself.
@@ -27,7 +27,7 @@ INTENT: the CEO 2026-09-13, the third layer of 'prevent the README falling
 
 Search keys: readme audit, audit cadence, readme review, kit audit,
 cross-reference audit, unwritten answers.
-See also: tools/readme_lint.py (the mechanical layer); tools/ledger_trends.py
+See also: Tools/readme_lint.py (the mechanical layer); Tools/ledger_trends.py
 (the proposal); WORKFLOWS.md "Audit the public README (Rootstock)";
 docs/systems/tooling.md "The README parity lint and audit cadence".
 """

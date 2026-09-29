@@ -3,7 +3,7 @@
 THE PRESERVATION LAW (the CEO's ruling 2026-09-10): files, records and
 knowledge are never deleted - they move somewhere indexed. This is the
 mover for files:
-  python tools/retire.py <path> [<path>...] --reason "why"
+  python Tools/retire.py <path> [<path>...] --reason "why"
   -> _retired/<relative path>[.retired]   (the suffix keeps Godot from
      importing .tres/.gd/.tscn/.res/.import/.gdshader; _retired/ also
      carries a .gdignore so the editor skips the whole folder)
@@ -22,8 +22,8 @@ INTENT: THE PRESERVATION LAW, the CEO's ruling 2026-09-10: files, records
 
 Search keys: retire file, never delete, _retired, preservation law,
 retired files ledger, move instead of delete.
-See also: tools/hooks/preserve_guard.py (the guard that points here);
-tools/cold_shelf.py (wiki sections); tools/delete_grant.py (a real
+See also: Tools/hooks/preserve_guard.py (the guard that points here);
+tools/cold_shelf.py (wiki sections); Tools/delete_grant.py (a real
 deletion, twice-approved); docs/history/retired_files.txt.
 """
 import argparse

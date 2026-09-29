@@ -33,9 +33,9 @@ run_all's `backup` group (in the session composite, so every standup
 also refreshes the mirror), and the SessionEnd auto-checkpoint hook.
 
 Usage:
-  python tools/backup_push.py              # push both repos + folder copy, ledger
-  python tools/backup_push.py --status     # show remotes, drive, copy; do nothing
-  python tools/backup_push.py --no-folder  # pushes only (a quick hook path)
+  python Tools/backup_push.py              # push both repos + folder copy, ledger
+  python Tools/backup_push.py --status     # show remotes, drive, copy; do nothing
+  python Tools/backup_push.py --no-folder  # pushes only (a quick hook path)
 
 Ledger: docs/history/backup_runs.txt
   date time | ws | repo | remote | result   (repo "Everwood-folder" = the copy)
@@ -52,7 +52,7 @@ INTENT: the CEO 2026-09-20: a real copy of the whole history on another
 Search keys: backup, mirror, bare repo, J drive, second copy, fallback,
 push all, disaster recovery, browsable copy, folder copy, robocopy.
 See also: WORKFLOWS.md "Ship a batch"; .claude/skills/ship; .claude/skills/
-checkpoint; tools/hooks/session_end.py; docs/systems/tooling.md.
+checkpoint; Tools/hooks/session_end.py; docs/systems/tooling.md.
 """
 import argparse
 import datetime

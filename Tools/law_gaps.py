@@ -5,8 +5,8 @@ else we can't learn from it. It's just dust in the wind. Make the call, if
 we can learn from it, and it doesn't increase our token costs by any
 significant amount, yes."
 
-    python tools/law_gaps.py              # runs both checks, prints both lines
-    python tools/law_gaps.py --selftest    # exercises the pure parsers, no git, no ledgers
+    python Tools/law_gaps.py              # runs both checks, prints both lines
+    python Tools/law_gaps.py --selftest    # exercises the pure parsers, no git, no ledgers
 
 CHECK A, THE ARCHIVE SWEEP: parses docs/index/notes.md for actioned notes
 that have not yet moved to docs/systems/history.md.
@@ -27,7 +27,7 @@ INTENT: the CEO's ruling 2026-09-29 (quoted above): measure what can be
 Search keys: archive sweep, workflow gap, law ledgers, unmeasured laws,
 notes.md sweep.
 See also: docs/index/laws.md "The archive sweep" and "The workflow rule";
-docs/index/notes.md; WORKFLOWS.md; tools/run_all.py check group, which the
+docs/index/notes.md; WORKFLOWS.md; Tools/run_all.py check group, which the
 manager wires.
 """
 import datetime
@@ -44,12 +44,12 @@ SWEEP_LEDGER = os.path.join(ROOT, "docs", "history", "sweep_audit_runs.txt")
 GAP_LEDGER = os.path.join(ROOT, "docs", "history", "workflow_gap_runs.txt")
 
 SWEEP_HEADER = (
-    "# THE ARCHIVE SWEEP LEDGER (append-only; one line per run of tools/law_gaps.py's "
+    "# THE ARCHIVE SWEEP LEDGER (append-only; one line per run of Tools/law_gaps.py's "
     "notes.md sweep check). Read the TAIL.\n"
     "# date time | ws | notes N | actioned unmoved N | open N | open older than 21d N | verdict\n"
 )
 GAP_HEADER = (
-    "# THE WORKFLOW GAP LEDGER (append-only; one line per run of tools/law_gaps.py's "
+    "# THE WORKFLOW GAP LEDGER (append-only; one line per run of Tools/law_gaps.py's "
     "30 day tool-change proxy for the workflow rule). Read the TAIL.\n"
     "# date time | ws | commits N | tools changed N | unnamed N | verdict | unnamed basenames\n"
 )
@@ -152,7 +152,7 @@ def parse_log(text):
 
 
 def _tool_basename(path):
-    """A tool path (tools/*.py, tools/hooks/*.py or .claude/skills/*/SKILL.md)
+    """A tool path (tools/*.py, Tools/hooks/*.py or .claude/skills/*/SKILL.md)
     -> the name to search WORKFLOWS.md for, or None if not a tool path.
     """
     m = TOOL_PATH_RE.match(path)
@@ -217,7 +217,7 @@ def run_gap(ws, stamp):
     commits = parse_log(text)
     # THE NAMED CORPUS (manager, 2026-09-29, after the first run flagged hooks and loop
 
-    # scripts): a tool is 'named' when WORKFLOWS.md, tools/run_all.py (the loop is the
+    # scripts): a tool is 'named' when WORKFLOWS.md, Tools/run_all.py (the loop is the
 
     # workflow of a loop script), .claude/settings.json (a hook's wiring) or any
 
@@ -225,7 +225,7 @@ def run_gap(ws, stamp):
 
     workflows_text = ""
 
-    for _p in [WORKFLOWS_PATH, os.path.join(ROOT, "tools", "run_all.py"),
+    for _p in [WORKFLOWS_PATH, os.path.join(ROOT, "Tools", "run_all.py"),
 
                os.path.join(ROOT, ".claude", "settings.json")] + sorted(
 
@@ -305,17 +305,17 @@ def selftest():
     _check("sweep_counts: old open note counted older than 21d", old_open_older == 1, results)
 
     # parse_log: at least 3 cases, including two commits, one touching
-    # tools/x.py and WORKFLOWS.md together
+    # Tools/x.py and WORKFLOWS.md together
     log_text = (
         "aaa1111\tfirst commit touches a tool and WORKFLOWS.md\n"
-        "tools/x.py\n"
+        "Tools/x.py\n"
         "WORKFLOWS.md\n"
         "\n"
         "bbb2222\tsecond commit touches an unrelated file\n"
         "docs/history/lesson_runs.txt\n"
         "\n"
         "ccc3333\tthird commit touches a hook and a skill\n"
-        "tools/hooks/y.py\n"
+        "Tools/hooks/y.py\n"
         ".claude/skills/some_skill/SKILL.md\n"
     )
     commits = parse_log(log_text)
@@ -324,14 +324,14 @@ def selftest():
            commits[0][0] == "aaa1111" and commits[0][1] == "first commit touches a tool and WORKFLOWS.md",
            results)
     _check("parse_log: first commit two paths",
-           commits[0][2] == ["tools/x.py", "WORKFLOWS.md"], results)
+           commits[0][2] == ["Tools/x.py", "WORKFLOWS.md"], results)
     _check("parse_log: second commit one path",
            commits[1][2] == ["docs/history/lesson_runs.txt"], results)
     _check("parse_log: third commit hook and skill paths",
-           commits[2][2] == ["tools/hooks/y.py", ".claude/skills/some_skill/SKILL.md"], results)
+           commits[2][2] == ["Tools/hooks/y.py", ".claude/skills/some_skill/SKILL.md"], results)
 
     # candidate filter with a fake WORKFLOWS text
-    workflows_text = "## Do a thing\nRun tools/x.py before you do anything else.\n"
+    workflows_text = "## Do a thing\nRun Tools/x.py before you do anything else.\n"
     tools_changed, unnamed = find_candidates(commits, workflows_text)
     _check("find_candidates: three tool paths reduced to three basenames",
            tools_changed == ["some_skill", "x.py", "y.py"], results)

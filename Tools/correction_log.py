@@ -4,14 +4,14 @@ skill. You then inquire: What about the last thing I did needs correcting?
 The user explains. You mark that down and prepare to fix the thing that
 needs correcting, then you would ask 'What was the intent?'")
 
-    python tools/correction_log.py --record --actor fable \\
+    python Tools/correction_log.py --record --actor fable \\
         --shipped "<what was built, 3-10 words>" \\
         --wrong "<the CEO's words, verbatim>" \\
         [--intent-id I0007] [--intent-ref "<INTENT.md heading>"]
-    python tools/correction_log.py --fixed C0003 --fix "<commit subject or note>"
-    python tools/correction_log.py --pattern C0002-C0005 --law "<the one law behind them>"
-    python tools/correction_log.py --last      # newest record
-    python tools/correction_log.py --open      # corrections without a FIXED line
+    python Tools/correction_log.py --fixed C0003 --fix "<commit subject or note>"
+    python Tools/correction_log.py --pattern C0002-C0005 --law "<the one law behind them>"
+    python Tools/correction_log.py --last      # newest record
+    python Tools/correction_log.py --open      # corrections without a FIXED line
 
 THE RECORD: docs/history/corrections.txt, append-only. A RECORD line is
 written the moment the correction is understood (the CEO's words, not a
@@ -19,8 +19,8 @@ paraphrase); a FIXED line is appended when the fix ships. When the
 correction names an intent claim (--intent-id), that claim is resolved
 DIFFERENT with source=correction in the intent log by this script - a
 correction IS the comparison's hardest evidence, so it never has to be
-remembered separately. tools/intent_report.py counts corrections per
-day/week/month next to the agreement rates; tools/ledger_trends.py
+remembered separately. Tools/intent_report.py counts corrections per
+day/week/month next to the agreement rates; Tools/ledger_trends.py
 proposes a law or an INTENT.md entry when corrections cluster.
 
 The /correct skill walks the ritual: ask what needs correcting -> record
@@ -46,7 +46,7 @@ INTENT: the CEO's ruling 2026-09-13: Lets pretend I ask you to do something.
 
 Search keys: correction, corrections ledger, mistake, wrong, fix record,
 manager corrections, employee corrections, feedback loop.
-See also: tools/intent_log.py; tools/intent_report.py; INTENT.md;
+See also: Tools/intent_log.py; Tools/intent_report.py; INTENT.md;
 INTENT_METHOD.md (portable); SUBAGENTS.md (employee corrections are
 tallied in its ledger; this file is the manager's and the cross-actor
 record); WORKFLOWS.md "Correct a mistake".
@@ -117,7 +117,7 @@ def record(actor, shipped, wrong, intent_id="", ref=""):
             clean(intent_id), clean(ref), ""])
     print("%s recorded (%s): %s" % (i, actor, clean(shipped)))
     if intent_id:
-        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "intent_log.py"),
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "Tools", "intent_log.py"),
                             "--resolve", intent_id, "--theirs", wrong, "--verdict", "different",
                             "--source", "correction"] + (["--intent-ref", ref] if ref else []),
                            cwd=ROOT, capture_output=True, text=True)

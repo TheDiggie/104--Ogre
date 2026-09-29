@@ -19,7 +19,7 @@ INTENT: keeps a receipt of how often the harness's lossy auto-compact fires
   without re-reading anything.
 
 Search keys: compact hook, auto compact ledger, compaction count.
-See also: docs/history/compact_runs.txt (the ledger); tools/hooks/
+See also: docs/history/compact_runs.txt (the ledger); Tools/hooks/
 session_start.py (the recovery); REPORTING_METHOD.md (the Ledger rule).
 """
 import datetime
