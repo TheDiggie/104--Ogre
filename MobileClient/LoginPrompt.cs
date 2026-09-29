@@ -25,6 +25,7 @@ public partial class LoginPrompt : Control
     public event Action<string, string> Submitted;
 
     Label _title, _note;
+    ColorRect _bg;
     LineEdit _user, _pass;
     Button _go;
 
@@ -32,9 +33,8 @@ public partial class LoginPrompt : Control
     {
         SetAnchorsPreset(LayoutPreset.FullRect);
 
-        var bg = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f) };
-        bg.SetAnchorsPreset(LayoutPreset.FullRect);
-        AddChild(bg);
+        _bg = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f) };
+        AddChild(_bg);
 
         _title = new Label { Text = "Meridian 59" };
         _title.AddThemeFontSizeOverride("font_size", FontSize + 14);
@@ -117,6 +117,14 @@ public partial class LoginPrompt : Control
     {
         if (_title == null) return;
         Vector2 v = GetViewportRect().Size;
+
+        // Sized here rather than anchored: an anchored child of a
+        // Control with no rect of its own comes out zero by zero and
+        // never draws. See ChatOverlay for the window that spent its
+        // whole life invisible for this reason.
+        _bg.Position = Vector2.Zero;
+        _bg.Size = v;
+
 
         float pad = Mathf.Max(20f, v.X * 0.08f);
         float w = Mathf.Min(v.X - pad * 2f, 520f);

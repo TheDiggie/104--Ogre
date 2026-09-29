@@ -95,7 +95,6 @@ public partial class InventoryPanel : Control
         AddChild(_open);
 
         _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.94f), Visible = false };
-        _panel.SetAnchorsPreset(LayoutPreset.FullRect);
         AddChild(_panel);
 
         _title = new Label { Text = "Carrying", Visible = false };
@@ -141,6 +140,13 @@ public partial class InventoryPanel : Control
         if (_open == null) return;
         Vector2 v = GetViewportRect().Size;
         const float pad = 12f;
+
+        // Sized here rather than anchored: an anchored child of a
+        // Control with no rect of its own comes out zero by zero and
+        // never draws. See ChatOverlay for the window that spent its
+        // whole life invisible for this reason.
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
         // Third slot along the bottom right, after the map and the loot
         // button. They agree on the sizes rather than each guessing.

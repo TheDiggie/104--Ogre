@@ -21,14 +21,14 @@ public partial class ResourcePrompt : Control
     Label _message;
     LineEdit _entry;
     Button _use;
+    ColorRect _bg;
 
     public override void _Ready()
     {
         SetAnchorsPreset(LayoutPreset.FullRect);
 
-        var bg = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.95f) };
-        bg.SetAnchorsPreset(LayoutPreset.FullRect);
-        AddChild(bg);
+        _bg = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.95f) };
+        AddChild(_bg);
 
         _message = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
         _message.AddThemeFontSizeOverride("font_size", FontSize);
@@ -53,6 +53,14 @@ public partial class ResourcePrompt : Control
     {
         if (_message == null) return;
         Vector2 v = GetViewportRect().Size;
+
+        // Sized here rather than anchored: an anchored child of a
+        // Control with no rect of its own comes out zero by zero and
+        // never draws. See ChatOverlay for the window that spent its
+        // whole life invisible for this reason.
+        _bg.Position = Vector2.Zero;
+        _bg.Size = v;
+
         float pad = Mathf.Max(16f, v.X * 0.06f);
         float w = v.X - pad * 2f;
         float h = FontSize * 2.6f;

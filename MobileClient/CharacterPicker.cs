@@ -26,15 +26,15 @@ public partial class CharacterPicker : Control
 
     VBoxContainer _rows;
     Label _title;
+    ColorRect _bg;
 
     public override void _Ready()
     {
         SetAnchorsPreset(LayoutPreset.FullRect);
         Visible = false;
 
-        var bg = new ColorRect { Color = new Color(0, 0, 0, 0.82f) };
-        bg.SetAnchorsPreset(LayoutPreset.FullRect);
-        AddChild(bg);
+        _bg = new ColorRect { Color = new Color(0, 0, 0, 0.82f) };
+        AddChild(_bg);
 
         _title = new Label { Text = "Choose a character" };
         _title.AddThemeFontSizeOverride("font_size", FontSize + 6);
@@ -53,6 +53,14 @@ public partial class CharacterPicker : Control
     {
         if (_rows == null) return;
         Vector2 v = GetViewportRect().Size;
+        // Sized in Layout rather than anchored. These panels live in a
+        // CanvasLayer whose Control parents have no rect of their own,
+        // so an anchored child comes out zero by zero and never draws -
+        // which is how the chat log window managed to be invisible for
+        // its whole existence.
+        _bg.Position = Vector2.Zero;
+        _bg.Size = v;
+
         float pad = Mathf.Max(24f, v.X * 0.08f);
         _title.Position = new Vector2(pad, pad);
         _rows.Position = new Vector2(pad, pad + FontSize * 3f);

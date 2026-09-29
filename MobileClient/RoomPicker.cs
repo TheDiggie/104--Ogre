@@ -40,7 +40,6 @@ public partial class RoomPicker : Control
         AddChild(_open);
 
         _panel = new ColorRect { Color = new Color(0, 0, 0, 0.88f), Visible = false };
-        _panel.SetAnchorsPreset(LayoutPreset.FullRect);
         AddChild(_panel);
 
         _title = new Label { Text = "Rooms", Visible = false };
@@ -85,6 +84,13 @@ public partial class RoomPicker : Control
         Vector2 v = GetViewportRect().Size;
         float pad = 12f;
         float h = FontSize * 2.6f;
+
+        // Sized here rather than anchored: an anchored child of a
+        // Control with no rect of its own comes out zero by zero and
+        // never draws. See ChatOverlay for the window that spent its
+        // whole life invisible for this reason.
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
         // Bottom right, left of the map toggle. The top right is the map.
         _open.Size = new Vector2(FontSize * 5f, 40f);
