@@ -66,6 +66,21 @@ public partial class LootPanel : Control
     /// </summary>
     public event Action PutWanted;
 
+    /// <summary>
+    /// Describe this one. The game looks at a row on a right click
+    /// (`UIObjectContents.cpp:259`, `UILootList.cpp`), which is worth
+    /// having: knowing what a thing is before you fill your pack with
+    /// it is the whole point of a loot list. A hold stands in for the
+    /// right button, as it does on the hotbar.
+    /// </summary>
+    public event Action<uint> Look;
+
+    /// <summary>How long a press is held before it describes instead of picking.</summary>
+    [Export] public ulong LongPressMs = 600;
+
+    ulong _downAt;
+    bool _reverting;
+
     ColorRect _panel;
     Label _title;
     ScrollContainer _scroll;
@@ -280,7 +295,25 @@ public partial class LootPanel : Control
             // lives in child labels, so there is nothing to find it by.
             Name = $"loot{o.ID}",
         };
-        button.Toggled += on => Pick(captured, on);
+        button.ButtonDown += () => _downAt = Time.GetTicksMsec();
+        button.Toggled += on =>
+        {
+            // A held press describes the row rather than ticking it,
+            // and puts the tick back where it was. Setting the property
+            // raises this again, hence the guard.
+            if (_reverting) return;
+            ulong down = _downAt;
+            _downAt = 0;
+            if (down != 0 && Time.GetTicksMsec() - down >= LongPressMs)
+            {
+                _reverting = true;
+                button.ButtonPressed = !on;
+                _reverting = false;
+                Look?.Invoke(captured.ID);
+                return;
+            }
+            Pick(captured, on);
+        };
 
         var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
         line.SetAnchorsPreset(LayoutPreset.FullRect);

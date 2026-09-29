@@ -36,6 +36,20 @@ public partial class BuyPanel : Control
     /// <summary>How many of this stackable line to buy.</summary>
     public event Action<TradeOfferObject> AmountWanted;
 
+    /// <summary>
+    /// Describe this one. The game looks at a row on a right click
+    /// (`UIBuy.cpp:223`) - reading what something is before paying
+    /// twelve hundred for it is not a luxury. A hold stands in for the
+    /// right button.
+    /// </summary>
+    public event Action<uint> Look;
+
+    /// <summary>How long a press is held before it describes instead of ticking.</summary>
+    [Export] public ulong LongPressMs = 600;
+
+    ulong _downAt;
+    bool _reverting;
+
     ColorRect _panel;
     Label _title, _sum;
     ScrollContainer _scroll;
@@ -252,8 +266,22 @@ public partial class BuyPanel : Control
             Name = $"buy{o.ID}",
         };
         tick.AddThemeFontSizeOverride("font_size", FontSize);
+        tick.ButtonDown += () => _downAt = Time.GetTicksMsec();
         tick.Toggled += on =>
         {
+            // Held describes rather than ticks, and puts the tick back.
+            // Setting the property raises this again, hence the guard.
+            if (_reverting) return;
+            ulong down = _downAt;
+            _downAt = 0;
+            if (down != 0 && Time.GetTicksMsec() - down >= LongPressMs)
+            {
+                _reverting = true;
+                tick.ButtonPressed = !on;
+                _reverting = false;
+                Look?.Invoke(captured.ID);
+                return;
+            }
             if (on) _ticked.Add(captured.ID); else _ticked.Remove(captured.ID);
             Total();
         };

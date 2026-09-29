@@ -446,6 +446,28 @@ public partial class SceneShot : Node
                 }
                 else GD.Print("[SceneShot] @submit found no text box");
             }
+            else if (step.StartsWith("@hold:"))
+            {
+                // A press held down. Several things are bound to a hold
+                // rather than a tap - clearing a hotbar button,
+                // describing a row instead of ticking it - and none of
+                // them could be tested at all: emitting the signal a
+                // tap raises skips the press-down that starts the clock,
+                // so the harness could only ever tap.
+                string want = step.Substring(6);
+                Button b = FindNamed(GetTree().Root, want);
+                if (b == null) { GD.Print($"[SceneShot] no node called {want}"); }
+                else
+                {
+                    b.EmitSignal(BaseButton.SignalName.ButtonDown);
+                    // Real time, not frames: the code being tested reads
+                    // the clock. Long enough for any sensible threshold.
+                    for (int i = 0; i < 60; i++)
+                        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    Hit(b);
+                    GD.Print($"[SceneShot] held {want}");
+                }
+            }
             else if (step.StartsWith("@name:"))
             {
                 string want = step.Substring(6);

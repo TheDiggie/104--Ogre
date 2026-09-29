@@ -860,6 +860,7 @@ public partial class GameView : Node2D
             // is what the game's own Get loop sends
             // (`UILootList.cpp:270-275`). The count had been left off
             // here, so taking a pile of coins took one coin.
+            _lootList.Look += id => Act(() => _client.SendReqLookMessage(id));
             _lootList.GetItems += items => Act(() =>
             {
                 foreach (ObjectBase o in items)
@@ -872,6 +873,7 @@ public partial class GameView : Node2D
             // because they follow different lists and only one of them
             // can take everything at once.
             _contents = new LootPanel { Heading = "Contents", ShowGetAll = false, AllowPut = true };
+            _contents.Look += id => Act(() => _client.SendReqLookMessage(id));
             _contents.GetItems += items => Act(() =>
             {
                 foreach (ObjectBase o in items)
@@ -889,6 +891,7 @@ public partial class GameView : Node2D
             // The shop. One message buys everything ticked, which is what
             // Buy::OnOKClicked sends - not one per item.
             _shop = new BuyPanel();
+            _shop.Look += id => Act(() => _client.SendReqLookMessage(id));
             _shop.AmountWanted += line =>
             {
                 if (_amount == null || line == null) return;
