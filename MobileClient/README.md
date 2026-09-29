@@ -195,14 +195,25 @@ Nothing here has been run on a phone yet. What is in place:
 
 What you have to do:
 
-1. Install a JDK 17 and the Android SDK (Android Studio is the easy
-   way), then point Godot at them in
-   *Editor > Editor Settings > Export > Android*.
+1. Install the Android SDK (Android Studio is the easy way) and a JDK -
+   Android Studio ships one at `jbr`. Point Godot at both in
+   *Editor > Editor Settings > Export > Android*, and give it a debug
+   keystore there too.
 2. *Editor > Manage Export Templates* and download the templates for
    your exact Godot version.
-3. Copy an installed client's `resource` folder into `MobileClient/resource`.
+3. Install a **.NET 9 SDK**. Godot 4.7.2's Android template embeds a
+   .NET 9 runtime and refuses assemblies built for anything else:
+   *"C# project targets 'net8.0' but the export template only supports
+   'net9.0'"*. The desktop templates are happy with net8.0, and the
+   rest of this repo builds against net8.0, so rather than move
+   everything the two csproj files read `M59TFM` from the environment
+   and fall back to net8.0 - MSBuild reads environment variables as
+   properties. Set `M59TFM=net9.0` for an Android build and leave it
+   unset for everything else.
+4. Copy an installed client's `resource` folder into `MobileClient/resource`.
    It is gitignored - it is hundreds of megabytes and it is not ours.
-4. *Project > Export > Android > Export Project*.
+5. *Project > Export > Android > Export Project*, or headless:
+   `godot --headless --path MobileClient --export-debug "Android" ..\build\Meridian59.apk`
 
 The resource folder is the awkward part: a full one is far past the
 150 MB the Play Store allows, which is fine for sideloading and not fine
