@@ -416,6 +416,50 @@ public partial class SceneShot : Node
                 }
                 else GD.Print($"[SceneShot] @tap wants --tap x,y or @tap:XxY, got {where}");
             }
+            else if (step.StartsWith("@drag:"))
+            {
+                // A finger put down, moved, HELD, and lifted:
+                // "@drag:300x1400>300x1150@60" presses at the first
+                // point, slides to the second over ten frames, holds
+                // there for sixty, then lifts.
+                //
+                // Taps could already be scripted and drags could not,
+                // which left the one interaction a phone client is FOR
+                // untested: the movement stick and the look drag are
+                // both holds, and a stick that is never held reports
+                // nothing. Everything about walking around - the move
+                // gate, the speed byte, whether the avatar turns - was
+                // reachable only by hand.
+                string body = step.Substring(6);
+                int at = body.IndexOf('@');
+                int frames = 60;
+                if (at >= 0 && int.TryParse(body.Substring(at + 1), out int f)) { frames = f; body = body.Substring(0, at); }
+                string[] ends = body.Split('>');
+                if (ends.Length == 2 && Point(ends[0], out Vector2 from) && Point(ends[1], out Vector2 to))
+                {
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = from, Pressed = true });
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+                    Vector2 last = from;
+                    const int slide = 10;
+                    for (int i = 1; i <= frames; i++)
+                    {
+                        Vector2 now = i <= slide ? from.Lerp(to, (float)i / slide) : to;
+                        // Relative matters as much as Position: the look
+                        // half turns by the DELTA, so a drag that only
+                        // sets Position turns the camera once and then
+                        // sits still.
+                        Input.ParseInputEvent(new InputEventScreenDrag
+                        { Index = 0, Position = now, Relative = now - last });
+                        last = now;
+                        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    }
+
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = to, Pressed = false });
+                    GD.Print($"[SceneShot] dragged {from} -> {to} held {frames}");
+                }
+                else GD.Print($"[SceneShot] bad drag step: {step}");
+            }
             else if (step == "@type")
             {
                 // Puts --text into the first visible text box. A form
@@ -570,6 +614,17 @@ public partial class SceneShot : Node
     {
         if (n is Button b && Showing(b)) into.Add(b.Name);
         foreach (Node c in n.GetChildren()) Walk(c, into);
+    }
+
+    /// <summary>"300x1400" -> a point. False when it is not one.</summary>
+    static bool Point(string text, out Vector2 at)
+    {
+        at = Vector2.Zero;
+        string[] xy = text.Split('x');
+        if (xy.Length != 2) return false;
+        if (!float.TryParse(xy[0], out float x) || !float.TryParse(xy[1], out float y)) return false;
+        at = new Vector2(x, y);
+        return true;
     }
 
     /// <summary>

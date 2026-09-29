@@ -61,3 +61,31 @@ Tags: process | Kept so the next session tests something new rather than re-prov
 - Chat flood: 205 lines, the full log scrolls and closes.
 
 See also: the fixture -> fake-server.md | the panels -> mobile-client.md
+
+## Drags, and why they were missing
+Tags: process, lessons | @drag:<from>><to>@<frames> presses, slides over ten frames, HOLDS, then lifts - without a hold the movement stick reports nothing and the one interaction a phone client is for was untestable
+
+`@tap` could already be scripted. The movement stick and the look drag
+are both holds: a stick that is put down and lifted in one frame reports
+no direction at all, so walking, turning and looking had never once been
+exercised by a scripted run, only by hand.
+
+`Relative` matters as much as `Position`. The look half turns by the
+DELTA, so a drag that sets only Position turns the camera once and then
+sits still for the rest of the hold.
+
+Proved with `@drag:270x1500>270x1100@90` (walk forward: 22 movement
+messages on the wire) and `@drag:1100x700>1500x700@60` (look right: the
+view ends facing a different wall).
+
+See also: the touch layer -> TouchControls.cs | the client -> mobile-client.md
+
+## A run inherits the last run's hotbar
+Tags: gotchas, process | HotbarStore saves to user://hotbar.cfg per character, so every scripted bind is still there next run - the slots accumulate across a testing session
+
+Working as designed, and a trap for anyone reading a screenshot: after a
+few runs that bind a spell, the hotbar shows eight seeded actions plus
+one slot per bind, and `hot{N}` names shift with them. Delete
+`user://hotbar.cfg` (under the Godot user data folder) for a clean start.
+
+See also: HotbarStore.cs
