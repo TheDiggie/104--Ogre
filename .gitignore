@@ -78,3 +78,8 @@ MobileClient/android/
 .claude/diet_state.json
 .claude/verify_state.json
 Engine/
+__pycache__/
+*.pyc
+*.old
+shot.png
+everwood_lesson_state_selftest.json
