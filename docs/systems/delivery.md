@@ -22,3 +22,15 @@ The stop hook will keep asking. The answer is no until he is at the
 keyboard and wants to pay for it.
 
 See also: the bundle flow -> this file | the stop hook -> ../../HOOKS_METHOD.md
+
+## The ledgers churn on both machines
+Tags: gotchas, process | Running a Rootstock script writes docs/history/*_runs.txt, so the workspace clone always has dirty ledgers and the next --ff-only merge aborts
+
+Discard them before fetching a bundle:
+
+    git checkout -- docs/history/ && git merge --ff-only <ref>
+
+Ashton's copy is the one whose ledgers are the record; the workspace
+clone's are scratch, because the container is thrown away anyway.
+
+See also: the loop -> ../../WORKFLOWS.md | the reporting method -> ../../REPORTING_METHOD.md
