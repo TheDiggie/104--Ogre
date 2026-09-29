@@ -79,6 +79,15 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
     /// </summary>
     public event Action<ObjectID[]> NamesLookedUp;
 
+    /// <summary>
+    /// The server's answer to SendSystemMessageSendCharInfo: every face
+    /// part, colour, spell and skill a new character may be made from.
+    /// The base class fills Data.CharCreationInfo and builds the
+    /// default example model before this is raised, so what arrives
+    /// here is ready to show.
+    /// </summary>
+    public event Action<CharCreationInfo> CharacterPalette;
+
     void Say(string s) => Notice?.Invoke(s);
 
     /// <summary>
@@ -175,6 +184,14 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
                 catch (Exception e) { Say($"stop sound: {e.Message}"); }
                 break;
 
+            case MessageTypeGameMode.CharInfo:
+                // Raised after the base call below, not here: the data
+                // layer is what turns this into a CharCreationInfo with
+                // an example model on it, and the view has nothing to
+                // show until it has.
+                _palette = true;
+                break;
+
             case MessageTypeGameMode.PlayMusic:
                 try
                 {
@@ -190,7 +207,16 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
         }
 
         base.HandleGameModeMessage(Message);
+
+        if (_palette)
+        {
+            _palette = false;
+            try { CharacterPalette?.Invoke(Data?.CharCreationInfo); }
+            catch (Exception e) { Say($"char info: {e.GetType().Name}: {e.Message}"); }
+        }
     }
+
+    bool _palette;
 
     void Raise(Action<PlaySound> handler, PlaySound info)
     {
@@ -240,13 +266,26 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
         if (pick == null)
         {
             var real = chars.Where(c => !c.IsEmptySlot).ToList();
-            if (real.Count == 0) { Say("All character slots are empty."); return; }
+            bool room = chars.Any(c => c.IsEmptySlot);
+
+            // A new account is nothing but empty slots, and this used to
+            // stop dead on it - which made the client unusable for
+            // anyone who had not already made a character elsewhere.
+            if (real.Count == 0)
+            {
+                if (!room) { Say("No characters on this account."); return; }
+                Say("No characters yet - making one.");
+                SendSystemMessageSendCharInfo();
+                return;
+            }
 
             // One character is not a choice; several is, and picking the
-            // first silently would log you in as the wrong one.
-            if (real.Count > 1 && ChooseCharacter != null)
+            // first silently would log you in as the wrong one. An empty
+            // slot is a choice too, because it is the only way to reach
+            // the creation wizard.
+            if ((real.Count > 1 || room) && ChooseCharacter != null)
             {
-                Say($"{real.Count} characters on this account.");
+                Say($"{real.Count} character{(real.Count == 1 ? "" : "s")} on this account.");
                 ChooseCharacter(real);
                 return;
             }

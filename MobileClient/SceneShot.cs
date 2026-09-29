@@ -33,6 +33,11 @@ public partial class SceneShot : Node
             {
                 ResourceDir = res,
                 Host = host,
+                // --char skips the character picker, which every
+                // fixture but the creation one wants: the picker now
+                // appears whenever the account has an empty slot,
+                // because that is the only way to reach the wizard.
+                Character = Arg("--char", ""),
                 Port = int.TryParse(Arg("--port", "15999"), out int pt) ? pt : 15999,
                 RenderWidth = width,
                 AutoConnect = true,
@@ -61,7 +66,8 @@ public partial class SceneShot : Node
         else if (Arg("--slot", null) != null
                  || (Arg("--press", null) ?? "").Contains('@')
                  || (Arg("--press", null) ?? "").Contains(','))
-            Slot(outPath, wait, Arg("--slot", null), Arg("--press", null), Arg("--tap", null));
+            Slot(outPath, wait, Arg("--slot", null), Arg("--press", null), Arg("--tap", null),
+                 Arg("--text", null));
         else if (Arg("--tick", null) != null)
             Tick(outPath, wait, Arg("--tick", null), Arg("--press", null));
         else if (Arg("--login", null) != null)
@@ -351,7 +357,8 @@ public partial class SceneShot : Node
     /// --press takes a comma-separated list here, so a whole path -
     /// open the bag, pick the third thing, drop it - runs in one go.
     /// </summary>
-    async void Slot(string path, int settle, string which, string press, string spot = null)
+    async void Slot(string path, int settle, string which, string press, string spot = null,
+                    string typed = null)
     {
         for (int i = 0; i < Math.Max(1, settle); i++)
             await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
@@ -390,6 +397,17 @@ public partial class SceneShot : Node
                     GD.Print($"[SceneShot] tapped {at}");
                 }
                 else GD.Print($"[SceneShot] @tap wants --tap x,y, got {spot}");
+            }
+            else if (step == "@type")
+            {
+                // Puts --text into the first visible text box. A form
+                // that has to be filled in before its button does
+                // anything - the character wizard's name - cannot be
+                // tested by pressing buttons alone.
+                var boxes = new List<LineEdit>();
+                Boxes(GetTree().Root, boxes);
+                if (boxes.Count > 0) { boxes[0].Text = typed ?? ""; GD.Print($"[SceneShot] typed \"{typed}\""); }
+                else GD.Print("[SceneShot] @type found no text box");
             }
             else if (step.StartsWith("@name:"))
             {

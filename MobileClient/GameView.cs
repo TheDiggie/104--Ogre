@@ -54,6 +54,7 @@ public partial class GameView : Node2D
     GuildPanel _guild;
     ConfirmPopup _ask;
     StatsWizard _wizard;
+    CreateCharacter _newChar;
     NpcQuestsPanel _npcQuests;
     TradePanel _trade;
     /// <summary>Who asked the bag for something: the trade, or a container.</summary>
@@ -650,8 +651,27 @@ public partial class GameView : Node2D
         {
             _picker = new CharacterPicker();
             _picker.Chosen += c => _client.UseCharacter(c);
+            // Asking for the palette is a separate round trip: the
+            // server sends back every face part, colour, spell and
+            // skill on offer, and the data layer builds the example
+            // model out of it before the wizard has anything to show.
+            _picker.NewWanted += () => Act(() => _client.SendSystemMessageSendCharInfo());
             _ui.AddChild(_picker);
             _client.ChooseCharacter += chars => _picker.Offer(chars);
+
+            _newChar = new CreateCharacter();
+            _newChar.Create += (name, description) => Act(() =>
+            {
+                _client.Data.CharCreationInfo.AvatarName = name;
+                _client.Data.CharCreationInfo.AvatarDescription = description;
+                _client.SendSystemMessageNewCharInfo();
+            });
+            _newChar.Complain += text => _ask?.Tell(text);
+            // Backing out puts the list back rather than leaving the
+            // screen empty.
+            _newChar.Cancelled += () => _client.SendSendCharactersMessage();
+            _ui.AddChild(_newChar);
+            _client.CharacterPalette += info => _newChar.Open(info);
         });
 
         // RootClient.Start loads the config before calling Init, and this
@@ -761,6 +781,7 @@ public partial class GameView : Node2D
         _mail?.Sync(_client.ResourceManager?.Mails);
         _guild?.Sync(_client.Data?.GuildInfo, _client.Data != null ? _client.Data.AvatarID : 0u);
         _wizard?.Sync(_client.Data?.StatChangeInfo);
+        _newChar?.Sync();
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.

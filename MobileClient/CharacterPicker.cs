@@ -17,6 +17,12 @@ public partial class CharacterPicker : Control
     [Export] public int FontSize = 20;
 
     public event Action<CharSelectItem> Chosen;
+    /// <summary>
+    /// Make a new one. The game's character selection has an empty slot
+    /// per unused place and clicking one starts the wizard; the list
+    /// here is only what exists, so the offer is a row of its own.
+    /// </summary>
+    public event Action NewWanted;
 
     VBoxContainer _rows;
     Label _title;
@@ -69,6 +75,17 @@ public partial class CharacterPicker : Control
             b.Pressed += () => { Visible = false; Chosen?.Invoke(captured); };
             _rows.AddChild(b);
         }
+
+        var make = new Button
+        {
+            Text = "New character",
+            CustomMinimumSize = new Vector2(0, FontSize * 2.8f),
+            Name = "newCharacter",
+        };
+        make.AddThemeFontSizeOverride("font_size", FontSize);
+        make.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        make.Pressed += () => { Visible = false; NewWanted?.Invoke(); };
+        _rows.AddChild(make);
 
         Visible = true;
         Layout();

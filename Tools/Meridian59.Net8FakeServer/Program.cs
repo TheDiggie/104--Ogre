@@ -61,6 +61,13 @@ static class FakeServer
     const uint RID_SPELL2 = 60061;
     const uint RID_SKILL1 = 60062;
     const uint RID_SKILL2 = 60063;
+    const uint RID_HEADBGF = 60140;
+    const uint RID_HAIRBGF = 60141;
+    const uint RID_SPELLA = 60142;
+    const uint RID_SPELLB = 60143;
+    const uint RID_SPELLC = 60144;
+    const uint RID_SKILLA = 60145;
+    const uint RID_SKILLB = 60146;
     const uint RID_MAIL1 = 60130;
     const uint RID_MAIL2 = 60131;
     const uint RID_ROOMBUFF1 = 60072;
@@ -164,6 +171,18 @@ static class FakeServer
                 "Subject: The cellar again\nAlice says the rats are back. She is not wrong.", 4),
             new RsbResourceID(RID_MAIL2,
                 "Subject: Re: your axe\nI have it. Come and get it, or do not.", 4),
+            // Stand-in art. This fixture's resource folder has no face
+            // parts in it at all - no hair, eye, nose or mouth BGFs -
+            // so the palette points at a body and a hat. The compose
+            // path is the same one a real head goes through; only the
+            // pictures are wrong.
+            new RsbResourceID(RID_HEADBGF,    "bri.bgf",          4),
+            new RsbResourceID(RID_HAIRBGF,    "book1.bgf",        4),
+            new RsbResourceID(RID_SPELLA,     "blink",            4),
+            new RsbResourceID(RID_SPELLB,     "shal'ille's touch", 4),
+            new RsbResourceID(RID_SPELLC,     "qor's curse",      4),
+            new RsbResourceID(RID_SKILLA,     "slash",            4),
+            new RsbResourceID(RID_SKILLB,     "bandaging",        4),
             new RsbResourceID(RID_ROOMBUFF1,  "shal'ille's grace", 4),
             new RsbResourceID(RID_ROOMBUFF2,  "a lingering fog",   4),
             new RsbResourceID(RID_BUFF1,      "shielding",        4),
@@ -347,6 +366,26 @@ static class FakeServer
                     byte cmd = body.Length > 1 ? body[1] : (byte)0;
                     Console.WriteLine($"  <- UserCommand {(UserCommandType)cmd}");
                     if (cmd == (byte)UserCommandType.ReqGuildInfo) SendGuild(ns, ctrl);
+                    break;
+                }
+
+                case MessageTypeGameMode.System:
+                {
+                    // A system message wraps a sub-message, and the byte
+                    // after the PI says which. SendCharInfo asks for the
+                    // character-creation palette; NewCharInfo is the
+                    // finished character coming back.
+                    byte sub = body.Length > 1 ? body[1] : (byte)0;
+                    Console.WriteLine($"  <- SystemMessage sub {sub}");
+                    if (sub == (byte)MessageTypeGameMode.SendCharInfo)
+                        SendCharInfo(ns, ctrl);
+                    else if (sub == (byte)MessageTypeGameMode.NewCharInfo)
+                    {
+                        // A real server makes the character and answers
+                        // with its id; the client logs it in on that.
+                        Console.WriteLine("     (new character accepted)");
+                        Send(ns, ctrl, new CharInfoOkMessage(1001));
+                    }
                     break;
                 }
 
@@ -972,6 +1011,54 @@ static class FakeServer
         Send(ns, ctrl, new ReqStatChangeMessage(new StatChangeInfo(raw)));
     }
 
+    /// <summary>
+    /// Everything a new character can be made out of: the hair and skin
+    /// colours, the face art per gender, and the spells and skills on
+    /// offer with their costs.
+    ///
+    /// The two school spells are the point of the fixture. Qor and
+    /// Shal'ille refuse each other - SelectSpell answers
+    /// AlreadyHaveQorError or AlreadyHaveShalilleError rather than
+    /// failing quietly - and there is no way to see that rule work
+    /// without one of each on the list.
+    /// </summary>
+    static void SendCharInfo(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var info = new CharCreationInfo
+        {
+            HairColors = new byte[] { 0, 1, 2, 3 },
+            SkinColors = new byte[] { 0, 1, 2 },
+
+            MaleSkullID = new ResourceIDBGF(RID_HEADBGF),
+            MaleHairIDs = Parts(2),
+            MaleEyeIDs = Parts(2),
+            MaleNoseIDs = Parts(2),
+            MaleMouthIDs = Parts(2),
+
+            FemaleSkullID = new ResourceIDBGF(RID_HEADBGF),
+            FemaleHairIDs = Parts(3),
+            FemaleEyeIDs = Parts(2),
+            FemaleNoseIDs = Parts(2),
+            FemaleMouthIDs = Parts(2),
+        };
+
+        info.Spells.Add(new AvatarCreatorSpellObject(101, RID_SPELLA, RID_SPELLDESC, 1, SchoolType.Riija));
+        info.Spells.Add(new AvatarCreatorSpellObject(102, RID_SPELLB, RID_SPELLDESC, 2, SchoolType.Shalille));
+        info.Spells.Add(new AvatarCreatorSpellObject(103, RID_SPELLC, RID_SPELLDESC, 2, SchoolType.Qor));
+
+        info.Skills.Add(new AvatarCreatorSkillObject(201, RID_SKILLA, RID_SPELLDESC, 1, SchoolType.Kraanan));
+        info.Skills.Add(new AvatarCreatorSkillObject(202, RID_SKILLB, RID_SPELLDESC, 1, SchoolType.Shalille));
+
+        Send(ns, ctrl, new CharInfoMessage(info));
+    }
+
+    static ResourceIDBGF[] Parts(int count)
+    {
+        var a = new ResourceIDBGF[count];
+        for (int i = 0; i < count; i++) a[i] = new ResourceIDBGF(RID_HAIRBGF);
+        return a;
+    }
+
     static void SendNPCQuests(NetworkStream ns, MessageControllerClient ctrl)
     {
         var quests = new[]
@@ -1007,7 +1094,15 @@ static class FakeServer
 
     static void SendCharacters(NetworkStream ns, MessageControllerClient ctrl)
     {
-        var chars = new List<CharSelectItem> { new CharSelectItem(1001, 1, "Tester", 0) };
+        // One character and one empty slot, which is what a real
+        // account looks like: the empty slot is how the creation
+        // wizard is reached, and a client that only lists real
+        // characters can never get to it.
+        var chars = new List<CharSelectItem>
+        {
+            new CharSelectItem(1001, 1, "Tester", 0),
+            new CharSelectItem(0, 0, "", 1),
+        };
         var welcome = new WelcomeInfo(chars, new List<CharSelectAd>(), "A fake server. Nothing here is real.");
         Send(ns, ctrl, new CharactersMessage(welcome));
     }
