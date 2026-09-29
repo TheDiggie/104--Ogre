@@ -51,12 +51,12 @@ public partial class GuildPanel : Control
 
     /// <summary>Vote for this member as guildmaster.</summary>
     public event Action<uint> Support;
-    /// <summary>Throw this member out.</summary>
-    public event Action<uint> Exile;
+    /// <summary>Throw this member out. Carries the name, for the ask.</summary>
+    public event Action<uint, string> Exile;
     /// <summary>Give this member this rank.</summary>
     public event Action<uint, byte> SetRank;
-    /// <summary>Hand the guild to this member.</summary>
-    public event Action<uint> Abdicate;
+    /// <summary>Hand the guild to this member. Carries the name, for the ask.</summary>
+    public event Action<uint, string> Abdicate;
     /// <summary>Set the guild chest password.</summary>
     public event Action<string> Password;
     /// <summary>Give up the guild hall.</summary>
@@ -299,10 +299,18 @@ public partial class GuildPanel : Control
             // Rank 5 choosing rank 5 for someone else is not a rank
             // change: it hands the guild over.
             if (f != null && f.IsAbdicate && me.Rank == 5 && want == 5)
-            { Abdicate?.Invoke(id); Reload?.Invoke(); return; }
+            {
+                // Asked first, and the dropdown is put back until the
+                // answer comes - the file resets the combobox to the
+                // data model for every path it does not act on.
+                rank.Selected = Mathf.Clamp(m.Rank - 1, 0, 4);
+                Abdicate?.Invoke(id, m.Name ?? "");
+                return;
+            }
 
             if (f != null && f.IsSetRank && me.Rank > want && me.Rank > m.Rank)
             { SetRank?.Invoke(id, want); Reload?.Invoke(); }
+            else rank.Selected = Mathf.Clamp(m.Rank - 1, 0, 4);
         };
         line.AddChild(rank);
 
@@ -325,7 +333,7 @@ public partial class GuildPanel : Control
         kick.AddThemeFontSizeOverride("font_size", FontSize - 2);
         kick.Disabled = f == null || !f.IsExile
                         || isMe || m.Rank == 5 || (m.Rank == 4 && !f.IsDisband);
-        kick.Pressed += () => { Exile?.Invoke(id); Reload?.Invoke(); };
+        kick.Pressed += () => Exile?.Invoke(id, m.Name ?? "");
         line.AddChild(kick);
 
         return line;

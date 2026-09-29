@@ -52,6 +52,7 @@ public partial class GameView : Node2D
     QuestsPanel _quests;
     MailPanel _mail;
     GuildPanel _guild;
+    ConfirmPopup _ask;
     NpcQuestsPanel _npcQuests;
     TradePanel _trade;
     /// <summary>Who asked the bag for something: the trade, or a container.</summary>
@@ -404,24 +405,48 @@ public partial class GameView : Node2D
             });
             _ui.AddChild(_mail);
         });
+        Widget("ask", () => { _ask = new ConfirmPopup(); _ui.AddChild(_ask); });
         Widget("guild", () =>
         {
             // No button opens this: UserCommandGuildInfo raises it.
             _guild = new GuildPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 6f };
             _guild.Opened += () => Act(() => _client.SendUserCommandGuildInfoReq());
             _guild.Support += id => Act(() => _client.SendUserCommandGuildVote(id));
-            _guild.Exile += id => Act(() => _client.SendUserCommandGuildExile(id));
+            // The three irreversible ones go through the popup, with
+            // the file's own wording. They were going straight off the
+            // button press, which on a phone is worse than on a desktop
+            // rather than better.
+            _guild.Exile += (id, who) => _ask?.Choice(
+                $"Are you sure you want to exile {who}?", id,
+                confirmed => Act(() =>
+                {
+                    _client.SendUserCommandGuildExile(confirmed);
+                    _client.Data?.GuildInfo?.Clear(true);
+                    _client.SendUserCommandGuildInfoReq();
+                }));
             _guild.SetRank += (id, rank) => Act(() => _client.SendUserCommandGuildSetRank(id, rank));
-            _guild.Abdicate += id => Act(() => _client.SendUserCommandGuildAbdicate(id));
+            _guild.Abdicate += (id, who) => _ask?.Choice(
+                $"Are you sure you want to abdicate to {who}?", id,
+                confirmed => Act(() =>
+                {
+                    _client.SendUserCommandGuildAbdicate(confirmed);
+                    _client.Data?.GuildInfo?.Clear(true);
+                    _client.SendUserCommandGuildInfoReq();
+                }));
             _guild.Password += pw => Act(() => _client.SendUserCommandGuildSetPassword(pw));
-            _guild.AbandonHall += () => Act(() => _client.SendUserCommandGuildAbandonHall());
-            _guild.Renounce += disband => Act(() =>
-            {
-                if (disband) _client.SendUserCommandGuildDisband();
-                else _client.SendUserCommandGuildRenounce();
-                _client.Data?.GuildInfo?.Clear(true);
-                _client.Data?.GuildShieldInfo?.Clear(true);
-            });
+            _guild.AbandonHall += () => _ask?.Choice(
+                "Are you sure you want to abandon your hall?", 0,
+                _ => Act(() => _client.SendUserCommandGuildAbandonHall()));
+            _guild.Renounce += disband => _ask?.Choice(
+                disband ? "Are you sure you want to disband your guild?"
+                        : "Are you sure you want to leave your guild?", 0,
+                _ => Act(() =>
+                {
+                    if (disband) _client.SendUserCommandGuildDisband();
+                    else _client.SendUserCommandGuildRenounce();
+                    _client.Data?.GuildInfo?.Clear(true);
+                    _client.Data?.GuildShieldInfo?.Clear(true);
+                }));
             // None of the guild commands is echoed, so the file clears
             // and re-asks after each one rather than guessing.
             _guild.Reload += () => Act(() =>
@@ -980,7 +1005,8 @@ public partial class GameView : Node2D
         || (_trade != null && _trade.IsOpen)
         || (_npcQuests != null && _npcQuests.IsOpen)
         || (_mail != null && _mail.IsOpen)
-        || (_guild != null && _guild.IsOpen);
+        || (_guild != null && _guild.IsOpen)
+        || (_ask != null && _ask.IsOpen);
 
     /// <summary>
     /// Puts one of yours into the container whose contents are open.
