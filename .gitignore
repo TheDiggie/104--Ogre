@@ -66,3 +66,6 @@ MobileClient/nuget.config
 
 # Export output - Meridian59.exe/.apk and their payloads.
 /build/
+
+# The game art, copied in for an Android build. Hundreds of MB, not ours.
+MobileClient/resource/
