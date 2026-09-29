@@ -47,6 +47,7 @@ public partial class GameView : Node2D
     ActionButtons _hotbar;
     LookPanel _look;
     SpellsPanel _book;
+    M59Sound _sound;
     Vitals _vitals;
     AvatarPanel _face;
     InventoryPanel _bag;
@@ -215,6 +216,15 @@ public partial class GameView : Node2D
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
         Widget("names", () => { _names = new NameTags(); _ui.AddChild(_names); });
         Widget("look", () => { _look = new LookPanel(); _ui.AddChild(_look); });
+        Widget("sound", () =>
+        {
+            _sound = new M59Sound { Verbose = System.Environment.GetEnvironmentVariable("M59SOUNDLOG") == "1" };
+            AddChild(_sound);
+
+            _client.Sound += PlaySound;
+            _client.SoundStopped += info => _sound.Stop(info);
+            _client.Music += info => _sound.PlayMusic(info);
+        });
         Widget("book", () =>
         {
             _book = new SpellsPanel { RightReserve = 330f };
@@ -524,6 +534,40 @@ public partial class GameView : Node2D
 
         _client.Data.TargetID = obj.ID;
         _actions?.SetTarget(obj);
+    }
+
+    /// <summary>
+    /// Plays a sound the server asked for. The object case is resolved
+    /// here rather than in the sound player, because this is where the
+    /// object list is: a sound with a source id comes from wherever that
+    /// object is standing.
+    /// </summary>
+    void PlaySound(PlaySound info)
+    {
+        if (_sound == null || info == null) return;
+
+        // Sounds can arrive before the avatar does - the server plays one
+        // on entering a room - and a sound with nowhere to stand is still
+        // a sound, so it plays flat rather than being dropped.
+        RoomObject me = _client.Data?.AvatarObject;
+        float lx = 0f, ly = 0f, facing = 0f;
+        if (me != null)
+        { lx = me.Position3D.X; ly = me.Position3D.Z; facing = me.Angle; }
+
+        if (info.ID > 0)
+        {
+            RoomObject source = _client.Data?.RoomObjects?.GetItemByID(info.ID);
+            if (source != null)
+            {
+                // Played at the object, by pretending the listener is
+                // where they are relative to it - the player takes a
+                // place and works out the rest.
+                _sound.PlayAt(info, source.Position3D.X, source.Position3D.Z, lx, ly, facing);
+                return;
+            }
+        }
+
+        _sound.Play(info, _world.Room, lx, ly, facing);
     }
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>

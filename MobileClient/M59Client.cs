@@ -8,6 +8,7 @@ using Meridian59.Common.Constants;
 using Meridian59.Data;
 using Meridian59.Data.Models;
 using Meridian59.Files;
+using Meridian59.Protocol.Enums;
 using Meridian59.Protocol.GameMessages;
 
 /// <summary>
@@ -54,6 +55,20 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
     /// is called with one of them, so the UI has as long as it needs.
     /// </summary>
     public event Action<IList<CharSelectItem>> ChooseCharacter;
+
+    /// <summary>
+    /// A sound the server wants played, with where and how loud. The data
+    /// controller only looks at these to spot an "ouch" and set a health
+    /// status; nothing in the library plays them, because playing is the
+    /// engine's job. The Ogre client hooks the message stream for the
+    /// same reason.
+    /// </summary>
+    public event Action<PlaySound> Sound;
+    /// <summary>A looping sound the server wants stopped. Its own type,
+    /// not a PlaySound - it carries only what is needed to find it.</summary>
+    public event Action<StopSound> SoundStopped;
+    /// <summary>The room's background music changed.</summary>
+    public event Action<PlayMusic> Music;
 
     void Say(string s) => Notice?.Invoke(s);
 
@@ -125,6 +140,61 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
         }
         catch { }
         return false;
+    }
+
+    /// <summary>
+    /// Passes the sound messages out before the base class handles them.
+    /// Base first would work too - it does not consume them - but the
+    /// order is worth being deliberate about: the view should hear about
+    /// a sound at the same tick the data model does.
+    /// </summary>
+    protected override void HandleGameModeMessage(GameModeMessage Message)
+    {
+        switch ((MessageTypeGameMode)Message.PI)
+        {
+            case MessageTypeGameMode.PlayWave:
+                Raise(Sound, ((PlayWaveMessage)Message).PlayInfo);
+                break;
+
+            case MessageTypeGameMode.StopWave:
+                try
+                {
+                    StopSound quiet = ((StopWaveMessage)Message).PlayInfo;
+                    quiet?.ResolveResources(ResourceManager, false);
+                    if (quiet != null) SoundStopped?.Invoke(quiet);
+                }
+                catch (Exception e) { Say($"stop sound: {e.Message}"); }
+                break;
+
+            case MessageTypeGameMode.PlayMusic:
+                try
+                {
+                    PlayMusic tune = ((PlayMusicMessage)Message).PlayInfo;
+                    // Like a wave, this arrives as a string-resource id and
+                    // has to be turned into a filename before anything can
+                    // open it.
+                    tune?.ResolveResources(ResourceManager, false);
+                    if (tune != null) Music?.Invoke(tune);
+                }
+                catch (Exception e) { Say($"music: {e.Message}"); }
+                break;
+        }
+
+        base.HandleGameModeMessage(Message);
+    }
+
+    void Raise(Action<PlaySound> handler, PlaySound info)
+    {
+        // A sound that cannot be resolved is not worth an exception, and
+        // a view that throws while handling one must not take the
+        // connection down with it.
+        try
+        {
+            if (info == null || handler == null) return;
+            info.ResolveResources(ResourceManager, false);
+            handler(info);
+        }
+        catch (Exception e) { Say($"sound: {e.GetType().Name}: {e.Message}"); }
     }
 
     protected override void HandleGetLoginMessage(GetLoginMessage Message)

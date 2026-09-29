@@ -531,6 +531,69 @@ uses, where the game targets on a left click and uses on a left double
 click; drag-to-rearrange is not built yet, so
 `SendReqInventoryMoveMessage` is still on the list.
 
+## Sound is the server's, mixed by distance
+
+Nothing in the library plays anything. It reads the sound messages only
+to notice an "ouch" and set a health status from it, because playing is
+the engine's job - which is why the Ogre client hooks the message
+stream in `ControllerSound.cpp` rather than getting sound handed to it.
+`M59Sound.cs` does the same job here and follows that file:
+
+- `PlayWave` with a source object id plays at that object,
+- otherwise, one with a row and column plays at the middle of that grid
+  square, `(column - 1) * 1024 + 512` in room units, converted to the
+  server's own units the same way the game converts it
+  (`* 0.0625 + 64`),
+- otherwise it plays at you,
+- `StopWave` stops a looping one,
+- `PlayMusic` sets the room's background track, looped, and changing it
+  only when the track actually changes so walking around does not
+  restart it.
+
+The listener is `AvatarObject.Position3D` and its angle, exactly as the
+game sets it, so the 2000-unit maximum distance is in the same units the
+game measures it in. There is no 3D scene here - the world is a
+raycaster drawing into a texture - so the mixing is approximated:
+volume falls off linearly to that same limit, and the sound is panned
+by the component of the direction across your facing, which is what a
+listener orientation would have given.
+
+Three things the library makes you handle:
+
+- The files are Ogg Vorbis on disk although everything calls them wavs.
+  `PlaySound` changes the extension itself; **`StopSound` does not**, so
+  a stop never matches the loop it is meant to stop unless both names
+  are normalised first. `M59Sound.Key` does that.
+- `PlayMusic` and `StopSound` arrive as string-resource ids like
+  everything else, and nothing resolves them for you -
+  `ResolveResources` has to be called before the name or path exists.
+  Skipping it gives an empty name and a silence that looks like a
+  missing file.
+- Looping is a property of the stream in Godot, not of the player, and
+  the streams are cached per file - so a looping sound is given its own
+  copy rather than making every later one-shot of the same file loop.
+
+`Tools/Meridian59.Net8FakeServer` sends all four on entering the room, so
+the path can be run end to end offline:
+
+```
+M59SOUNDLOG=1 godot --path MobileClient SceneShot.tscn -- \
+    --host 127.0.0.1 --port 15999 --res /tmp/res --wait 120
+```
+
+```
+[M59Sound] Rat_awr.ogg gain 0.68 pan 0.00 loop False
+[M59Sound] music AMBCave.ogg
+[M59Sound] Rat_awr.ogg gain 0.67 pan -0.80 loop True
+[M59Sound] stop asked for 'rat_awr.ogg', loops 1
+[M59Sound] stopped rat_awr.ogg
+```
+
+That is a container with no audio device, so Godot falls back to its
+dummy driver: what is proved there is the resolution, placement,
+fall-off, panning and loop bookkeeping, not that a speaker moved. The
+sounds themselves have not been heard yet.
+
 ## Known limits
 
 - **Speed.** A uniform spatial grid (`WallGrid.cs`) means a ray only

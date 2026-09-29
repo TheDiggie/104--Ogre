@@ -62,6 +62,9 @@ static class FakeServer
     const uint RID_SKILL2 = 60063;
     const uint RID_BUFF1 = 60070;
     const uint RID_BUFF2 = 60071;
+    static int stopAfter;
+    const uint RID_RATSOUND = 60080;
+    const uint RID_MUSIC = 60081;
 
     /// <summary>The server's own copy of what it wrote to the string file.</summary>
     static readonly StringDictionary strings = new StringDictionary();
@@ -99,8 +102,6 @@ static class FakeServer
     static void EnsureStrings()
     {
         string path = Path.Combine(dir, "rsc0000.rsb");
-        bool already = File.Exists(path);
-        if (already) Console.WriteLine($"using the string file already in {dir}");
 
         var stringList = new List<RsbResourceID>
         {
@@ -131,6 +132,11 @@ static class FakeServer
             new RsbResourceID(RID_SKILL2,     "bandaging",        4),
             new RsbResourceID(RID_BUFF1,      "shielding",        4),
             new RsbResourceID(RID_BUFF2,      "haste",            4),
+            // Sound files are named as .wav in the string table and the
+            // library swaps the extension to .ogg, which is what is
+            // actually on disk.
+            new RsbResourceID(RID_RATSOUND,   "Rat_awr.wav",      4),
+            new RsbResourceID(RID_MUSIC,      "AMBCave.wav",      4),
             new RsbResourceID(RID_RATLOOK,
                 "A duskrat, grey-brown and unbothered. Its tail is longer than the rest of it.", 4),
         };
@@ -138,7 +144,16 @@ static class FakeServer
         foreach (RsbResourceID r in stringList)
             FakeServer.strings.TryAdd(r.ID, r.Text, r.Language);
 
-        if (File.Exists(path)) return;
+        // A file left over from an older run is worse than no file: the
+        // client resolves the ids it knows and comes up empty for every
+        // id added since, which looks like a broken message rather than a
+        // stale dictionary. So it is rewritten unless it already has all
+        // of them.
+        if (File.Exists(path) && HasAll(path, stringList))
+        {
+            Console.WriteLine($"using the string file already in {dir}");
+            return;
+        }
 
         try
         {
@@ -146,6 +161,20 @@ static class FakeServer
             Console.WriteLine($"wrote {path} with {stringList.Count} strings");
         }
         catch (Exception e) { Console.WriteLine($"could not write {path}: {e.Message}"); }
+    }
+
+    /// <summary>True when every id we hand out is already in that file.</summary>
+    static bool HasAll(string path, List<RsbResourceID> wanted)
+    {
+        try
+        {
+            var have = new RsbFile(); have.Load(path);
+            var ids = new HashSet<uint>();
+            foreach (RsbResourceID r in have.StringResources) ids.Add(r.ID);
+            foreach (RsbResourceID r in wanted) if (!ids.Contains(r.ID)) return false;
+            return true;
+        }
+        catch { return false; }
     }
 
     static void Serve(TcpClient client)
@@ -188,6 +217,15 @@ static class FakeServer
                         break;
                 }
                 continue;
+            }
+
+            // The looping sound is stopped a few messages in, so the stop
+            // path gets exercised the way it happens in the game: some
+            // time after the loop started, by name.
+            if (stopAfter > 0 && --stopAfter == 0)
+            {
+                Send(ns, ctrl, new StopWaveMessage(
+                    new StopSound(RID_RATSOUND, 0)));
             }
 
             switch ((MessageTypeGameMode)pi)
@@ -458,6 +496,24 @@ static class FakeServer
         // button the same way, so the window is not simply always up.
         lootLeft = 3;
         lootOpen = false;
+
+        // A sound from one of the rats, and something for the room to
+        // hum. A sound with a source id plays at that object; the music
+        // is a room property rather than a one-shot.
+        Send(ns, ctrl, new PlayWaveMessage(
+            new PlaySound(RID_RATSOUND, 2001, new PlaySound.Flags(0), 0, 0, 0, 100)));
+        Send(ns, ctrl, new PlayMusicMessage(RID_MUSIC));
+
+        // A sound with no source object but a grid square, which is how
+        // the server places a noise at a spot in the room rather than on
+        // a thing, and a looping one at that - the kind a fountain or a
+        // fire makes until you leave. The square chosen is next to where
+        // the avatar starts, because the game stops mixing a sound past
+        // 2000 units and one across the map is silent by design. The stop
+        // for it goes out a little later, from the message loop.
+        Send(ns, ctrl, new PlayWaveMessage(
+            new PlaySound(RID_RATSOUND, 0, new PlaySound.Flags(1), 11, 12, 0, 100)));
+        stopAfter = 8;
 
         // A couple of enchantments, so the avatar panel has icons to show.
         Send(ns, ctrl, new AddEnchantmentMessage(BuffType.AvatarBuff,
