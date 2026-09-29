@@ -38,6 +38,37 @@ public partial class GameView : Node2D
     readonly M59Assets _assets = new M59Assets();
     readonly TouchControls _touch = new TouchControls();
     ChatOverlay _chat;
+
+    /// <summary>
+    /// Every word the library's chat parser treats as a command, read
+    /// off the ChatCommand classes themselves rather than listed here -
+    /// there are over thirty, in three languages, and a list copied by
+    /// hand would be wrong the first time one was added.
+    /// </summary>
+    static readonly System.Collections.Generic.HashSet<string> ChatWords = BuildChatWords();
+
+    static System.Collections.Generic.HashSet<string> BuildChatWords()
+    {
+        var words = new System.Collections.Generic.HashSet<string>();
+        try
+        {
+            Type baseType = typeof(Meridian59.Data.Models.ChatCommand);
+            foreach (Type t in baseType.Assembly.GetTypes())
+            {
+                if (!baseType.IsAssignableFrom(t)) continue;
+                foreach (System.Reflection.FieldInfo f in t.GetFields(
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+                {
+                    if (!f.IsLiteral || f.FieldType != typeof(string)) continue;
+                    if (!f.Name.StartsWith("KEY")) continue;
+                    if (f.GetRawConstantValue() is string w && w.Length > 0)
+                        words.Add(w.ToLowerInvariant());
+                }
+            }
+        }
+        catch (Exception e) { GD.PrintErr($"[GameView] chat words: {e.Message}"); }
+        return words;
+    }
     ActionBar _actions;
     CharacterPicker _picker;
     MiniMap _map;
@@ -336,7 +367,19 @@ public partial class GameView : Node2D
                     // more on a soft keyboard than on a real one. A
                     // command still runs as a command: the say only
                     // happens when the parser found none.
-                    if (Meridian59.Data.Models.ChatCommand.Parse(text, _client.Data, _client.Config) == null)
+                    // Only when the first word is not a command at all.
+                    //
+                    // "Parse found nothing" is not the same question. A
+                    // command with its arguments missing - "tell Alice"
+                    // with no message, a half-typed guild command -
+                    // parses to nothing as well, and the game's answer
+                    // is to do nothing. Saying it instead would put
+                    // "tell Alice" in front of the whole room, and the
+                    // next attempt would put the message there too. A
+                    // failed private word must not become a public one.
+                    string first = text.TrimStart().Split(' ')[0].ToLowerInvariant();
+                    if (!ChatWords.Contains(first) &&
+                        Meridian59.Data.Models.ChatCommand.Parse(text, _client.Data, _client.Config) == null)
                         _client.SendSayToMessage(
                             Meridian59.Common.Enums.ChatTransmissionType.Normal, text);
                 }
