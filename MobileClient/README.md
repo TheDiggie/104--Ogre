@@ -911,6 +911,32 @@ with a description.
 The fake server sends two headings and three quests, so the window has
 to tell them apart; the count in the title is quests only.
 
+## Trading
+
+`UITrade.cpp`: two lists, yours and theirs, with Offer, Accept and
+Cancel. Three details come from that file rather than from taste.
+
+**Offer is two messages behind one button.** `ReqCounterOffer(ids)`
+when `IsBackgroundOffer` - they opened the trade - and
+`ReqOffer(partner, ids)` when you did.
+
+**The count comes off the row, not the object.** The source says so in
+as many words: "DO NOT USE count on objectmodel (nonupdated)", with an
+empty box read as 1.
+
+**An offer arriving does not open a window.** `HandleOffer` fills the
+trade in, marks it `IsBackgroundOffer` and `IsPending`, and leaves
+`IsVisible` false; the window comes up when the player asks, through
+`AvatarAction.Trade`, which either shows a pending offer or finds a
+nearby offerable object and starts one. Watching the wrong flag gets
+you a window in the face mid-fight.
+
+Items reach your side by being dragged out of the inventory window
+there. Here the window has an Add button that puts the bag into a
+picking mode - one tap chooses and closes it - because a phone cannot
+show both windows at once to drag between them. That part is not the
+game's.
+
 ## Known limits
 
 - **Speed.** A uniform spatial grid (`WallGrid.cs`) means a ray only

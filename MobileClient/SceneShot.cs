@@ -352,42 +352,47 @@ public partial class SceneShot : Node
         for (int i = 0; i < Math.Max(1, settle); i++)
             await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
+        // The list is walked in order and "@slot" is where the tap
+        // goes, so a path that needs two presses before it - open a
+        // trade, ask to add, pick a thing, offer it - can say so.
+        // Without an @slot the tap happens after the first press, which
+        // is what the shorter paths want.
         string[] names = (press ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
-        string first = names.Length > 0 ? names[0] : null;
+        bool placed = false;
+        foreach (string raw in names) if (raw.Trim() == "@slot") placed = true;
 
-        if (first != null)
-        {
-            Button b = FindButton(GetTree().Root, first);
-            if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed {first}"); }
-            else GD.Print($"[SceneShot] no button called {first}");
-            for (int i = 0; i < 40; i++)
-                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        }
+        var steps = new List<string>();
+        if (placed) steps.AddRange(names);
+        else { if (names.Length > 0) steps.Add(names[0]); steps.Add("@slot");
+               for (int k = 1; k < names.Length; k++) steps.Add(names[k]); }
 
-        if (int.TryParse(which, out int n))
+        foreach (string raw in steps)
         {
-            var slots = new List<InventorySlot>();
-            Collect(GetTree().Root, slots);
-            if (n >= 0 && n < slots.Count && slots[n].Item != null)
+            string step = raw.Trim();
+            if (step == "@slot")
             {
-                Vector2 at = slots[n].GetGlobalRect().GetCenter();
-                Input.ParseInputEvent(new InputEventMouseButton
-                { ButtonIndex = MouseButton.Left, Position = at, GlobalPosition = at, Pressed = true });
-                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-                Input.ParseInputEvent(new InputEventMouseButton
-                { ButtonIndex = MouseButton.Left, Position = at, GlobalPosition = at, Pressed = false });
-                GD.Print($"[SceneShot] tapped slot {n}: {slots[n].Item.Name}");
+                if (!int.TryParse(which, out int n)) continue;
+                var slots = new List<InventorySlot>();
+                Collect(GetTree().Root, slots);
+                if (n >= 0 && n < slots.Count && slots[n].Item != null)
+                {
+                    Vector2 at = slots[n].GetGlobalRect().GetCenter();
+                    Input.ParseInputEvent(new InputEventMouseButton
+                    { ButtonIndex = MouseButton.Left, Position = at, GlobalPosition = at, Pressed = true });
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    Input.ParseInputEvent(new InputEventMouseButton
+                    { ButtonIndex = MouseButton.Left, Position = at, GlobalPosition = at, Pressed = false });
+                    GD.Print($"[SceneShot] tapped slot {n}: {slots[n].Item.Name}");
+                }
+                else GD.Print($"[SceneShot] no filled slot {n} of {slots.Count}");
             }
-            else GD.Print($"[SceneShot] no filled slot {n} of {slots.Count}");
-            for (int i = 0; i < 20; i++)
-                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        }
+            else
+            {
+                Button b = FindButton(GetTree().Root, step);
+                if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed {step}"); }
+                else GD.Print($"[SceneShot] no button called {step}");
+            }
 
-        for (int k = 1; k < names.Length; k++)
-        {
-            Button b = FindButton(GetTree().Root, names[k]);
-            if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed {names[k]}"); }
-            else GD.Print($"[SceneShot] no button called {names[k]}");
             for (int i = 0; i < 30; i++)
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         }

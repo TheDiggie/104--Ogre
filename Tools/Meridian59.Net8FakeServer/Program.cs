@@ -295,6 +295,21 @@ static class FakeServer
                     Say(ns, ctrl, RID_ECHO);
                     break;
 
+                case MessageTypeGameMode.ReqOffer:
+                case MessageTypeGameMode.ReqCounterOffer:
+                    Console.WriteLine($"  <- {(MessageTypeGameMode)pi}");
+                    Say(ns, ctrl, RID_ECHO);
+                    break;
+
+                case MessageTypeGameMode.AcceptOffer:
+                    Console.WriteLine("  <- AcceptOffer");
+                    Say(ns, ctrl, RID_ECHO);
+                    break;
+
+                case MessageTypeGameMode.CancelOffer:
+                    Console.WriteLine("  <- CancelOffer");
+                    break;
+
                 case MessageTypeGameMode.SendPlayers:
                     Console.WriteLine("  <- SendPlayers");
                     SendWho(ns, ctrl);
@@ -744,6 +759,18 @@ static class FakeServer
         Send(ns, ctrl, new PlayWaveMessage(
             new PlaySound(RID_RATSOUND, 0, new PlaySound.Flags(1), 11, 12, 0, 100)));
         stopAfter = 8;
+
+        // Somebody offering you a trade. OfferMessage carries the
+        // partner and what they are putting up, and the client's
+        // TradeInfo.IsVisible goes up on it - the window is the
+        // server's decision, not the view's.
+        Send(ns, ctrl, new OfferMessage(
+            Item(3103, RID_PLAYERBGF, RID_ALICE, 0),
+            new ObjectBase[]
+            {
+                Item(9101, RID_AXEBGF,  RID_AXE,  0),
+                Item(9102, RID_COINBGF, RID_COIN, 7),
+            }));
 
         // A couple of enchantments, so the avatar panel has icons to show.
         Send(ns, ctrl, new AddEnchantmentMessage(BuffType.AvatarBuff,

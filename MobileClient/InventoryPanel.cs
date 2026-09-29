@@ -49,6 +49,15 @@ public partial class InventoryPanel : Control
     /// in that order, so the view does not wait for a round trip.
     /// </summary>
     public event Action<InventoryObject, InventoryObject> MoveItem;
+    /// <summary>
+    /// A single tap while picking. Used by the trade window, which
+    /// needs one thing chosen and the bag out of the way again - the
+    /// game drags between two windows instead, which a phone cannot
+    /// show at once.
+    /// </summary>
+    public event Action<InventoryObject> Picked;
+    /// <summary>One tap chooses and closes, instead of select-then-use.</summary>
+    public bool PickMode;
 
     Button _open;
     ColorRect _panel;
@@ -303,6 +312,7 @@ public partial class InventoryPanel : Control
         slot.Preview = icon.Texture;
         slot.Tapped += item =>
         {
+            if (PickMode) { PickMode = false; Close(); Picked?.Invoke(item); return; }
             if (ReferenceEquals(_picked, item)) UseItem?.Invoke(item);
             else Pick(item);
         };

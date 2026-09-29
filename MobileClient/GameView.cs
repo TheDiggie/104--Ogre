@@ -49,6 +49,7 @@ public partial class GameView : Node2D
     AmountPrompt _amount;
     PlayersPanel _players;
     QuestsPanel _quests;
+    TradePanel _trade;
     LoginPrompt _login;
     RichTextLabel _crash;
     string _resDir = "";
@@ -323,6 +324,26 @@ public partial class GameView : Node2D
             if (_chat != null) _actions.BottomReserve = _chat.BlockHeight;
         });
 
+        Widget("trade", () =>
+        {
+            _trade = new TradePanel();
+            _trade.Offer += ids => Act(() =>
+            {
+                ObjectBase who = _client.Data?.Trade?.TradePartner;
+                // Same button, two messages: a counter-offer when they
+                // opened the trade, a fresh offer when you did.
+                if (_client.Data != null && _client.Data.Trade.IsBackgroundOffer)
+                    _client.SendReqCounterOffer(ids.ToArray());
+                else if (who != null)
+                    _client.SendReqOffer(who, ids.ToArray());
+            });
+            _trade.Accept += () => Act(() => _client.SendAcceptOffer());
+            _trade.Cancel += () => Act(() => _client.SendCancelOffer());
+            // Not the game's: it drags out of the inventory window, and
+            // a phone cannot show both at once.
+            _trade.AddWanted += () => { if (_bag != null) { _bag.PickMode = true; _bag.Open(); } };
+            _ui.AddChild(_trade);
+        });
         Widget("quests", () =>
         {
             _quests = new QuestsPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 4f };
@@ -398,6 +419,9 @@ public partial class GameView : Node2D
             _bag = new InventoryPanel();
             _bag.Opened      += () => Act(() => _client.SendReqInventoryMessage());
             _bag.UseItem     += item => Act(() => _client.UseUnuseApply(item));
+            // One tap puts it on the trade table, rather than the
+            // select-then-use a tap normally means.
+            _bag.Picked      += item => _trade?.Put(item);
             // UIInventory.cpp: something that is not a stack drops
             // straight away with a count of zero, and a stack asks how
             // many first, prefilled with the lot.
@@ -577,6 +601,7 @@ public partial class GameView : Node2D
         _sheet?.Sync(_client.Data?.AvatarAttributes);
         _players?.Sync(_client.Data?.OnlinePlayers);
         _quests?.Sync(_client.Data?.AvatarQuests);
+        _trade?.Sync(_client.Data?.Trade);
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
@@ -827,7 +852,8 @@ public partial class GameView : Node2D
         || (_book != null && _book.IsOpen)
         || (_amount != null && _amount.IsOpen)
         || (_players != null && _players.IsOpen)
-        || (_quests != null && _quests.IsOpen);
+        || (_quests != null && _quests.IsOpen)
+        || (_trade != null && _trade.IsOpen);
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>
     void SyncRoom()
