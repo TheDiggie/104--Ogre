@@ -324,12 +324,15 @@ public partial class MiniMap : Control
                 if (dot == null && ring == null) continue;
 
                 Vector2 p = Place(o.Position3D.X, o.Position3D.Z);
-                if (p.DistanceTo(centre) > radius) continue;
 
                 // Ten pixels across for the ring, six for the dot, as the
-                // game draws them.
-                if (ring != null) DrawCircle(p, 5f, new Color(ring.Value, Ink.A));
-                if (dot != null) DrawCircle(p, 3f, new Color(dot.Value, Ink.A));
+                // game draws them - and cut to the rim, as the game cuts
+                // them. Testing the CENTRE against the circle, which is
+                // what this did, let a dot sitting on the rim be drawn
+                // whole: a thing half a room outside the map still showed
+                // as a complete dot hanging off the dial's edge.
+                if (ring != null) Blob(p, 5f, new Color(ring.Value, Ink.A), centre, radius);
+                if (dot != null) Blob(p, 3f, new Color(dot.Value, Ink.A), centre, radius);
             }
         }
 
@@ -395,6 +398,41 @@ public partial class MiniMap : Control
         if (f.IsMinimapNPCCurrentQuest) return Friend;
         if (f.IsMinimapNPCHasQuest) return GuildMate;
         return null;
+    }
+
+    /// <summary>
+    /// A dot, cut to the map's circle.
+    ///
+    /// The game draws its whole map through one circular clip region -
+    /// `gdi->Clip = Region(pie 0..360)`, `MiniMapCEGUI.h:172-185` - so
+    /// every wall and every dot is cut by the same edge and a dot on the
+    /// rim comes out as a half dot. Godot has no clip to hand inside a
+    /// _Draw, so the cut is done here: a dot well inside is one circle,
+    /// a dot well outside is nothing, and only the few straddling the
+    /// edge pay for a polygon intersection.
+    /// </summary>
+    void Blob(Vector2 p, float r, Color colour, Vector2 centre, float radius)
+    {
+        float d = p.DistanceTo(centre);
+        if (d + r <= radius) { DrawCircle(p, r, colour); return; }
+        if (d - r >= radius) return;
+
+        Vector2[] disc = Ring(centre, radius, 64);
+        Vector2[] blob = Ring(p, r, 16);
+        foreach (Vector2[] piece in Geometry2D.IntersectPolygons(blob, disc))
+            if (piece.Length >= 3) DrawColoredPolygon(piece, colour);
+    }
+
+    /// <summary>A closed regular polygon approximating a circle.</summary>
+    static Vector2[] Ring(Vector2 centre, float radius, int sides)
+    {
+        var pts = new Vector2[sides];
+        for (int i = 0; i < sides; i++)
+        {
+            float a = Mathf.Tau * i / sides;
+            pts[i] = centre + new Vector2(MathF.Cos(a), MathF.Sin(a)) * radius;
+        }
+        return pts;
     }
 
     /// <summary>
