@@ -80,6 +80,42 @@ public static class M59Compose
         return Raster(ri);
     }
 
+    /// <summary>
+    /// The character wizard's face, composed from the HEAD hotspot with
+    /// the front frames.
+    ///
+    /// <see cref="Icon"/> cannot do this. The library's ObjectBase
+    /// overload hardcodes the viewer frame - the picture of your own
+    /// body seen from inside it - and the wizard's example model has no
+    /// viewer frames at all: it has no body, only five face parts hung
+    /// off hotspots, and its own overlay id is zero. Composing it that
+    /// way finds nothing and draws nothing, which is why the wizard
+    /// showed an empty square where the face goes.
+    ///
+    /// The game composes it with UseViewerFrame false
+    /// (`UIAvatarCreateWizard.cpp:89`), which the library only exposes
+    /// on a protected method - hence the subclass.
+    /// </summary>
+    public static Tex Face(ObjectBase o, int size, byte rootHotspot)
+    {
+        if (o == null || size < 1) return null;
+        return Raster(new FrontRender(o, rootHotspot, (uint)size, (uint)size));
+    }
+
+    sealed class FrontRender : RenderInfo
+    {
+        public FrontRender(ObjectBase o, byte hotspot, uint w, uint h)
+        {
+            SubBgf = new List<SubOverlay.RenderInfo>();
+            // A null main frame is right, not a gap: with the hotspot
+            // found, Calculate replaces it with that sub-overlay's own
+            // front frame, and there is no whole-body frame here to
+            // fall back to anyway.
+            Calculate(o, null, false, false, hotspot,
+                      DEFAULTQUALITY, false, w, h, true, true);
+        }
+    }
+
     /// <summary>Draws a laid-out RenderInfo into a picture.</summary>
     /// <summary>
     /// The red edge the game puts round whatever you have targeted, in

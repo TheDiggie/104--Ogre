@@ -873,6 +873,9 @@ public partial class GameView : Node2D
                 _client.SendSystemMessageNewCharInfo();
             });
             _newChar.Complain += text => _ask?.Tell(text);
+            // The wizard has no resource manager of its own, and the
+            // example model arrives as resource ids rather than files.
+            _newChar.Resolve = o => o.ResolveResources(_client.ResourceManager, false);
             // Backing out puts the list back rather than leaving the
             // screen empty.
             _newChar.Cancelled += () => _client.SendSendCharactersMessage();

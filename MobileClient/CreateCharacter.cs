@@ -487,19 +487,43 @@ public partial class CreateCharacter : Control
             taken ? new Color(0.55f, 1f, 0.6f) : new Color(0.86f, 0.88f, 0.92f));
     }
 
+    /// <summary>
+    /// Turns the example model's resource ids into loaded art. Set by
+    /// the view, which is what holds the resource manager.
+    ///
+    /// Nothing did this, so the face was never drawn: the model the
+    /// library builds carries ids and no files, Portrait gave up on the
+    /// null resource, and you picked a nose blind.
+    /// </summary>
+    public Action<ObjectBase> Resolve { get; set; }
+
     void Portrait()
     {
         ObjectBase model = _info?.ExampleModel;
-        if (model?.Resource == null) return;
+        if (model == null) return;
+
+        // The art has to be fetched before anything can be drawn: the
+        // model the library builds carries resource ids and no files.
+        try { Resolve?.Invoke(model); } catch { }
 
         // ObjectBase has no appearance hash - that lives on RoomObject -
-        // so the key is what actually changed: the seven indices.
-        string key = $"{model.Resource.Filename}:{_gender}:{_skin}:{_hair}:"
-                   + $"{_hairStyle}:{_eyes}:{_nose}:{_mouth}";
+        // so the key is what actually changed: the seven indices. Not
+        // the resource's filename, which this model does not have: its
+        // own overlay id is zero and every part hangs off a hotspot.
+        string key = $"{_gender}:{_skin}:{_hair}:{_hairStyle}:{_eyes}:{_nose}:{_mouth}";
         if (key == _faceKey) return;
         _faceKey = key;
 
-        try { _face.Texture = M59Assets.FromTex(M59Compose.Icon(model, PortraitSize)); }
+        // Composed from the HEAD hotspot, which is what the game does
+        // (`UIAvatarCreateWizard.cpp:87`). It matters here more than
+        // anywhere: this model has no body at all - its own overlay id
+        // is zero and the five face parts hang off hotspots - so
+        // composing it whole finds nothing to draw.
+        try
+        {
+            _face.Texture = M59Assets.FromTex(
+                M59Compose.Face(model, PortraitSize, (byte)KnownHotspot.HEAD));
+        }
         catch (Exception e) { GD.PrintErr($"[CreateCharacter] face: {e.Message}"); }
     }
 
