@@ -353,11 +353,10 @@ is white normally, orange for an outlaw, red for a killer, yellow for a
 creator, green for a super-DM, cyan for a DM, purple for an event
 character, and black for anything flagged to draw black.
 
-The window is the server's decision, not the view's:
-`ObjectContents.IsVisible` goes up when the server sends the contents of
-something and down when it takes them away, so the panel follows that
-rather than a button. The fake server sends a pile on room entry, since
-there is nothing here to open.
+Whether the window is up is a flag on the list it shows, not something
+the view decides: `IsVisible` on `RoomObjectsLoot` for the loot pile and
+on `ObjectContents` for a container's insides. Which of the two, and who
+sets them, is "The loot list and the container window" below.
 
 ## Chat is styled, not tinted
 
@@ -648,6 +647,47 @@ Measured against the fake server, mean pixel value over the whole frame:
 
 which is the 160/255 the formula asks for, less the overlays, which are
 UI and not lit.
+
+## The loot list and the container window
+
+These are two windows of the same shape, and the game keeps them apart
+because they follow different lists.
+
+`UILootList.cpp` shows `Data->RoomObjectsLoot`: everything gettable
+within `CLOSEDISTANCE` of you, which the library filters out of the room
+itself - nothing is asked of the server. It has Get for the row you
+picked and Get All, which loots everything in range. The loot key does
+not take anything: `ExecAction(AvatarAction.Loot)` brings the window up,
+and brings it down again if it is already up. Taking is what the buttons
+in the window are for. This client's Loot button used to call `LootAll`
+directly, which took things you had not seen.
+
+`UIObjectContents.cpp` shows `Data->ObjectContents`: what is inside a
+container, which the server sends when asked.
+`ExecAction(AvatarAction.Activate)` looks for an activatable object or a
+container near you and sends `SendSendObjectContents` for the second.
+There is no Get All there, because the server has no message for taking
+everything out of a box.
+
+One panel class serves both; `ShowGetAll` is the whole difference.
+
+### The action buttons were dead after login
+
+Worth writing down, because it was invisible: every button in the hotbar
+did nothing once you were in the game, and nothing said so.
+
+Two causes, both in how `ActionButtonConfig` works. A config built
+through its constructor has `Data` null, and
+`BaseClient.OnActionButtonActivated` returns immediately for a button
+whose `Data` is null - the name is only a label, `Data` is what the
+press dispatches on. `SetToAction` is what fills it.
+
+And the client replaces the whole button list when it loads the player's
+saved buttons on login: six deletes, a reset, six adds. The new configs
+carry the same numbers and names, so the row rebuilt to look identical -
+but each Godot button still held the old config object, which
+`BaseClient` had unsubscribed from. The row now looks its config up by
+number at the moment of the press.
 
 ## Known limits
 

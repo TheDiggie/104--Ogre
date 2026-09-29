@@ -259,6 +259,15 @@ static class FakeServer
                     else { SendLoot(ns, ctrl, --lootLeft); Say(ns, ctrl, RID_ECHO); }
                     break;
 
+                case MessageTypeGameMode.SendObjectContents:
+                    // Opening a container: the client asks for what is
+                    // inside, and the answer is the same kind of list the
+                    // loot pile is made of.
+                    Console.WriteLine("  <- SendObjectContents");
+                    lootOpen = true;
+                    SendLoot(ns, ctrl, lootLeft);
+                    break;
+
                 case MessageTypeGameMode.SendSpells:
                     Console.WriteLine("  <- SendSpells");
                     SendSpells(ns, ctrl);
@@ -480,6 +489,12 @@ static class FakeServer
             Obj(2001, RID_RATBGF, RID_RATNAME, 816, 672, 1f, OF_ATTACKABLE, MM_MONSTER),
             Obj(2002, RID_RATBGF, RID_RATNAME, 848, 688, 3f, OF_ATTACKABLE, MM_MONSTER),
             Obj(2003, RID_RATBGF, RID_RATNAME, 880, 656, 2f, OF_ATTACKABLE, MM_MONSTER),
+            // Something to open and something to pick up, so the Activate
+            // and Loot actions have a target: the library looks for a
+            // container or an activatable object near you for the first,
+            // and fills its loot list from gettable ones for the second.
+            Obj(3001, RID_BOOKBGF, RID_BOOK, 768, 688, 0f, OF_CONTAINER | OF_DISPLAY_NAME),
+            Obj(3002, RID_COINBGF, RID_COIN, 736, 688, 0f, OF_GETTABLE | OF_DISPLAY_NAME),
 
             // Two other players, so the name labels have something to
             // label. This server's flavour - Server 104's - draws a name
@@ -553,6 +568,8 @@ static class FakeServer
     const uint OF_DISPLAY_NAME = 0x00000001;
     const uint OF_PLAYER = 0x00000004;
     const uint OF_ATTACKABLE = 0x00000008;
+    const uint OF_GETTABLE = 0x00000010;
+    const uint OF_CONTAINER = 0x00000020;
 
     const uint MM_PLAYER = 0x00000001;
     const uint MM_ENEMY = 0x00000002;

@@ -78,7 +78,15 @@ public partial class ActionButtons : Control
 
         int num = 0;
         foreach (AvatarAction a in starting)
-            data.ActionButtons.Add(new ActionButtonConfig(num++, ActionButtonType.Action, a.ToString()));
+        {
+            // SetToAction, not the constructor: the constructor leaves
+            // Data null, and BaseClient.OnActionButtonActivated does
+            // nothing at all for a button whose Data is null - the name
+            // is a label, the Data is what the press dispatches on.
+            var cfg = new ActionButtonConfig(num++, ActionButtonType.Action, a.ToString());
+            cfg.SetToAction(a);
+            data.ActionButtons.Add(cfg);
+        }
     }
 
     /// <summary>
@@ -124,22 +132,31 @@ public partial class ActionButtons : Control
             b.Size = new Vector2(ButtonSize, ButtonSize);
             b.Visible = true;
 
-            ActionButtonConfig captured = cfg;
+            // The button's number, not the config object: the client
+            // replaces the whole list when it loads the player's saved
+            // buttons on login, and the replacements carry the same
+            // numbers and names. Holding the object would leave every
+            // button pressing a config the client has already thrown
+            // away - one BaseClient is no longer subscribed to, so the
+            // press would do nothing at all.
+            int num = cfg.Num;
             if (b.HasMeta("wired")) continue;
             b.SetMeta("wired", true);
-            b.Pressed += () => Fire(captured);
+            b.Pressed += () => Fire(num);
         }
 
         HideFrom(count);
     }
 
     /// <summary>
-    /// Fires the button the way the client does: by activating its config.
+    /// Fires the button the way the client does: by activating its config,
+    /// looked up in the client's list by number at the moment of the press.
     /// The dispatch lives in BaseClient, which is subscribed to every
     /// button in the list.
     /// </summary>
-    void Fire(ActionButtonConfig cfg)
+    void Fire(int num)
     {
+        ActionButtonConfig cfg = _data?.ActionButtons?.GetByNum(num);
         try { cfg?.Activate(); }
         catch (Exception e) { GD.PrintErr($"[ActionButtons] {cfg?.Name}: {e.Message}"); }
     }

@@ -5,13 +5,17 @@ using Meridian59.Data.Models;
 using Meridian59.Drawing2D;
 
 /// <summary>
-/// What is in the thing you are looting.
+/// A list of objects the server has put in front of you: what is lying
+/// within reach, or what is inside the thing you just opened.
 ///
-/// The game has a loot window - `UILootList.cpp` - and it is a list, not a
-/// grid: one row per item, each an icon, the item's name, and how many of
-/// it there are. Two buttons underneath, Get for what you have picked and
-/// Get All for the lot. This client had only the Get All button and no way
-/// to see what you were about to take.
+/// The game has two windows of this shape and they are all but the same
+/// file. `UILootList.cpp` shows `Data->RoomObjectsLoot` - everything
+/// loose around you - with Get and Get All underneath.
+/// `UIObjectContents.cpp` shows `Data->ObjectContents` - what is in a
+/// container - with only Get, because "all" has no meaning there. Both
+/// are a list rather than a grid: one row per item, an icon, the name,
+/// and how many. So this is one panel used twice, and `ShowGetAll` is
+/// the only difference between the two.
 ///
 /// Three things come straight from the game rather than from taste:
 ///
@@ -31,6 +35,13 @@ public partial class LootPanel : Control
     [Export] public int FontSize = 16;
     [Export] public int IconSize = 40;
     [Export] public int RowHeight = 56;
+    /// <summary>What the window is called. The game has "Loot" and "Contents".</summary>
+    [Export] public string Heading = "Loot";
+    /// <summary>
+    /// The loot window has a Get All; the container window does not,
+    /// because the server has no "take everything in that box".
+    /// </summary>
+    [Export] public bool ShowGetAll = true;
 
     /// <summary>Take the one that is picked.</summary>
     public event Action<ObjectBase> GetItem;
@@ -57,7 +68,7 @@ public partial class LootPanel : Control
         _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.94f), Visible = false };
         AddChild(_panel);
 
-        _title = new Label { Text = "Loot", Visible = false };
+        _title = new Label { Text = Heading, Visible = false };
         _title.AddThemeFontSizeOverride("font_size", FontSize + 4);
         _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
         AddChild(_title);
@@ -104,7 +115,9 @@ public partial class LootPanel : Control
         _scroll.Size = new Vector2(v.X - side * 2f, height - FontSize * 2.2f - rowH - 16f);
 
         float y = top + height - rowH;
-        Button[] row = { _get, _getAll, _close };
+        Button[] row = ShowGetAll
+            ? new[] { _get, _getAll, _close }
+            : new[] { _get, _close };
         float w = (v.X - side * 2f - 8f * (row.Length - 1)) / row.Length;
         for (int i = 0; i < row.Length; i++)
         {
@@ -122,19 +135,39 @@ public partial class LootPanel : Control
     void Show(bool on)
     {
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
-        _get.Visible = on; _getAll.Visible = on; _close.Visible = on;
+        _get.Visible = on; _getAll.Visible = on && ShowGetAll; _close.Visible = on;
     }
 
     /// <summary>
-    /// Follows the client's own contents list. The server decides when the
+    /// Follows what is inside a container. The server decides when the
     /// window is up: <c>IsVisible</c> is set when it sends the contents of
     /// something and cleared when it takes them away.
     /// </summary>
     public void Sync(ObjectContents contents)
     {
+        if (contents == null) { Fill(null, false); return; }
+        var list = new List<ObjectBase>(contents.Items ?? (System.Collections.Generic.IEnumerable<ObjectBase>)Array.Empty<ObjectBase>());
+        Fill(list, contents.IsVisible);
+    }
+
+    /// <summary>
+    /// Follows what is loose on the floor around you. Same window, same
+    /// switch - `LootInfo.IsVisible` - but the items are room objects the
+    /// library filters out of the room for being within reach.
+    /// </summary>
+    public void Sync(LootInfo loot)
+    {
+        if (loot == null) { Fill(null, false); return; }
+        var list = new List<ObjectBase>();
+        if (loot.Items != null) foreach (RoomObject o in loot.Items) list.Add(o);
+        Fill(list, loot.IsVisible);
+    }
+
+    void Fill(IList<ObjectBase> items, bool visible)
+    {
         if (_rows == null) return;
 
-        if (contents == null || !contents.IsVisible || contents.Items == null || contents.Items.Count == 0)
+        if (!visible || items == null || items.Count == 0)
         {
             if (IsOpen) Close();
             return;
@@ -143,7 +176,7 @@ public partial class LootPanel : Control
         if (!IsOpen) Show(true);
 
         var sb = new System.Text.StringBuilder();
-        foreach (ObjectBase o in contents.Items)
+        foreach (ObjectBase o in items)
             sb.Append(o?.ID).Append(':').Append(o?.Count).Append(';');
         string now = sb.ToString();
         if (now == _signature) return;
@@ -151,8 +184,8 @@ public partial class LootPanel : Control
 
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
 
-        _title.Text = $"Loot ({contents.Items.Count})";
-        foreach (ObjectBase o in contents.Items)
+        _title.Text = $"{Heading} ({items.Count})";
+        foreach (ObjectBase o in items)
             if (o != null) _rows.AddChild(Row(o));
     }
 

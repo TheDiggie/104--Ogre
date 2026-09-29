@@ -43,6 +43,7 @@ public partial class GameView : Node2D
     MiniMap _map;
     Button _loot;
     LootPanel _lootList;
+    LootPanel _contents;
     NameTags _names;
     ActionButtons _hotbar;
     LookPanel _look;
@@ -274,16 +275,29 @@ public partial class GameView : Node2D
         Widget("loot", () =>
         {
             _loot = new Button { Text = "Loot" };
-            _loot.Pressed += () => Act(() => _client.LootAll());
+            // The game's loot key does not take anything: it brings the
+            // loot window up, and brings it down again if it is already
+            // up (ExecAction, AvatarAction.Loot). Taking is what the Get
+            // and Get All buttons in that window are for.
+            _loot.Pressed += () => Act(() => _client.ExecAction(AvatarAction.Loot));
             _ui.AddChild(_loot);
 
             // The list the game has: what is in the thing, with names in
             // the library's own colours, and a Get for one item as well as
             // the Get All this button does.
-            _lootList = new LootPanel();
+            _lootList = new LootPanel { Heading = "Loot", ShowGetAll = true };
             _lootList.GetAll += () => Act(() => _client.LootAll());
             _lootList.GetItem += item => Act(() => _client.SendReqGetMessage(new ObjectID(item.ID)));
             _ui.AddChild(_lootList);
+
+            // The same window again for what is inside a container. The
+            // game keeps these apart - UILootList and UIObjectContents -
+            // because they follow different lists and only one of them
+            // can take everything at once.
+            _contents = new LootPanel { Heading = "Contents", ShowGetAll = false };
+            _contents.GetItem += item => Act(() =>
+                _client.SendReqGetMessage(new ObjectID(item.ID, item.Count)));
+            _ui.AddChild(_contents);
 
             LayoutLoot();
             GetViewport().SizeChanged += LayoutLoot;
@@ -382,7 +396,8 @@ public partial class GameView : Node2D
         _face?.Follow(_client.Data);
         _face?.SyncBuffs(_client.Data);
         _bag?.Sync(_client.Data?.InventoryObjects);
-        _lootList?.Sync(_client.Data?.ObjectContents);
+        _lootList?.Sync(_client.Data?.RoomObjectsLoot);
+        _contents?.Sync(_client.Data?.ObjectContents);
         // Seeded every frame rather than once: the client clears its
         // lists when the world changes under it - a room change or a
         // relogin - and a row that was filled at startup would empty and
@@ -440,6 +455,7 @@ public partial class GameView : Node2D
         if ((_chat != null && (_chat.Capturing || _chat.ShowingHistory))
             || (_bag != null && _bag.IsOpen)
             || (_lootList != null && _lootList.IsOpen)
+            || (_contents != null && _contents.IsOpen)
             || (_look != null && _look.IsOpen)
             || (_book != null && _book.IsOpen))
         { avatar.HorizontalSpeed = 0f; return; }
