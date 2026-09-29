@@ -24,3 +24,9 @@ project/assembly_name="MobileClient"
 [rendering]
 
 renderer/rendering_method="mobile"
+; Android refuses an export without it: "ETC2/ASTC texture compression is
+; required for Android export". Nothing here actually ships a compressed
+; texture - every wall and sprite is rasterised into a buffer at runtime
+; from the game's own art - but the check is on the setting, not on what
+; the project contains.
+textures/vram_compression/import_etc2_astc=true

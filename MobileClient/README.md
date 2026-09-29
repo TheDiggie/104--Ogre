@@ -214,9 +214,14 @@ What you have to do:
    out of the csproj XML rather than evaluating the project, so it sees
    whichever literal is written there and reports net8.0 no matter what
    the environment says.
-4. Copy an installed client's `resource` folder into `MobileClient/resource`.
+4. `rendering/textures/vram_compression/import_etc2_astc` has to be on
+   or Android refuses the export. Nothing here ships a compressed
+   texture - every wall and sprite is rasterised into a buffer at
+   runtime from the game's own art - but the check is on the setting,
+   not on what the project contains. It is on in `project.godot`.
+5. Copy an installed client's `resource` folder into `MobileClient/resource`.
    It is gitignored - it is hundreds of megabytes and it is not ours.
-5. *Project > Export > Android > Export Project*, or headless:
+6. *Project > Export > Android > Export Project*, or headless:
    `godot --headless --path MobileClient --export-debug "Android" ..\build\Meridian59.apk`
 
 The resource folder is the awkward part: a full one is far past the
