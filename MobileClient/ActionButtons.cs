@@ -244,6 +244,11 @@ public partial class ActionButtons : Control
             // null-coalesce picks the blank one and every button reads "?".
             ImageTexture icon = Icon(cfg);
             b.Icon = icon;
+            // Named by the button's number so a scripted run can press
+            // one. A bound spell or item shows a picture and no text, so
+            // until now there was nothing to find those by at all - the
+            // ones worth testing were exactly the ones unreachable.
+            b.Name = $"hot{cfg.Num}";
             // The game never captions a button - its only on-button text
             // is the slot number under _DEBUG (`UIActionButtons.cpp:75`).
             // A label here is not decoration but the last resort of a

@@ -324,6 +324,12 @@ public partial class ChatOverlay : Control
             string line = Markup(m);
             if (line != null) _lines.Add(line);
         }
+        // Our own notices go on the end. They have to be kept apart and
+        // re-added here, because this rebuilds the whole list from the
+        // server's - so a line added by Local was thrown away by the
+        // next rebuild and vanished from the log it had just appeared
+        // in.
+        _lines.AddRange(_local);
 
         int from = Math.Max(0, _lines.Count - Lines);
         _log.Text = string.Join("\n", _lines.GetRange(from, _lines.Count - from));
@@ -463,12 +469,25 @@ public partial class ChatOverlay : Control
         _ => "ffffff",          // ObjectChatMessage: someone talking
     };
 
-    /// <summary>Adds a line of our own, for status the server did not send.</summary>
+    /// <summary>
+    /// Adds a line of our own, for status the server did not send.
+    ///
+    /// Kept in its own list and merged by Sync rather than written
+    /// straight into the label. Writing to the label appended without a
+    /// separator - the text Sync builds has no trailing newline - so a
+    /// notice ran onto the end of whatever was last said, and two
+    /// unrelated sentences shared a line. It also grew the label
+    /// unbounded, past the height the block is laid out for.
+    /// </summary>
     public void Local(string text)
     {
         if (_log == null) return;
-        string line = $"[color=#8fe08f]{text.Replace("[", "[lb]")}[/color]";
-        _lines.Add(line);
-        _log.Text += line + "\n";
+        _local.Add($"[color=#8fe08f]{text.Replace("[", "[lb]")}[/color]");
+        // The library caps its own chat list; this follows suit rather
+        // than keeping every notice of a long session.
+        if (_local.Count > 200) _local.RemoveRange(0, _local.Count - 200);
+        _dirty = true;
     }
+
+    readonly List<string> _local = new List<string>();
 }
