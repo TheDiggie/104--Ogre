@@ -55,9 +55,9 @@ public partial class TradePanel : Control
     VBoxContainer _rowsMine, _rowsTheirs;
     Button _add, _offer, _accept, _cancel;
 
-    readonly List<ObjectID> _offering = new List<ObjectID>();
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
     string _theirSignature = "";
+    string _mineSignature = "";
     TradeInfo _trade;
 
     public bool IsOpen => _panel != null && _panel.Visible;
@@ -87,7 +87,21 @@ public partial class TradePanel : Control
         AddChild(_scrollTheirs);
 
         _add = Act("Add", () => AddWanted?.Invoke());
-        _offer = Act("Offer", () => Offer?.Invoke(new List<ObjectID>(_offering)));
+        // Read at the press, not captured when the item was added. The
+        // game is explicit that the model's count is not kept up to
+        // date and reads the row instead (`UITrade.cpp:398-414`); this
+        // client has no per-row amount box to read, so the object's own
+        // count at the moment you offer is the closest thing to it -
+        // and it is still better than the count the stack happened to
+        // have when you first added it.
+        _offer = Act("Offer", () =>
+        {
+            var send = new List<ObjectID>();
+            if (_trade?.ItemsYou != null)
+                foreach (ObjectBase o in _trade.ItemsYou)
+                    if (o != null) send.Add(new ObjectID(o.ID, o.Count > 0 ? o.Count : 1));
+            Offer?.Invoke(send);
+        });
         _accept = Act("Accept", () => Accept?.Invoke());
         // The game sends the cancel only when a trade is actually
         // pending, and clears its own side either way
@@ -177,16 +191,25 @@ public partial class TradePanel : Control
         }
     }
 
-    /// <summary>Adds one of yours to the offer, with a count.</summary>
+    /// <summary>
+    /// Adds one of yours to the offer.
+    ///
+    /// Into the model, not into a list of this window's own. That is
+    /// where the game puts it - the drop handler adds the inventory
+    /// object straight to <c>Trade.ItemsYou</c> and the list widget
+    /// follows the list's own events (`UITrade.cpp:479-481`,
+    /// `:21-22`). Keeping a private copy here meant your side of the
+    /// trade was whatever you had asked for rather than what the server
+    /// registered: when it echoes your offer back it replaces ItemsYou
+    /// wholesale (`DataController.cs:2980`), and none of that reached
+    /// the screen.
+    /// </summary>
     public void Put(InventoryObject item)
     {
-        if (item == null) return;
-        foreach (ObjectID had in _offering) if (had.ID == item.ID) return;
-
-        // The game reads the count off the row and treats an empty box
-        // as one, deliberately not trusting the object's own count.
-        _offering.Add(new ObjectID(item.ID, item.IsStackable ? item.Count : 1));
-        _rowsMine.AddChild(Row(item, item.IsStackable ? (int)item.Count : 1, true));
+        if (item == null || _trade?.ItemsYou == null) return;
+        if (_trade.ItemsYou.Contains(item)) return;
+        _trade.ItemsYou.Add(item);
+        _mineSignature = "";
     }
 
     /// <summary>
@@ -227,6 +250,21 @@ public partial class TradePanel : Control
             ? trade.TradePartner.Name : "someone";
         _title.Text = trade.IsBackgroundOffer ? $"{who} offers you a trade" : $"Trading with {who}";
 
+        // Your side is rebuilt from the model too, not only theirs.
+        var mine = new System.Text.StringBuilder();
+        if (trade.ItemsYou != null)
+            foreach (ObjectBase o in trade.ItemsYou)
+                mine.Append(o?.ID).Append(':').Append(o?.Count).Append(':').Append(o?.Name).Append(';');
+        string nowMine = mine.ToString();
+        if (nowMine != _mineSignature)
+        {
+            _mineSignature = nowMine;
+            foreach (Node n in _rowsMine.GetChildren()) { _rowsMine.RemoveChild(n); n.QueueFree(); }
+            if (trade.ItemsYou != null)
+                foreach (ObjectBase o in trade.ItemsYou)
+                    if (o != null) _rowsMine.AddChild(Row(o, (int)o.Count, true));
+        }
+
         var sb = new System.Text.StringBuilder();
         if (trade.ItemsPartner != null)
             foreach (ObjectBase o in trade.ItemsPartner) sb.Append(o?.ID).Append(':').Append(o?.Count).Append(';');
@@ -242,8 +280,8 @@ public partial class TradePanel : Control
 
     void Clear()
     {
-        _offering.Clear();
         _theirSignature = "";
+        _mineSignature = "";
         foreach (Node n in _rowsMine.GetChildren()) { _rowsMine.RemoveChild(n); n.QueueFree(); }
         foreach (Node n in _rowsTheirs.GetChildren()) { _rowsTheirs.RemoveChild(n); n.QueueFree(); }
     }
