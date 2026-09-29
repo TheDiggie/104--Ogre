@@ -40,9 +40,19 @@ public partial class ChatOverlay : Control
 
     RichTextLabel _log;
     LineEdit _entry;
-    Button _open, _history;
+    Button _open, _history, _back;
     int _seen;
     bool _dirty = true;
+
+    /// <summary>
+    /// Asks for the previous or next thing typed. True walks back
+    /// through the history, false forward; the caller returns the line
+    /// or null, and null going forward means the end of the history and
+    /// an empty box, which is what ArrowDown does in the game.
+    /// </summary>
+    public event Func<bool, string> History;
+    /// <summary>The box was closed: start the next recall from the top.</summary>
+    public event Action HistoryReset;
     Meridian59.Data.Lists.BaseList<ServerString> _watching;
 
     // The full log, behind a button. The corner shows the last few lines
@@ -91,6 +101,13 @@ public partial class ChatOverlay : Control
         _open.Pressed += Open;
         AddChild(_open);
 
+        // The recall button sits at the end of the entry, where a
+        // thumb already is when the box is open.
+        _back = new Button { Text = "\u2191", Visible = false, Name = "chatRecall" };
+        _back.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        _back.Pressed += Recall;
+        AddChild(_back);
+
         _history = new Button { Text = "Log" };
         _history.AddThemeFontSizeOverride("font_size", FontSize);
         _history.Pressed += ShowHistory;
@@ -129,8 +146,12 @@ public partial class ChatOverlay : Control
         float entryH = FontSize * 2.4f;
         float btnW = FontSize * 5f;
 
+        float recallW = entryH;
         _entry.Position = new Vector2(pad, v.Y - entryH - pad);
-        _entry.Size = new Vector2(v.X - pad * 2, entryH);
+        _entry.Size = new Vector2(v.X - pad * 2 - recallW - 6f, entryH);
+
+        _back.Position = new Vector2(v.X - pad - recallW, v.Y - entryH - pad);
+        _back.Size = new Vector2(recallW, entryH);
 
         _open.Position = new Vector2(pad, v.Y - entryH - pad);
         _open.Size = new Vector2(btnW, entryH);
@@ -183,9 +204,30 @@ public partial class ChatOverlay : Control
         DisplayServer.VirtualKeyboardShow(_entry.Text);
     }
 
+    /// <summary>
+    /// The up-arrow beside the entry: the chat command history, which on
+    /// a desktop is ArrowUp and ArrowDown in the box.
+    ///
+    /// It is worth more here than there. The history holds the last
+    /// twenty things you typed, and retyping `tell Alexandrina ...` on
+    /// a soft keyboard costs a great deal more than retyping it on a
+    /// real one.
+    ///
+    /// One button rather than two: it walks back, and wraps to an empty
+    /// box at the end, which is where ArrowDown would have taken you.
+    /// </summary>
+    void Recall()
+    {
+        if (History == null) return;
+        string line = History(true);
+        _entry.Text = line ?? "";
+        _entry.CaretColumn = _entry.Text.Length;
+    }
+
     public void Open()
     {
         _entry.Visible = true;
+        _back.Visible = true;
         _open.Visible = false;
         _entry.GrabFocus();
         DisplayServer.VirtualKeyboardShow(_entry.Text);
@@ -194,8 +236,12 @@ public partial class ChatOverlay : Control
     public void Close()
     {
         _entry.Visible = false;
+        _back.Visible = false;
         _entry.Text = "";
         _open.Visible = true;
+        // Both Enter and Escape reset the walk in the game, so the next
+        // recall starts from the newest line again.
+        HistoryReset?.Invoke();
         _entry.ReleaseFocus();
         DisplayServer.VirtualKeyboardHide();
     }

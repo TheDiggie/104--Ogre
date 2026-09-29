@@ -409,6 +409,21 @@ public partial class SceneShot : Node
                 if (boxes.Count > 0) { boxes[0].Text = typed ?? ""; GD.Print($"[SceneShot] typed \"{typed}\""); }
                 else GD.Print("[SceneShot] @type found no text box");
             }
+            else if (step == "@submit")
+            {
+                // Enter in the first visible text box. Typing into a
+                // box and pressing a button tests the button; the
+                // things that only happen on submit - a say being sent,
+                // a line entering the command history - need this.
+                var boxes = new List<LineEdit>();
+                Boxes(GetTree().Root, boxes);
+                if (boxes.Count > 0)
+                {
+                    boxes[0].EmitSignal(LineEdit.SignalName.TextSubmitted, boxes[0].Text);
+                    GD.Print($"[SceneShot] submitted \"{boxes[0].Text}\"");
+                }
+                else GD.Print("[SceneShot] @submit found no text box");
+            }
             else if (step.StartsWith("@name:"))
             {
                 string want = step.Substring(6);

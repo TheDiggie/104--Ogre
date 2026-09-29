@@ -326,6 +326,20 @@ public partial class GameView : Node2D
                 }
                 catch (Exception ex) { _chat.Local($"could not send: {ex.Message}"); }
             };
+            // The chat command history, which on a desktop is ArrowUp
+            // in the box. The library keeps the last twenty and walks
+            // them itself; the index resets when the box closes, the
+            // way Enter and Escape reset it in the game.
+            _chat.History += back =>
+            {
+                var d = _client?.Data;
+                if (d == null) return null;
+                return back ? d.ChatCommandHistoryGetNext() : d.ChatCommandHistoryGetPrevious();
+            };
+            _chat.HistoryReset += () =>
+            {
+                if (_client?.Data != null) _client.Data.ChatCommandHistoryIndex = -1;
+            };
             _ui.AddChild(_chat);
         });
 
