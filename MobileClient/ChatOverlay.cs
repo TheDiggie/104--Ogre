@@ -252,8 +252,12 @@ public partial class ChatOverlay : Control
     /// whether it is bold, italic or underlined. The Ogre client's
     /// Util::GetChatString walks exactly this list to build its markup,
     /// and a message with no styles at all is drawn plain.
+    ///
+    /// Public because chat is not the only place the server sends styled
+    /// text: quest requirements arrive the same way, and
+    /// `UINPCQuestList` draws them through the same `GetChatString`.
     /// </summary>
-    static string Markup(ServerString m)
+    public static string Markup(ServerString m)
     {
         string text = m?.FullString;
         if (string.IsNullOrEmpty(text)) return null;

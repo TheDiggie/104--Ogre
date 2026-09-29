@@ -49,6 +49,7 @@ public partial class GameView : Node2D
     AmountPrompt _amount;
     PlayersPanel _players;
     QuestsPanel _quests;
+    NpcQuestsPanel _npcQuests;
     TradePanel _trade;
     /// <summary>Who asked the bag for something: the trade, or a container.</summary>
     enum PickFor { Nobody, Trade, Container }
@@ -371,6 +372,17 @@ public partial class GameView : Node2D
                 _client.SendSendStatsMessage(Meridian59.Common.Enums.StatGroup.Quests));
             _quests.Look += id => Act(() => _client.SendReqLookMessage(id));
             _ui.AddChild(_quests);
+
+            // What an NPC offers. No button opens this: the target row's
+            // Quest button asks, and the server's answer raises it.
+            _npcQuests = new NpcQuestsPanel();
+            _npcQuests.Accept += (giver, quest) => Act(() =>
+                _client.SendReqTriggerQuestMessage(new ObjectID(giver, 0), new ObjectID(quest, 0)));
+            // UINPCQuestList closes the window by clearing the data
+            // layer, not by hiding the widget - so the next Sync agrees
+            // with it instead of reopening it.
+            _npcQuests.Dismissed += () => _client.Data?.QuestUIInfo?.Clear(true);
+            _ui.AddChild(_npcQuests);
         });
         Widget("players", () =>
         {
@@ -639,6 +651,7 @@ public partial class GameView : Node2D
         _players?.Sync(_client.Data?.OnlinePlayers);
         _quests?.Sync(_client.Data?.AvatarQuests);
         _trade?.Sync(_client.Data?.Trade);
+        _npcQuests?.Sync(_client.Data?.QuestUIInfo);
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
@@ -892,7 +905,8 @@ public partial class GameView : Node2D
         || (_amount != null && _amount.IsOpen)
         || (_players != null && _players.IsOpen)
         || (_quests != null && _quests.IsOpen)
-        || (_trade != null && _trade.IsOpen);
+        || (_trade != null && _trade.IsOpen)
+        || (_npcQuests != null && _npcQuests.IsOpen);
 
     /// <summary>
     /// Puts one of yours into the container whose contents are open.

@@ -80,6 +80,12 @@ static class FakeServer
     const uint RID_AGILITY = 60093;
     const uint RID_MYSTICISM = 60094;
     const uint RID_AIM = 60095;
+    const uint RID_QDESC1 = 60120;
+    const uint RID_QREQ1 = 60121;
+    const uint RID_QDESC2 = 60122;
+    const uint RID_QREQ2 = 60123;
+    const uint RID_QDESC3 = 60124;
+    const uint RID_QREQ3 = 60125;
     const uint RID_RATSOUND = 60080;
     const uint RID_MUSIC = 60081;
 
@@ -169,6 +175,18 @@ static class FakeServer
             new RsbResourceID(RID_AGILITY,    "agility",          4),
             new RsbResourceID(RID_MYSTICISM,  "mysticism",        4),
             new RsbResourceID(RID_AIM,        "aim",              4),
+            new RsbResourceID(RID_QDESC1,
+                "The cellar under the inn has gone to rats, and the innkeeper has gone to pieces.", 4),
+            new RsbResourceID(RID_QREQ1,
+                "~gEight killed~n of the twenty asked for. Return to Alice when it is done.", 4),
+            new RsbResourceID(RID_QDESC2,
+                "A ledger owed to the guild across the water, and nobody willing to carry it.", 4),
+            new RsbResourceID(RID_QREQ2,
+                "Requires ~bfive levels of stealth~n and a free hand.", 4),
+            new RsbResourceID(RID_QDESC3,
+                "Alice lost a ring in the dark and would rather not say how.", 4),
+            new RsbResourceID(RID_QREQ3,
+                "~rRequires a lantern you do not have.~n", 4),
             new RsbResourceID(RID_RATSOUND,   "Rat_awr.wav",      4),
             new RsbResourceID(RID_MUSIC,      "AMBCave.wav",      4),
             new RsbResourceID(RID_RATLOOK,
@@ -298,6 +316,19 @@ static class FakeServer
                     Console.WriteLine("  <- ReqGet");
                     if (!lootOpen) { lootOpen = true; SendLoot(ns, ctrl, lootLeft); }
                     else { SendLoot(ns, ctrl, --lootLeft); Say(ns, ctrl, RID_ECHO); }
+                    break;
+
+                case MessageTypeGameMode.ReqNPCQuests:
+                    Console.WriteLine("  <- ReqNPCQuests");
+                    SendNPCQuests(ns, ctrl);
+                    break;
+
+                case MessageTypeGameMode.ReqTriggerQuest:
+                    // A real server starts the quest and says so. This
+                    // just answers, so the accept is visible from the
+                    // client's side.
+                    Console.WriteLine("  <- ReqTriggerQuest");
+                    Say(ns, ctrl, RID_ECHO);
                     break;
 
                 case MessageTypeGameMode.ReqBuy:
@@ -703,6 +734,45 @@ static class FakeServer
 
         Send(ns, ctrl, new BuyListMessage(
             Item(3103, RID_PLAYERBGF, RID_ALICE, 0), stock));
+    }
+
+    /// <summary>
+    /// What an NPC offers. QuestUIList carries the giver and a
+    /// QuestObjectInfo per quest - an object plus a description and a
+    /// requirements string - and the client raises its quest window on
+    /// the strength of it.
+    ///
+    /// The quest kind lives in ObjectFlags.Player, which is a byte of
+    /// its own on the wire - not part of the flags integer the
+    /// constructor takes. Passing 8, 9 or 10 as that integer sets
+    /// nothing: the first try did, and three quests came back
+    /// colourless and in the order they were sent. It has to be
+    /// assigned to the property after the object exists.
+    ///
+    /// The data layer sorts active, then valid, then the rest, so all
+    /// three go out shuffled here on purpose - a list that comes back
+    /// active-first proves the sort rather than the sending order.
+    /// </summary>
+    static void SendNPCQuests(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var quests = new[]
+        {
+            Quest(8002, RID_QUEST2, ObjectFlags.PlayerType.QuestValid,   RID_QDESC2, RID_QREQ2),
+            Quest(8003, RID_QUEST3, ObjectFlags.PlayerType.QuestInvalid, RID_QDESC3, RID_QREQ3),
+            Quest(8001, RID_QUEST1, ObjectFlags.PlayerType.QuestActive,  RID_QDESC1, RID_QREQ1),
+        };
+
+        Send(ns, ctrl, new QuestUIListMessage(
+            Item(3103, RID_PLAYERBGF, RID_ALICE, 0), quests, strings));
+    }
+
+    static QuestObjectInfo Quest(uint id, uint nameRid, ObjectFlags.PlayerType kind,
+                                 uint descRid, uint reqRid)
+    {
+        ObjectBase obj = Item(id, RID_BOOKBGF, nameRid, 0);
+        obj.Flags.Player = kind;
+
+        return new QuestObjectInfo(obj, Line(descRid), Line(reqRid));
     }
 
     static TradeOfferObject Offer(uint id, uint bgfRid, uint nameRid, uint count, uint price)
