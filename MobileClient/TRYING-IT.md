@@ -1,10 +1,14 @@
 # Running it
 
-Nothing in `MobileClient` has run on a phone, and the overlays have never
-run at all - there is no Godot in the environment they were written in,
-so what is proven about them is that they compile against the real
-`GodotSharp`. The renderer underneath them is a different story: it is
-checked exhaustively by the tools in `Tools/`, which need no engine.
+Nothing in `MobileClient` has run on a phone, and nothing has been near
+the real Server 104. What has changed is everything in between: there is
+a Godot in the environment now, and a fake server, so every panel has
+been opened, driven and photographed, and what reaches the wire has been
+read off a log rather than assumed. Section 2a is that harness, and it
+is the fastest way to see whether something works.
+
+What that still does not prove: a real server's data, a real phone's
+screen and thumbs, and the whole Android export path.
 
 This is the order that finds problems fastest.
 
@@ -44,15 +48,10 @@ the engine layer.
 
 ## 2. The offline view, on the desktop
 
-Worth knowing what is most likely to be wrong here. Six widgets - the
-chat box, the action row, the character picker, the room list, the map
-and the touch stick - have never executed anywhere. What is proven about
-them is that they compile against the real `GodotSharp`, which has
-caught three accidental shadowings of Godot's own members (`Get`,
-`Show`, `Size`) and a `Godot.FileAccess` / `System.IO.FileAccess`
-ambiguity. What that cannot catch is lifecycle and layout. Each widget
-is built inside a try/catch so one that throws costs you that widget
-rather than the view, and the failure goes into the status text.
+Each widget is built inside a try/catch, so one that throws costs you
+that widget rather than the view, and the failure goes into the status
+text. That was written when none of them had ever executed; they all
+have now (section 2a), but the guard has earned its keep and stays.
 
 
 Open `MobileClient` in the Godot **.NET** editor and press play.
@@ -65,6 +64,45 @@ under your left thumb on a touchscreen.
 Worth trying deliberately: walk into a wall at a slight angle. You
 should scrape along it rather than stop dead.
 
+## 2a. The fake server and the screenshot harness
+
+This is where most of the work gets checked. Two pieces:
+
+    dotnet run -c Release --project Tools/Meridian59.Net8FakeServer -- 15999 <res>
+
+stands up something that speaks enough of the protocol to log you in,
+put you in the Barloque inn with rats, players, a shop, a container, a
+loot pile, mail, quests, a guild and a trade offer, and to log what you
+send it. It is the only place the wire can be read, and reading it is
+the point: a screen saying the right thing is not evidence that the
+right thing was sent. Several bugs this repo has had looked correct on
+screen and were wrong on the wire, and one looked wrong on screen and
+was right.
+
+Switches: `M59_STATCHANGE=1` for the stat-change wizard, `M59_NEWS=1`
+for the news panel, `M59_CHATFLOOD=1` to fill the chat log.
+
+Then `SceneShot.tscn` drives the client and photographs it:
+
+    godot --path MobileClient SceneShot.tscn -- \
+        --out shot.png --res <res> --host 127.0.0.1 --char Tester \
+        --shots --press "Bag,@slot,Book,Close" --slot 1 --wait 140
+
+`--press` is a comma-separated path through the interface. Besides a
+button's own caption, a step can be `@name:<NodeName>` (rows and icons
+have names; a bound spell shows a picture and no text), `@hold:<Node>`
+for a press held down (several things are bound to a hold), `@tap:640x1050`
+for a tap at a point, `@slot` for an inventory slot, and `@type` /
+`@submit` for the text box. `--shots` writes `shot-1.png`, `shot-2.png`
+and so on, one after every step.
+
+Two habits worth copying, both learned the hard way. Stack the same crop
+from several frames into one image and look at them together - a
+sequence where step 5 should leave the world exactly as step 1 did will
+show you the difference immediately, and three real bugs came out of
+that. And when something looks missing, look at the *whole* frame before
+believing it: twice it was simply outside the crop.
+
 ## 3. The live view
 
 Set the main scene to `Game.tscn`, put `M59USER` and `M59PASS` in the
@@ -76,10 +114,12 @@ and asks for a patch - the status text says so, with the version it
 offered. **Version Major** and **Version Minor** on the node change it
 without a rebuild.
 
-This is the part that has only ever been run against a stub, and it
-stops being guesswork the moment you run it. Everything after `LoginOK`
-is untested: the character handshake, the room arriving, real objects,
-and movement going back to the server.
+Everything after `LoginOK` - the character handshake, the room arriving,
+objects, movement going back, chat, trading, buying, looting - has been
+run against the fake server in section 2a and photographed. What no
+fixture can stand in for is the real server's data: its resource files,
+its string table, its room geometry and its own idea of the protocol
+version. That is what running this finds out.
 
 If the world comes up blank or untextured, suspect the setup before the
 renderer. Four things in this path each fail silently rather than with
