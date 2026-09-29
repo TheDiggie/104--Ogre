@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- See MobileClient.csproj: the Android export needs net9.0. -->
+    <TargetFramework Condition="'$(M59TFM)' == ''">net8.0</TargetFramework>
+    <TargetFramework Condition="'$(M59TFM)' != ''">$(M59TFM)</TargetFramework>
     <AssemblyName>Meridian59</AssemblyName>
     <RootNamespace>Meridian59</RootNamespace>
     <DefineConstants>TRACE;ANYCPU;CONCURRENT</DefineConstants>
