@@ -774,7 +774,12 @@ namespace Meridian59.Client
         {
             // create message instance
             LoginMessage message = new LoginMessage(
-                Username, Password, "8", //ResourceManager.RsbHash,
+                // The RSB hash the server checks. Server 104 wants "13";
+                // "8" is refused, and the refusal looks like a silent
+                // failure to enter the world rather than a login error.
+                // Verified by logging in with each: Tools/Meridian59.Net8Play
+                // reaches a room with 13 and stops after LoginOK with 8.
+                Username, Password, "13", //ResourceManager.RsbHash,
                 AppVersionMajor, AppVersionMinor,
                 LoginMessage.WINTYPE_NT, 6, 2, 512000000, LoginMessage.CPUTYPE_PENTIUM,
                 MeridianExeCRCs.NEWCLIENTDETECT,
