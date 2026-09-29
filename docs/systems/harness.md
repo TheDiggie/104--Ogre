@@ -36,3 +36,28 @@ node's own `Visible` flag pressed buttons inside hidden parents. Both are
 fixed; both cost days.
 
 See also: SceneShot.cs
+
+## What has been played end to end
+Tags: process | Kept so the next session tests something new rather than re-proving these; each was watched on the wire, not just on screen
+
+- Every bottom-row panel opens and closes; Map is a toggle with no Close,
+  which is right.
+- Chat: plain text sends `SayTo` with ChatTransmissionType.Normal and the
+  room answers.
+- Targeting: tap outlines in red, tapping elsewhere clears it, and the
+  library resets TargetID itself when the target leaves the room.
+- Attacking: three hits, `Remove`, the object goes and the outline with it.
+- Buying: `ReqBuyItems` then `InventoryAdd`; a stackable carries its
+  count, a single item sends x0. Two stacks of one item do NOT merge, and
+  that is the game - hence `NumOfSameName`.
+- Looting: `ReqGet`, the item lands in the pack and leaves the floor, and
+  pressing Loot again opens nothing because there is nothing to loot.
+- Trading: `ReqCounterOffer` with the right id and count, the server
+  confirms your side, the buttons collapse to Cancel. Accept stays hidden
+  on a background offer, as the reference does.
+- Stat change: the steppers respect the pool, OK validates intellect
+  against the schools, the confirmation is an in-page modal, and Yes
+  sends `ChangedStats` (157).
+- Chat flood: 205 lines, the full log scrolls and closes.
+
+See also: the fixture -> fake-server.md | the panels -> mobile-client.md
