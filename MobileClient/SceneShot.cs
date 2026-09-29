@@ -456,7 +456,16 @@ public partial class SceneShot : Node
                 // so the harness could only ever tap.
                 string want = step.Substring(6);
                 Button b = FindNamed(GetTree().Root, want);
-                if (b == null) { GD.Print($"[SceneShot] no node called {want}"); }
+                if (b == null)
+                {
+                    // Say what IS there. A bare "no node called hot9" sent
+                    // me hunting through the client for a button that was
+                    // on screen the whole time under another name, because
+                    // Godot renames a node whose name a sibling already
+                    // holds. The names are the only handle a scripted run
+                    // has; when one misses, the list is the answer.
+                    GD.Print($"[SceneShot] no node called {want}; visible buttons: {Names()}");
+                }
                 else
                 {
                     b.EmitSignal(BaseButton.SignalName.ButtonDown);
@@ -473,7 +482,7 @@ public partial class SceneShot : Node
                 string want = step.Substring(6);
                 Button b = FindNamed(GetTree().Root, want);
                 if (b != null) { Hit(b); GD.Print($"[SceneShot] pressed node {want}"); }
-                else GD.Print($"[SceneShot] no node called {want}");
+                else GD.Print($"[SceneShot] no node called {want}; visible buttons: {Names()}");
             }
             else if (step == "@slot")
             {
@@ -548,6 +557,21 @@ public partial class SceneShot : Node
     /// keep their text in a child label, so there is nothing else to
     /// find them by.
     /// </summary>
+    /// <summary>Every visible button's node name, for a miss report.</summary>
+    string Names()
+    {
+        var found = new System.Collections.Generic.List<string>();
+        Walk(GetTree().Root, found);
+        found.Sort();
+        return found.Count == 0 ? "(none)" : string.Join(", ", found);
+    }
+
+    static void Walk(Node n, System.Collections.Generic.List<string> into)
+    {
+        if (n is Button b && Showing(b)) into.Add(b.Name);
+        foreach (Node c in n.GetChildren()) Walk(c, into);
+    }
+
     /// <summary>
     /// Whether a button is actually on screen.
     ///

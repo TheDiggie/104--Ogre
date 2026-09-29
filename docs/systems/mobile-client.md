@@ -38,3 +38,19 @@ See also: ../../CLAUDE.md
 Tags: design | Ashton's standing requirement: clicking a thing to attack it outlines it red, as the game does
 
 See also: godot-ui.md
+
+## A press the library drops silently now says so
+Tags: design, lessons | A targeted spell with no target sends nothing and neither the library nor the Ogre client says a word; on a phone that is indistinguishable from a dead button
+
+`SendReqCastMessage` builds its targets from the highlighted object, or
+yourself, or your target, and if the spell needs one and none is there
+it returns without sending (`BaseClient.cs:1717-1743`). A desktop
+survives that - the target is highlighted under the mouse you are
+already holding. A phone does not: a tap with no sound, no animation and
+no text reads as broken, and the player taps again.
+
+So the hotbar says it in the chat log. The check runs BEFORE the
+dispatch and the dispatch still happens, so it can only ever add a line.
+Deliberate divergence, same spirit as the lost-connection overlay.
+
+See also: the hotbar -> HotbarStore.cs | godot-ui.md

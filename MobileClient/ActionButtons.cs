@@ -297,6 +297,42 @@ public partial class ActionButtons : Control
         HideFrom(count);
     }
 
+    /// <summary>Something the player should be told. Raised, not printed.</summary>
+    public event Action<string> Notice;
+
+    /// <summary>
+    /// Why this press is about to do nothing at all, or null.
+    ///
+    /// `SendReqCastMessage` builds its target list from the highlighted
+    /// object, or yourself, or your target, and if the spell needs one
+    /// and none of the three is there it leaves the list null and
+    /// returns without sending (`BaseClient.cs:1717-1743`). Nothing in
+    /// the library or in `Meridian59.Ogre.Client` says a word about it.
+    ///
+    /// On a desktop that is survivable: the target is highlighted under
+    /// the mouse you are already holding, and a spell that does not go
+    /// off reads as "I have not picked anything". On a phone a tap that
+    /// produces no sound, no animation and no line of text is
+    /// indistinguishable from a dead button, and the first thing anyone
+    /// will do is tap it again. So this client says so. A deliberate
+    /// divergence, in the same spirit as the lost-connection overlay:
+    /// silence that a desktop can carry and a phone cannot.
+    /// </summary>
+    static string Unanswered(DataController data, object what)
+    {
+        if (data == null) return null;
+
+        // The two overrides come first, because either one supplies a
+        // target of its own and neither needs your current one.
+        if (data.IsNextAttackApplyCastOnHighlightedObject || data.SelfTarget) return null;
+        if (data.TargetObject != null) return null;
+
+        if (what is SpellObject spell && spell.TargetsCount > 0)
+            return $"{spell.Name} needs a target. Tap something first.";
+
+        return null;
+    }
+
     /// <summary>
     /// Fires the button the way the client does: the screen slot says
     /// which button number is showing there right now, and that number is
@@ -319,6 +355,12 @@ public partial class ActionButtons : Control
             HotbarStore.Save(_data);
             return;
         }
+
+        // Said BEFORE the dispatch, and the dispatch still runs: this
+        // only ever adds a line, so if the reading below is ever wrong
+        // the button behaves exactly as it did.
+        string quiet = Unanswered(_data, cfg.Data);
+        if (quiet != null) Notice?.Invoke(quiet);
 
         try { cfg.Activate(); }
         catch (Exception e) { GD.PrintErr($"[ActionButtons] {cfg?.Name}: {e.Message}"); }
