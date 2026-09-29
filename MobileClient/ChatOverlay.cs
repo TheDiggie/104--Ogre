@@ -111,6 +111,7 @@ public partial class ChatOverlay : Control
         _open = new Button { Text = "Say" };
         _open.Pressed += Open;
         AddChild(_open);
+        Panels.Opener(_open);
 
         // The recall button sits at the end of the entry, where a
         // thumb already is when the box is open.
@@ -123,6 +124,7 @@ public partial class ChatOverlay : Control
         _history.AddThemeFontSizeOverride("font_size", FontSize);
         _history.Pressed += ShowHistory;
         AddChild(_history);
+        Panels.Opener(_history);
 
         _fullBack = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.95f), Visible = false };
         AddChild(_fullBack);

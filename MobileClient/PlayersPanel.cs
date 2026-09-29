@@ -70,6 +70,7 @@ public partial class PlayersPanel : Control
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);
+        Panels.Opener(_open);
 
         _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.95f), Visible = false };
         AddChild(_panel);

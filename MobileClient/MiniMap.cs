@@ -100,6 +100,7 @@ public partial class MiniMap : Control
         _toggle = new Button { Text = "Map" };
         _toggle.Pressed += () => { _shown = !_shown; Save(); Layout(); QueueRedraw(); };
         AddChild(_toggle);
+        Panels.Opener(_toggle);
 
         // The game zooms with the mouse wheel, between 1 and 32
         // (`UIMiniMap.cpp:107-118`). A wheel is desktop input but zoom

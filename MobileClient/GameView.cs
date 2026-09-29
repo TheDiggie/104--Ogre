@@ -780,6 +780,7 @@ public partial class GameView : Node2D
             // and Get All buttons in that window are for.
             _loot.Pressed += () => Act(() => _client.ExecAction(AvatarAction.Loot));
             _ui.AddChild(_loot);
+            Panels.Opener(_loot);
 
             // The list the game has: what is in the thing, with names in
             // the library's own colours, and a Get for one item as well as
@@ -988,6 +989,11 @@ public partial class GameView : Node2D
         // covers the world.
         bool covered = PanelUp;
         if (_hotbar != null) _hotbar.Visible = !covered;
+        // The row of buttons that open the panels goes with it - and
+        // also while the chat box is up, because the row shares a line
+        // with the entry. Each button belongs to the panel it opens, so
+        // no panel could hide the others; Panels keeps the list.
+        Panels.ShowOpeners(!covered && !(_chat != null && _chat.Capturing));
         // Not simply !covered: the row hides itself when there is
         // nothing targeted, and this runs every frame.
         if (_actions != null) _actions.Visible = !covered && _actions.HasTarget;
