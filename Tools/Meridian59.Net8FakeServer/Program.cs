@@ -743,8 +743,8 @@ static class FakeServer
     {
         var objects = new[]
         {
-            Spell(5001, RID_SPELL1),
-            Spell(5002, RID_SPELL2),
+            Spell(5001, RID_SPELL1, RID_BOOKBGF),
+            Spell(5002, RID_SPELL2, RID_AXEBGF),
         };
         Send(ns, ctrl, new SpellsMessage(objects));
 
@@ -760,8 +760,8 @@ static class FakeServer
     {
         var objects = new[]
         {
-            Skill(5101, RID_SKILL1),
-            Skill(5102, RID_SKILL2),
+            Skill(5101, RID_SKILL1, RID_COINBGF),
+            Skill(5102, RID_SKILL2, RID_BOOKBGF),
         };
         Send(ns, ctrl, new SkillsMessage(objects));
 
@@ -773,10 +773,17 @@ static class FakeServer
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Skills, stats));
     }
 
-    static SpellObject Spell(uint id, uint nameRid)
+    /// <summary>
+    /// The third argument is the overlay file - the art. It used to be
+    /// zero, so every spell arrived with no resource and the client had
+    /// nothing to draw: the hotbar's spell icons could not be tested at
+    /// all, and a null there looks exactly like a client that forgot to
+    /// compose one. Real spells have art, so these do too.
+    /// </summary>
+    static SpellObject Spell(uint id, uint nameRid, uint bgfRid)
     {
         return new SpellObject(
-            id, 1, 0, nameRid, 0,
+            id, 1, bgfRid, nameRid, 0,
             new LightingInfo(),
             AnimationType.NONE, 0, 0,
             new AnimationNone(),
@@ -784,10 +791,10 @@ static class FakeServer
             1, 0);
     }
 
-    static SkillObject Skill(uint id, uint nameRid)
+    static SkillObject Skill(uint id, uint nameRid, uint bgfRid)
     {
         return new SkillObject(
-            id, 1, 0, nameRid, 0,
+            id, 1, bgfRid, nameRid, 0,
             new LightingInfo(),
             AnimationType.NONE, 0, 0,
             new AnimationNone(),

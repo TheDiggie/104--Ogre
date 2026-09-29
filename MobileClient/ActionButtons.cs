@@ -233,9 +233,15 @@ public partial class ActionButtons : Control
 
             // Label is an empty string rather than null when unset, so a
             // null-coalesce picks the blank one and every button reads "?".
-            string caption = string.IsNullOrWhiteSpace(cfg.Label) ? cfg.Name : cfg.Label;
-            b.Text = cfg.ButtonType == ActionButtonType.Item ? "" : Short(caption);
-            b.Icon = Icon(cfg);
+            ImageTexture icon = Icon(cfg);
+            b.Icon = icon;
+            // The game never captions a button - its only on-button text
+            // is the slot number under _DEBUG (`UIActionButtons.cpp:75`).
+            // A label here is not decoration but the last resort of a
+            // button that has no picture to show, which is every action
+            // button, so it has to be the name: Label holds the key the
+            // game binds the slot to, and there are no keys on a phone.
+            b.Text = icon != null ? "" : Short(cfg.Name);
             b.TooltipText = cfg.Name;
             b.Position = new Vector2(gap + i * (ButtonSize + gap), y);
             b.Size = new Vector2(ButtonSize, ButtonSize);
@@ -303,13 +309,35 @@ public partial class ActionButtons : Control
         catch (Exception e) { GD.PrintErr($"[ActionButtons] {cfg?.Name}: {e.Message}"); }
     }
 
-    /// <summary>An item button shows its icon; the rest show a short label.</summary>
+    /// <summary>
+    /// The button's picture.
+    ///
+    /// Spells and skills get one as well as items. The game composes all
+    /// three (`UIActionButtons.cpp:244-332`) - it takes a different route
+    /// for spells and skills, blitting a frame straight out of the
+    /// resource rather than going through the image composer, but its own
+    /// comment calls that a hack for resolution, not a different picture.
+    /// Composing them the same way items are composed is the same answer
+    /// through one path instead of two.
+    ///
+    /// A button with no picture keeps its short label; that is every
+    /// action button, which is what the seeded row is made of.
+    ///
+    /// Keyed on everything the composed picture depends on rather than on
+    /// the file alone. The cache used to be keyed on the filename, so an
+    /// item that was dyed, took an effect or simply animated kept the
+    /// first picture it was ever drawn with for the rest of the session -
+    /// where the game re-pushes the texture every time the object changes.
+    /// </summary>
     ImageTexture Icon(ActionButtonConfig cfg)
     {
-        if (cfg.ButtonType != ActionButtonType.Item) return null;
+        if (cfg.ButtonType == ActionButtonType.Action ||
+            cfg.ButtonType == ActionButtonType.Alias ||
+            cfg.ButtonType == ActionButtonType.Unset) return null;
         if (cfg.Data is not ObjectBase o || o.Resource == null) return null;
 
-        string key = $"{o.Resource.Filename}:{IconSize}";
+        int frame = o.ViewerFrameIndex >= 0 ? o.ViewerFrameIndex : 0;
+        string key = $"{o.Resource.Filename}:{frame}:{IconSize}:{o.ColorTranslation}:{o.Effect}";
         if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
 
         ImageTexture tex = null;
