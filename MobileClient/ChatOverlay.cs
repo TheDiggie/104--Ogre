@@ -324,12 +324,34 @@ public partial class ChatOverlay : Control
             string line = Markup(m);
             if (line != null) _lines.Add(line);
         }
-        // Our own notices go on the end. They have to be kept apart and
-        // re-added here, because this rebuilds the whole list from the
-        // server's - so a line added by Local was thrown away by the
-        // next rebuild and vanished from the log it had just appeared
-        // in.
-        _lines.AddRange(_local);
+        // Our own notices are merged back in where they happened. They
+        // have to be kept apart and re-added here, because this rebuilds
+        // the whole list from the server's - so a line added by Local
+        // was thrown away by the next rebuild and vanished from the log
+        // it had just appeared in.
+        //
+        // Each one remembers how many server lines there were when it
+        // was written, which is enough to put it back in order. Simply
+        // appending them read wrong the moment anything was said: the
+        // client's three login notices sat underneath four hundred
+        // lines of later chat.
+        //
+        // The library caps its own list and drops from the front, so an
+        // old notice's count outgrows the list it belongs in - and lands
+        // at the front, which is where it belongs once the lines around
+        // it have been forgotten.
+        if (_local.Count > 0)
+        {
+            var server = new List<string>(_lines);
+            _lines.Clear();
+            int li = 0;
+            for (int i = 0; i <= server.Count; i++)
+            {
+                while (li < _local.Count && _local[li].After <= i)
+                    _lines.Add(_local[li++].Line);
+                if (i < server.Count) _lines.Add(server[i]);
+            }
+        }
 
         int from = Math.Max(0, _lines.Count - Lines);
         _log.Text = string.Join("\n", _lines.GetRange(from, _lines.Count - from));
@@ -482,12 +504,19 @@ public partial class ChatOverlay : Control
     public void Local(string text)
     {
         if (_log == null) return;
-        _local.Add($"[color=#8fe08f]{text.Replace("[", "[lb]")}[/color]");
+        _local.Add(new Notice
+        {
+            Line = $"[color=#8fe08f]{text.Replace("[", "[lb]")}[/color]",
+            After = _seen,
+        });
         // The library caps its own chat list; this follows suit rather
         // than keeping every notice of a long session.
         if (_local.Count > 200) _local.RemoveRange(0, _local.Count - 200);
         _dirty = true;
     }
 
-    readonly List<string> _local = new List<string>();
+    /// <summary>A line of ours, and how many server lines preceded it.</summary>
+    struct Notice { public string Line; public int After; }
+
+    readonly List<Notice> _local = new List<Notice>();
 }
