@@ -768,6 +768,32 @@ but each Godot button still held the old config object, which
 `BaseClient` had unsubscribed from. The row now looks its config up by
 number at the moment of the press.
 
+## The shop
+
+`UIBuy.cpp`: a multi-select list of the merchant's stock, each row an
+icon, the name and the price, with a running sum underneath and one OK
+that buys everything ticked.
+
+The sum is `Buy::CalculateSum` exactly - a stackable line counts as
+`Count * Price` and everything else counts once - and OK sends a single
+`ReqBuyItems` carrying the merchant's id and an ObjectID per ticked row,
+not a message per item. The window is the server's decision:
+`BuyInfo.IsVisible` goes up when the stock arrives.
+`AvatarAction.Buy` is what asks for it, and it looks for a nearby object
+flagged `OF_BUYABLE` in front of you.
+
+Multi-select is a checkbox per row rather than ctrl-click, because a
+finger has no ctrl. Checked against the fake server, which sells a
+nerudite axe at 1200, a tattered book at 75, and ten doubloons at 12:
+
+```
+[SceneShot] ticked 0
+[SceneShot] ticked 2
+[SceneShot] total: 1320 for 2
+```
+
+1200 for the axe once, plus ten times twelve for the stack.
+
 ## Known limits
 
 - **Speed.** A uniform spatial grid (`WallGrid.cs`) means a ray only

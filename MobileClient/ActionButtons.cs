@@ -73,6 +73,7 @@ public partial class ActionButtons : Control
             AvatarAction.Loot,
             AvatarAction.Activate,
             AvatarAction.Inspect,
+            AvatarAction.Buy,
             AvatarAction.Wave,
         };
 

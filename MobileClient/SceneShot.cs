@@ -56,6 +56,8 @@ public partial class SceneShot : Node
         // thumb on the stick does.
         if (int.TryParse(Arg("--walk", "0"), out int walk) && walk > 0)
             Walk(outPath, wait, walk, Arg("--keys", "W"));
+        else if (Arg("--tick", null) != null)
+            Tick(outPath, wait, Arg("--tick", null), Arg("--press", null));
         else if (Arg("--login", null) != null)
             SignIn(outPath, wait, Arg("--login", null));
         else if (Arg("--drag", null) != null)
@@ -276,6 +278,60 @@ public partial class SceneShot : Node
     {
         if (from is LineEdit e && e.Visible) into.Add(e);
         foreach (Node c in from.GetChildren()) Boxes(c, into);
+    }
+
+    /// <summary>
+    /// Ticks checkboxes by index - the buy list is multi-select, and a
+    /// checkbox has no text to find it by. --press opens a panel first.
+    /// </summary>
+    async void Tick(string path, int settle, string which, string press)
+    {
+        for (int i = 0; i < Math.Max(1, settle); i++)
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        if (press != null)
+        {
+            Button b = FindButton(GetTree().Root, press);
+            if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed {press}"); }
+            for (int i = 0; i < 30; i++)
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        }
+
+        var boxes = new List<CheckBox>();
+        Ticks(GetTree().Root, boxes);
+        foreach (string part in which.Split(','))
+            if (int.TryParse(part, out int n) && n >= 0 && n < boxes.Count)
+            {
+                boxes[n].ButtonPressed = true;
+                boxes[n].EmitSignal(BaseButton.SignalName.Toggled, true);
+                GD.Print($"[SceneShot] ticked {n}");
+            }
+            else GD.Print($"[SceneShot] no checkbox {part} of {boxes.Count}");
+
+        for (int i = 0; i < 30; i++)
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        foreach (Label l in Labels(GetTree().Root))
+            if (l.Visible && l.Text.Contains(" for ")) GD.Print($"[SceneShot] total: {l.Text}");
+
+        await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+        GetViewport().GetTexture().GetImage().SavePng(path);
+        GD.Print($"[SceneShot] wrote {path}");
+        GetTree().Quit();
+    }
+
+    static void Ticks(Node from, List<CheckBox> into)
+    {
+        if (from is CheckBox c) into.Add(c);
+        foreach (Node n in from.GetChildren()) Ticks(n, into);
+    }
+
+    static List<Label> Labels(Node from)
+    {
+        var all = new List<Label>();
+        if (from is Label l) all.Add(l);
+        foreach (Node n in from.GetChildren()) all.AddRange(Labels(n));
+        return all;
     }
 
     static Button FindButton(Node from, string text)

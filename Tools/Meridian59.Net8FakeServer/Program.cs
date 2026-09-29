@@ -259,6 +259,19 @@ static class FakeServer
                     else { SendLoot(ns, ctrl, --lootLeft); Say(ns, ctrl, RID_ECHO); }
                     break;
 
+                case MessageTypeGameMode.ReqBuy:
+                    Console.WriteLine("  <- ReqBuy");
+                    SendStock(ns, ctrl);
+                    break;
+
+                case MessageTypeGameMode.ReqBuyItems:
+                    // A real server takes the money and hands over the
+                    // goods. This just says something, so the exchange
+                    // is visible from the client's side.
+                    Console.WriteLine("  <- ReqBuyItems");
+                    Say(ns, ctrl, RID_ECHO);
+                    break;
+
                 case MessageTypeGameMode.SendObjectContents:
                     // Opening a container: the client asks for what is
                     // inside, and the answer is the same kind of list the
@@ -439,6 +452,37 @@ static class FakeServer
             new List<SubOverlay>());
     }
 
+    /// <summary>
+    /// What the merchant sells. BuyList carries the trade partner and a
+    /// TradeOfferObject per line - an ordinary object plus a price - and
+    /// the client puts up its buy window on the strength of it.
+    /// </summary>
+    static void SendStock(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var stock = new[]
+        {
+            Offer(7001, RID_AXEBGF,  RID_AXE,  0, 1200),
+            Offer(7002, RID_BOOKBGF, RID_BOOK, 0, 75),
+            // A stackable line: the window totals count times price for
+            // these and price once for everything else.
+            Offer(7003, RID_COINBGF, RID_COIN, 10, 12),
+        };
+
+        Send(ns, ctrl, new BuyListMessage(
+            Item(3103, RID_PLAYERBGF, RID_ALICE, 0), stock));
+    }
+
+    static TradeOfferObject Offer(uint id, uint bgfRid, uint nameRid, uint count, uint price)
+    {
+        return new TradeOfferObject(
+            id, count, bgfRid, nameRid, 0,
+            new LightingInfo(),
+            AnimationType.NONE, 0, 0,
+            new AnimationNone(),
+            new List<SubOverlay>(),
+            price);
+    }
+
     static void SendCharacters(NetworkStream ns, MessageControllerClient ctrl)
     {
         var chars = new List<CharSelectItem> { new CharSelectItem(1001, 1, "Tester", 0) };
@@ -493,8 +537,12 @@ static class FakeServer
             // and Loot actions have a target: the library looks for a
             // container or an activatable object near you for the first,
             // and fills its loot list from gettable ones for the second.
-            Obj(3001, RID_BOOKBGF, RID_BOOK, 768, 688, 0f, OF_CONTAINER | OF_DISPLAY_NAME),
-            Obj(3002, RID_COINBGF, RID_COIN, 736, 688, 0f, OF_GETTABLE | OF_DISPLAY_NAME),
+            Obj(3101, RID_BOOKBGF, RID_BOOK, 768, 688, 0f, OF_CONTAINER | OF_DISPLAY_NAME),
+            Obj(3102, RID_COINBGF, RID_COIN, 736, 688, 0f, OF_GETTABLE | OF_DISPLAY_NAME),
+            // Somebody to buy from: AvatarAction.Buy looks for a nearby
+            // object flagged OF_BUYABLE and asks it for a stock list.
+            Obj(3103, RID_PLAYERBGF, RID_ALICE, 800, 672, 3f,
+                OF_BUYABLE | OF_DISPLAY_NAME, MM_PLAYER, NC_PLAYER),
 
             // Two other players, so the name labels have something to
             // label. This server's flavour - Server 104's - draws a name
@@ -570,6 +618,7 @@ static class FakeServer
     const uint OF_ATTACKABLE = 0x00000008;
     const uint OF_GETTABLE = 0x00000010;
     const uint OF_CONTAINER = 0x00000020;
+    const uint OF_BUYABLE = 0x00000400;
 
     const uint MM_PLAYER = 0x00000001;
     const uint MM_ENEMY = 0x00000002;
