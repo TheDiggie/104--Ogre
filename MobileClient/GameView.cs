@@ -471,10 +471,19 @@ public partial class GameView : Node2D
         _state = "error";
         _log.Add(msg);
         if (_status != null) _status.Text = msg;
+        // While the login screen is up it is the only thing on screen,
+        // so a failure that only reached the status line was invisible.
+        _login?.Trouble(msg);
         GD.PrintErr("[GameView] " + msg);
     }
 
     public override void _Process(double delta)
+    {
+        try { Pump(delta); }
+        catch (Exception e) { Boom("running", e); }
+    }
+
+    void Pump(double delta)
     {
         if (_client == null) return;
 

@@ -794,6 +794,30 @@ nerudite axe at 1200, a tattered book at 75, and ten doubloons at 12:
 
 1200 for the axe once, plus ten times twelve for the stack.
 
+## Getting it to run on a phone
+
+The apk installs and launches. Then it died with
+`PlatformNotSupportedException: Operation is not supported on this
+platform` on Godot's crash overlay, which is one line and no stack.
+That is the whole of the evidence a phone gives you: no console, no log
+you can open, and no adb unless the cable is in. So the first fix was
+not a fix at all - startup, the unpack task, the resource search and
+every frame now catch what escapes them and render the exception, type
+message and stack, over the screen, with
+`AppDomain.UnhandledException` and `TaskScheduler.UnobservedTaskException`
+covering what never comes back through a `try`.
+
+The cause found so far is the connection. `ServerConnection` opens a
+dual-stack IPv6 socket and sets `IPV6_V6ONLY` off, falling back to
+plain IPv4 when that fails - but it only caught `SocketException`.
+Android refuses that socket option, and .NET reports an unsupported
+socket option as `PlatformNotSupportedException`, which sailed straight
+past the catch and killed the app. It catches everything now: whatever
+goes wrong reaching for dual-stack, IPv4 is the answer.
+
+A connection failure also only reached a status line that the login
+screen was covering, so it now shows on the login screen itself.
+
 ## Known limits
 
 - **Speed.** A uniform spatial grid (`WallGrid.cs`) means a ray only

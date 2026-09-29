@@ -445,8 +445,15 @@ namespace Meridian59.Protocol
                         socketUDP = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp);
                         socketUDP.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
                     }
-                    catch (SocketException)
+                    catch (Exception)
                     {
+                        // Not only SocketException: Android refuses
+                        // IPV6_V6ONLY outright and .NET surfaces an
+                        // unsupported socket option as
+                        // PlatformNotSupportedException, which was
+                        // killing the app on a phone before it could
+                        // reach the server. Whatever goes wrong here,
+                        // plain IPv4 is the answer.
                         socket?.Close(); socketUDP?.Close();
                         socket = null; socketUDP = null;
                         dualStack = false;
