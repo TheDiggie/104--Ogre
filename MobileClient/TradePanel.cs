@@ -58,6 +58,7 @@ public partial class TradePanel : Control
     readonly List<ObjectID> _offering = new List<ObjectID>();
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
     string _theirSignature = "";
+    TradeInfo _trade;
 
     public bool IsOpen => _panel != null && _panel.Visible;
 
@@ -88,7 +89,20 @@ public partial class TradePanel : Control
         _add = Act("Add", () => AddWanted?.Invoke());
         _offer = Act("Offer", () => Offer?.Invoke(new List<ObjectID>(_offering)));
         _accept = Act("Accept", () => Accept?.Invoke());
-        _cancel = Act("Cancel", () => Cancel?.Invoke());
+        // The game sends the cancel only when a trade is actually
+        // pending, and clears its own side either way
+        // (`UITrade.cpp:490-495`). Sending unconditionally asks the
+        // server to cancel something it has no record of, which it
+        // answers by doing nothing - leaving IsVisible set and the
+        // window up, so Cancel looked broken whenever you had opened
+        // the window on a nearby player and nobody had offered yet.
+        _cancel = Act("Cancel", () =>
+        {
+            if (_trade != null && _trade.IsPending) Cancel?.Invoke();
+            _trade?.Clear(true);
+            Show(false);
+            Clear();
+        });
 
         GetViewport().SizeChanged += Layout;
         Layout();
@@ -182,6 +196,7 @@ public partial class TradePanel : Control
     public void Sync(TradeInfo trade)
     {
         if (_panel == null) return;
+        _trade = trade;
 
         if (trade == null || !trade.IsVisible)
         {
@@ -191,7 +206,24 @@ public partial class TradePanel : Control
 
         if (!IsOpen) { Show(true); Clear(); }
 
-        string who = trade.TradePartner != null && !string.IsNullOrWhiteSpace(trade.TradePartner.Name)
+        // Which buttons are live is the model's business, not the
+        // window's. Show() turns everything on; these three turn back
+        // off exactly where the game turns them off
+        // (`UITrade.cpp:90-107`). Without them Accept was tappable
+        // before anyone had offered anything and Offer stayed tappable
+        // after you had committed, so a trade could be re-offered or
+        // accepted while unset.
+        _offer.Visible = !trade.IsItemsYouSet;
+        _add.Visible = !trade.IsItemsYouSet;
+        _accept.Visible = trade.IsItemsYouSet && trade.IsItemsPartnerSet && !trade.IsBackgroundOffer;
+
+        // An invisible partner is not named: the game hides the name
+        // label on Flags.Drawing == Invisible (`UITrade.cpp:116-119`),
+        // and putting it in the title would tell you who is standing
+        // there unseen.
+        bool hidden = trade.TradePartner != null &&
+                      trade.TradePartner.Flags.Drawing == ObjectFlags.DrawingType.Invisible;
+        string who = !hidden && trade.TradePartner != null && !string.IsNullOrWhiteSpace(trade.TradePartner.Name)
             ? trade.TradePartner.Name : "someone";
         _title.Text = trade.IsBackgroundOffer ? $"{who} offers you a trade" : $"Trading with {who}";
 
