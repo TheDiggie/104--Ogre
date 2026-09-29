@@ -25,3 +25,20 @@ Reading a counter-offer as an offer gives a nonsense count and prints
 nothing, which reads as "trade is broken".
 
 See also: wire-format.md
+
+## Attacking, and the off-by-one that hid it
+Tags: gotchas, lessons | ReqAttack's body is [PI=103][01][ObjectID], so the id starts at offset TWO - read at one, as ReqLook's does, 2001 comes back as 0x7D101
+
+The fixture ignored ReqAttack entirely, so nothing downstream of a kill -
+the target clearing, the red outline going away, the object leaving the
+room - had ever been exercised. Teaching it to answer took three hits and
+a `RemoveMessage`.
+
+The first attempt read the id at offset one, which is where ReqLook's
+sits. It came back as 512257 rather than 2001: the id shifted up a byte
+with that `01` pulled in underneath it. The removal then named an object
+that did not exist, the client correctly ignored it, and the rat looked
+unkillable - an hour spent reading client code that was right the whole
+time. Dump the bytes before believing a parse.
+
+See also: ../../CLAUDE.md | wire format -> wire-format.md

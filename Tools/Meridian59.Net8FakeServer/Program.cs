@@ -107,6 +107,9 @@ static class FakeServer
     const uint RID_MUSIC = 60081;
 
     /// <summary>The server's own copy of what it wrote to the string file.</summary>
+    /// <summary>How many times each object has been attacked this run.</summary>
+    static readonly Dictionary<uint, int> hitsOn = new Dictionary<uint, int>();
+
     static readonly StringDictionary strings = new StringDictionary();
 
     static string room = "barinn.roo";
@@ -347,6 +350,35 @@ static class FakeServer
                     Console.WriteLine("  <- UseCharacter");
                     EnterRoom(ns, ctrl);
                     Say(ns, ctrl, RID_GREETING);
+                    break;
+
+                case MessageTypeGameMode.ReqAttack:
+                    // Attacking was the one common thing the fixture did
+                    // not answer: the client sent 103 and the server
+                    // ignored it, so nothing downstream of a kill - the
+                    // target clearing, the action row emptying, the red
+                    // outline going away - had ever been exercised.
+                    //
+                    // Three hits kill. The count is per object so two
+                    // rats can be fought in one session, and the reply
+                    // is the same RemoveMessage a real server sends when
+                    // a creature dies and leaves the room.
+                    // The body is [PI=103][01][ObjectID], so the id starts at
+                    // TWO. Read at one - the offset ReqLook uses - it comes
+                    // back as 0x7D101 instead of 0x7D1: the id shifted up a
+                    // byte with that 01 pulled into the bottom. The removal
+                    // then names an object that does not exist, the client
+                    // correctly ignores it, and the rat looks unkillable.
+                    // This cost an hour of reading client code that was right.
+                    uint hit = body.Length >= 6 ? BitConverter.ToUInt32(body, 2) : 0;
+                    hitsOn.TryGetValue(hit, out int sofar);
+                    hitsOn[hit] = ++sofar;
+                    Console.WriteLine($"  <- ReqAttack {hit} (hit {sofar} of 3)");
+                    if (sofar >= 3)
+                    {
+                        Console.WriteLine($"  -> Remove {hit} (it dies)");
+                        Send(ns, ctrl, new RemoveMessage(hit));
+                    }
                     break;
 
                 case MessageTypeGameMode.ReqLook:
