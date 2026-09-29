@@ -115,6 +115,12 @@ public partial class ActionButtons : Control
     {
         if (data?.ActionButtons == null || data.ActionButtons.Count > 0) return;
 
+        // What this character had last time wins over the starting set.
+        // The game loads its saved buttons at exactly this point, when a
+        // character is chosen (`OgreClient.cpp:984`), and falls back to
+        // a default set when there are none.
+        if (HotbarStore.Load(data)) return;
+
         AvatarAction[] starting =
         {
             AvatarAction.Rest,
@@ -189,11 +195,14 @@ public partial class ActionButtons : Control
 
         switch (what)
         {
-            case SpellObject spell:    slot.SetToSpell(spell); return true;
-            case SkillObject skill:    slot.SetToSkill(skill); return true;
-            case InventoryObject item: slot.SetToItem(item);   return true;
+            case SpellObject spell:    slot.SetToSpell(spell); break;
+            case SkillObject skill:    slot.SetToSkill(skill); break;
+            case InventoryObject item: slot.SetToItem(item);   break;
+            default: return false;
         }
-        return false;
+
+        HotbarStore.Save(data);
+        return true;
     }
 
     /// <summary>
@@ -302,6 +311,7 @@ public partial class ActionButtons : Control
         if (down != 0 && Time.GetTicksMsec() - down >= LongPressMs)
         {
             cfg.SetToUnset();
+            HotbarStore.Save(_data);
             return;
         }
 
