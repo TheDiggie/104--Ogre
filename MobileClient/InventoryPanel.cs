@@ -41,6 +41,12 @@ public partial class InventoryPanel : Control
     public event Action<InventoryObject> UseItem;
     public event Action<InventoryObject> DropItem;
     public event Action<InventoryObject> LookItem;
+    /// <summary>
+    /// Put this item on the hotbar. The game binds a button by dragging
+    /// the item out of this grid onto it (`UIActionButtons.cpp:384`),
+    /// which a phone cannot do while this panel is covering the hotbar.
+    /// </summary>
+    public event Action<InventoryObject> BindItem;
     /// <summary>Raised when the panel is opened, to ask the server for a fresh list.</summary>
     public event Action Opened;
     /// <summary>
@@ -77,7 +83,7 @@ public partial class InventoryPanel : Control
     ScrollContainer _scroll;
     GridContainer _grid;
     Label _selected;
-    Button _use, _drop, _look, _close;
+    Button _use, _drop, _look, _bind, _close;
 
     InventoryObject _picked;
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
@@ -119,6 +125,7 @@ public partial class InventoryPanel : Control
         _use   = MakeAction("Use",   () => { if (_picked != null) UseItem?.Invoke(_picked); });
         _drop  = MakeAction("Drop",  () => { if (_picked != null) DropItem?.Invoke(_picked); });
         _look  = MakeAction("Look",  () => { if (_picked != null) LookItem?.Invoke(_picked); });
+        _bind  = MakeAction("Hotbar",() => { if (_picked != null) BindItem?.Invoke(_picked); });
         _close = MakeAction("Close", Close);
 
         GetViewport().SizeChanged += Layout;
@@ -164,7 +171,7 @@ public partial class InventoryPanel : Control
         float y = v.Y - rowH - side * 0.5f;
         _selected.Position = new Vector2(side, y - FontSize * 1.6f);
 
-        Button[] row = { _use, _drop, _look, _close };
+        Button[] row = { _use, _drop, _look, _bind, _close };
         float w = (v.X - side * 2f - 8f * (row.Length - 1)) / row.Length;
         for (int i = 0; i < row.Length; i++)
         {
@@ -216,7 +223,7 @@ public partial class InventoryPanel : Control
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
         _open.Visible = !on;
         _close.Visible = on;
-        if (!on) { _use.Visible = false; _drop.Visible = false; _look.Visible = false; _selected.Visible = false; }
+        if (!on) { _use.Visible = false; _drop.Visible = false; _look.Visible = false; _bind.Visible = false; _selected.Visible = false; }
         Layout();
     }
 
@@ -362,7 +369,7 @@ public partial class InventoryPanel : Control
         _picked = item;
         Selected?.Invoke(item);
         bool on = item != null && IsOpen;
-        _use.Visible = on; _drop.Visible = on; _look.Visible = on;
+        _use.Visible = on; _drop.Visible = on; _look.Visible = on; _bind.Visible = on;
         _selected.Visible = on;
         if (!on) return;
 

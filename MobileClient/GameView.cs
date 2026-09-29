@@ -691,6 +691,11 @@ public partial class GameView : Node2D
                     _client.SendReqDropMessage(new ObjectID(item.ID));
             });
             _bag.LookItem    += item => Act(() => _client.SendReqLookMessage(item.ID));
+            _bag.BindItem    += item => Act(() =>
+            {
+                if (ActionButtons.Bind(_client.Data, item))
+                    _chat?.Local($"{item.Name} is on the hotbar. Hold the button to clear it.");
+            });
             _bag.MoveItem    += (from, to) => Act(() => MoveInBag(from, to));
             _ui.AddChild(_bag);
         });
