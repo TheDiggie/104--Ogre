@@ -61,6 +61,8 @@ static class FakeServer
     const uint RID_SPELL2 = 60061;
     const uint RID_SKILL1 = 60062;
     const uint RID_SKILL2 = 60063;
+    const uint RID_ROOMBUFF1 = 60072;
+    const uint RID_ROOMBUFF2 = 60073;
     const uint RID_BUFF1 = 60070;
     const uint RID_BUFF2 = 60071;
     static int stopAfter;
@@ -153,6 +155,8 @@ static class FakeServer
             new RsbResourceID(RID_SPELL2,     "kraanan's blessing", 4),
             new RsbResourceID(RID_SKILL1,     "slash",            4),
             new RsbResourceID(RID_SKILL2,     "bandaging",        4),
+            new RsbResourceID(RID_ROOMBUFF1,  "shal'ille's grace", 4),
+            new RsbResourceID(RID_ROOMBUFF2,  "a lingering fog",   4),
             new RsbResourceID(RID_BUFF1,      "shielding",        4),
             new RsbResourceID(RID_BUFF2,      "haste",            4),
             // Sound files are named as .wav in the string table and the
@@ -901,6 +905,14 @@ static class FakeServer
             Item(6001, RID_COINBGF, RID_BUFF1, 1)));
         Send(ns, ctrl, new AddEnchantmentMessage(BuffType.AvatarBuff,
             Item(6002, RID_AXEBGF, RID_BUFF2, 1)));
+
+        // And two on the room. Same message, different type byte: the
+        // data layer files these in RoomBuffs rather than AvatarBuffs,
+        // and until now nothing in the client read that list.
+        Send(ns, ctrl, new AddEnchantmentMessage(BuffType.RoomBuff,
+            Item(6101, RID_BOOKBGF, RID_ROOMBUFF1, 1)));
+        Send(ns, ctrl, new AddEnchantmentMessage(BuffType.RoomBuff,
+            Item(6102, RID_COINBGF, RID_ROOMBUFF2, 1)));
     }
 
     /// <summary>

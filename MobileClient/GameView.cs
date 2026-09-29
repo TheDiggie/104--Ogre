@@ -41,6 +41,7 @@ public partial class GameView : Node2D
     ActionBar _actions;
     CharacterPicker _picker;
     MiniMap _map;
+    RoomBuffsPanel _roomBuffs;
     Button _loot;
     LootPanel _lootList;
     LootPanel _contents;
@@ -411,6 +412,13 @@ public partial class GameView : Node2D
             _ui.AddChild(_sheet);
         });
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
+        Widget("roombuffs", () =>
+        {
+            // Under the minimap, which owns the top-right corner.
+            _roomBuffs = new RoomBuffsPanel { TopReserve = 220f + 8f };
+            _roomBuffs.Look += id => Act(() => _client.SendReqLookMessage(id));
+            _ui.AddChild(_roomBuffs);
+        });
         Widget("names", () => { _names = new NameTags(); _ui.AddChild(_names); });
         Widget("look", () => { _look = new LookPanel(); _ui.AddChild(_look); });
         Widget("sound", () =>
@@ -652,6 +660,7 @@ public partial class GameView : Node2D
         _quests?.Sync(_client.Data?.AvatarQuests);
         _trade?.Sync(_client.Data?.Trade);
         _npcQuests?.Sync(_client.Data?.QuestUIInfo);
+        _roomBuffs?.Sync(_client.Data?.RoomBuffs);
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
