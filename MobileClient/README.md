@@ -178,7 +178,17 @@ On desktop: WASD to move, arrow keys or left-drag to turn, Shift to run.
 
 ## Android
 
-Nothing here has been run on a phone yet. What is in place:
+An APK builds: 495 MB, arm64-v8a, signed, carrying both .NET assemblies
+and 5661 asset entries. It has not been run on a phone yet - that is the
+last untested thing in this client.
+
+Budget about a gigabyte on the device. The art is 470 MB inside the apk
+and `M59Paths.UnpackIfNeeded` copies it out to `user://resource` on
+first launch, so both copies exist until Android reclaims the install
+package. First start sits on a file count for a while; that is the
+unpack, not a hang.
+
+What is in place:
 
 - `export_presets.cfg` carries an arm64 Android preset
   (`us.meridian59.mobile`), immersive mode, portrait, internet
