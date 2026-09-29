@@ -313,16 +313,32 @@ public partial class GameView : Node2D
                     // The game's own command parser, which knows tell,
                     // cast, perform, rest, guild, invite, group, deposit,
                     // appeal, time and twenty more, and keeps the command
-                    // history. It is word-based - "tell bob hi" - and
-                    // returns nothing for text that is not a command, so
-                    // plain text falls through to a say. This used to be
-                    // four prefixes I made up.
-                    // Everything goes through ExecChatCommand, including
-                    // plain text: it falls through to a say by itself,
-                    // and it is what adds the line to the client's
-                    // command history. Sending a say directly kept
-                    // ordinary talk out of that history entirely.
+                    // history. Everything goes through it, because it is
+                    // what adds the line to that history - sending a say
+                    // directly kept ordinary talk out of it entirely.
                     _client.ExecChatCommand(text);
+
+                    // And then, if it was not a command, say it.
+                    //
+                    // This is a deliberate departure. The parser only
+                    // makes a say out of text that begins with the word
+                    // "say" (ChatCommand.cs:103), and the game's own chat
+                    // bar does no more than this call (`UIChat.cpp:279`),
+                    // so on a desktop typing "hello" and pressing enter
+                    // does nothing at all. My earlier comment here
+                    // claimed plain text fell through to a say. It does
+                    // not, and nothing was being sent.
+                    //
+                    // Keeping that would be faithful and wrong. This bar
+                    // is opened by pressing a button labelled Say, so the
+                    // intent is already stated, and typing three more
+                    // letters before every sentence costs a great deal
+                    // more on a soft keyboard than on a real one. A
+                    // command still runs as a command: the say only
+                    // happens when the parser found none.
+                    if (Meridian59.Data.Models.ChatCommand.Parse(text, _client.Data, _client.Config) == null)
+                        _client.SendSayToMessage(
+                            Meridian59.Common.Enums.ChatTransmissionType.Normal, text);
                 }
                 catch (Exception ex) { _chat.Local($"could not send: {ex.Message}"); }
             };

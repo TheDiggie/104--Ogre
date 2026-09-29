@@ -292,7 +292,10 @@ public partial class SceneShot : Node
 
     static void Boxes(Node from, List<LineEdit> into)
     {
-        if (from is LineEdit e && e.Visible) into.Add(e);
+        // IsVisibleInTree, not Visible - see Showing. A box inside a
+        // hidden panel is flagged visible and would be typed into
+        // instead of the one on screen.
+        if (from is LineEdit e && Showing(e)) into.Add(e);
         foreach (Node c in from.GetChildren()) Boxes(c, into);
     }
 
@@ -434,8 +437,12 @@ public partial class SceneShot : Node
                 Boxes(GetTree().Root, boxes);
                 if (boxes.Count > 0)
                 {
-                    boxes[0].EmitSignal(LineEdit.SignalName.TextSubmitted, boxes[0].Text);
-                    GD.Print($"[SceneShot] submitted \"{boxes[0].Text}\"");
+                    // Read before emitting: the handler clears the box,
+                    // so printing afterwards always reported an empty
+                    // submission and made a working send look broken.
+                    string sent = boxes[0].Text;
+                    boxes[0].EmitSignal(LineEdit.SignalName.TextSubmitted, sent);
+                    GD.Print($"[SceneShot] submitted \"{sent}\"");
                 }
                 else GD.Print("[SceneShot] @submit found no text box");
             }
