@@ -51,6 +51,7 @@ public partial class GameView : Node2D
     PlayersPanel _players;
     QuestsPanel _quests;
     MailPanel _mail;
+    NewsPanel _news;
     GuildPanel _guild;
     ConfirmPopup _ask;
     StatsWizard _wizard;
@@ -418,6 +419,36 @@ public partial class GameView : Node2D
             _wizard.Complain += text => _ask?.Tell(text);
             _ui.AddChild(_wizard);
         });
+        Widget("news", () =>
+        {
+            // No button: looking at a news globe in the world is what
+            // raises it.
+            _news = new NewsPanel();
+            // HandleArticles adds to the list rather than replacing it,
+            // so asking again without clearing appends the board to
+            // itself.
+            _news.Refresh += () => Act(() =>
+            {
+                _client.Data?.NewsGroup?.Articles?.Clear();
+                _client.SendReqArticles();
+            });
+            _news.Read += number => Act(() => _client.SendReqArticle(number));
+            _news.Post += (title, text) => Act(() =>
+            {
+                ushort globe = _client.Data != null ? _client.Data.NewsGroup.NewsGlobeID : (ushort)0;
+                _client.SendPostArticle(globe, title, text);
+                _client.Data?.NewsGroup?.Articles?.Clear();
+                _client.SendReqArticles();
+            });
+            _news.Remove += number => Act(() =>
+            {
+                ushort globe = _client.Data != null ? _client.Data.NewsGroup.NewsGlobeID : (ushort)0;
+                _client.SendDeleteNews(globe, number);
+                _client.Data?.NewsGroup?.Articles?.Clear();
+                _client.SendReqArticles();
+            });
+            _ui.AddChild(_news);
+        });
         Widget("guild", () =>
         {
             // No button opens this: UserCommandGuildInfo raises it.
@@ -779,6 +810,7 @@ public partial class GameView : Node2D
         _roomBuffs?.Sync(_client.Data?.RoomBuffs);
         _bar?.Sync(_client.Data);
         _mail?.Sync(_client.ResourceManager?.Mails);
+        _news?.Sync(_client.Data?.NewsGroup);
         _guild?.Sync(_client.Data?.GuildInfo, _client.Data != null ? _client.Data.AvatarID : 0u);
         _wizard?.Sync(_client.Data?.StatChangeInfo);
         _newChar?.Sync();
@@ -1038,6 +1070,7 @@ public partial class GameView : Node2D
         || (_trade != null && _trade.IsOpen)
         || (_npcQuests != null && _npcQuests.IsOpen)
         || (_mail != null && _mail.IsOpen)
+        || (_news != null && _news.IsOpen)
         || (_guild != null && _guild.IsOpen)
         || (_wizard != null && _wizard.IsOpen)
         || (_ask != null && _ask.IsOpen);

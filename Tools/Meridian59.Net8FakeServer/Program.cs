@@ -61,6 +61,8 @@ static class FakeServer
     const uint RID_SPELL2 = 60061;
     const uint RID_SKILL1 = 60062;
     const uint RID_SKILL2 = 60063;
+    const uint RID_GLOBE = 60150;
+    const uint RID_HEADLINE = 60151;
     const uint RID_HEADBGF = 60140;
     const uint RID_HAIRBGF = 60141;
     const uint RID_SPELLA = 60142;
@@ -176,6 +178,8 @@ static class FakeServer
             // so the palette points at a body and a hat. The compose
             // path is the same one a real head goes through; only the
             // pictures are wrong.
+            new RsbResourceID(RID_GLOBE,      "a notice board",   4),
+            new RsbResourceID(RID_HEADLINE,   "Nothing here is true, and this is the board that says so.", 4),
             new RsbResourceID(RID_HEADBGF,    "bri.bgf",          4),
             new RsbResourceID(RID_HAIRBGF,    "book1.bgf",        4),
             new RsbResourceID(RID_SPELLA,     "blink",            4),
@@ -346,6 +350,18 @@ static class FakeServer
                     uint lookAt = body.Length >= 5 ? BitConverter.ToUInt32(body, 1) : 0;
                     Console.WriteLine($"  <- ReqLook {lookAt}");
                     if (lookAt == 5001 || lookAt == 5002) SendLookSpell(ns, ctrl);
+                    // A news globe answers with LookNewsGroup rather
+                    // than Look - the same request, a different reply,
+                    // exactly as with a spell.
+                    //
+                    // M59_NEWS=1 makes the book on the floor answer that
+                    // way too. Placing a separate globe and hitting it
+                    // with a screen tap turned out to be a fight with
+                    // the room's geometry rather than a test of the
+                    // window, and the container fixture wants that book
+                    // to stay a container the rest of the time.
+                    else if (lookAt == 3104 || (wantNews && lookAt == 3101))
+                        SendNewsGroup(ns, ctrl);
                     else SendLook(ns, ctrl);
                     break;
 
@@ -388,6 +404,33 @@ static class FakeServer
                     }
                     break;
                 }
+
+                case MessageTypeGameMode.ReqArticles:
+                    Console.WriteLine("  <- ReqArticles");
+                    SendArticles(ns, ctrl);
+                    break;
+
+                case MessageTypeGameMode.ReqArticle:
+                {
+                    // The globe id comes first as a short, then the
+                    // article number as an int - reading the number
+                    // straight off the PI gives the two glued together
+                    // (article 1 on globe 7 arrives as 65543).
+                    uint num = body.Length >= 7 ? BitConverter.ToUInt32(body, 3) : 0;
+                    Console.WriteLine($"  <- ReqArticle {num}");
+                    Send(ns, ctrl, new ArticleMessage(Body(num)));
+                    break;
+                }
+
+                case MessageTypeGameMode.PostArticle:
+                    Console.WriteLine("  <- PostArticle");
+                    posted++;
+                    break;
+
+                case MessageTypeGameMode.DeleteNews:
+                    Console.WriteLine("  <- DeleteNews");
+                    deleted++;
+                    break;
 
                 case MessageTypeGameMode.ReqGetMail:
                     Console.WriteLine("  <- ReqGetMail");
@@ -1059,6 +1102,72 @@ static class FakeServer
         return a;
     }
 
+    static readonly bool wantNews =
+        Environment.GetEnvironmentVariable("M59_NEWS") == "1";
+
+    static int posted, deleted;
+
+    /// <summary>
+    /// The board itself. NewsGlobeObject is what the window is titled
+    /// after, and the headline is the line under it.
+    /// </summary>
+    static void SendNewsGroup(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var news = new NewsGroup(
+            7, 0,
+            Item(3104, RID_BOOKBGF, RID_GLOBE, 0),
+            RID_HEADLINE,
+            "");                                 // resolved client-side from the id
+
+        Send(ns, ctrl, new LookNewsGroupMessage(news));
+    }
+
+    /// <summary>
+    /// The headers on the board. A post adds one and a delete takes one
+    /// away, so the client's clear-then-reask actually shows a change
+    /// rather than the same three lines every time.
+    /// </summary>
+    static void SendArticles(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        // ArticleHead does not round-trip its own timestamp.
+        // WriteTo stores seconds since MERIDIANZERO and ReadFrom adds a
+        // further 1599982030 on the way back, so a date written here
+        // comes out fifty years late - which is what the first attempt
+        // showed, every article dated 2077. The offset is taken off
+        // going in so the client displays what was meant.
+        DateTime now = DateTime.Now.AddSeconds(-1599982030d);
+
+        var heads = new List<ArticleHead>
+        {
+            new ArticleHead(1, now.AddDays(-3), "Alice", "The cellar, again"),
+            new ArticleHead(2, now.AddDays(-1), "Boris the Outlaw", "Re: The cellar, again"),
+            new ArticleHead(3, now, "Tester", "Has anyone seen my axe"),
+        };
+
+        for (int i = 0; i < deleted && heads.Count > 0; i++) heads.RemoveAt(heads.Count - 1);
+        for (int i = 0; i < posted; i++)
+            heads.Add(new ArticleHead((uint)(100 + i), now, "Tester", "A posting of mine"));
+
+        Send(ns, ctrl, new ArticlesMessage(heads.ToArray()));
+    }
+
+    /// <summary>
+    /// An article's text. Unlike almost everything else on this server
+    /// it is a plain string on the wire, not a resource id - the
+    /// article was typed by a player, so there is nothing to look it up
+    /// in.
+    /// </summary>
+    static string Body(uint number)
+    {
+        switch (number)
+        {
+            case 1: return "Twenty of them, and the innkeeper counting. Bring a lantern.";
+            case 2: return "I brought a lantern. I did not bring twenty arrows.";
+            case 3: return "Nerudite. Notched. Answers to nothing. Reward offered.";
+            default: return "(nothing here)";
+        }
+    }
+
     static void SendNPCQuests(NetworkStream ns, MessageControllerClient ctrl)
     {
         var quests = new[]
@@ -1165,6 +1274,7 @@ static class FakeServer
             Obj(3102, RID_COINBGF, RID_COIN, 736, 688, 0f, OF_GETTABLE | OF_DISPLAY_NAME),
             // Somebody to buy from: AvatarAction.Buy looks for a nearby
             // object flagged OF_BUYABLE and asks it for a stock list.
+            Obj(3104, RID_BOOKBGF, RID_GLOBE, 780, 656, 0f, OF_DISPLAY_NAME),
             Obj(3103, RID_PLAYERBGF, RID_ALICE, 800, 672, 3f,
                 OF_BUYABLE | OF_DISPLAY_NAME, MM_PLAYER, NC_PLAYER),
 
