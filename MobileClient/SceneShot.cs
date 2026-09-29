@@ -59,6 +59,10 @@ public partial class SceneShot : Node
         // result every few frames, which is how the movement path gets
         // exercised at all: it runs through the same input handling a
         // thumb on the stick does.
+        // A flag rather than a value: OS.GetCmdlineUserArgs gives a flat
+        // list, so Arg only sees a name followed by something.
+        _everyStep = System.Array.IndexOf(OS.GetCmdlineUserArgs(), "--shots") >= 0;
+
         if (int.TryParse(Arg("--walk", "0"), out int walk) && walk > 0)
             Walk(outPath, wait, walk, Arg("--keys", "W"));
         // Anything with a sequence in it - several presses, or a tap or
@@ -373,6 +377,7 @@ public partial class SceneShot : Node
         foreach (string raw in names)
         { string t = raw.Trim(); if (t == "@slot" || t == "@tap" || t.StartsWith("@tap:")) placed = true; }
 
+        int shot = 0;
         var steps = new List<string>();
         if (placed) steps.AddRange(names);
         else { if (names.Length > 0) steps.Add(names[0]); steps.Add("@slot");
@@ -467,6 +472,20 @@ public partial class SceneShot : Node
 
             for (int i = 0; i < 30; i++)
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+            // --shots photographs after every step, not only at the end.
+            // One run then shows what each press did rather than what
+            // the last one left behind, which is the difference between
+            // "the panel is wrong" and "the panel was fine until the
+            // third tap".
+            if (_everyStep)
+            {
+                shot++;
+                await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+                string each = System.IO.Path.ChangeExtension(path, null) + "-" + shot + ".png";
+                GetViewport().GetTexture().GetImage().SavePng(each);
+                GD.Print($"[SceneShot] wrote {each} after {raw.Trim()}");
+            }
         }
 
         for (int i = 0; i < 30; i++)
@@ -521,6 +540,9 @@ public partial class SceneShot : Node
         }
         return null;
     }
+
+    /// <summary>--shots: photograph after every press step.</summary>
+    static bool _everyStep;
 
     static string Arg(string name, string fallback)
     {
