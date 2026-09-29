@@ -331,6 +331,17 @@ static class FakeServer
                     else { SendLoot(ns, ctrl, --lootLeft); Say(ns, ctrl, RID_ECHO); }
                     break;
 
+                case MessageTypeGameMode.UserCommand:
+                {
+                    // The body is the PI and then the user-command type,
+                    // so one byte says which of two dozen commands this
+                    // is without parsing the rest.
+                    byte cmd = body.Length > 1 ? body[1] : (byte)0;
+                    Console.WriteLine($"  <- UserCommand {(UserCommandType)cmd}");
+                    if (cmd == (byte)UserCommandType.ReqGuildInfo) SendGuild(ns, ctrl);
+                    break;
+                }
+
                 case MessageTypeGameMode.ReqGetMail:
                     Console.WriteLine("  <- ReqGetMail");
                     SendMail(ns, ctrl);
@@ -869,6 +880,52 @@ static class FakeServer
             cursor += len;
         }
         return names;
+    }
+
+    /// <summary>
+    /// Your guild. Everything the members tab can do is decided by the
+    /// flag word, so this hands over a guildmaster's set - exile, vote,
+    /// set rank, abdicate, disband, abandon - which is the only way to
+    /// see the row controls enabled at all. A member's set would leave
+    /// every one of them greyed, which is correct and untestable.
+    ///
+    /// The ranks are the guild's own strings, five per gender, and a
+    /// member's gender picks the column - so Alice reads as a Sister
+    /// where Boris reads as a Brother at the same rank.
+    /// </summary>
+    static void SendGuild(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        const uint GUILDMASTER =
+            0x00000002 |   // exile
+            0x00000004 |   // renounce
+            0x00000020 |   // vote
+            0x00000040 |   // abdicate
+            0x00001000 |   // set rank
+            0x00002000 |   // disband
+            0x00004000;    // abandon hall
+
+        var members = new[]
+        {
+            new GuildMemberEntry(1001, 0, "Tester", 5, Gender.Male),
+            new GuildMemberEntry(4001, 0, "Alice", 3, Gender.Female),
+            new GuildMemberEntry(4002, 0, "Boris the Outlaw", 1, Gender.Male),
+        };
+
+        var info = new GuildInfo(
+            "The Quiet Hand",
+            1,                       // has a hall, so the password box is there
+            "rats",
+            new GuildFlags(GUILDMASTER),
+            new ObjectID(9001, 0),
+            "Novice",  "Novice",
+            "Brother", "Sister",
+            "Elder",   "Matron",
+            "Warden",  "Warden",
+            "Master",  "Mistress",
+            new ObjectID(4001, 0),   // Alice is the supported member
+            members);
+
+        Send(ns, ctrl, new UserCommandMessage(new UserCommandGuildInfo(info), strings));
     }
 
     static void SendNPCQuests(NetworkStream ns, MessageControllerClient ctrl)

@@ -51,6 +51,7 @@ public partial class GameView : Node2D
     PlayersPanel _players;
     QuestsPanel _quests;
     MailPanel _mail;
+    GuildPanel _guild;
     NpcQuestsPanel _npcQuests;
     TradePanel _trade;
     /// <summary>Who asked the bag for something: the trade, or a container.</summary>
@@ -403,6 +404,33 @@ public partial class GameView : Node2D
             });
             _ui.AddChild(_mail);
         });
+        Widget("guild", () =>
+        {
+            // No button opens this: UserCommandGuildInfo raises it.
+            _guild = new GuildPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 6f };
+            _guild.Opened += () => Act(() => _client.SendUserCommandGuildInfoReq());
+            _guild.Support += id => Act(() => _client.SendUserCommandGuildVote(id));
+            _guild.Exile += id => Act(() => _client.SendUserCommandGuildExile(id));
+            _guild.SetRank += (id, rank) => Act(() => _client.SendUserCommandGuildSetRank(id, rank));
+            _guild.Abdicate += id => Act(() => _client.SendUserCommandGuildAbdicate(id));
+            _guild.Password += pw => Act(() => _client.SendUserCommandGuildSetPassword(pw));
+            _guild.AbandonHall += () => Act(() => _client.SendUserCommandGuildAbandonHall());
+            _guild.Renounce += disband => Act(() =>
+            {
+                if (disband) _client.SendUserCommandGuildDisband();
+                else _client.SendUserCommandGuildRenounce();
+                _client.Data?.GuildInfo?.Clear(true);
+                _client.Data?.GuildShieldInfo?.Clear(true);
+            });
+            // None of the guild commands is echoed, so the file clears
+            // and re-asks after each one rather than guessing.
+            _guild.Reload += () => Act(() =>
+            {
+                _client.Data?.GuildInfo?.Clear(true);
+                _client.SendUserCommandGuildInfoReq();
+            });
+            _ui.AddChild(_guild);
+        });
         Widget("players", () =>
         {
             // Left of the character sheet button.
@@ -695,6 +723,7 @@ public partial class GameView : Node2D
         _roomBuffs?.Sync(_client.Data?.RoomBuffs);
         _bar?.Sync(_client.Data);
         _mail?.Sync(_client.ResourceManager?.Mails);
+        _guild?.Sync(_client.Data?.GuildInfo, _client.Data != null ? _client.Data.AvatarID : 0u);
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
@@ -950,7 +979,8 @@ public partial class GameView : Node2D
         || (_quests != null && _quests.IsOpen)
         || (_trade != null && _trade.IsOpen)
         || (_npcQuests != null && _npcQuests.IsOpen)
-        || (_mail != null && _mail.IsOpen);
+        || (_mail != null && _mail.IsOpen)
+        || (_guild != null && _guild.IsOpen);
 
     /// <summary>
     /// Puts one of yours into the container whose contents are open.
