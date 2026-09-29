@@ -336,7 +336,8 @@ public partial class GameView : Node2D
         // in with no chat box beats a black screen and a stack trace.
         Widget("chat", () =>
         {
-            _chat = new ChatOverlay();
+            // Clear of the minimap's own button in the bottom corner.
+            _chat = new ChatOverlay { RightReserve = 70f + 12f + 8f };
             _chat.Submitted += text =>
             {
                 try

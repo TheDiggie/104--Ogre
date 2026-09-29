@@ -94,6 +94,17 @@ public partial class ChatOverlay : Control
             MaxLength = Meridian59.Common.Constants.BlakservStringLengths.MAX_CHAT_LEN,
         };
         _entry.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        // An opaque box to type into. The default one is part
+        // transparent, and the row of menu buttons sits at the same
+        // height behind it - so what you were typing read as part of
+        // the menu, with "Settings" and "Guild" showing through the
+        // middle of the sentence.
+        var typing = new StyleBoxFlat { BgColor = new Color(0.04f, 0.04f, 0.06f, 0.98f) };
+        typing.SetContentMarginAll(10);
+        typing.BorderColor = new Color(0.45f, 0.45f, 0.5f);
+        typing.SetBorderWidthAll(1);
+        _entry.AddThemeStyleboxOverride("normal", typing);
+        _entry.AddThemeStyleboxOverride("focus", typing);
         _entry.TextSubmitted += OnSubmitted;
         AddChild(_entry);
 
@@ -138,6 +149,9 @@ public partial class ChatOverlay : Control
         Layout();
     }
 
+    /// <summary>Pixels at the bottom right already spoken for.</summary>
+    public float RightReserve { get; set; }
+
     void Layout()
     {
         Vector2 v = GetViewportRect().Size;
@@ -145,11 +159,19 @@ public partial class ChatOverlay : Control
         float entryH = FontSize * 2.4f;
         float btnW = FontSize * 5f;
 
+        // The recall arrow stops short of whatever owns the corner -
+        // the minimap's own button sits there, and the two were drawn
+        // on top of one another.
         float recallW = entryH;
+        float right = pad + RightReserve;
         _entry.Position = new Vector2(pad, v.Y - entryH - pad);
-        _entry.Size = new Vector2(v.X - pad * 2 - recallW - 6f, entryH);
+        _entry.Size = new Vector2(v.X - pad - right, entryH);
 
-        _back.Position = new Vector2(v.X - pad - recallW, v.Y - entryH - pad);
+        // Inside the entry's own right edge rather than beyond it. Put
+        // outside, it sat over a menu button, and the button's text
+        // showed through the arrow.
+        _back.Position = new Vector2(_entry.Position.X + _entry.Size.X - recallW - 3f,
+                                     v.Y - entryH - pad);
         _back.Size = new Vector2(recallW, entryH);
 
         _open.Position = new Vector2(pad, v.Y - entryH - pad);
@@ -211,10 +233,9 @@ public partial class ChatOverlay : Control
     /// </summary>
     public void Compose(string prefix)
     {
-        Open();
         _entry.Text = prefix ?? "";
         _entry.CaretColumn = _entry.Text.Length;
-        DisplayServer.VirtualKeyboardShow(_entry.Text);
+        Open();
     }
 
     /// <summary>
@@ -239,11 +260,20 @@ public partial class ChatOverlay : Control
 
     public void Open()
     {
+        // Above the row of menu buttons along the bottom edge, which is
+        // built after this one and was drawing over the entry: the box
+        // and the buttons shared a line, so what you were typing read as
+        // part of the menu and a thumb aiming for the text landed on
+        // Settings.
+        Panels.ToFront(this);
         _entry.Visible = true;
         _back.Visible = true;
         _open.Visible = false;
+        // The log button sits where the entry does; while you are
+        // typing it was drawn across the middle of the sentence.
+        _history.Visible = false;
         _entry.GrabFocus();
-        DisplayServer.VirtualKeyboardShow(_entry.Text);
+        Keyboard(true);
     }
 
     public void Close()
@@ -252,11 +282,34 @@ public partial class ChatOverlay : Control
         _back.Visible = false;
         _entry.Text = "";
         _open.Visible = true;
+        _history.Visible = true;
         // Both Enter and Escape reset the walk in the game, so the next
         // recall starts from the newest line again.
         HistoryReset?.Invoke();
         _entry.ReleaseFocus();
-        DisplayServer.VirtualKeyboardHide();
+        Keyboard(false);
+    }
+
+    /// <summary>
+    /// Shows or hides the on-screen keyboard, and never lets that fail
+    /// the caller.
+    ///
+    /// It is platform-dependent and not essential - the box works
+    /// without it on anything with real keys - but it was the last
+    /// statement in Open, so where it throws it takes everything after
+    /// the call with it. That is how Compose lost its prefix: it opened
+    /// the box, the keyboard call threw, and "tell Alice " was never
+    /// written. Tapping a name in the who list gave you an empty box
+    /// and no hint that it had meant to do more.
+    /// </summary>
+    void Keyboard(bool show)
+    {
+        try
+        {
+            if (show) DisplayServer.VirtualKeyboardShow(_entry.Text);
+            else DisplayServer.VirtualKeyboardHide();
+        }
+        catch { }
     }
 
     public override void _UnhandledInput(InputEvent e)
