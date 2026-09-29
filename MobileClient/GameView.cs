@@ -75,6 +75,8 @@ public partial class GameView : Node2D
     LostConnection _lost;
     bool _wasInGame;
     bool _bagWasOpen;
+    /// <summary>The shop line the amount prompt was opened for, if any.</summary>
+    TradeOfferObject _amountFor;
     uint _targetBeforeBag = uint.MaxValue;
     RoomBuffsPanel _roomBuffs;
     Button _loot;
@@ -641,7 +643,23 @@ public partial class GameView : Node2D
         {
             _amount = new AmountPrompt();
             _amount.Chosen += (id, many) => Act(() =>
-                _client.SendReqDropMessage(new ObjectID(id, (uint)many)));
+            {
+                // The prompt is asked for by more than one thing now, so
+                // what it means has to be remembered when it is opened.
+                TradeOfferObject line = _amountFor;
+                _amountFor = null;
+                if (line != null)
+                {
+                    // Buying part of a stack: the count goes back into
+                    // the shop's own line, which is what the game does
+                    // (`UIBuy.cpp:255`), so the row and the total follow
+                    // it and the buy sends what you chose.
+                    line.Count = (uint)Math.Max(1, many);
+                    _shop?.Refresh();
+                    return;
+                }
+                _client.SendReqDropMessage(new ObjectID(id, (uint)many));
+            });
             _ui.AddChild(_amount);
         });
         Widget("sheet", () =>
@@ -847,6 +865,12 @@ public partial class GameView : Node2D
             // The shop. One message buys everything ticked, which is what
             // Buy::OnOKClicked sends - not one per item.
             _shop = new BuyPanel();
+            _shop.AmountWanted += line =>
+            {
+                if (_amount == null || line == null) return;
+                _amountFor = line;
+                _amount.Ask(line.ID, (int)line.Count, line.Name);
+            };
             _shop.Buy += want => Act(() =>
             {
                 ObjectBase who = _client.Data?.Buy?.TradePartner;

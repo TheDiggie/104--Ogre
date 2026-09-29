@@ -33,6 +33,8 @@ public partial class BuyPanel : Control
 
     /// <summary>Buy these, from the merchant the server named.</summary>
     public event Action<List<TradeOfferObject>> Buy;
+    /// <summary>How many of this stackable line to buy.</summary>
+    public event Action<TradeOfferObject> AmountWanted;
 
     ColorRect _panel;
     Label _title, _sum;
@@ -136,6 +138,14 @@ public partial class BuyPanel : Control
     /// as well when the window is closed outright (`:308`), since what a
     /// shopkeeper had is not worth remembering once you have walked away.
     /// </summary>
+    /// <summary>
+    /// Rebuilds the rows and the total now. Called when something
+    /// outside changed a line - choosing how many of a stackable to
+    /// buy - because the signature is what normally drives a rebuild
+    /// and a count change is exactly what it watches.
+    /// </summary>
+    public void Refresh() => _signature = "";
+
     public void Dismiss()
     {
         if (_buy != null) { _buy.IsVisible = false; _buy.Clear(true); }
@@ -276,7 +286,29 @@ public partial class BuyPanel : Control
             ((argb >> 16) & 0xFF) / 255f, ((argb >> 8) & 0xFF) / 255f, (argb & 0xFF) / 255f));
         line.AddChild(name);
 
-        if (o.Count > 1)
+        if (o.IsStackable)
+        {
+            // How many, and a way to change it. The game gives a
+            // stackable line its own edit box and writes what you type
+            // back into the item (`UIBuy.cpp:240-258`), so you can buy
+            // five of a hundred; we had a label, and the only amount you
+            // could buy was the whole pile.
+            //
+            // A box to type in is the wrong control on a phone. The
+            // amount prompt already exists for dropping part of a stack
+            // and knows how to ask this question, so the row asks for
+            // it instead.
+            var many = new Button
+            {
+                Text = $"x{o.Count}",
+                Name = $"many{o.ID}",
+                TooltipText = "How many",
+            };
+            many.AddThemeFontSizeOverride("font_size", FontSize);
+            many.Pressed += () => AmountWanted?.Invoke(o);
+            line.AddChild(many);
+        }
+        else if (o.Count > 1)
         {
             var many = new Label
             {
