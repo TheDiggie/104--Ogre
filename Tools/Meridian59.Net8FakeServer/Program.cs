@@ -332,6 +332,15 @@ static class FakeServer
                     Say(ns, ctrl, RID_ECHO);
                     break;
 
+                case MessageTypeGameMode.ReqPut:
+                    // The item's id and count, then the container's id
+                    // with a count of zero.
+                    if (body.Length >= 13)
+                        Console.WriteLine($"  <- ReqPut item {BitConverter.ToUInt32(body, 1)} into {BitConverter.ToUInt32(body, 9)}");
+                    else
+                        Console.WriteLine($"  <- ReqPut ({body.Length} bytes)");
+                    break;
+
                 case MessageTypeGameMode.SendObjectContents:
                     // Opening a container: the client asks for what is
                     // inside, and the answer is the same kind of list the
@@ -618,7 +627,10 @@ static class FakeServer
         var left = new List<ObjectBase>();
         for (int i = 0; i < Math.Clamp(count, 0, all.Length); i++) left.Add(all[i]);
 
-        Send(ns, ctrl, new ObjectContentsMessage(new ObjectID(2001, 0), left.ToArray()));
+        // The id has to be the container's, not any old object: putting
+        // something in looks that id up among the room objects and
+        // refuses anything not flagged a container.
+        Send(ns, ctrl, new ObjectContentsMessage(new ObjectID(3101, 0), left.ToArray()));
     }
 
     static ObjectBase Item(uint id, uint bgfRid, uint nameRid, uint count)

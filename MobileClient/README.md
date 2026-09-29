@@ -757,7 +757,17 @@ in the window are for. This client's Loot button used to call `LootAll`
 directly, which took things you had not seen.
 
 `UIObjectContents.cpp` shows `Data->ObjectContents`: what is inside a
-container, which the server sends when asked.
+container, which the server sends when asked. Putting something in
+goes the other way: `UIInventory.cpp` does it when you drag an
+inventory item onto that list, and the steps are worth following
+exactly. It looks the container up as a **room object** by
+`ObjectContents.ObjectID` and refuses anything not flagged
+`IsContainer`; it sends `ReqPut(item, container)` with the item's own
+count and the container's count as zero; and then it asks for the
+contents again, because the server does not push the new list. Here
+that is a Put button that asks the bag for one thing, since a phone
+cannot show two windows to drag between - the only part that is not
+the game's.
 `ExecAction(AvatarAction.Activate)` looks for an activatable object or a
 container near you and sends `SendSendObjectContents` for the second.
 There is no Get All there, because the server has no message for taking

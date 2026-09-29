@@ -42,17 +42,27 @@ public partial class LootPanel : Control
     /// because the server has no "take everything in that box".
     /// </summary>
     [Export] public bool ShowGetAll = true;
+    /// <summary>The container window can be put into; the loot pile cannot.</summary>
+    [Export] public bool AllowPut = false;
 
     /// <summary>Take the one that is picked.</summary>
     public event Action<ObjectBase> GetItem;
     /// <summary>Take everything in range, which is what the game's Get All does.</summary>
     public event Action GetAll;
+    /// <summary>
+    /// Put something of yours into this container. The game does it by
+    /// dragging out of the inventory window and onto the contents list;
+    /// a phone cannot show both at once, so this asks for one to be
+    /// picked instead. Only the container window offers it - there is
+    /// nothing to put a thing into on the floor.
+    /// </summary>
+    public event Action PutWanted;
 
     ColorRect _panel;
     Label _title;
     ScrollContainer _scroll;
     VBoxContainer _rows;
-    Button _get, _getAll, _close;
+    Button _get, _getAll, _put, _close;
 
     ObjectBase _picked;
     string _signature = "";
@@ -81,6 +91,7 @@ public partial class LootPanel : Control
         AddChild(_scroll);
 
         _get = Action("Get", () => { if (_picked != null) GetItem?.Invoke(_picked); });
+        _put = Action("Put", () => PutWanted?.Invoke());
         _getAll = Action("Get All", () => GetAll?.Invoke());
         _close = Action("Close", Close);
 
@@ -117,7 +128,7 @@ public partial class LootPanel : Control
         float y = top + height - rowH;
         Button[] row = ShowGetAll
             ? new[] { _get, _getAll, _close }
-            : new[] { _get, _close };
+            : (AllowPut ? new[] { _get, _put, _close } : new[] { _get, _close });
         float w = (v.X - side * 2f - 8f * (row.Length - 1)) / row.Length;
         for (int i = 0; i < row.Length; i++)
         {
@@ -135,7 +146,8 @@ public partial class LootPanel : Control
     void Show(bool on)
     {
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
-        _get.Visible = on; _getAll.Visible = on && ShowGetAll; _close.Visible = on;
+        _get.Visible = on; _getAll.Visible = on && ShowGetAll;
+        _put.Visible = on && AllowPut; _close.Visible = on;
     }
 
     /// <summary>

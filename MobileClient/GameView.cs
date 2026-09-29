@@ -50,6 +50,9 @@ public partial class GameView : Node2D
     PlayersPanel _players;
     QuestsPanel _quests;
     TradePanel _trade;
+    /// <summary>Who asked the bag for something: the trade, or a container.</summary>
+    enum PickFor { Nobody, Trade, Container }
+    PickFor _pickFor = PickFor.Nobody;
     LoginPrompt _login;
     RichTextLabel _crash;
     string _resDir = "";
@@ -352,7 +355,13 @@ public partial class GameView : Node2D
             _trade.Cancel += () => Act(() => _client.SendCancelOffer());
             // Not the game's: it drags out of the inventory window, and
             // a phone cannot show both at once.
-            _trade.AddWanted += () => { if (_bag != null) { _bag.PickMode = true; _bag.Open(); } };
+            _trade.AddWanted += () =>
+            {
+                if (_bag == null) return;
+                _pickFor = PickFor.Trade;
+                _bag.PickMode = true;
+                _bag.Open();
+            };
             _ui.AddChild(_trade);
         });
         Widget("quests", () =>
@@ -435,7 +444,13 @@ public partial class GameView : Node2D
             _bag.UseItem     += item => Act(() => _client.UseUnuseApply(item));
             // One tap puts it on the trade table, rather than the
             // select-then-use a tap normally means.
-            _bag.Picked      += item => _trade?.Put(item);
+            _bag.Picked      += item =>
+            {
+                PickFor who = _pickFor;
+                _pickFor = PickFor.Nobody;
+                if (who == PickFor.Container) PutInContainer(item);
+                else _trade?.Put(item);
+            };
             // UIInventory.cpp: something that is not a stack drops
             // straight away with a count of zero, and a stack asks how
             // many first, prefilled with the lot.
@@ -484,9 +499,16 @@ public partial class GameView : Node2D
             // game keeps these apart - UILootList and UIObjectContents -
             // because they follow different lists and only one of them
             // can take everything at once.
-            _contents = new LootPanel { Heading = "Contents", ShowGetAll = false };
+            _contents = new LootPanel { Heading = "Contents", ShowGetAll = false, AllowPut = true };
             _contents.GetItem += item => Act(() =>
                 _client.SendReqGetMessage(new ObjectID(item.ID, item.Count)));
+            _contents.PutWanted += () =>
+            {
+                if (_bag == null) return;
+                _pickFor = PickFor.Container;
+                _bag.PickMode = true;
+                _bag.Open();
+            };
             _ui.AddChild(_contents);
 
             // The shop. One message buys everything ticked, which is what
@@ -870,6 +892,31 @@ public partial class GameView : Node2D
         || (_players != null && _players.IsOpen)
         || (_quests != null && _quests.IsOpen)
         || (_trade != null && _trade.IsOpen);
+
+    /// <summary>
+    /// Puts one of yours into the container whose contents are open.
+    ///
+    /// `UIInventory.cpp` does this when you drag an inventory item onto
+    /// the contents list: it looks the container up as a **room object**
+    /// by `ObjectContents.ObjectID`, checks it really is a container,
+    /// sends `ReqPut(item, container)` - the item with its count, the
+    /// container with a count of zero - and then asks for the contents
+    /// again, because the server does not push the new list.
+    /// </summary>
+    void PutInContainer(InventoryObject item)
+    {
+        if (item == null || _client?.Data == null) return;
+
+        uint boxId = _client.Data.ObjectContents?.ObjectID?.ID ?? 0;
+        RoomObject box = _client.Data.RoomObjects?.GetItemByID(boxId);
+        if (box == null || box.Flags == null || !box.Flags.IsContainer) return;
+
+        Act(() =>
+        {
+            _client.SendReqPut(new ObjectID(item.ID, item.Count), new ObjectID(box.ID, 0));
+            _client.SendSendObjectContents(box.ID);
+        });
+    }
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>
     void SyncRoom()
