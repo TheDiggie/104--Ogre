@@ -179,8 +179,11 @@ On desktop: WASD to move, arrow keys or left-drag to turn, Shift to run.
 ## Android
 
 An APK builds: 495 MB, arm64-v8a, signed, carrying both .NET assemblies
-and 5661 asset entries. It has not been run on a phone yet - that is the
-last untested thing in this client.
+and 5661 asset entries. It has not been run on a phone yet. That and the
+real Server 104 are what is left: everything between them - every panel,
+the login handshake, the room, movement, chat, trading, buying, looting -
+has been driven and photographed against the fake server described in
+`TRYING-IT.md`.
 
 Budget about a gigabyte on the device. The art is 470 MB inside the apk
 and `M59Paths.UnpackIfNeeded` copies it out to `user://resource` on
@@ -255,8 +258,10 @@ for publishing. The real fix is to download it on first run the way the
 desktop patcher does, which is not written yet.
 
 Set the main scene to `Game.tscn` for the live client;
-`FirstPerson.tscn` is the offline one and is still the default because
-the server path has not been exercised end to end.
+`FirstPerson.tscn` is the offline one and is still the default, now
+because it needs neither a server nor an account rather than because
+the server path is unproven - that path is exercised end to end against
+the fake server every time anything changes.
 
 ## How the renderer works
 
@@ -318,8 +323,8 @@ hair into the zero it plainly is.
 ## Running the live view without a server
 
 The live half - login, character select, room entry, the object list,
-chat - was written from reading the library and had never been run, since
-the real server is not reachable from this machine.
+chat - was written from reading the library, and the real server is not
+reachable from this machine, so it is all checked here instead.
 `Tools/Meridian59.Net8FakeServer` answers enough of the protocol to get a
 real client into a room, on loopback, with no account:
 
