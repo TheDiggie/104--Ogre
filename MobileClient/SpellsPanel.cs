@@ -159,6 +159,8 @@ public partial class SpellsPanel : Control
 
     void Show(bool on)
     {
+        // Above whatever else is open - see Panels.ToFront.
+        if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
         _tabSpells.Visible = on; _tabSkills.Visible = on; _close.Visible = on;
         _open.Visible = !on;

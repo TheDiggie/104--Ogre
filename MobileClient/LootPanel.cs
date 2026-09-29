@@ -181,6 +181,8 @@ public partial class LootPanel : Control
 
     void Show(bool on)
     {
+        // Above whatever else is open - see Panels.ToFront.
+        if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
         _get.Visible = on; _getAll.Visible = on && ShowGetAll;
         _put.Visible = on && AllowPut; _close.Visible = on;

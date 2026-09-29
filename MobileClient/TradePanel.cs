@@ -142,6 +142,8 @@ public partial class TradePanel : Control
 
     void Show(bool on)
     {
+        // Above whatever else is open - see Panels.ToFront.
+        if (on) Panels.ToFront(this);
         foreach (Node n in GetChildren())
             if (n is Control c && c != this) c.Visible = on;
         _panel.Visible = on;

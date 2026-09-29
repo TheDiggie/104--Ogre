@@ -129,6 +129,8 @@ public partial class LookPanel : Control
 
     void Show(bool on)
     {
+        // Above whatever else is open - see Panels.ToFront.
+        if (on) Panels.ToFront(this);
         // A description is asked for from somewhere - the spell book,
         // the quest log, a tap on the world - and has to land in front
         // of whatever asked. Those panels are siblings added later, so

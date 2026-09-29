@@ -87,6 +87,8 @@ public partial class QuestsPanel : Control
 
     void Show(bool on)
     {
+        // Above whatever else is open - see Panels.ToFront.
+        if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
         _close.Visible = on; _open.Visible = !on;
         Layout();

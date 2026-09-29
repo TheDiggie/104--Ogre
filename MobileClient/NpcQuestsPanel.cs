@@ -178,6 +178,8 @@ public partial class NpcQuestsPanel : Control
 
     void Show(bool on)
     {
+        // Above whatever else is open - see Panels.ToFront.
+        if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _who.Visible = on;
         _scroll.Visible = on; _descLabel.Visible = on; _desc.Visible = on;
         _reqLabel.Visible = on; _req.Visible = on;

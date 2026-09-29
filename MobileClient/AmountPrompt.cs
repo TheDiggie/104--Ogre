@@ -91,6 +91,8 @@ public partial class AmountPrompt : Control
 
     void Show(bool on)
     {
+        // Above whatever else is open - see Panels.ToFront.
+        if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _entry.Visible = on;
         _less.Visible = on; _more.Visible = on; _all.Visible = on;
         _ok.Visible = on; _cancel.Visible = on;

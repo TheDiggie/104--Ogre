@@ -146,6 +146,8 @@ public partial class StatsWizard : Control
 
     void Show(bool on)
     {
+        // Above whatever else is open - see Panels.ToFront.
+        if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _points.Visible = on;
         _scroll.Visible = on; _ok.Visible = on; _close.Visible = on;
         if (on) GetParent()?.MoveChild(this, -1);

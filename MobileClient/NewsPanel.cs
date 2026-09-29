@@ -194,6 +194,8 @@ public partial class NewsPanel : Control
 
     void Show(bool on)
     {
+        // Above whatever else is open - see Panels.ToFront.
+        if (on) Panels.ToFront(this);
         bool list = on && !_composing;
         bool write = on && _composing;
 
