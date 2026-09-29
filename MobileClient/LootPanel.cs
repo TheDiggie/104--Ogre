@@ -46,7 +46,15 @@ public partial class LootPanel : Control
     [Export] public bool AllowPut = false;
 
     /// <summary>Take the one that is picked.</summary>
-    public event Action<ObjectBase> GetItem;
+    /// <summary>
+    /// Take these. A list, not one thing: both of the game's windows
+    /// are multi-select and their Get walks the selection sending one
+    /// request each (`UILootList.cpp:270`,
+    /// `UIObjectContents.cpp:272`). It matters more here than there -
+    /// tapping is the expensive interaction on a phone, and taking six
+    /// things one at a time is twelve taps.
+    /// </summary>
+    public event Action<IList<ObjectBase>> GetItems;
     /// <summary>Take everything in range, which is what the game's Get All does.</summary>
     public event Action GetAll;
     /// <summary>
@@ -64,7 +72,8 @@ public partial class LootPanel : Control
     VBoxContainer _rows;
     Button _get, _getAll, _put, _close;
 
-    ObjectBase _picked;
+    /// <summary>What is ticked, by id, in the order it was ticked.</summary>
+    readonly Dictionary<uint, ObjectBase> _ticked = new Dictionary<uint, ObjectBase>();
     string _signature = "";
     // The model the window is currently showing, so closing it can say
     // so. Only one of the two is ever set - see Dismiss.
@@ -97,7 +106,12 @@ public partial class LootPanel : Control
         // Get and Get All close the window in the game as well as
         // sending (`UILootList.cpp:280`, `:295`,
         // `UIObjectContents.cpp:282`), so they go through Dismiss too.
-        _get = Action("Get", () => { if (_picked != null) { GetItem?.Invoke(_picked); Dismiss(); } });
+        _get = Action("Get", () =>
+        {
+            if (_ticked.Count == 0) return;
+            GetItems?.Invoke(new List<ObjectBase>(_ticked.Values));
+            Dismiss();
+        });
         _put = Action("Put", () => PutWanted?.Invoke());
         _getAll = Action("Get All", () => { GetAll?.Invoke(); Dismiss(); });
         _close = Action("Close", Dismiss);
@@ -173,7 +187,8 @@ public partial class LootPanel : Control
     public void Close()
     {
         Show(false);
-        _picked = null;
+        _ticked.Clear();
+        Caption();
         // Or a reopen with the same items would match the signature and
         // short-circuit the rebuild, showing rows that were freed.
         _signature = "";
@@ -257,20 +272,20 @@ public partial class LootPanel : Control
     {
         ObjectBase captured = o;
 
-        var button = new Button
+        var button = new CheckBox
         {
             CustomMinimumSize = new Vector2(0, RowHeight),
-            Flat = false,
+            ButtonPressed = _ticked.ContainsKey(o.ID),
             // Named so a scripted run can pick a row: the row's text
             // lives in child labels, so there is nothing to find it by.
             Name = $"loot{o.ID}",
         };
-        button.Pressed += () => Pick(captured);
+        button.Toggled += on => Pick(captured, on);
 
         var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
         line.SetAnchorsPreset(LayoutPreset.FullRect);
         line.AddThemeConstantOverride("separation", 10);
-        line.OffsetLeft = 8; line.OffsetTop = 6; line.OffsetRight = -8; line.OffsetBottom = -6;
+        line.OffsetLeft = RowHeight; line.OffsetTop = 6; line.OffsetRight = -8; line.OffsetBottom = -6;
         button.AddChild(line);
 
         var icon = new TextureRect
@@ -332,10 +347,18 @@ public partial class LootPanel : Control
         return o.Flags != null && o.Flags.IsEquipped ? name + " (in use)" : name;
     }
 
-    void Pick(ObjectBase o)
+    void Pick(ObjectBase o, bool on)
     {
-        _picked = o;
-        _get.Text = o == null ? "Get" : $"Get {(string.IsNullOrWhiteSpace(o.Name) ? "item" : o.Name)}";
+        if (o == null) return;
+        if (on) _ticked[o.ID] = o; else _ticked.Remove(o.ID);
+        Caption();
+    }
+
+    void Caption()
+    {
+        if (_get == null) return;
+        _get.Text = _ticked.Count == 0 ? "Get" : $"Get ({_ticked.Count})";
+        _get.Disabled = _ticked.Count == 0;
     }
 
     ImageTexture Icon(ObjectBase o)

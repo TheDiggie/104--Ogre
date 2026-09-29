@@ -387,8 +387,19 @@ static class FakeServer
                     // server sends constantly. It is also the path that
                     // binds a hotbar button waiting for an item of that
                     // name, so that could not be tested either.
-                    uint getting = body.Length >= 5 ? BitConverter.ToUInt32(body, 1) : 0;
-                    Console.WriteLine($"  <- ReqGet {getting}");
+                    // Through ObjectID, not a raw uint read: the top
+                    // four bits are a flag saying a count follows, and
+                    // the client sets it now that a get carries how
+                    // many. Compared raw, no id ever matches again.
+                    uint getting = 0;
+                    uint gettingCount = 0;
+                    if (body.Length >= 5)
+                    {
+                        var asked = new ObjectID(body, 1);
+                        getting = asked.ID;
+                        gettingCount = asked.Count;
+                    }
+                    Console.WriteLine($"  <- ReqGet {getting} x{gettingCount}");
 
                     if (getting == 3101)
                     {
@@ -403,7 +414,9 @@ static class FakeServer
                         // Something off the floor goes into your pack,
                         // and stays there - the next ReqInventory sends
                         // it back with the rest.
-                        InventoryObject got = Carry(8100 + getting % 100, RID_COINBGF, RID_COIN, 17, false);
+                        InventoryObject got = Carry(
+                            8100 + getting % 100, RID_COINBGF, RID_COIN,
+                            gettingCount > 0 ? gettingCount : 17, false);
                         takenSoFar.Add(got);
                         Send(ns, ctrl, new InventoryAddMessage(got));
                         Say(ns, ctrl, RID_ECHO);

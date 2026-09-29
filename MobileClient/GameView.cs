@@ -856,7 +856,15 @@ public partial class GameView : Node2D
             // the Get All this button does.
             _lootList = new LootPanel { Heading = "Loot", ShowGetAll = true };
             _lootList.GetAll += () => Act(() => _client.LootAll());
-            _lootList.GetItem += item => Act(() => _client.SendReqGetMessage(new ObjectID(item.ID)));
+            // One request per thing ticked, each with its count, which
+            // is what the game's own Get loop sends
+            // (`UILootList.cpp:270-275`). The count had been left off
+            // here, so taking a pile of coins took one coin.
+            _lootList.GetItems += items => Act(() =>
+            {
+                foreach (ObjectBase o in items)
+                    _client.SendReqGetMessage(new ObjectID(o.ID, o.Count));
+            });
             _ui.AddChild(_lootList);
 
             // The same window again for what is inside a container. The
@@ -864,8 +872,11 @@ public partial class GameView : Node2D
             // because they follow different lists and only one of them
             // can take everything at once.
             _contents = new LootPanel { Heading = "Contents", ShowGetAll = false, AllowPut = true };
-            _contents.GetItem += item => Act(() =>
-                _client.SendReqGetMessage(new ObjectID(item.ID, item.Count)));
+            _contents.GetItems += items => Act(() =>
+            {
+                foreach (ObjectBase o in items)
+                    _client.SendReqGetMessage(new ObjectID(o.ID, o.Count));
+            });
             _contents.PutWanted += () =>
             {
                 if (_bag == null) return;
