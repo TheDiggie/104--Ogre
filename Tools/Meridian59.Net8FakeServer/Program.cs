@@ -378,13 +378,38 @@ static class FakeServer
                     break;
 
                 case MessageTypeGameMode.ReqGet:
-                    // The first get opens the pile; each one after takes
-                    // something out of it. This server tracks nothing, so
-                    // it just sends a shorter list each time.
-                    Console.WriteLine("  <- ReqGet");
-                    if (!lootOpen) { lootOpen = true; SendLoot(ns, ctrl, lootLeft); }
-                    else { SendLoot(ns, ctrl, --lootLeft); Say(ns, ctrl, RID_ECHO); }
+                {
+                    // Which object is being taken decides what happens,
+                    // which it did not use to: every get opened the
+                    // container, so taking something off the floor - by
+                    // far the commoner thing - had no fixture at all,
+                    // and neither did InventoryAdd, a message the real
+                    // server sends constantly. It is also the path that
+                    // binds a hotbar button waiting for an item of that
+                    // name, so that could not be tested either.
+                    uint getting = body.Length >= 5 ? BitConverter.ToUInt32(body, 1) : 0;
+                    Console.WriteLine($"  <- ReqGet {getting}");
+
+                    if (getting == 3101)
+                    {
+                        // The container. The first get opens it; each one
+                        // after takes something out, and this server
+                        // tracks nothing, so it sends a shorter list.
+                        if (!lootOpen) { lootOpen = true; SendLoot(ns, ctrl, lootLeft); }
+                        else { SendLoot(ns, ctrl, --lootLeft); Say(ns, ctrl, RID_ECHO); }
+                    }
+                    else
+                    {
+                        // Something off the floor goes into your pack,
+                        // and stays there - the next ReqInventory sends
+                        // it back with the rest.
+                        InventoryObject got = Carry(8100 + getting % 100, RID_COINBGF, RID_COIN, 17, false);
+                        takenSoFar.Add(got);
+                        Send(ns, ctrl, new InventoryAddMessage(got));
+                        Say(ns, ctrl, RID_ECHO);
+                    }
                     break;
+                }
 
                 case MessageTypeGameMode.UserCommand:
                 {
@@ -705,7 +730,9 @@ static class FakeServer
             Carry(8003, RID_COINBGF, RID_COIN, 25, false),
         };
 
-        Send(ns, ctrl, new InventoryMessage(bag));
+        var all = new List<InventoryObject>(bag);
+        all.AddRange(takenSoFar);
+        Send(ns, ctrl, new InventoryMessage(all.ToArray()));
     }
 
     /// <summary>
@@ -877,6 +904,14 @@ static class FakeServer
 
     static int lootLeft = 3;
     static bool lootOpen;
+
+    /// <summary>
+    /// What has been picked up this session. The pack used to be three
+    /// fixed items whatever you did, so taking something off the floor
+    /// sent an InventoryAdd and then the next ReqInventory wiped it -
+    /// which looks exactly like a client that drops added items.
+    /// </summary>
+    static readonly List<InventoryObject> takenSoFar = new List<InventoryObject>();
 
     /// <summary>
     /// The contents of something on the floor. The client puts its loot
@@ -1344,6 +1379,7 @@ static class FakeServer
         // button the same way, so the window is not simply always up.
         lootLeft = 3;
         lootOpen = false;
+        takenSoFar.Clear();
 
         // A sound from one of the rats, and something for the room to
         // hum. A sound with a source id plays at that object; the music

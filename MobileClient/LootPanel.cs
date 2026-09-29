@@ -257,7 +257,14 @@ public partial class LootPanel : Control
     {
         ObjectBase captured = o;
 
-        var button = new Button { CustomMinimumSize = new Vector2(0, RowHeight), Flat = false };
+        var button = new Button
+        {
+            CustomMinimumSize = new Vector2(0, RowHeight),
+            Flat = false,
+            // Named so a scripted run can pick a row: the row's text
+            // lives in child labels, so there is nothing to find it by.
+            Name = $"loot{o.ID}",
+        };
         button.Pressed += () => Pick(captured);
 
         var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };

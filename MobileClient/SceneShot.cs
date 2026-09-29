@@ -519,9 +519,23 @@ public partial class SceneShot : Node
     /// keep their text in a child label, so there is nothing else to
     /// find them by.
     /// </summary>
+    /// <summary>
+    /// Whether a button is actually on screen.
+    ///
+    /// Not <c>Visible</c>, which is the node's own flag and says nothing
+    /// about its parents. Several panels hide themselves by hiding a
+    /// parent Control and leave the buttons inside it flagged visible -
+    /// the target row does exactly that - so a search on Visible alone
+    /// finds and presses buttons nobody can see. That is how a scripted
+    /// "Get" went to the hidden target row instead of the loot window
+    /// and quietly did nothing, which looked like the loot window being
+    /// broken.
+    /// </summary>
+    static bool Showing(Control c) => c.IsVisibleInTree();
+
     static Button FindNamed(Node from, string name)
     {
-        if (from is Button b && b.Visible && b.Name == name) return b;
+        if (from is Button b && Showing(b) && b.Name == name) return b;
         foreach (Node child in from.GetChildren())
         {
             Button found = FindNamed(child, name);
@@ -532,7 +546,7 @@ public partial class SceneShot : Node
 
     static Button FindButton(Node from, string text)
     {
-        if (from is Button b && b.Visible && b.Text == text) return b;
+        if (from is Button b && Showing(b) && b.Text == text) return b;
         foreach (Node child in from.GetChildren())
         {
             Button found = FindButton(child, text);
