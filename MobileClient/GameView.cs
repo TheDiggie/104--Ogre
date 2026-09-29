@@ -1028,7 +1028,14 @@ public partial class GameView : Node2D
         // bottom. It looked like a broken game rather than a choice of
         // character. None of it means anything before a character has
         // been picked, so none of it is drawn.
-        bool inWorld = _wasInGame;
+        // "Has an avatar in a room", not "did we press a character
+        // button". Gating on the latter was wrong and I caught it by
+        // creating a character: the server can put you in the world by
+        // routes that do not go through UseCharacter, and when it did,
+        // every piece of the interface stayed hidden - a playable room
+        // with no bars, no hotbar and no menu, which is a far worse
+        // failure than the cosmetic one the gate was added for.
+        bool inWorld = _wasInGame || _client.Data?.AvatarObject != null;
         foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _face, _vitals, _chat })
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;
