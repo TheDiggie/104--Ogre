@@ -59,6 +59,7 @@ Tags: process | Kept so the next session tests something new rather than re-prov
   against the schools, the confirmation is an in-page modal, and Yes
   sends `ChangedStats` (157).
 - Chat flood: 205 lines, the full log scrolls and closes.
+- Resting: Rest raises the RESTING banner, Stand clears it.
 - Walking: a held stick drag sends `ReqMove`, the minimap redraws, and a
   wall stops you instead of letting you through.
 - Go: puts `ReqGo` on the wire, and with the fixture's second room the

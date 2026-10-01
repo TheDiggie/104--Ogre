@@ -72,6 +72,7 @@ public partial class GameView : Node2D
     ActionBar _actions;
     CharacterPicker _picker;
     MiniMap _map;
+    SplashNotifier _splash;
     LostConnection _lost;
     bool _wasInGame;
     bool _bagWasOpen;
@@ -719,6 +720,9 @@ public partial class GameView : Node2D
             _ui.AddChild(_sheet);
         });
         Widget("map", () => { _map = new MiniMap(); _ui.AddChild(_map); });
+
+        // The word across the middle when the avatar cannot move.
+        Widget("splash", () => { _splash = new SplashNotifier(); _ui.AddChild(_splash); });
         Widget("lost", () =>
         {
             _lost = new LostConnection();
@@ -1158,6 +1162,11 @@ public partial class GameView : Node2D
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;
         if (_go != null) _go.Visible = inWorld;
+        if (_splash != null)
+        {
+            _splash.Visible = inWorld;
+            _splash.Sync(inWorld ? _client.Data : null);
+        }
 
         // Your target survives a look in the bag. Picking a carried
         // thing targets it, which the game does too, but that is a

@@ -80,3 +80,25 @@ is 96 wide where every other slot is 76: the shot read "SetGoings".
 Look at the row, not at the numbers.
 
 See also: godot-ui.md | the fixture -> fake-server.md
+
+## RESTING, PARALYZED, SAVING across the middle
+Tags: design | The game's UISplashNotifier, which the port did not have - three states stop the avatar dead and a phone had nothing on screen to say why
+
+`SplashNotifier.cs` is `UISplashNotifier.cpp`: a list, the last one
+added is the one shown, and the three strings are the game's own
+(`Constants.h:934-936`). RESTING follows `Data.IsResting`, PARALYZED
+`Data.Effects.Paralyze.IsActive`, SAVING `Data.IsWaiting`. The game's
+fourth, PRESS A KEY, belongs to key learning and has no phone.
+
+All three stop movement: `SendReqMoveMessage` returns early on any of
+them and `TryMove` denies the step. A desktop player who cannot walk
+still has a keyboard and a mouse to reason with; a thumb on a stick
+that moves nothing is the same dead-button problem the lost-connection
+overlay was built for.
+
+Polled once a frame rather than subscribed - three bools, and the list
+does the ordering the reference's handlers were there to preserve.
+
+Played: Rest puts it up, Stand takes it down.
+
+See also: godot-ui.md | the harness -> harness.md
