@@ -52,7 +52,7 @@ public partial class RoomPicker : Control
         _search.TextChanged += _ => Refill();
         AddChild(_search);
 
-        _scroll = new ScrollContainer { Visible = false };
+        _scroll = new TouchScroll { Visible = false };
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 8);
         _rows.SizeFlagsHorizontal = SizeFlags.Fill | SizeFlags.Expand;

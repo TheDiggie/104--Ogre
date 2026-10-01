@@ -309,7 +309,7 @@ public partial class OptionsPanel : Control
         // controls land in a ragged column - see notes/godot-ui.md,
         // "A ScrollContainer sizes its child to that child's minimum".
         _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        _scroll = new ScrollContainer { Visible = false };
+        _scroll = new TouchScroll { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 

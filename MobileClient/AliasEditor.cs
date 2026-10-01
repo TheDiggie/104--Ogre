@@ -182,7 +182,7 @@ public partial class AliasEditor : Control
         // Or the list is only as wide as its longest command and the
         // delete buttons land in a ragged column - see notes/godot-ui.md.
         _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        _scroll = new ScrollContainer { Visible = false };
+        _scroll = new TouchScroll { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 

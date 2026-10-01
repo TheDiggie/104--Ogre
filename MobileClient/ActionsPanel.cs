@@ -117,7 +117,7 @@ public partial class ActionsPanel : Control
         // buttons sit wherever each row's text ends - see SpellsPanel.
         _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
 
-        _scroll = new ScrollContainer { Visible = false };
+        _scroll = new TouchScroll { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
@@ -302,7 +302,10 @@ public partial class ActionsPanel : Control
 
         _scroll.Position = body.Position;
         _scroll.Size = body.Size;
-        _rows.CustomMinimumSize = new Vector2(body.Size.X, 0);
+        // Clear of the scrollbar: a row laid out to the full body
+        // runs its last control - a bind "+", a price - under the bar,
+        // and a thumb aimed at one hits the other. See M59Skin.RowsW.
+        _rows.CustomMinimumSize = new Vector2(M59Skin.RowsW(body), 0);
 
         // Close sits at the right of the footer, where the thumb that
         // dismisses it is, rather than stretched across the bottom edge

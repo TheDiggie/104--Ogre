@@ -258,7 +258,7 @@ public partial class GuildPanel : Control
         // notes/godot-ui.md, "A ScrollContainer sizes its child to that
         // child's minimum".
         _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        _scroll = new ScrollContainer { Visible = false };
+        _scroll = new TouchScroll { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
@@ -449,7 +449,9 @@ public partial class GuildPanel : Control
         float listH = Mathf.Max(RowTall, body.Position.Y + body.Size.Y - master - y);
         _scroll.Position = new Vector2(body.Position.X, y);
         _scroll.Size = new Vector2(body.Size.X, listH);
-        _rows.CustomMinimumSize = new Vector2(body.Size.X - BarW, 0);
+        // The bar is wider than this file's own BarW now; the skin
+        // owns that number. See M59Skin.RowsW.
+        _rows.CustomMinimumSize = new Vector2(M59Skin.RowsW(body), 0);
 
         // The guildmaster's controls are a SECTION of this window now,
         // under a rule and a heading, rather than three loose rows

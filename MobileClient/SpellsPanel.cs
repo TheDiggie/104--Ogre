@@ -138,7 +138,7 @@ public partial class SpellsPanel : Control
         // column of tap targets a thumb has to hunt for, on a panel with
         // most of the screen going spare beside it.
         _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        _scroll = new ScrollContainer { Visible = false };
+        _scroll = new TouchScroll { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
@@ -211,7 +211,10 @@ public partial class SpellsPanel : Control
         float listH = Mathf.Max(rowH, body.Position.Y + body.Size.Y - listY);
         _scroll.Position = new Vector2(body.Position.X, listY);
         _scroll.Size = new Vector2(body.Size.X, listH);
-        _rows.CustomMinimumSize = new Vector2(body.Size.X, 0);
+        // Clear of the scrollbar: a row laid out to the full body
+        // runs its last control - a bind "+", a price - under the bar,
+        // and a thumb aimed at one hits the other. See M59Skin.RowsW.
+        _rows.CustomMinimumSize = new Vector2(M59Skin.RowsW(body), 0);
 
         // Over the list, where the rows would have been.
         _empty.Position = _scroll.Position;

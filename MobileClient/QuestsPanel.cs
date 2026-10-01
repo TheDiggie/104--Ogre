@@ -90,7 +90,7 @@ public partial class QuestsPanel : Control
         // text ended - see notes/godot-ui.md.
         _rows.SizeFlagsHorizontal = SizeFlags.Fill | SizeFlags.Expand;
 
-        _scroll = new ScrollContainer { Visible = false };
+        _scroll = new TouchScroll { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 

@@ -147,7 +147,7 @@ public partial class MailPanel : Control
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 4);
         _rows.SizeFlagsHorizontal = SizeFlags.Fill | SizeFlags.Expand;
-        _scroll = new ScrollContainer { Visible = false };
+        _scroll = new TouchScroll { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 

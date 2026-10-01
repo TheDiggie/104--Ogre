@@ -300,7 +300,7 @@ public partial class ChatOverlay : Control
         // Horizontal scrolling off: the label is sized to the scroll's
         // width less its bar, so it never needs it, and a bar's width
         // of overflow had made the page wobble sideways.
-        _fullScroll = new ScrollContainer
+        _fullScroll = new TouchScroll
         {
             Visible = false,
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,

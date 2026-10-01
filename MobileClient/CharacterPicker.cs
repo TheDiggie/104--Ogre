@@ -134,7 +134,7 @@ public partial class CharacterPicker : Control
         // would be as wide as the longest name, with the rest of the
         // card going spare beside them. See notes/godot-ui.md.
         _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        _scroll = new ScrollContainer();
+        _scroll = new TouchScroll();
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
@@ -198,7 +198,10 @@ public partial class CharacterPicker : Control
         _scroll.Position = new Vector2(body.Position.X, top);
         _scroll.Size = new Vector2(body.Size.X,
                                    Mathf.Max(M59Skin.RowH, body.Position.Y + body.Size.Y - top));
-        _rows.CustomMinimumSize = new Vector2(body.Size.X, 0);
+        // Clear of the scrollbar: a row laid out to the full body
+        // runs its last control - a bind "+", a price - under the bar,
+        // and a thumb aimed at one hits the other. See M59Skin.RowsW.
+        _rows.CustomMinimumSize = new Vector2(M59Skin.RowsW(body), 0);
     }
 
 

@@ -570,8 +570,57 @@ public static class M59Skin
         return x;
     }
 
-    /// <summary>A vertical scrollbar's width. A child sized to the full body runs under it.</summary>
-    public const float ScrollBarW = 16f;
+    /// <summary>
+    /// A vertical scrollbar's width, and the room a list leaves for it.
+    ///
+    /// It was 16 and the theme drew something thinner inside that, hard
+    /// against the right edge of the body - which is where every row's
+    /// bind button also is. A thumb aimed at the bar hit the "+" and
+    /// bound a spell. 28 is still not a thumb, deliberately: the bar is
+    /// a position indicator you CAN grab, not the way you are expected
+    /// to scroll, which is dragging the list itself (see TouchScroll).
+    /// The separation is what the research is actually about, so the
+    /// rows are inset by this plus a gap rather than the bar being
+    /// widened until it collides with something else.
+    /// </summary>
+    public const float ScrollBarW = 28f;
+
+    /// <summary>
+    /// Dresses a list's vertical scrollbar: a visible track, a grabber
+    /// wide enough to see and long enough to grab, and the width above.
+    ///
+    /// A grabber whose length is proportional all the way down becomes a
+    /// few points tall on a long list, which is the one case where you
+    /// most want to drag it. Godot has no minimum, so the grabber gets
+    /// vertical margins instead of being allowed to vanish.
+    /// </summary>
+    public static void Scroller(ScrollContainer sc)
+    {
+        if (sc == null) return;
+        VScrollBar bar = sc.GetVScrollBar();
+        if (bar == null) return;
+        bar.CustomMinimumSize = new Vector2(ScrollBarW, 0f);
+
+        var track = Flat(new Color(0f, 0f, 0f, 0.28f), ScrollBarW * 0.5f);
+        track.ContentMarginLeft = track.ContentMarginRight = ScrollBarW * 0.28f;
+        bar.AddThemeStyleboxOverride("scroll", track);
+        bar.AddThemeStyleboxOverride("scroll_focus", track);
+
+        var grab = Flat(GoldDim, ScrollBarW * 0.5f);
+        grab.ContentMarginLeft = grab.ContentMarginRight = ScrollBarW * 0.28f;
+        bar.AddThemeStyleboxOverride("grabber", grab);
+        var hot = Flat(Gold, ScrollBarW * 0.5f);
+        hot.ContentMarginLeft = hot.ContentMarginRight = ScrollBarW * 0.28f;
+        bar.AddThemeStyleboxOverride("grabber_highlight", hot);
+        bar.AddThemeStyleboxOverride("grabber_pressed", hot);
+    }
+
+    /// <summary>
+    /// How much of a body a list's rows may use: everything but the bar
+    /// and a gap. Rows laid out to the full body width run their last
+    /// control under the bar, which is the collision this avoids.
+    /// </summary>
+    public static float RowsW(Rect2 body) => Mathf.Max(120f, body.Size.X - ScrollBarW - Gap);
 
     /// <summary>
     /// The scrim for a screen with no world behind it - login, the

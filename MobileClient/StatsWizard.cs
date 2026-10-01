@@ -116,7 +116,7 @@ public partial class StatsWizard : Control
         // as their longest line and every value column lands wherever
         // that row's text ended.
         _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        _scroll = new ScrollContainer { Visible = false };
+        _scroll = new TouchScroll { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
@@ -193,7 +193,9 @@ public partial class StatsWizard : Control
                                    Mathf.Max(M59Skin.RowH, body.Position.Y + body.Size.Y - top));
         // Less the scrollbar, or the right-hand end of every + button
         // sits behind it.
-        _rows.CustomMinimumSize = new Vector2(body.Size.X - BarW, 0);
+        // The bar is wider than this file's own BarW now; the skin
+        // owns that number. See M59Skin.RowsW.
+        _rows.CustomMinimumSize = new Vector2(M59Skin.RowsW(body), 0);
 
         // OK last in the line, where the skin puts the one thing a
         // panel is for.

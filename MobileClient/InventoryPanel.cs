@@ -35,12 +35,21 @@ public partial class InventoryPanel : Control
     /// </summary>
     [Export] public int Columns = 5;
 
+    /// <summary>
+    /// The width the slots actually have: the list, less the scrollbar.
+    /// A grid laid out to the full width runs its last column under the
+    /// bar, so the right-hand slots are half-coverable by the thing you
+    /// grab to scroll past them.
+    /// </summary>
+    float GridW()
+        => _scroll == null ? 0f : Mathf.Max(SlotSize, _scroll.Size.X - M59Skin.ScrollBarW - M59Skin.Gap);
+
     /// <summary>How many columns actually fit, never fewer than Columns.</summary>
     int Across()
     {
         if (_scroll == null || _scroll.Size.X < 1f) return Columns;
         const float sep = 8f;
-        int fit = (int)((_scroll.Size.X + sep) / (SlotSize + sep));
+        int fit = (int)((GridW() + sep) / (SlotSize + sep));
         return Math.Max(Columns, fit);
     }
     /// <summary>UI_INVENTORYICON_WIDTH/HEIGHT - the icon inside the slot.</summary>
@@ -195,7 +204,7 @@ public partial class InventoryPanel : Control
         _grid.AddThemeConstantOverride("v_separation", 8);
         _grid.SizeFlagsHorizontal = SizeFlags.Fill | SizeFlags.Expand;
 
-        _scroll = new ScrollContainer { Visible = false };
+        _scroll = new TouchScroll { Visible = false };
         _scroll.AddChild(_grid);
         AddChild(_scroll);
 
@@ -311,7 +320,7 @@ public partial class InventoryPanel : Control
         if (_scroll == null) return SlotSize;
         const float sep = 8f;
         int cols = Across();
-        float w = (_scroll.Size.X - sep * (cols - 1)) / Math.Max(1, cols);
+        float w = (GridW() - sep * (cols - 1)) / Math.Max(1, cols);
         return Mathf.Clamp(w, SlotSize * 0.5f, SlotSize * 2f);
     }
 
