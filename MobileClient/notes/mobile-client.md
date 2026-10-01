@@ -274,6 +274,15 @@ Played: Auto alone puts thirteen `ReqMove` on the wire with nothing
 touching the screen, and a backward drag afterwards releases the
 button in the next frame.
 
+It also keeps walking with a panel open. The reference exempts it from
+the UI's input lock (`if (isAutoMove || ...)` runs `TryMove` at
+`ControllerInput.cpp:934-951`, the lock's early-out only at `:957`);
+the panel-up branch here used to `Settle` and stop dead, so opening the
+bag mid-crossing halted you (1 `ReqMove` after the Bag press, 33 once
+fixed). The branch calls `TryMove` forward while autorun is on and the
+server is not making you wait, and still does not read the stick, so a
+drag on a panel neither walks nor cancels (`GameView.cs:3096-3104`).
+
 See also: godot-ui.md | the harness -> harness.md
 
 ## The actions window
@@ -373,3 +382,114 @@ Two things this needed, both kept:
   needs are staged now.
 
 See also: Renderer.cs | godot-ui.md
+
+## One scene unit is sixteen room units
+Tags: gotchas, lessons | The reference's heights and thresholds are in scene units; SCALE is 0.0625, so every `16.0f` in RemoteNode.cpp is 256 room units - the unit mix-up has now caused two bugs
+
+`Util::GetSceneNodeHeight` answers in scene units: it measures the
+billboard, whose size is `RenderInfo.WorldSize.Y`
+(`Util.h:847-867` via `RemoteNode2D.cpp:88-93`). The room is built at
+`SCALE = 0.0625` (`ControllerRoom.h:73`), so one scene unit is 16 room
+units. The name label's dead band (`abs(diff) > 16.0f`,
+`RemoteNode.cpp:494-500`) is therefore 256 here, and its `+ 1.0f` lift
+(`:491`) is 16. `NameTags.Deadband` and `QuestMarkers.Deadband` are 256
+(`NameTags.cs:82`, `QuestMarkers.cs:69`) and `NameTags.Lift` is 16
+(`:54`); the label views had it wrong first, and a name bobbed on every
+animation frame.
+
+LIVE QUESTION: the camera's eye deadband had the same mistake. At HEAD
+(fa28d39) `WorldSync.cs:487` compares against `16f` where the reference's
+16 scene units are 256 - sixteen times tighter, so the view bobbed on an
+animation frame. It is being corrected in the working tree (an
+`EyeDeadband = 256f`, compared on the eye, 0.93 of the height, as
+`RemoteNode.cpp:411` vs `:420` do); check that landed before trusting
+this paragraph, and check any new `16` taken from the reference.
+
+See also: NameTags.cs | WorldSync.cs
+
+## Names are drawn after the frame, and are depth-tested
+Tags: gotchas, lessons | `Renderer.Project` projects against the LAST rendered camera and the depth buffers Render fills, so the label Syncs run after `RenderFrame` or they lag by a frame
+
+`Project` has only `_lastCam*`, which `Render` alone writes. The two
+label Syncs used to run with `SyncSprites`, before `RenderFrame`, so a
+name was placed for camera(N-1) with position(N) and slid off its owner
+for as long as you kept turning, by an error that grew with turn rate
+(the commit measured 5.8 to 44.3px at 0.01 to 0.10 rad per frame, 1.5 to
+10.2px after). They run after it now
+(`GameView.cs:2968-3000`), the only order in which the occlusion tests
+mean anything: `Project` tests the per-column wall depth
+(`Renderer.cs:1364`) and, since the sprite pass keeps its depth buffer,
+the nearer BODY too (`:1375-1383`, valid only on frames that painted
+something). In the reference a label is an alpha-rejection pass with the
+depth test on. Do not add a label view that Syncs earlier.
+
+A camera that moves is not photographable by the stock harness steps -
+see harness.md.
+
+See also: NameTags.cs | the harness -> harness.md
+
+## Composed pictures carry a mip chain, built eagerly
+Tags: gotchas, lessons | M59Compose.Raster returned a Tex with no mips, Tex.Level() then answers level 0, and every room object was point-sampled at full resolution
+
+`WorldSync.Composed` defaults true, so the composed path is the one every
+room object takes, and the single-frame path's mips never applied to it.
+`M59Compose.Build` calls `Mip(t)` (`M59Compose.cs:44,89-92`: `RebuildMips`
+then `KeyAlpha(64)`, base_material's own rejection threshold). It is
+EAGER on purpose: lazy building is what made the threads oracle disagree.
+Anything that writes level 0 afterwards must re-mip: the target outline
+does, in `ComposeCache.Get` (`M59Compose.cs:416`), or a distant target
+silently loses the red edge the ruling calls for.
+
+The check that showed it: the share of painted pixels that change colour
+when a sprite slides half a screen pixel, 10.9% or worse before and 0.0%
+after for a distant Knight (5d4c988's measurement, not re-run).
+
+See also: Renderer.cs | M59Geo.cs
+
+## A frame the art does not have is not drawn
+Tags: gotchas | SpriteCache.Get clamped a bad animation group to frame 0 and drew a creature frozen in the wrong pose; the library draws nothing
+
+`GetFrameIndex` answers -1 for a group the art lacks and for a facing the
+group has no frame for (`BgfFile.cs:490-514`); `Get` returns null
+(`M59Geo.cs:466-471`) and its callers already cope. The clamp fired on
+every lookup for a group the art lacks, and on 242 of 16976 for a group
+it HAS (a facing with no frame), those in four BGFs: `gshnecbk`, `gshnecov`, `maulov` (worn parts, which reach the
+screen through the composed path) and `hist_king1`, whose index runs
+past its frame list - counts as measured in the code comment, not
+re-run. A null from `Get` for one of those is the library's answer.
+
+See also: M59Geo.cs
+
+## A command that fails is never speech, and Parse is not pure
+Tags: gotchas, lessons | Every malformed chat command parses to null; reading null as "this is speech" sent `tell Zorak <private words>` to the whole room
+
+`ChatCommand.Parse` pushes a ServerString into `Data.ChatMessages` on
+each failure path (listed at `GameView.cs:96-106`), so the line is parsed
+EXACTLY ONCE - classifying with `IsCommand` and then parsing again
+printed every error twice. A null parse sends nothing, as the reference
+does (`UIChat.cpp:274-281`). The Who list's Tell composes the name
+QUOTED, because the unquoted branch takes the shortest prefix that
+matches one player and treats the rest as the body
+(`ChatCommand.cs:416-440`), so a multi-word name lost half of itself.
+
+See also: GameView.cs | wire-format.md
+
+## Sound: two more ways it was silent
+Tags: gotchas, lessons | The string table and the files disagree about case, and the library poisons its path cache with the bad spelling; and a batch of messages inverts the reference's per-message order
+
+- Names differ in case from the files on disk (`ambcave.ogg` for
+  `AMBCave.ogg`; `M59Sound.cs:712-730` has the count, 213 of 495), the
+  load is case-sensitive on Android and Linux, and
+  `ResourceManager.GetWavFile` writes the failed path back into a
+  case-insensitive dictionary (`ResourceManager.cs:403`) so one bad
+  request fails the right one too. NTFS hides it in the reference.
+  Resolved through a lowercased index of the folder
+  (`M59Sound.cs:751-762`); `Tools/Meridian59.Net8FakeServer/sound-guard.sh` is the pass/fail check.
+- `_client.Update()` drains the whole socket and fires Sound for every
+  message in the batch; the reference dispatches per message and clears
+  its list on reaching Player (`ControllerSound.cpp:229-256,341-357`), so
+  a PlayWave AFTER Player survives. Stopping afterwards in `SyncRoom`
+  killed every room's loop in the frame it started (`GameView.cs:1232-1250`).
+  The fixture only catches it with `M59_LOOPFIRST` -> fake-server.md.
+
+See also: M59Sound.cs | the pack -> "Sound shipped, and did not arrive"

@@ -51,8 +51,10 @@ Tags: process | Kept so the next session tests something new rather than re-prov
 - Buying: `ReqBuyItems` then `InventoryAdd`; a stackable carries its
   count, a single item sends x0. Two stacks of one item do NOT merge, and
   that is the game - hence `NumOfSameName`.
-- Looting: `ReqGet`, the item lands in the pack and leaves the floor, and
-  pressing Loot again opens nothing because there is nothing to loot.
+- Looting: `ReqGet`, the item lands in the pack and leaves the floor. An
+  earlier version of this line said pressing Loot again opens nothing;
+  that was a bug, not a fact - the emptied list kept its old rows
+  (`LootPanel.cs:239,307-311`) - and the second open now shows "Loot (0)".
 - Trading: `ReqCounterOffer` with the right id and count, the server
   confirms your side, the buttons collapse to Cancel. Accept stays hidden
   on a background offer, as the reference does.
@@ -214,7 +216,7 @@ per case.
 
 See also: the fake server -> ./fake-server.md | delivery -> ./delivery.md
 
-## Four ways a scripted run lies about a working feature
+## Seven ways a scripted run lies about a working feature
 Tags: gotchas, lessons | Each of these produced a screenshot or a log that looked exactly like a client bug, and each cost an agent a run or more
 
 - `--shots` breaks any gesture with a time window. On top of the 30-frame
@@ -239,5 +241,41 @@ Tags: gotchas, lessons | Each of these produced a screenshot or a log that looke
   other. Give each run its own resource dir and its own port: server
   args are `<port> <dir> <room>`, the client's are `--port` and `--res`
   (`SceneShot.cs:26,49`). The `/tmp/res` rule above is for a single run.
+  Agents also share the scratchpad root and `user://`: `hotbar.cfg`
+  (`HotbarStore.cs:39`), `character.cfg` (`GameView.cs:1001`) and the
+  unpacked resource folder all live under Godot's per-user data folder,
+  so give each run a private subfolder AND a private `XDG_DATA_HOME`.
+  And kill a server by the PID you saved when you started it: a
+  `pkill -f <pattern>` whose pattern is in your own command line kills
+  your own shell (it happened).
+- A scripted DOUBLE TAP cannot be made. Every step ends with a 30-frame
+  settle (`SceneShot.cs:627-628`), so the gap between two steps is
+  30 frames divided by the frame rate: 2-3 seconds under llvmpipe, where
+  agents measured 9-18 fps. The bag's window is 250ms
+  (`InventoryPanel.cs:144,555`), which 30 frames only fit at 120 fps or
+  better; the spell book's 600ms (`SpellsPanel.cs:268`) fits only
+  above 50. So `Bag,@slot,@slot` puts nothing on the wire while
+  `Bag,@slot,Use` sends `ReqUse` (`InventoryPanel.cs:189`), and the
+  bag's double-tap-to-use and the spell book's double-tap-to-cast read
+  as dead features. Select, then press the button; for a cast the
+  `--shots`-free run above works only on a fast machine.
+- Continuous motion cannot be photographed with the stock steps, and
+  that is a limit of the steps, not of the client. Each step settles 30
+  frames before it shoots, and `@drag` slides for ten frames and then
+  HOLDS STILL (`now = to`, so `Relative` is zero, `SceneShot.cs:490-505`)
+  before it lifts. The only photographable frames are therefore frames
+  on which the camera was not moving - which is exactly when a label
+  placed with the previous frame's camera looks correct
+  (`GameView.cs:2968-2985`). An agent got through it in a scratchpad
+  copy of SceneShot (NOT in the repo) with a step that emits one
+  `InputEventScreenDrag` per frame with a constant `Relative` and shoots
+  mid-hold with no settle; the look half turns by the delta and ignores
+  `Position` (`TouchControls.cs:150-153`). Write that step again when a
+  bug only shows while the camera moves; do not conclude it cannot be
+  done.
+- A timed fixture event counts client messages, not milliseconds, and
+  pings outpace frames under load, so a `--shots` run needs many dummy
+  `--press` steps or the event fires before frame 1. The switches and
+  the rule are in fake-server.md.
 
 See also: the fixture -> fake-server.md | SceneShot.cs

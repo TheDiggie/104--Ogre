@@ -59,11 +59,87 @@ session) and `SpellsPanel.cs:200-236` (a row stuck "(unnamed)" with no
 icon). `NpcQuestsPanel.cs:281-282` was the same omission on another axis:
 titles only, so a re-offered list with new text never rebuilt.
 
+Two later cases of the same omission: `InventoryPanel`'s signature
+lacked `IsApplyable`, so a flags-only change never reached `Sync`
+(`InventoryPanel.cs:345-346` carries it and `IsInUse` now); and the
+button caption was refreshed only when the surviving object was a new
+INSTANCE, though the library flips `IsInUse` on the same one
+(`DataController.cs:2481-2506`) - see "A model object held across a
+rebuild goes stale" below.
+
 A fixture that shows it needs ONE row: with two, the sort order moves when
 the names resolve, the signature changes for the wrong reason, and the
 bug hides.
 
 See also: the fixture -> fake-server.md | ActionButtons.cs
+
+## A model object held across a rebuild goes stale
+Tags: lessons, gotchas | Hold the ID and look it up live; where the object itself must be kept, re-resolve it by ID on every Sync - four panels shipped lying about a thing the server had already replaced
+
+The panels rebuild from the model, and the library either mutates an
+object in place (`IsInUse`, name and flags, a stack's count) or replaces
+it (`InventoryRemove` then `InventoryAdd` for a new stack). A reference
+kept from the last build is wrong in both cases. Caught in one day:
+
+- Loot: `_ticked` held the object instances, so a tick outlived its item
+  and Get sent the counts they had when ticked, and `Close` never freed
+  the rows, so a reopened empty list still drew live ghosts (6970025).
+  It is a set of ids now, pruned on rebuild (`LootPanel.cs:108,307-311`),
+  and Get walks the live model in list order (`:475-481`).
+- Trade: `Put` stored the instance, so a replaced stack went on being
+  offered as id 8003 at 25 after the server had made it 8004 x5. Put
+  compares by ID (7b79a6c), and `Reconcile` (`TradePanel.cs:402`) runs
+  every `Sync` and again at the Offer press: drops what the pack no
+  longer holds, swaps in the live instance, lowers a chosen amount the
+  stack cannot cover, and says so in-page. It stops once the server has
+  echoed the offer, when `ItemsYou` holds the server's objects
+  (`IsItemsYouSet`).
+- Inventory caption: `_picked` is re-pointed at the live object and the
+  button relabelled on every rebuild, not only on a new instance
+  (`InventoryPanel.cs:366-391`); it drops the pick when the id is gone.
+  The bag was right first and is the pattern.
+- Amounts follow the same rule: a number the player chose lives in the
+  panel keyed by id (`TradePanel._amounts`, read through `Chosen`), and
+  the ceiling is the LIVE count - re-opening the prompt with `o.Count`
+  as both value and ceiling had silently put the whole stack back
+  (89aca73).
+
+The reference gets away with holding instances because its rows are
+destroyed by the list's own `ItemRemove` as the model changes
+(`UITrade.cpp:480-481`, `UILootList.cpp:53-59`). Here the rows are
+redrawn, so nothing does it for you.
+
+See also: the harness fixture M59_STACK=shrink|replace -> fake-server.md | InventoryPanel.cs
+
+## Free a row before you add its replacement
+Tags: gotchas, lessons | QueueFree is deferred, so the old child still holds its name when the new one arrives and Godot renames the new one `@Button@NNN` - the panel works and cannot be scripted
+
+`RemoveChild` then `QueueFree` (`CharacterPicker.cs:206-211`). The rows
+still worked, matched by text, which is why nobody saw it; but
+`@name:newCharacter` found nothing on every visit after the first, so
+Cancel-then-retry had never been exercised.
+
+See also: harness.md | CharacterPicker.cs
+
+## Nothing may end up above an armed ConfirmPopup
+Tags: design, gotchas | The reference's popup is AlwaysOnTop and not modal, so a question that is waiting for an answer is never covered by another window - here that is an invariant on tree order, held by whoever moves last
+
+Both the popup's root and its window set `AlwaysOnTop`
+(`Resources/ui/layouts/Meridian59.layout:2859,2873`); neither is modal.
+In this tree "on top" is the last child, so a window that raises itself
+has to put an open popup back above it (`GuildPanel.KeepPopupOnTop`,
+`GuildPanel.cs:368`; `ConfirmPopup.cs:209-210` raises itself on show).
+Raise only on the OPEN edge: `GuildPanel` called `Show(true)` on every
+roster rebuild, so a server resend put the roster over "exile Boris?",
+which stayed hidden and still armed.
+
+The invariant is what to keep, not the state of the tree: check
+whoever opens a panel while a popup can be up (`GuildAsk` opening
+`GuildCreatePanel` was an open case at fa28d39). `ConfirmPopup.Choice`
+and `Tell` silently replace a pending choice - not reference behaviour
+to copy, and unreachable once touch cannot start a second choice.
+
+See also: Panels.cs | ConfirmPopup.cs
 
 ## Subscriptions attach after Init
 Tags: gotchas | RootClient.Init() creates Data, so anything subscribing to Data must run after _client.Init()
