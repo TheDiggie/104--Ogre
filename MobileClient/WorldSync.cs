@@ -233,6 +233,20 @@ public sealed class WorldSync
         // - the red-sided silhouette. `_compose.Get(o, eye, o.IsTarget)`
         // asks for it; M59Compose.Outline does it.
 
+        // TARGET, in the reference's place in the chain rather than
+        // left out of it. `RemoteNode2D.cpp:173-215` tests Invisible,
+        // Black, IsTarget, IsHighlighted, IsFlashing, then the
+        // translucencies, and the first match wins - so a target is
+        // drawn as a target and is NOT also faint or pulsing. Leaving
+        // it out of the chain meant a targeted translucent thing kept
+        // its 25% opacity with a red edge round it, and a flashing one
+        // went on pulsing; the reference shows both solid.
+        //
+        // Nothing is set here because the edge is already in the
+        // picture: `_compose.Get(o, eye, o.IsTarget)`. The point of the
+        // branch is to STOP.
+        else if (o.IsTarget) { }
+
         // MOUSEOVER would go here.
 
         // FLASHING - the only material that moves. Its sintime is bound

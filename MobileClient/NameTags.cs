@@ -33,7 +33,14 @@ public partial class NameTags : Control
 {
     [Export] public int FontSize = 14;
 
-    /// <summary>How far above the object's base the name floats, in world units.</summary>
+    /// <summary>
+    /// How far above the object's base the name floats when the
+    /// drawn height is not known, in world units. The game puts the
+    /// name at the top of the picture - `RemoteNode::UpdateNamePosition`
+    /// asks the scene node how tall it is and adds one - so a fixed
+    /// height hangs names in the air over a rat and through the chest
+    /// of a cyclops. This is only the fallback.
+    /// </summary>
     [Export] public float Height = 700f;
 
     readonly List<Label> _pool = new List<Label>();
@@ -60,7 +67,9 @@ public partial class NameTags : Control
 
             float wx = M59Geo.KodToWorld(o.Position3D.X);
             float wy = M59Geo.KodToWorld(o.Position3D.Z);
-            float wz = M59Geo.KodHeightToXY(o.Position3D.Y) + Height;
+            // The top of the drawn picture, as the game does it.
+            float tall = renderer.WorldHeight(renderer.SpriteFor(o));
+            float wz = M59Geo.KodHeightToXY(o.Position3D.Y) + (tall > 0f ? tall : Height);
 
             if (!renderer.Project(wx, wy, wz, out float sx, out float sy)) continue;
 

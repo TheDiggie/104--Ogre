@@ -225,6 +225,15 @@ public sealed class Tex
         _levels = lv.ToArray(); _lw = lw.ToArray(); _lh = lh.ToArray();
     }
 
+    /// <summary>Meridian's transparent palette index.</summary>
+    public const byte Transparent = 254;
+
+    /// <summary>
+    /// What the renderer shows where there is nothing: the same near-black
+    /// used when a column reaches no wall at all.
+    /// </summary>
+    public const uint Void = 0xFF05050Au;
+
     public static Tex From(BgfFile bgf, int frame = 0)
     {
         if (bgf == null || bgf.Frames.Count == 0) return null;
@@ -237,7 +246,18 @@ public sealed class Tex
         if (idx == null || w <= 0 || h <= 0 || idx.Length < w * h) return null;
         uint[] pal = ColorTransformation.DefaultPalette;
         var p = new uint[w * h];
-        for (int i = 0; i < w * h; i++) p[i] = pal[idx[i]] | 0xFF000000u;
+        for (int i = 0; i < w * h; i++)
+        {
+            byte c = idx[i];
+            // Index 254 is Meridian's transparent key, and in the palette it
+            // is 0x0000FFFF - alpha 0 over bright cyan. Forcing alpha opaque
+            // here, which walls and floors need, would paint that cyan on
+            // screen. The game never shows it: `d3drender.c` rejects the key
+            // colour outright. Nothing in this renderer's opaque path can see
+            // through a wall, so the honest stand-in is the void colour the
+            // column walk itself uses when there is nothing to draw.
+            p[i] = c == Transparent ? Void : pal[c] | 0xFF000000u;
+        }
         var t = new Tex { W = w, H = h, P = p, Shrink = Math.Max(1, (int)bgf.ShrinkFactor) };
         t.BuildMips();
         return t;

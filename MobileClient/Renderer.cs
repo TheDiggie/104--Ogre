@@ -569,7 +569,7 @@ public sealed class Renderer
             }
 
             if (closed) sc.SolidCols++;
-            else for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0) px[y * W + sx] = 0xFF05050Au;
+            else for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0) px[y * W + sx] = Tex.Void;
         }
     }
 
@@ -677,6 +677,31 @@ public sealed class Renderer
     /// Works out where a sprite lands on screen. Shared by drawing and by
     /// picking so the two cannot disagree about what is under a finger.
     /// </summary>
+    /// <summary>
+    /// How tall a sprite actually stands, in world units - its own
+    /// height where it has one, otherwise the art's, which is the
+    /// frame's pixels over the file's shrink factor. The name tag asks
+    /// for this: the game puts a name at the top of the drawn image
+    /// (`RemoteNode.cpp` UpdateNamePosition), so it has to know how
+    /// tall the image is.
+    /// </summary>
+    public float WorldHeight(Sprite sp)
+    {
+        if (sp == null) return 0f;
+        if (sp.Height > 0f) return sp.Height;
+        Tex t = sp.Texture;
+        if (t == null && sp.Bgf != null) t = SpriteFrames.Get(sp.Bgf, sp.Group, sp.AngleUnits);
+        return t == null ? 0f : t.H / (float)Math.Max(1, t.Shrink) * M59Geo.HeightToXY;
+    }
+
+    /// <summary>The sprite drawn for an object, or null.</summary>
+    public Sprite SpriteFor(object tag)
+    {
+        if (tag == null) return null;
+        foreach (Sprite sp in Sprites) if (ReferenceEquals(sp.Tag, tag)) return sp;
+        return null;
+    }
+
     bool Place(Sprite sp, float depth, float lateral, int W,
                float camX, float camY, float camZ, float proj, float horizon,
                out Placed p)
@@ -915,7 +940,7 @@ public sealed class Renderer
             // (`ControllerRoom.cpp:686`). So the void shows, which is
             // what a shortened quad leaves. A grey fill instead made
             // every missing texture look like a wall that is there.
-            if (t == null) c = 0xFF05050Au;
+            if (t == null) c = Tex.Void;
             else
             {
                 float f = (y - spanTopY) / span;                 // 0 at top of span
