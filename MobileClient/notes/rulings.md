@@ -18,7 +18,9 @@ Tags: process | Things deliberately parked, so they are not rediscovered as bugs
 
 - The six unsigned commits are not rebased until Ashton is at the
   keyboard: the rewrite would desync his working copy.
-- Minimap dots pop out whole at the rim instead of clipping in half.
 - Hotbar alias buttons: no alias list exists anywhere in the port.
+- Autorun (the reference's AutoMove) and its Actions window - Dance,
+  Point and GuildInvite - have nowhere to live: the bottom row is full
+  at 1080 wide. Waiting on Ashton for where they should go.
 
 See also: delivery -> ./delivery.md | the client -> ./mobile-client.md
