@@ -1583,8 +1583,24 @@ public partial class GameView : Node2D
         if (avatar == null) return;
         WorldSync.Camera(avatar, out float cx, out float cy, out float cz);
 
-        Renderer.Sprite hit = _world.Renderer.Pick(bx, by, _w, _h, cx, cy, cz, avatar.Angle);
-        var obj = hit?.Tag as RoomObject;
+        // Everything under the thumb, nearest first, so a second tap in
+        // the same place reaches what is standing behind the first
+        // thing. That is the library's own rule -
+        // `DataController.ClickTarget` takes the first id you have not
+        // already picked and starts over when the list runs out
+        // (DataController.cs:1403-1441) - and the reference feeds it the
+        // whole distance-sorted ray (`ControllerInput.cpp:153-215`).
+        // Handing it only the nearest made the creature at the back
+        // unselectable.
+        var ids = new System.Collections.Generic.List<uint>();
+        RoomObject obj = null;
+        foreach (Renderer.Sprite sp in
+                 _world.Renderer.PickAll(bx, by, _w, _h, cx, cy, cz, avatar.Angle))
+        {
+            if (!(sp.Tag is RoomObject ro) || ro.IsAvatar) continue;
+            if (obj == null) obj = ro;
+            ids.Add(ro.ID);
+        }
 
         // A tap that hits nothing is not a command to forget what you
         // were fighting. The reference changes only the cursor when a
@@ -1596,12 +1612,13 @@ public partial class GameView : Node2D
         // different monster or somebody's pet.
         if (obj == null) return;
 
-        // Only the id is set. The library resolves it to an object and
-        // raises TargetObject, and the row follows that - which is how
-        // the game does it, and the only way the row hears about the
-        // targets the library sets by itself: the thing you killed
-        // leaving the room, a room change, a tab-target, a click-target.
-        _client.Data.TargetID = obj.ID;
+        // Only the id is set, and by the library rather than here. It
+        // resolves it to an object and raises TargetObject, and the row
+        // follows that - which is how the game does it, and the only way
+        // the row hears about the targets the library sets by itself:
+        // the thing you killed leaving the room, a room change, a
+        // tab-target, a click-target.
+        _client.Data.ClickTarget(ids);
     }
 
     /// <summary>

@@ -898,22 +898,45 @@ public sealed class Renderer
     public Sprite Pick(int px_, int py_, int W, int H,
                        float camX, float camY, float camZ, float angle)
     {
-        if (Sprites.Count == 0 || px_ < 0 || px_ >= W || py_ < 0 || py_ >= H) return null;
-        if (_depth.Length < W) return null;
+        List<Sprite> all = PickAll(px_, py_, W, H, camX, camY, camZ, angle);
+        return all.Count > 0 ? all[0] : null;
+    }
+
+    /// <summary>
+    /// Every sprite under a screen pixel, nearest first.
+    ///
+    /// One tap can land on several things standing in a line, and the
+    /// game lets you walk back through them: `ControllerInput.cpp:153-215`
+    /// collects every ray hit, sorts them by distance, and hands the
+    /// whole list to `DataController.ClickTarget`, which takes the first
+    /// one you have not already picked (DataController.cs:1403-1441).
+    /// Tapping twice therefore reaches the creature standing behind the
+    /// one in front. Returning only the nearest, as this did, made the
+    /// thing at the back unselectable.
+    ///
+    /// The same rules as before decide what counts as a hit: an opaque
+    /// texel only, so tapping the gap under a rat's belly reaches what
+    /// is behind it, and never past the wall depth the last frame left.
+    /// </summary>
+    public List<Sprite> PickAll(int px_, int py_, int W, int H,
+                                float camX, float camY, float camZ, float angle)
+    {
+        var hits = new List<Sprite>();
+        if (Sprites.Count == 0 || px_ < 0 || px_ >= W || py_ < 0 || py_ >= H) return hits;
+        if (_depth.Length < W) return hits;
 
         float proj = Projection(W, H);
         float horizon = Horizon(H, proj);      // Pick must agree with Render
         float ca = MathF.Cos(-angle), sa = MathF.Sin(-angle);
 
-        Sprite best = null;
-        float bestDepth = float.MaxValue;
+        var depths = new List<float>();
 
         foreach (Sprite sp in Sprites)
         {
             if (sp.Bgf == null && sp.Texture == null) continue;
             float rx = sp.X - camX, ry = sp.Y - camY;
             float depth = rx * ca - ry * sa;
-            if (depth < 32f || depth >= bestDepth || depth >= _depth[px_]) continue;
+            if (depth < 32f || depth >= _depth[px_]) continue;
             float lateral = rx * sa + ry * ca;
 
             if (!Place(sp, depth, lateral, W, camX, camY, camZ, proj, horizon, out Placed p))
@@ -925,9 +948,18 @@ public sealed class Renderer
             if (ty < 0) continue;
             if ((p.T.P[ty * p.T.W + tx] >> 24) == 0) continue;   // saw straight through
 
-            best = sp; bestDepth = depth;
+            hits.Add(sp);
+            depths.Add(depth);
         }
-        return best;
+
+        // Nearest first, which is the order ClickTarget expects.
+        for (int i = 1; i < hits.Count; i++)
+            for (int j = i; j > 0 && depths[j] < depths[j - 1]; j--)
+            {
+                (depths[j], depths[j - 1]) = (depths[j - 1], depths[j]);
+                (hits[j], hits[j - 1]) = (hits[j - 1], hits[j]);
+            }
+        return hits;
     }
 
     /// <summary>
