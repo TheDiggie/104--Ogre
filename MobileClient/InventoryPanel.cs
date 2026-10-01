@@ -163,7 +163,8 @@ public partial class InventoryPanel : Control
         AddChild(_open);
         Panels.Opener(_open);
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.94f), Visible = false };
+        // Opaque: the reference window is a TaharezLook FrameWindow with no Alpha (Meridian59.layout:1396, UIInventory.cpp:8).
+        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 1f), Visible = false };
         AddChild(_panel);
 
         _title = new Label { Text = "Carrying", Visible = false };

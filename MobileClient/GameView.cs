@@ -2516,6 +2516,24 @@ public partial class GameView : Node2D
             if (look != 0f) _client.TryYaw(look);
             if (_wasTurning && look == 0f) _client.SendReqTurnMessage(true);
             _wasTurning = look != 0f;
+
+            // Autorun is exempt, as in the reference: `if (isAutoMove ||
+            // isMoveByMouseOrKeysNotUsedByUI)` (ControllerInput.cpp:934-951)
+            // drives TryMove on isAutoMove alone, and the
+            // ProcessingInput early-out only comes after it (:957). The
+            // stop above is for STICK movement (a drag meant for a
+            // list must not walk you); autorun has nothing touching the
+            // screen. The stick is deliberately not read here, so a
+            // drag on a panel cannot cancel it either. The waiting gate
+            // (:736) still applies.
+            if (_autoMove && !(_client.Data != null && _client.Data.IsWaiting))
+            {
+                _wasMoving = true;
+                float c0 = MathF.Cos(avatar.Angle), s0 = MathF.Sin(avatar.Angle);
+                try { _client.TryMove(new V2(c0, s0), !Walking(), 0f); }
+                catch (Exception e) { _chat?.Local($"move: {e.GetType().Name}: {e.Message}"); }
+                return;
+            }
             Settle();
             return;
         }

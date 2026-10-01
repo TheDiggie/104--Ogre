@@ -111,7 +111,8 @@ public partial class LootPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.94f), Visible = false };
+        // Opaque: LootList/ObjectContents are FrameWindows with no Alpha (Meridian59.layout:2994,2970; UILootList.cpp:8, UIObjectContents.cpp:8).
+        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 1f), Visible = false };
         AddChild(_panel);
 
         _title = new Label { Text = Heading, Visible = false };

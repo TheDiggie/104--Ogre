@@ -25,6 +25,11 @@ public partial class RoomView : Node2D
 
     static readonly Color WallSolid  = new Color(0.10f, 0.10f, 0.10f);
     static readonly Color WallPass   = new Color(0.29f, 0.56f, 0.85f);
+    // The reasons a wall blocks, per RooFile.CanMoveInRoomTree3DInternal
+    // (RooFile.cs:1636-1672); WallSolid is the first (end outside / one-sided).
+    static readonly Color WallNoFlag   = new Color(0.85f, 0.25f, 0.25f); // red: start side lacks WF_PASSABLE (:1643)
+    static readonly Color WallNoMove   = new Color(0.90f, 0.60f, 0.15f); // orange: end sector is SF_NOMOVE (:1647)
+    static readonly Color WallHeadroom = new Color(0.75f, 0.35f, 0.85f); // purple: end gap < OBJECTHEIGHTROO (:1655)
     static readonly Color Background = new Color(0.06f, 0.06f, 0.07f);
     static readonly Color NoTexture  = new Color(0.20f, 0.20f, 0.22f);
 
@@ -132,6 +137,37 @@ public partial class RoomView : Node2D
             (y - _minY) * _fit * _zoom + _origin.Y + _pan.Y);
     }
 
+    /// <summary>
+    /// Colours a wall by the library's own movement test,
+    /// CanMoveInRoomTree3DInternal (RooFile.cs:1636-1672), tried in both
+    /// directions across the wall (the caller picks start and end by
+    /// which side of the wall each is on, RooFile.cs:1745-1765). Blue
+    /// means crossable both ways; anything else is blocked, and the
+    /// colour says WHICH of the reasons, in the library's order:
+    /// dark = an end is outside the room (no sector or side, :1639);
+    /// red = the start side lacks WF_PASSABLE (:1643);
+    /// orange = the end sector is SF_NOMOVE (:1647);
+    /// purple = the end sector's ceiling-to-floor gap is under
+    /// OBJECTHEIGHTROO (:1655, measured at the wall's midpoint).
+    /// </summary>
+    static Color WallColour(RooWall w)
+    {
+        float mx = (w.X1 + w.X2) * 0.5f, my = (w.Y1 + w.Y2) * 0.5f;
+        Color? a = Block(w.RightSector, w.LeftSector, w.RightSide, w.LeftSide, mx, my);
+        Color? b = Block(w.LeftSector, w.RightSector, w.LeftSide, w.RightSide, mx, my);
+        return a ?? b ?? WallPass;
+    }
+
+    static Color? Block(RooSector s, RooSector e, RooSideDef sideS, RooSideDef sideE, float x, float y)
+    {
+        if (e == null || sideE == null) return WallSolid;
+        if (sideS != null && !sideS.Flags.IsPassable) return WallNoFlag;
+        if (e.Flags.IsNoMove) return WallNoMove;
+        if (e.CalculateCeilingHeight(x, y) - e.CalculateFloorHeight(x, y, true)
+            < Meridian59.Common.Constants.GeometryConstants.OBJECTHEIGHTROO) return WallHeadroom;
+        return null;
+    }
+
     public override void _Draw()
     {
         DrawRect(new Rect2(Vector2.Zero, GetViewportRect().Size), Background);
@@ -185,9 +221,8 @@ public partial class RoomView : Node2D
         {
             foreach (RooWall w in _roo.Walls)
             {
-                bool passable = w.RightSectorNum != 0 && w.LeftSectorNum != 0;
                 DrawLine(ToScreen(w.X1, w.Y1), ToScreen(w.X2, w.Y2),
-                         passable ? WallPass : WallSolid, 1.5f, true);
+                         WallColour(w), 1.5f, true);
             }
         }
 

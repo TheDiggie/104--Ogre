@@ -172,7 +172,8 @@ public partial class TradePanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.96f), Visible = false };
+        // Opaque: a FrameWindow with no Alpha (Meridian59.layout:1585, UITrade.cpp:8).
+        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 1f), Visible = false };
         AddChild(_panel);
 
         _title = Head("Trade", FontSize + 4, new Color(1, 0.92f, 0.6f));
