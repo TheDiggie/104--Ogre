@@ -14,6 +14,12 @@ using Godot;
 /// </summary>
 public partial class SceneShot : Node
 {
+    /// <summary>
+    /// The harness wants the diagnostics on: the room id and the frame
+    /// rate in the corner of a shot are how a run is read afterwards.
+    /// </summary>
+    static SceneShot() => System.Environment.SetEnvironmentVariable("M59DEBUG", "1");
+
     public override void _Ready()
     {
         string outPath = Arg("--out", "room.png");

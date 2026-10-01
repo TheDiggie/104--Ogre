@@ -220,6 +220,18 @@ public partial class GameView : Node2D
     int _w, _h;
 
     Label _status;
+
+    /// <summary>
+    /// Whether the diagnostics go on screen. M59DEBUG=1 turns them on;
+    /// the harnesses set it, and so can anyone chasing a frame rate.
+    /// </summary>
+    /// <remarks>
+    /// Read in _Ready rather than in a field initialiser: the harness
+    /// sets the variable from its own scene, and a static field would
+    /// have been computed first or last depending on which type the
+    /// runtime happened to touch first.
+    /// </remarks>
+    bool Debugging;
     StatusBar _bar;
     string _state = "starting";
     double _fpsAccum; int _frames; string _fps = "";
@@ -306,6 +318,8 @@ public partial class GameView : Node2D
         GetViewport().SizeChanged += () => SafeArea.Apply(_ui, GetViewportRect().Size);
 
         // Below the avatar block, which owns the corner.
+        Debugging = System.Environment.GetEnvironmentVariable("M59DEBUG") == "1";
+
         _status = new Label { Position = new Vector2(12, 132) };
         _status.AddThemeColorOverride("font_color", new Color(1, 1, 1));
         _status.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
@@ -2188,9 +2202,21 @@ public partial class GameView : Node2D
         _image.SetData(_w, _h, false, Image.Format.Rgba8, _rgba);
         _texture.Update(_image);
 
-        _status.Text = $"{_state}   {_w}x{_h}  {_fps}\n" +
-                       $"{_world.Renderer.Sprites.Count} objects\n" +
-                       string.Join("\n", _log);
+        // The room id, the buffer size, the frame rate, the object
+        // count and a second copy of everything that is already in the
+        // chat log, printed over the top-left corner of the world.
+        //
+        // All of it was useful while there was nothing else to look at
+        // and none of it belongs in front of somebody playing. It is
+        // kept behind M59DEBUG=1, with one exception: a line in _log is
+        // a widget that failed to build, and that has to be visible
+        // wherever it happens - a game missing its Bag button and
+        // saying nothing about it is worse than an untidy corner.
+        _status.Text = Debugging
+            ? $"{_state}   {_w}x{_h}  {_fps}\n" +
+              $"{_world.Renderer.Sprites.Count} objects\n" +
+              string.Join("\n", _log)
+            : string.Join("\n", _log);
     }
 
     public override void _Draw()
