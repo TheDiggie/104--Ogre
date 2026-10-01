@@ -41,6 +41,19 @@ public partial class OptionsPanel : Control
     /// <summary>A preference bit changed: tell the server.</summary>
     public event Action Preferences;
 
+    /// <summary>
+    /// The player wants the alias editor.
+    ///
+    /// In the reference the aliases are not a separate window at all -
+    /// they are a page of this one, reached by a category button beside
+    /// the others (`UIOptions.cpp:18`, :623, :1241). A page of a
+    /// full-screen panel is a second full-screen panel on a phone, so it
+    /// is its own thing here; but it is still reached from Settings,
+    /// which is where a player who has used the desktop client will look
+    /// for it.
+    /// </summary>
+    public event Action EditAliases;
+
     /// <summary>Sound and music, 0..1 after the game's 0..10 scale.</summary>
     public event Action<float> SoundVolume;
     public event Action<float> MusicVolume;
@@ -199,6 +212,42 @@ public partial class OptionsPanel : Control
                                   on => { if (_prefs != null) _prefs.ReagentBag = on; }));
         _rows.AddChild(Preference("Show spell power", () => _prefs != null && _prefs.SpellPower,
                                   on => { if (_prefs != null) _prefs.SpellPower = on; }));
+
+        _rows.AddChild(Section("Chat"));
+        _rows.AddChild(Opens("Aliases", "Edit", () => EditAliases?.Invoke()));
+    }
+
+    /// <summary>
+    /// A row that leads somewhere else, laid out like the sliders so the
+    /// list still reads as one column: what it is on the left, the way in
+    /// on the right.
+    /// </summary>
+    Control Opens(string name, string verb, Action pressed)
+    {
+        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
+        line.AddThemeConstantOverride("separation", 8);
+
+        var label = new Label
+        {
+            Text = name,
+            VerticalAlignment = VerticalAlignment.Center,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+        };
+        label.AddThemeFontSizeOverride("font_size", FontSize);
+        label.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
+        line.AddChild(label);
+
+        var go = new Button
+        {
+            Text = verb,
+            CustomMinimumSize = new Vector2(112, 0),
+            Name = $"open{Slug(name)}",
+        };
+        go.AddThemeFontSizeOverride("font_size", FontSize);
+        go.Pressed += () => pressed();
+        line.AddChild(go);
+
+        return line;
     }
 
     /// <summary>
