@@ -284,6 +284,7 @@ public partial class GameView : Node2D
     CanvasLayer _ui;
     ResourcePrompt _prompt;
     readonly List<string> _log = new List<string>();
+    string _passwordBefore, _passwordAfter;
 
     M59Client _client;
     WorldSync _world;
@@ -658,12 +659,32 @@ public partial class GameView : Node2D
         _options.ChangePassword += (before, after) => Act(() =>
         {
             _client.SendReqChangePassword(before, after);
+            // What to put back if the server says no. The reference
+            // overwrites unconditionally and never restores
+            // (`UIOptions.cpp:2812`), so after a refusal it too holds a
+            // password the account does not have; that is the reference's
+            // fault, not its specification, and is not copied.
+            _passwordBefore = before;
+            _passwordAfter = after;
             if (_client.Config?.SelectedConnectionInfo != null)
                 _client.Config.SelectedConnectionInfo.Password = after;
-            // The server does not acknowledge this, so nothing else would
-            // ever say it had happened.
-            _ask?.Tell("Password change sent.", null, false);
+            // No "sent" line: the server answers, and the answer is what
+            // the reference shows (`OgreClient.cpp:1073-1083`). The
+            // library's handlers for it are empty (`BaseClient.cs:708-719`)
+            // and M59Client overrides both.
         });
+
+        _client.PasswordAnswered += ok =>
+        {
+            // Only undo what this change did: if the stored password is
+            // no longer the one we wrote, something else has replaced it.
+            var info = _client.Config?.SelectedConnectionInfo;
+            if (!ok && info != null && _passwordAfter != null && info.Password == _passwordAfter)
+                info.Password = _passwordBefore;
+            _passwordBefore = _passwordAfter = null;
+            _ask?.Tell(ok ? "Password changed successfully."
+                          : "The server did not accept your new password.", null, false);
+        };
 
         _options.LanguageChanged += UseLanguage;
 
@@ -758,6 +779,9 @@ public partial class GameView : Node2D
             _ask.Choice("Are you sure?", 0, _ => go());
         };
 
+        // A refusal or a result the player has to be told: the chat log
+        // gets these. The reference's chat holds server text and its own
+        // short player-facing lines only, never exception text.
         _client.Notice += s =>
         {
             _log.Add(s); GD.Print("[M59] " + s);
@@ -768,6 +792,20 @@ public partial class GameView : Node2D
                 _login.Trouble(s);
             if (_log.Count > 6) _log.RemoveAt(0);
             _chat?.Local(s);
+        };
+        // The client's own diagnostics (M59Client.Diagnostic): console
+        // always, the on-screen readout only under M59DEBUG, never the
+        // chat log. The socket error still reaches the login screen.
+        _client.Diagnostic += s =>
+        {
+            GD.Print("[M59] " + s);
+            if (Debugging)
+            {
+                _log.Add(s);
+                if (_log.Count > 6) _log.RemoveAt(0);
+            }
+            if (_login != null && s.StartsWith("Connection error"))
+                _login.Trouble(s);
         };
         // A connection that has gone away, said plainly. The socket
         // going down produced one line of .NET exception text in the

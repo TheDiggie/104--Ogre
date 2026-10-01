@@ -652,13 +652,19 @@ public partial class ChatOverlay : Control
         if (!_dirty && messages.Count == _seen) return;
         _dirty = false;
         _seen = messages.Count;
+        _current = messages;
 
         _lines.Clear();
         _plain.Clear();
         foreach (ServerString m in messages)
         {
-            string line = Markup(m);
-            if (line == null) continue;
+            // An empty message is still a line: the reference appends
+            // the newline whatever the text is (`Util.h:957`, plain mode
+            // `Util.h:873-874`, queued by `UIChat.cpp:126-133`), and a
+            // missing resource string arrives exactly like this. Only a
+            // null message has nothing to draw.
+            if (m == null) continue;
+            string line = Markup(m) ?? "";
             _lines.Add(line);
             // The same message with no markup at all, which is what
             // `Util::GetChatString` returns in plain mode: `FullString`
@@ -674,26 +680,30 @@ public partial class ChatOverlay : Control
         // was thrown away by the next rebuild and vanished from the log
         // it had just appeared in.
         //
-        // Each one remembers how many server lines there were when it
-        // was written, which is enough to put it back in order. Simply
-        // appending them read wrong the moment anything was said: the
-        // client's three login notices sat underneath four hundred
-        // lines of later chat.
-        //
-        // The library caps its own list and drops from the front, so an
-        // old notice's count outgrows the list it belongs in - and lands
-        // at the front, which is where it belongs once the lines around
-        // it have been forgotten.
+        // Each one remembers the server message it followed, and is put
+        // back straight after that message. A count is not enough: the
+        // library stops growing its list at ChatMessagesMaximum + 1
+        // (`DataController.cs:2735-2738` removes the oldest before every
+        // add), so from then on the count never changes while every
+        // message slides one place towards the front - a notice pinned
+        // to a count stays put while the chat moves past it. A notice
+        // whose message has been dropped has fallen off the front of the
+        // list, and belongs there.
         if (_local.Count > 0)
         {
             var server = new List<string>(_lines);
             var serverPlain = new List<string>(_plain);
             _lines.Clear();
             _plain.Clear();
+            // Where each surviving message now sits, so an anchor is one
+            // lookup. Built once per rebuild.
+            var at = new Dictionary<ServerString, int>(ReferenceEqualityComparer.Instance as IEqualityComparer<ServerString>);
+            int k = 0;
+            foreach (ServerString m in messages) { if (m != null) at[m] = ++k; }
             int li = 0;
             for (int i = 0; i <= server.Count; i++)
             {
-                while (li < _local.Count && _local[li].After <= i)
+                while (li < _local.Count && Slot(_local[li], at) <= i)
                 {
                     // Both buffers take the notice at the same index, so
                     // the plain list stays a line-for-line twin of the
@@ -757,12 +767,16 @@ public partial class ChatOverlay : Control
     /// </summary>
     public static string Markup(ServerString m)
     {
-        string text = m?.FullString;
-        if (string.IsNullOrEmpty(text)) return null;
+        // Null only for no message at all. An empty FullString is an
+        // empty line, not a missing one (`Util.h:957` appends the
+        // newline unconditionally).
+        if (m == null) return null;
+        string text = m.FullString;
+        if (string.IsNullOrEmpty(text)) return "";
 
         // Nothing styled: the whole line in the colour its kind gets.
         if (m.Styles == null || m.Styles.Count == 0)
-            return $"[color=#{Tint(m.ChatMessageType)}]{Escape(text)}[/color]";
+            return Dressed(Tint(m.ChatMessageType), Escape(text));
 
         var sb = new System.Text.StringBuilder();
         foreach (ChatStyle style in m.Styles)
@@ -776,14 +790,40 @@ public partial class ChatOverlay : Control
 
             if (style.IsBold) part = $"[b]{part}[/b]";
             if (style.IsCursive) part = $"[i]{part}[/i]";
-            if (style.IsUnderline) part = $"[u]{part}[/u]";
-            if (style.IsStrikeout) part = $"[s]{part}[/s]";
+            // No underline and no strikeout: `Util::GetChatString`
+            // reads IsBold, IsCursive and Color and nothing else
+            // (`Util.h:880-954`), so `~U` and `~S` runs are drawn plain
+            // there and must be here.
 
-            sb.Append($"[color=#{Tint(style.Color)}]{part}[/color]");
+            sb.Append(Dressed(Tint(style.Color), part));
         }
 
         return sb.Length > 0 ? sb.ToString()
-                             : $"[color=#{Tint(m.ChatMessageType)}]{Escape(text)}[/color]";
+                             : Dressed(Tint(m.ChatMessageType), Escape(text));
+    }
+
+    /// <summary>One coloured run.</summary>
+    /// <remarks>
+    /// The colours are the reference's, exactly (`Constants.h`, via
+    /// `Util.h:880-954`). What is mobile's own is the 4px black outline
+    /// (`_Ready`), and on a colour that is itself near black that
+    /// outline swallows the glyphs: Black, Blue, ImperialBlue, Gray1-5
+    /// and the dark chat red were seen unreadable over the world. A
+    /// dark run therefore gets a light outline instead; the fill is not
+    /// touched.
+    /// </remarks>
+    static string Dressed(string hex, string part)
+    {
+        int r = Convert.ToInt32(hex.Substring(0, 2), 16);
+        int g = Convert.ToInt32(hex.Substring(2, 2), 16);
+        int b = Convert.ToInt32(hex.Substring(4, 2), 16);
+        // Linear-light luminance, so 0000ff (0.07) counts as dark and
+        // 006400 (0.10) does too, while 8f26aa (0.10) and 004792 sit at
+        // the line.
+        static double Lin(int v) { double c = v / 255.0; return c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4); }
+        double lum = 0.2126 * Lin(r) + 0.7152 * Lin(g) + 0.0722 * Lin(b);
+        string run = $"[color=#{hex}]{part}[/color]";
+        return lum < 0.11 ? $"[outline_size=2][outline_color=#e6e6e6]{run}[/outline_color][/outline_size]" : run;
     }
 
     /// <summary>The server's own text can contain [, which BBCode eats.</summary>
@@ -870,7 +910,7 @@ public partial class ChatOverlay : Control
             // clipboard, and `[lb]` in a pasted line is this client's
             // markup leaking out.
             Plain = text,
-            After = _seen,
+            Anchor = (_current != null && _current.Count > 0) ? _current[_current.Count - 1] : null,
         });
         // The library caps its own chat list; this follows suit rather
         // than keeping every notice of a long session.
@@ -878,8 +918,16 @@ public partial class ChatOverlay : Control
         _dirty = true;
     }
 
-    /// <summary>A line of ours, and how many server lines preceded it.</summary>
-    struct Notice { public string Line; public string Plain; public int After; }
+    /// <summary>A line of ours, and the server message it followed.</summary>
+    struct Notice { public string Line; public string Plain; public ServerString Anchor; }
+
+    /// <summary>How many server lines precede the notice now: after its
+    /// anchor if that is still in the list, otherwise at the front.</summary>
+    static int Slot(Notice n, Dictionary<ServerString, int> at)
+        => n.Anchor != null && at.TryGetValue(n.Anchor, out int i) ? i : 0;
+
+    /// <summary>The list last synced, for Local to anchor against.</summary>
+    IList<ServerString> _current;
 
     readonly List<Notice> _local = new List<Notice>();
 }

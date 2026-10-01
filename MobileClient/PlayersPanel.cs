@@ -152,7 +152,14 @@ public partial class PlayersPanel : Control
         }
 
         var sb = new System.Text.StringBuilder();
-        foreach (OnlinePlayer p in players) sb.Append(p?.Name).Append(':').Append(p?.Flags?.Value).Append(';');
+        foreach (OnlinePlayer p in players) 
+            // Name, flags AND the name colour. NameColor is its own field
+            // (`ObjectFlags.cs:183`), not part of Value, so a colour
+            // change alone used to leave the row as it was. The
+            // reference recolours from the same flags
+            // (`UIOnlinePlayers.cpp:52-77` for the tooltip beside it).
+            sb.Append(p?.Name).Append(':').Append(p?.Flags?.Value).Append(':')
+              .Append(p?.Flags != null ? NameColors.GetColorFor(p.Flags) : 0u).Append(';');
         string now = sb.ToString();
         if (now == _signature) return;
         _signature = now;
@@ -183,13 +190,35 @@ public partial class PlayersPanel : Control
         b.AddThemeFontSizeOverride("font_size", FontSize);
 
         uint argb = p.Flags != null ? NameColors.GetColorFor(p.Flags) : NameColors.NORMAL;
-        b.AddThemeColorOverride("font_color", new Color(
+        var tint = new Color(
             ((argb >> 16) & 0xFF) / 255f,
             ((argb >> 8) & 0xFF) / 255f,
-            (argb & 0xFF) / 255f));
+            (argb & 0xFF) / 255f);
+        // Every state, not just the resting one: a Button draws hover,
+        // pressed and focus in their own colours, so with only
+        // font_color set the name turned white the moment a finger
+        // touched it.
+        foreach (string state in new[] { "font_color", "font_hover_color", "font_pressed_color",
+                                          "font_hover_pressed_color", "font_focus_color" })
+            b.AddThemeColorOverride(state, tint);
 
         b.Pressed += () => Tell?.Invoke(who);
         line.AddChild(b);
+
+        // The tooltip's words, printed. The reference says moderator,
+        // admin, GM, murderer, outlaw or lawful on hover
+        // (`UIOnlinePlayers.cpp:52-77`), and a phone never hovers, so the
+        // same words sit in the row (the Kind() below is the same
+        // decision). The tooltip is kept for a mouse.
+        var kind = new Label
+        {
+            Text = Kind(p.Flags),
+            Name = $"kind{index}",
+            VerticalAlignment = VerticalAlignment.Center,
+            Modulate = new Color(1f, 1f, 1f, 0.7f),
+        };
+        kind.AddThemeFontSizeOverride("font_size", FontSize - 3);
+        line.AddChild(kind);
 
         var ignore = new CheckBox
         {

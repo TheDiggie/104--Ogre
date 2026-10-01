@@ -164,6 +164,39 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
     void Say(string s) => Notice?.Invoke(s);
 
     /// <summary>
+    /// Raised for the client's own diagnostics: exception text from the
+    /// sound, music and lookup handlers, login progress, the socket
+    /// error. None of it belongs in the chat log - the reference never
+    /// writes any of it to Data->ChatMessages (its exceptions go to the
+    /// Ogre log and its login progress to nothing at all,
+    /// `OgreClient.cpp:646-654`). The view prints it to the console and
+    /// shows it only under M59DEBUG. <see cref="Notice"/> is left for
+    /// what a player has to be told.
+    /// </summary>
+    public event Action<string> Diagnostic;
+
+    void Diag(string s) => Diagnostic?.Invoke(s);
+
+    /// <summary>
+    /// The server's answer to a password change. The library's handlers
+    /// are empty (`BaseClient.cs:708-719`); the reference overrides both
+    /// to raise a popup (`OgreClient.cpp:1073-1083`). True means accepted.
+    /// </summary>
+    public event Action<bool> PasswordAnswered;
+
+    protected override void HandlePasswordOKMessage(PasswordOKMessage Message)
+    {
+        try { PasswordAnswered?.Invoke(true); }
+        catch (Exception e) { Diag($"password ok: {e.Message}"); }
+    }
+
+    protected override void HandlePasswordNotOKMessage(PasswordNotOKMessage Message)
+    {
+        try { PasswordAnswered?.Invoke(false); }
+        catch (Exception e) { Diag($"password not ok: {e.Message}"); }
+    }
+
+    /// <summary>
     /// Points the resource manager at the game files.
     ///
     /// BaseClient.Init assumes this project's own layout, with strings,
@@ -243,7 +276,7 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
     {
         base.HandlePlayerMessage(Message);
         try { Arrived?.Invoke(); }
-        catch (Exception e) { Say($"arrived: {e.Message}"); }
+        catch (Exception e) { Diag($"arrived: {e.Message}"); }
     }
 
     protected override void HandleGameModeMessage(GameModeMessage Message)
@@ -261,7 +294,7 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
                     quiet?.ResolveResources(ResourceManager, false);
                     if (quiet != null) SoundStopped?.Invoke(quiet);
                 }
-                catch (Exception e) { Say($"stop sound: {e.Message}"); }
+                catch (Exception e) { Diag($"stop sound: {e.Message}"); }
                 break;
 
             case MessageTypeGameMode.CharInfo:
@@ -291,7 +324,7 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
                     tune?.ResolveResources(ResourceManager, false);
                     if (tune != null) Music?.Invoke(tune);
                 }
-                catch (Exception e) { Say($"music: {e.Message}"); }
+                catch (Exception e) { Diag($"music: {e.Message}"); }
                 break;
         }
 
@@ -301,7 +334,7 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
         {
             _palette = false;
             try { CharacterPalette?.Invoke(Data?.CharCreationInfo); }
-            catch (Exception e) { Say($"char info: {e.GetType().Name}: {e.Message}"); }
+            catch (Exception e) { Diag($"char info: {e.GetType().Name}: {e.Message}"); }
         }
     }
 
@@ -318,13 +351,13 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
             info.ResolveResources(ResourceManager, false);
             handler(info);
         }
-        catch (Exception e) { Say($"sound: {e.GetType().Name}: {e.Message}"); }
+        catch (Exception e) { Diag($"sound: {e.GetType().Name}: {e.Message}"); }
     }
 
     protected override void HandleLookupNamesMessage(LookupNamesMessage Message)
     {
         try { NamesLookedUp?.Invoke(Message?.ResolvedIDs); }
-        catch (Exception e) { Say($"lookup: {e.GetType().Name}: {e.Message}"); }
+        catch (Exception e) { Diag($"lookup: {e.GetType().Name}: {e.Message}"); }
     }
 
     protected override void HandleGetLoginMessage(GetLoginMessage Message)
@@ -332,7 +365,7 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
         ConnectionInfo info = Config.SelectedConnectionInfo;
         if (info == null) { Say("No connection selected."); return; }
         if (string.IsNullOrEmpty(info.Username)) { Say("No username configured."); return; }
-        Say($"Logging in as {info.Username}...");
+        Diag($"Logging in as {info.Username}...");
         SendLoginMessage(info.Username, info.Password);
     }
 
@@ -363,7 +396,7 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
             if (real.Count == 0)
             {
                 if (!room) { Say("No characters on this account."); return; }
-                Say("No characters yet - making one.");
+                Diag("No characters yet - making one.");
                 SendSystemMessageSendCharInfo();
                 return;
             }
@@ -374,7 +407,7 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
             // the creation wizard.
             if ((real.Count > 1 || room) && ChooseCharacter != null)
             {
-                Say($"{real.Count} character{(real.Count == 1 ? "" : "s")} on this account.");
+                Diag($"{real.Count} character{(real.Count == 1 ? "" : "s")} on this account.");
                 ChooseCharacter(real);
                 return;
             }
@@ -427,7 +460,7 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
     public void UseCharacter(CharSelectItem pick)
     {
         if (pick == null) return;
-        Say($"Entering the world as {pick.Name}...");
+        Diag($"Entering the world as {pick.Name}...");
         SendUseCharacterMessage(new ObjectID(pick.ID), true, pick.Name);
         EnteredGame?.Invoke(pick.Name);
     }
@@ -499,7 +532,7 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
     {
         base.HandleCharInfoOKMessage(Message);
         try { EnteredGame?.Invoke(""); }
-        catch (Exception e) { Say($"entering: {e.Message}"); }
+        catch (Exception e) { Diag($"entering: {e.Message}"); }
     }
 
     /// <summary>
@@ -655,7 +688,7 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
 
     protected override void OnServerConnectionException(Exception Error)
     {
-        Say($"Connection error: {Error.GetType().Name}: {Error.Message}");
+        Diag($"Connection error: {Error.GetType().Name}: {Error.Message}");
         try { ConnectionLost?.Invoke($"{Error.GetType().Name}: {Error.Message}"); }
         catch (Exception e) { Complain($"[M59Client] lost: {e.Message}"); }
     }
