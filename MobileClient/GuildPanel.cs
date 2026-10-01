@@ -456,9 +456,11 @@ public partial class GuildPanel : Control
         my += 26f + 6f;
 
         // "No guild hall." and the password line are the two faces of
-        // the same slot and can never both carry text: _hall's text is
-        // set to "" exactly when PasswordSetFlag is non-zero, which is
-        // exactly when the chest line is shown.
+        // the same slot, so they are laid out there together and shown
+        // one at a time: Show() makes _hall visible only when
+        // PasswordSetFlag is zero, which is exactly when the chest line
+        // is hidden. (It also blanks _hall's text in the other case,
+        // but visibility is what keeps them apart, not that.)
         _hall.Position = new Vector2(body.Position.X, my);
         _hall.Size = new Vector2(body.Size.X, 26f);
         if (_chest.Visible)
@@ -686,7 +688,16 @@ public partial class GuildPanel : Control
         // with a hall (`user.kod` UserGuildSendInfo, `lHall <> $ AND
         // GetRank = RANK_MASTER`), so every other rank reads 0 whether or
         // not the guild has one.
-        _hall.Visible = on && master;
+        //
+        // Hidden outright when the guild HAS a hall, not merely left
+        // blank: both labels are laid out in the same slot (see Layout),
+        // and the only thing that kept the two from drawing over each
+        // other was that this text happened to be "" whenever the
+        // password was showing. The slot has one occupant by
+        // construction now: the hall line for a master without a hall,
+        // the password line for a master with one, neither for any
+        // other rank.
+        _hall.Visible = on && master && _info.PasswordSetFlag == 0;
 
         // Renounce and Disband are one button: it is there when the flags
         // name one of the two, and the reference does nothing with neither

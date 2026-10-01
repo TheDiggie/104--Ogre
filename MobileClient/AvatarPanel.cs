@@ -89,9 +89,41 @@ public partial class AvatarPanel : Control
         };
         _head.Pressed += () => SelfTarget?.Invoke();
         AddChild(_head);
+        Tight(_head);
 
         GetViewport().SizeChanged += Layout;
         Layout();
+    }
+
+    /// <summary>
+    /// Takes the theme's padding off an icon-only button, so the control
+    /// is exactly as big as the picture it holds.
+    ///
+    /// A Button's minimum size is its icon PLUS its stylebox's content
+    /// margins (4 a side in the default theme), and a control cannot be
+    /// laid out smaller than its minimum. So the portrait, composed at
+    /// HeadSize square (`M59Compose.Icon` -> `RenderInfo.ScaleToBox`,
+    /// `RenderInfo.cs:490-495,583-651`, which pins Dimension to the box
+    /// however tall or wide the art is) and laid out at HeadSize, was
+    /// quietly grown to HeadSize + 8. Everything below it - the first
+    /// enchantment sits at HeadSize + 6 - was positioned for the smaller
+    /// number, so the portrait's button ran 2 px over buff0 and its tap
+    /// area took the first enchantment's top edge. The picture itself
+    /// never left the 72 px it was composed in; the CONTROL did. Each
+    /// state's style is copied rather than replaced, so hover and press
+    /// still draw as the theme says.
+    /// </summary>
+    static void Tight(Button b)
+    {
+        foreach (string state in new[] { "normal", "hover", "pressed", "hover_pressed", "disabled", "focus" })
+        {
+            StyleBox src = b.GetThemeStylebox(state);
+            if (src == null) continue;
+            var s = (StyleBox)src.Duplicate();
+            s.ContentMarginLeft = s.ContentMarginRight = 0f;
+            s.ContentMarginTop = s.ContentMarginBottom = 0f;
+            b.AddThemeStyleboxOverride(state, s);
+        }
     }
 
     void Layout()
@@ -257,6 +289,9 @@ public partial class AvatarPanel : Control
                 Name = $"buff{_buffs.Count}",
             };
             AddChild(b);
+            // Same padding trap as the portrait (see Tight): without
+            // this a BuffSize + 6 slot is grown to BuffSize + 8.
+            Tight(b);
             _buffs.Add(b);
         }
         return _buffs[index];
