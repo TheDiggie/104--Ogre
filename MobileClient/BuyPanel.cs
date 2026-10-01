@@ -164,6 +164,9 @@ public partial class BuyPanel : Control
     /// TradePanel keeps its own amounts.
     /// </summary>
     readonly Dictionary<uint, uint> _stockMost = new Dictionary<uint, uint>();
+    // The object each id was last built from, to tell the merchant's new
+    // line from our own write into the old one - see Sync.
+    readonly Dictionary<uint, TradeOfferObject> _seen = new Dictionary<uint, TradeOfferObject>();
     string _signature = "";
 
     public bool IsOpen => _panel != null && _panel.Visible;
@@ -352,6 +355,7 @@ public partial class BuyPanel : Control
         Show(false);
         _ticked.Clear();
         _stockMost.Clear();
+        _seen.Clear();
         _signature = "";
     }
 
@@ -365,6 +369,22 @@ public partial class BuyPanel : Control
         if (line == null) return 1u;
         return _stockMost.TryGetValue(line.ID, out uint most) && most > line.Count
             ? most : line.Count;
+    }
+
+    /// <summary>
+    /// The merchant's line for this id as the model holds it right now, or
+    /// null if the shop is shut or no longer sells it. A re-sent stock list
+    /// (`DataController.HandleBuyList`, `DataController.cs:3019-3032`)
+    /// clears the list and adds brand-new objects, so anything that keeps a
+    /// line across a frame keeps the id and asks here - the reference does
+    /// the same by index at the moment it writes (`UIBuy.cpp:240-258`).
+    /// </summary>
+    public TradeOfferObject Line(uint id)
+    {
+        if (!IsOpen || _buy?.Items == null) return null;
+        foreach (TradeOfferObject o in _buy.Items)
+            if (o != null && o.ID == id) return o;
+        return null;
     }
 
     void Show(bool on)
@@ -449,8 +469,17 @@ public partial class BuyPanel : Control
                     // does not shrink the ceiling - which is the bug -
                     // and a shop that genuinely restocks upwards still
                     // lets you ask for the lot.
-                    if (!_stockMost.TryGetValue(o.ID, out uint had) || o.Count > had)
+                    //
+                    // A line that is a NEW object is the merchant speaking
+                    // (`DataController.cs:3019-3032` replaces every line),
+                    // not our own write, so its count is the real stock
+                    // and the mark follows it down as well as up - else a
+                    // shop that sold some off still let you ask for more
+                    // than it has.
+                    bool fresh = !_seen.TryGetValue(o.ID, out TradeOfferObject was) || !ReferenceEquals(was, o);
+                    if (fresh || !_stockMost.TryGetValue(o.ID, out uint had) || o.Count > had)
                         _stockMost[o.ID] = o.Count;
+                    _seen[o.ID] = o;
 
                     // Alternating tints, so the eye keeps its place down
                     // a list of near-identical lines.

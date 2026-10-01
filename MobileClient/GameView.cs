@@ -281,7 +281,9 @@ public partial class GameView : Node2D
     bool _wasInGame;
     bool _bagWasOpen;
     /// <summary>The shop line the amount prompt was opened for, if any.</summary>
-    TradeOfferObject _amountFor;
+    // The shop line the amount prompt is for, by ID: the merchant re-sends
+    // its whole stock as new objects, so the object would be orphaned.
+    uint? _amountFor;
     /// <summary>The trade line the amount prompt was opened for, if any.</summary>
     ObjectBase _amountForTrade;
     uint _targetBeforeBag = uint.MaxValue;
@@ -1714,10 +1716,23 @@ public partial class GameView : Node2D
             // the file's own wording. They were going straight off the
             // button press, which on a phone is worse than on a desktop
             // rather than better.
+            //
+            // The question stays open while the world moves, so every Yes
+            // tests the right AGAIN against the live guild model before it
+            // sends: the reference does so at the confirm and not only at
+            // the button (`UIGuild.cpp:604-611` exile, `:578-598` renounce
+            // and disband, both on the current `Flags`). A master demoted
+            // while "exile Boris?" was up, a member who left meanwhile, or a
+            // model cleared under the question all read as "no" here, and
+            // the command that the server would refuse is never sent. The
+            // per-row exile rule is GuildPanel's `CanExile`
+            // (`UIGuild.cpp:451`); that is private to it and not reachable
+            // from here, so it is restated in `GuildMayExile`.
             _guild.Exile += (id, who) => _ask?.Choice(
                 $"Are you sure you want to exile {who}?", id,
                 confirmed => Act(() =>
                 {
+                    if (!GuildMayExile(confirmed)) { GuildNoLonger(); return; }
                     _client.SendUserCommandGuildExile(confirmed);
                     Reask();
                 }));
@@ -1726,18 +1741,35 @@ public partial class GameView : Node2D
                 $"Are you sure you want to abdicate to {who}?", id,
                 confirmed => Act(() =>
                 {
+                    if (!GuildMayAbdicate(confirmed)) { GuildNoLonger(); return; }
                     _client.SendUserCommandGuildAbdicate(confirmed);
                     Reask();
                 }));
             _guild.Password += pw => Act(() => _client.SendUserCommandGuildSetPassword(pw));
             _guild.AbandonHall += () => _ask?.Choice(
                 "Are you sure you want to abandon your hall?", 0,
-                _ => Act(() => _client.SendUserCommandGuildAbandonHall()));
+                _ => Act(() =>
+                {
+                    if (!GuildIsMaster() || _client.Data.GuildInfo.PasswordSetFlag == 0)
+                    {
+                        GuildNoLonger();
+                        return;
+                    }
+                    _client.SendUserCommandGuildAbandonHall();
+                }));
             _guild.Renounce += disband => _ask?.Choice(
                 disband ? "Are you sure you want to disband your guild?"
                         : "Are you sure you want to leave your guild?", 0,
                 _ => Act(() =>
                 {
+                    // The reference picks renounce or disband from the flags
+                    // as they are NOW (`UIGuild.cpp:582,591`). Here the
+                    // answer must also still be the question that was
+                    // asked: Yes to "leave?" never disbands.
+                    GuildFlags f = _client.Data?.GuildInfo?.Flags;
+                    bool renounceNow = f != null && f.IsRenounce;
+                    bool disbandNow = f != null && !f.IsRenounce && f.IsDisband;
+                    if (disband ? !disbandNow : !renounceNow) { GuildNoLonger(); return; }
                     if (disband) _client.SendUserCommandGuildDisband();
                     else _client.SendUserCommandGuildRenounce();
                     _client.Data?.GuildInfo?.Clear(true);
@@ -1937,16 +1969,30 @@ public partial class GameView : Node2D
                 _amountForTrade = null;
                 if (offering != null) { _trade?.SetAmount(id, (uint)Math.Max(1, many)); return; }
 
-                TradeOfferObject line = _amountFor;
+                uint? lineID = _amountFor;
                 _amountFor = null;
-                if (line != null)
+                if (lineID != null)
                 {
                     // Buying part of a stack: the count goes back into
                     // the shop's own line, which is what the game does
                     // (`UIBuy.cpp:255`), so the row and the total follow
                     // it and the buy sends what you chose.
-                    line.Count = (uint)Math.Max(1, many);
-                    _shop?.Refresh();
+                    //
+                    // The line is looked up NOW, by id, as the reference
+                    // does by index when the box closes (`UIBuy.cpp:
+                    // 240-258`): a stock list that arrived while the
+                    // prompt was up replaced every line object, and a
+                    // write into the one we were asked about would land
+                    // nowhere. Capped at what the merchant has now.
+                    TradeOfferObject line = _shop?.Line(lineID.Value);
+                    if (line == null)
+                    {
+                        _chat?.Local("That item is no longer for sale, so nothing was changed.");
+                        return;
+                    }
+                    uint most = _shop.Most(line);
+                    line.Count = Math.Min((uint)Math.Max(1, many), Math.Max(1u, most));
+                    _shop.Refresh();
                     return;
                 }
                 _client.SendReqDropMessage(new ObjectID(id, (uint)many));
@@ -2442,7 +2488,7 @@ public partial class GameView : Node2D
             {
                 if (_amount == null || line == null) return;
                 _amountForTrade = null;
-                _amountFor = line;
+                _amountFor = line.ID;
                 // Prefilled with what you chose last time, capped at what
                 // the merchant has. Those stopped being the same number
                 // the moment choosing fewer wrote the choice into the
@@ -3245,6 +3291,49 @@ public partial class GameView : Node2D
             GD.PrintErr("[GameView] " + msg);
         }
     }
+
+    /// <summary>
+    /// The guildmaster test GuildPanel draws its hall controls by
+    /// (`GuildPanel.cs:673`; the reference removes that tab whenever
+    /// IsRenounce is set, `UIGuild.cpp:176-212`), read from the live model.
+    /// </summary>
+    bool GuildIsMaster()
+    {
+        GuildFlags f = _client.Data?.GuildInfo?.Flags;
+        return f != null && !f.IsRenounce && f.IsDisband;
+    }
+
+    /// <summary>
+    /// Whether exiling this member is still allowed, tested on the live
+    /// roster at the moment Yes is pressed: the flag, a member who is still
+    /// on it, and the per-row rule of `UIGuild.cpp:451` with THEIR rank now.
+    /// </summary>
+    bool GuildMayExile(uint id)
+    {
+        GuildInfo info = _client.Data?.GuildInfo;
+        GuildFlags f = info?.Flags;
+        if (f == null || !f.IsExile || id == 0) return false;
+        GuildMemberEntry m = info.GuildMembers?.GetItemByID(id);
+        if (m == null) return false;
+        return !(id == _client.Data.AvatarID || m.Rank == 5 || (m.Rank == 4 && !f.IsDisband));
+    }
+
+    /// <summary>
+    /// Abdication is the rank-5 picking rank 5 for someone else
+    /// (`UIGuild.cpp:733`); both halves are tested again on the live model,
+    /// and the heir has to still be on the roster.
+    /// </summary>
+    bool GuildMayAbdicate(uint id)
+    {
+        GuildInfo info = _client.Data?.GuildInfo;
+        GuildFlags f = info?.Flags;
+        if (f == null || !f.IsAbdicate || id == 0 || id == _client.Data.AvatarID) return false;
+        GuildMemberEntry me = info.GuildMembers?.GetItemByID(_client.Data.AvatarID);
+        return me != null && me.Rank == 5 && info.GuildMembers.GetItemByID(id) != null;
+    }
+
+    /// <summary>Said in-page when a confirmed guild command is dropped.</summary>
+    void GuildNoLonger() => _chat?.Local("You can no longer do that, so nothing was sent.");
 
     /// <summary>
     /// Throws away what the client thinks about the guild and asks
