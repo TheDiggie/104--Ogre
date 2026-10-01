@@ -41,6 +41,7 @@ static class RenderCheck
         if (mode == "sky"     || mode == "all") bad += Sky(dir);
         if (mode == "holes"   || mode == "all") Holes(dir);
         if (mode == "lintel"  || mode == "all") bad += Lintel(dir);
+        if (mode == "roomtex" || mode == "all") bad += RoomTex(dir);
         return bad == 0 ? 0 : 1;
     }
 
@@ -270,6 +271,83 @@ static class RenderCheck
         // finds sprites and takes none back would mean the clip does
         // nothing, which is the failure this exists to catch.
         bool ok = total == 0 || through > 0;
+        Console.WriteLine(ok ? "OK" : "PROBLEM");
+        return ok ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Every replacement room texture decodes, and is the same picture
+    /// as the BGF it replaces.
+    ///
+    /// The reference's default look is these 443 PNGs, loaded as
+    /// textures under the very name the room loader asks for
+    /// (OgreClient.cpp:685-686, RooFile.cs:2300-2303) so the BGF is
+    /// never decoded (Util.h:401-403). They are read here by a PNG
+    /// reader of this client's own, which is worth checking: a decode
+    /// that silently produced rubbish would paint rubbish on every wall
+    /// in the game.
+    ///
+    /// "The same picture" is tested as the mean colour. A replacement
+    /// is hand-redrawn, so it is not the same pixels; but a wall that
+    /// was brown stays brown, and a reader that mangled the filter or
+    /// the palette would not land anywhere near.
+    /// </summary>
+    static int RoomTex(string dir)
+    {
+        string texDir = TexCache.FindRoomTextures(dir);
+        if (texDir == null) { Console.WriteLine("  no replacement room textures here, skipped"); return 0; }
+
+        var rm = new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
+        int read=0, failed=0, compared=0, near=0, far=0;
+        double worst=0; string worstWhere="";
+        var names = new List<string>();
+
+        foreach (string path in Directory.GetFiles(texDir, "grd*.png").OrderBy(x=>x))
+        {
+            uint[] px;
+            try { px = M59Png.Read(path, out int w, out int h);
+                  if (px == null || w <= 0 || h <= 0) { failed++; if (names.Count<6) names.Add(Path.GetFileName(path)); continue; }
+                  read++;
+                  // Only the texels that are actually drawn. A decal or
+                  // a grate is mostly hole on both sides, and the two
+                  // sides fill a hole with different nothings - the
+                  // palette's key here, alpha there - so averaging them
+                  // in would compare the two kinds of nothing.
+                  double r=0,g=0,b=0; long n=0;
+                  for (int i=0;i<px.Length;i++)
+                  { if ((px[i]>>24) < 64) continue; r += (px[i]>>16)&255; g += (px[i]>>8)&255; b += px[i]&255; n++; }
+                  if (n == 0) continue;
+                  r/=n; g/=n; b/=n;
+
+                  // The BGF behind it, by the name the loader would use.
+                  string stem = Path.GetFileNameWithoutExtension(path);
+                  int dash = stem.LastIndexOf('-');
+                  if (dash <= 0) continue;
+                  if (!int.TryParse(stem.Substring(dash+1), out int frame)) continue;
+                  if (!ushort.TryParse(stem.Substring(3, dash-3), out ushort num)) continue;
+                  var bgf = rm.GetRoomTexture(num);
+                  if (bgf == null || frame >= bgf.Frames.Count) continue;
+                  Tex orig = Tex.From(bgf, frame);
+                  if (orig == null) continue;
+                  double r2=0,g2=0,b2=0; long n2=0;
+                  for (int i=0;i<orig.P.Length;i++)
+                  { if (orig.P[i] == Tex.Void) continue;
+                    r2 += (orig.P[i]>>16)&255; g2 += (orig.P[i]>>8)&255; b2 += orig.P[i]&255; n2++; }
+                  if (n2 == 0) continue;
+                  r2/=n2; g2/=n2; b2/=n2;
+                  compared++;
+                  double d = Math.Max(Math.Abs(r-r2), Math.Max(Math.Abs(g-g2), Math.Abs(b-b2)));
+                  if (d <= 64) near++;
+                  else { far++; if (d > worst) { worst = d;
+                         worstWhere = $"{Path.GetFileName(path)}: png ({r:F0},{g:F0},{b:F0}) bgf ({r2:F0},{g2:F0},{b2:F0})"; } }
+            }
+            catch { failed++; if (names.Count<6) names.Add(Path.GetFileName(path)); }
+        }
+        Console.WriteLine($"{read} replacement room textures read, {failed} would not decode");
+        foreach (string n in names) Console.WriteLine($"    {n}");
+        Console.WriteLine($"  {compared} compared against their BGF: {near} the same picture, {far} not");
+        if (far > 0) Console.WriteLine($"  worst: {worstWhere}");
+        bool ok = failed == 0 && (compared == 0 || far * 20 <= compared);
         Console.WriteLine(ok ? "OK" : "PROBLEM");
         return ok ? 0 : 1;
     }

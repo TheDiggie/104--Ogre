@@ -1401,10 +1401,10 @@ public sealed class Renderer
             // known. Hoisted out of the row loop - it does not vary down a
             // column and it was costing a multiply and a divide per pixel.
             tpp = texelsPerPixel * shrink / M59Geo.HeightToXY;
-            u = (along / M59Geo.HeightToXY + xOffset) * shrink / t.H;
+            u = (along / M59Geo.HeightToXY + xOffset) * shrink / t.UvH;
 
-            float perWorld = shrink / (t.W * M59Geo.HeightToXY);
-            float yOff = yOffset * shrink / t.W;
+            float perWorld = shrink / (t.UvW * M59Geo.HeightToXY);
+            float yOff = yOffset * shrink / t.UvW;
             if (topDown)
             {
                 // Origin at the top of this wall part, texture running
@@ -1425,7 +1425,7 @@ public sealed class Renderer
             // and its Y along it (u).
             if (time != 0f && scrollSpeed != TextureScrollSpeed.NONE)
             {
-                M59Geo.WallScroll(scrollSpeed, scrollDir, t.W, t.H,
+                M59Geo.WallScroll(scrollSpeed, scrollDir, t.UvW, t.UvH,
                                   out float sxr, out float syr);
                 vBase += sxr * time;
                 u     += syr * time;
@@ -1595,7 +1595,7 @@ public sealed class Renderer
         if (t != null && (ceiling ? sec.Flags.IsScrollCeiling : sec.Flags.IsScrollFloor))
         {
             M59Geo.SectorScroll(sec.Flags.ScrollSpeed, sec.Flags.ScrollDirection,
-                                t.W, t.H, out float sxr, out float syr);
+                                t.UvW, t.UvH, out float sxr, out float syr);
             if (liquid) { waveX = -0.3f * sxr; waveY = -0.3f * syr; }
             else if (time != 0f) { scrollU = sxr * time; scrollV = syr * time; }
         }
@@ -1651,7 +1651,7 @@ public sealed class Renderer
             // How much world space one screen pixel covers here, in texels.
             // Rows near the horizon cover enormous distances, which is what
             // made ceilings streak before mipmapping.
-            float texelsPerPixel = (straight / MathF.Max(1f, MathF.Abs(dy))) * t.W / M59Geo.Fineness;
+            float texelsPerPixel = (straight / MathF.Max(1f, MathF.Abs(dy))) * t.UvW / M59Geo.Fineness;
             // Same axis swap as walls - grd02011 is a floor of tall stone
             // slabs and rendered as wide ones until y,x were used. The
             // library says the same thing: RooSubSector.UpdateVertexUV

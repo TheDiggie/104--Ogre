@@ -168,6 +168,20 @@ public sealed class Tex
     public uint[] P;
 
     /// <summary>
+    /// The size the texture COUNTS as when a rate is worked out - how
+    /// often it repeats along a wall, how far a scroll moves it, where
+    /// the vertical origin sits. Normally its own, but a replacement
+    /// room texture is the same picture at more pixels, so it keeps the
+    /// original's: the reference's UVs come from the BGF's width and
+    /// height (ControllerRoom.cpp:700-703 into RooWall.GetVertexData)
+    /// and the PNG merely fills the same zero-to-one. Using the PNG's
+    /// own size instead stretched every replaced texture by the ratio.
+    /// </summary>
+    public int UvW { get => _uvW > 0 ? _uvW : W; set => _uvW = value; }
+    public int UvH { get => _uvH > 0 ? _uvH : H; set => _uvH = value; }
+    int _uvW, _uvH;
+
+    /// <summary>
     /// The texture's own shrink factor. Meridian scales wall textures by
     /// shrink/size rather than at a fixed rate, so a 512x512 at shrink 4
     /// covers twice the wall a 128x128 at shrink 2 does. See
@@ -223,6 +237,8 @@ public sealed class Tex
         if (y < 0) y = 0; else if (y >= lh) y = lh - 1;
         return lp[y * lw + x];
     }
+
+    internal void BuildMipsPublic() => BuildMips();
 
     void BuildMips()
     {
@@ -373,6 +389,106 @@ public sealed class TexCache
     readonly ConcurrentDictionary<long, Tex> _c = new ConcurrentDictionary<long, Tex>();
     readonly object _buildLock = new object();
     public TexCache(ResourceManager rm) { _rm = rm; }
+
+    /// <summary>
+    /// The folder of replacement room textures, or null to use the
+    /// BGFs. This is the reference's DEFAULT look, not an extra: it
+    /// loads the roomtextures group at startup (OgreClient.cpp:685-686,
+    /// Constants.h:52) as Ogre textures named exactly what the room
+    /// loader asks for - RooFile.GetNameForTexture returns
+    /// `Filename-Frame.png` (RooFile.cs:2300-2303) - and
+    /// CreateTextureA8R8G8B8 then returns before it ever decodes the
+    /// BGF, because a texture of that name already exists
+    /// (Util.h:401-403). DisableNewRoomTex defaults to false
+    /// (OgreClientConfig.h:50).
+    ///
+    /// DIVERGENCE: they are not shipped. There are 443 of them and they
+    /// come to 424 megabytes, which is not an APK. A player who copies
+    /// their desktop client's resource folder across gets them; anyone
+    /// else gets the original art, which is what this renderer has
+    /// always drawn. The UVs are unaffected either way - the reference
+    /// takes them from the BGF's own width and height
+    /// (ControllerRoom.cpp:700-703) and the PNG merely fills the same
+    /// zero-to-one.
+    /// </summary>
+    public string RoomTextureDir;
+
+    /// <summary>
+    /// Where a replacement folder might be, given the game's resource
+    /// folder. The reference keeps it beside the rest of its resources.
+    /// </summary>
+    public static string FindRoomTextures(string resourceDir)
+    {
+        foreach (string c in RoomTextureCandidates(resourceDir))
+            if (c != null && System.IO.Directory.Exists(c)
+                && System.IO.Directory.EnumerateFiles(c, "grd*.png").GetEnumerator().MoveNext())
+                return c;
+        return null;
+    }
+
+    static System.Collections.Generic.IEnumerable<string> RoomTextureCandidates(string resourceDir)
+    {
+        string env = Environment.GetEnvironmentVariable("M59ROOMTEX");
+        if (!string.IsNullOrEmpty(env)) yield return env;
+        if (!string.IsNullOrEmpty(resourceDir))
+        {
+            yield return System.IO.Path.Combine(resourceDir, "roomtextures");
+            string up = System.IO.Path.GetDirectoryName(
+                resourceDir.TrimEnd(System.IO.Path.DirectorySeparatorChar));
+            if (up != null)
+            {
+                yield return System.IO.Path.Combine(up, "roomtextures");
+                yield return System.IO.Path.Combine(up, "Resources", "roomtextures");
+            }
+        }
+        yield return System.IO.Path.Combine(
+            System.IO.Directory.GetCurrentDirectory(), "Resources", "roomtextures");
+    }
+
+    /// <summary>
+    /// The replacement for one texture frame, or null if there is none.
+    ///
+    /// A replacement carries its holes as ALPHA rather than as the
+    /// palette's index 254, and the reference reads it the same way
+    /// either way: base_material_room alpha-tests at 64
+    /// (general.material:263) whatever filled the texture. So anything
+    /// under that threshold becomes the void here, and the texture
+    /// reports its holes - which is what decides whether a wall can be
+    /// seen past.
+    ///
+    /// Masked lookups are left to the BGF. Those sample the transparent
+    /// key as alpha zero rather than as a colour, and that is the
+    /// original's palette index; a replacement would have to be
+    /// re-keyed rather than just read.
+    /// </summary>
+    Tex Replacement(BgfFile bgf, int frame, bool masked)
+    {
+        if (masked || RoomTextureDir == null || bgf == null) return null;
+        string name = RooFile.GetNameForTexture(bgf, frame);
+        string path = System.IO.Path.Combine(RoomTextureDir, name);
+        if (!System.IO.File.Exists(path)) return null;
+        try
+        {
+            uint[] px = M59Png.Read(path, out int w, out int h);
+            if (px == null || w <= 0 || h <= 0) return null;
+            bool holes = false;
+            for (int i = 0; i < px.Length; i++)
+            {
+                if ((px[i] >> 24) >= 64) { px[i] |= 0xFF000000u; continue; }
+                px[i] = Tex.Void; holes = true;
+            }
+            // The shrink factor stays the BGF's: it is what relates the
+            // texture to the wall, and the replacement is the same
+            // picture at more pixels, not a different size of wall.
+            BgfBitmap f = bgf.Frames[frame];
+            var t = new Tex { W = w, H = h, P = px, HasHoles = holes,
+                              UvW = (int)f.Width, UvH = (int)f.Height,
+                              Shrink = Math.Max(1, (int)bgf.ShrinkFactor) };
+            t.BuildMipsPublic();
+            return t;
+        }
+        catch { return null; }
+    }
     public int Count => _c.Count;
 
     readonly ConcurrentDictionary<long, Tex> _masked = new ConcurrentDictionary<long, Tex>();
@@ -429,7 +545,8 @@ public sealed class TexCache
             {
                 bgf ??= _rm.GetRoomTexture(num);
                 if (frame >= (bgf?.Frames.Count ?? 0)) frame = 0;
-                built = masked ? Tex.FromSprite(bgf, frame) : Tex.From(bgf, frame);
+                built = Replacement(bgf, frame, masked)
+                     ?? (masked ? Tex.FromSprite(bgf, frame) : Tex.From(bgf, frame));
             }
             catch { }
             cache[key] = built;

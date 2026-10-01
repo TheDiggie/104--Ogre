@@ -87,7 +87,7 @@ public sealed class M59Sky
         {
             string p = Path.Combine(dir, set + "_" + Suffix[i] + ".png");
             if (!File.Exists(p)) return null;
-            try { s._face[i] = Png.Read(p, out s._w[i], out s._h[i]); }
+            try { s._face[i] = M59Png.Read(p, out s._w[i], out s._h[i]); }
             catch { return null; }
             if (s._face[i] == null) return null;
         }
@@ -177,91 +177,4 @@ public sealed class M59Sky
         return _face[f][sy * w + sx];
     }
 
-    /// <summary>
-    /// Enough of a PNG reader for these faces: 8 bits a channel, RGB or
-    /// RGBA, not interlaced, which is what all thirty of the shipped
-    /// cube faces are. Godot could decode them, but the check tools run
-    /// headless and this renderer is shared with them.
-    /// </summary>
-    static class Png
-    {
-        public static uint[] Read(string path, out int W, out int H)
-        {
-            W = H = 0;
-            byte[] d = File.ReadAllBytes(path);
-            if (d.Length < 8 || d[0] != 0x89 || d[1] != 'P') return null;
-
-            int bpp = 0;
-            var idat = new MemoryStream();
-            for (int i = 8; i + 8 <= d.Length; )
-            {
-                int len = (d[i] << 24) | (d[i + 1] << 16) | (d[i + 2] << 8) | d[i + 3];
-                string type = "" + (char)d[i + 4] + (char)d[i + 5] + (char)d[i + 6] + (char)d[i + 7];
-                int at = i + 8;
-                if (len < 0 || at + len > d.Length) return null;
-                if (type == "IHDR")
-                {
-                    W = (d[at] << 24) | (d[at + 1] << 16) | (d[at + 2] << 8) | d[at + 3];
-                    H = (d[at + 4] << 24) | (d[at + 5] << 16) | (d[at + 6] << 8) | d[at + 7];
-                    int depth = d[at + 8], colour = d[at + 9], interlace = d[at + 12];
-                    if (depth != 8 || interlace != 0) return null;
-                    if (colour == 2) bpp = 3; else if (colour == 6) bpp = 4; else return null;
-                }
-                else if (type == "IDAT") idat.Write(d, at, len);
-                else if (type == "IEND") break;
-                i = at + len + 4;
-            }
-            if (W <= 0 || H <= 0 || bpp == 0) return null;
-
-            byte[] raw;
-            idat.Position = 2;                       // past the zlib header
-            using (var inf = new DeflateStream(idat, CompressionMode.Decompress))
-            using (var outp = new MemoryStream(H * (W * bpp + 1)))
-            {
-                inf.CopyTo(outp);
-                raw = outp.ToArray();
-            }
-
-            int stride = W * bpp;
-            if (raw.Length < H * (stride + 1)) return null;
-            var px = new uint[W * H];
-            var line = new byte[stride];
-            var prev = new byte[stride];
-            int o = 0;
-            for (int y = 0; y < H; y++)
-            {
-                byte filter = raw[o++];
-                Buffer.BlockCopy(raw, o, line, 0, stride); o += stride;
-                for (int p = 0; p < stride; p++)
-                {
-                    int a = p >= bpp ? line[p - bpp] : 0;
-                    int b = prev[p];
-                    int c = p >= bpp ? prev[p - bpp] : 0;
-                    int add;
-                    switch (filter)
-                    {
-                        case 0: add = 0; break;
-                        case 1: add = a; break;
-                        case 2: add = b; break;
-                        case 3: add = (a + b) >> 1; break;
-                        default:
-                            int pp = a + b - c, pa = Math.Abs(pp - a), pb = Math.Abs(pp - b), pc = Math.Abs(pp - c);
-                            add = (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);
-                            break;
-                    }
-                    line[p] = (byte)(line[p] + add);
-                }
-                for (int x = 0; x < W; x++)
-                {
-                    int p = x * bpp;
-                    px[y * W + x] = 0xFF000000u
-                                  | ((uint)line[p] << 16)
-                                  | ((uint)line[p + 1] << 8)
-                                  | line[p + 2];
-                }
-                var t = prev; prev = line; line = t;
-            }
-            return px;
-        }
-    }
 }

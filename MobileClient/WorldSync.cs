@@ -65,7 +65,12 @@ public sealed class WorldSync
     {
         if (current == null || ReferenceEquals(current, Room)) return false;
         Room = current;
-        Renderer = new Renderer(current, new TexCache(_rm)) { Sky = _sky };
+        // The replacement room textures, when the player has them. Found
+        // once: the folder does not move, and a miss must not be looked
+        // for again on every room change. See TexCache.RoomTextureDir.
+        if (!_texLooked) { _texDir = TexCache.FindRoomTextures(RootPath); _texLooked = true; }
+        Renderer = new Renderer(current, new TexCache(_rm) { RoomTextureDir = _texDir })
+                   { Sky = _sky };
         RoomChanges++;
         return true;
     }
@@ -97,6 +102,9 @@ public sealed class WorldSync
 
     /// <summary>Where the game's resources were loaded from, for finding the sky.</summary>
     public string RootPath;
+
+    string _texDir;
+    bool _texLooked;
 
     /// <summary>
     /// The folder holding the skybox faces, when the caller knows it.

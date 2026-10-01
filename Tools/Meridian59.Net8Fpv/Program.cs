@@ -42,6 +42,14 @@ static class Fpv
             for (int i = 0; i < 5 && i + 3 < a.Length; i++) { }
         }
         var tc = new TexCache(rm);
+        // The reference's default look: the replacement room textures,
+        // when the player has them (see TexCache.RoomTextureDir).
+        // --oldtex draws the original art instead, for comparing.
+        if (!flags.Contains("--oldtex"))
+        {
+            tc.RoomTextureDir = TexCache.FindRoomTextures(dir);
+            if (tc.RoomTextureDir != null) Console.WriteLine($"room textures from {tc.RoomTextureDir}");
+        }
         var r = new Renderer(roo, tc);
         // --solid renders grates and railings as solid walls, which is what
         // this renderer did before it read WF_TRANSPARENT. For comparing.
