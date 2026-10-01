@@ -1328,6 +1328,7 @@ public partial class GameView : Node2D
         _news?.Sync(_client.Data?.NewsGroup);
         _options?.Follow(_client.Data?.ClientPreferences);
         _fx?.Sync(_client.Data);
+        ShieldError();
         Wading();
         FollowSounds();
         _guild?.Sync(_client.Data?.GuildInfo, _client.Data?.DiplomacyInfo,
@@ -1814,6 +1815,25 @@ public partial class GameView : Node2D
             Resource = room.ResourceWadingSound,
         };
         PlaySound(splash);
+    }
+
+    /// <summary>
+    /// The server's answer when a shield claim goes wrong.
+    ///
+    /// GuildShieldInfo carries it as a ServerString and the reference
+    /// puts it in an OK popup and clears it (`UIGuild.cpp:265-267`,
+    /// :643). This client has no shield designer, so nothing here ever
+    /// claims one - but a claim can still fail for a reason the server
+    /// wants to give, and dropping the message silently is the one
+    /// thing that should not happen to it.
+    /// </summary>
+    void ShieldError()
+    {
+        ServerString err = _client?.Data?.GuildShieldInfo?.GuildShieldError;
+        string text = err?.FullString;
+        if (string.IsNullOrWhiteSpace(text)) return;
+        err.Clear(true);
+        _ask?.Tell(text);
     }
 
     /// <summary>

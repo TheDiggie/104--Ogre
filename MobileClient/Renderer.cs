@@ -74,11 +74,17 @@ public sealed class Renderer
     /// from someone's eyes rather than their feet
     /// (RoomObject.cs:1501-1502) - and 50 kod units is 800 room units.
     ///
-    /// The reference does better still and takes it from the avatar's own
+    /// The reference does better and takes it from the avatar's own
     /// artwork, 93% of the drawn height (RemoteNode.cpp:405-425), so a
-    /// short race sees from lower down. That needs the composed sprite,
-    /// which this renderer has; it is the obvious next step and is not
-    /// taken here.
+    /// short race sees from lower down. That was written and then taken
+    /// out again: it needs the WHOLE composed body, base frame plus
+    /// every sub-overlay, and an avatar missing its overlays composes
+    /// short - which puts the camera on the floor and makes a rat loom
+    /// over you. The reference is exposed to the same thing and gets
+    /// away with it because its avatar is always fully dressed. A
+    /// constant that is right for everyone is worth more than a
+    /// measurement that is right for most and badly wrong for the
+    /// rest, so this stays until the composed avatar can be trusted.
     /// </summary>
     public const float EyeHeight = GeometryConstants.PLAYERHEIGHT * M59Geo.HeightToXY;
     public const float FogFar = 4500f;
