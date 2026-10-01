@@ -11,6 +11,54 @@ using Godot;
 /// and looking at the same time works, which is the whole point of
 /// splitting the screen rather than using fixed on-screen buttons.
 ///
+/// A TAP, though, targets on EITHER half. The split is about drags, not
+/// about pixels, and it used to be about pixels: the stick's release
+/// branch set no tap, so a touch that began left of the midline could
+/// never become a target. That is not a missing convenience, it is a
+/// whole half of the world you cannot talk to. Everything a target
+/// enables is gated on one - Look, Buy, Trade, Get and Quest all act on
+/// the library's TargetID (ActionBar.cs:265-271, GameView.cs:1511-1515)
+/// - and the only other way to acquire one, NextTarget, considers
+/// nothing but `IsAttackable || IsMinimapEnemy`
+/// (DataController.cs:1326-1330, :1372-1388). So a shopkeeper or a quest
+/// giver standing on the left was unreachable by either route, and
+/// ReqNPCQuests has no action, no command and no hotbar slot behind which
+/// to hide - it is target-or-nothing. The reference has no dead half:
+/// every pixel of the window picks, because the press handler just rays
+/// through it (ControllerInput.cpp:332-341 into PerformMouseOver at
+/// :143-215), and its NextTarget is a key bound as a combat convenience
+/// (:567-568), never the only road in.
+///
+/// What makes both work at once is that a stick touch which never MOVES
+/// is not steering. The stick stays asleep until the finger has wandered
+/// TapSlop, and a finger lifted before that reports a tap instead. The
+/// cost is a 16px dead zone at the centre of a 120px stick - 13% of its
+/// travel, which a thumb could not aim inside anyway, and which every
+/// real stick has. Nothing is taken from the drag: the origin is still
+/// where the thumb landed, so once awake the full range and the full
+/// response are there, with no jump at the threshold.
+///
+/// Rejected, in order:
+///
+/// - Giving Quest and Look a second affordance of their own. It fixes
+///   two of six (Buy, Trade, Get and Activate stay unreachable), and
+///   there is nowhere to put them: the bottom row is already full at
+///   1080 wide, which is why Autorun's own window is still parked
+///   (notes/rulings.md, "Open questions").
+/// - Widening what Next cycles to take in shopkeepers and quest givers.
+///   NextTarget is the library's, shared with the reference, and its
+///   narrowness is deliberate - it is the combat tab key, ordering guild
+///   enemies ahead of monsters by distance (DataController.cs:1342-1370).
+///   Making it walk every signpost and barkeep in the room to reach the
+///   one NPC with a "!" would wreck the thing it is good at, and it is
+///   library code besides.
+/// - Shrinking the stick half, or moving the midline. Any line leaves a
+///   region where a tap is impossible, and this one is in the right
+///   place: a phone player rests a thumb on the left and keeps it there.
+/// - Requiring a long press, or a two-finger tap, to target on the left.
+///   Both are learnable and neither is discoverable, and the defect being
+///   fixed is precisely that nothing told the player anything.
+///
 /// Mouse input drives the same values on desktop, so one code path serves
 /// both.
 /// </summary>
@@ -70,8 +118,8 @@ public sealed class TouchControls
     }
 
     /// <summary>
-    /// A tap on the look half - a finger put down and lifted without
-    /// really moving. Used to target what you touched. Consumed by reading.
+    /// A tap on EITHER half - a finger put down and lifted without really
+    /// moving. Used to target what you touched. Consumed by reading.
     /// </summary>
     public bool TakeTap(out Vector2 position)
     {
@@ -91,15 +139,34 @@ public sealed class TouchControls
 
     float _turn, _pitch;
     int _moveFinger = -1, _lookFinger = -1;
-    Vector2 _moveOrigin, _moveCurrent;
+    /// <summary>
+    /// A second finger on the stick half, while the stick itself is
+    /// busy: a player steering with the left thumb who reaches in with
+    /// another finger to point at something. It can only ever tap.
+    /// </summary>
+    int _tapFinger = -1;
+    Vector2 _moveOrigin, _moveCurrent, _tapOrigin;
     Vector2 _lookOrigin, _tapAt, _mouseDownAt;
+    /// <summary>
+    /// The stick has woken: this finger has travelled past TapSlop, so
+    /// it is steering and its release is not a tap. Sticky for the life
+    /// of the touch - a thumb that pushes forward and comes back to
+    /// where it started has still walked, and must not also target.
+    /// </summary>
+    bool _moveEngaged;
+    bool _tapFingerMoved;
     bool _lookMoved, _tapped;
     bool _mouseLook;
 
     /// <summary>The next mouse event is this device echoing a touch.</summary>
     bool _mouseIsEcho;
 
-    public bool StickActive => _moveFinger != -1;
+    /// <summary>
+    /// Drawn only once the stick is steering. A tap would otherwise
+    /// flash a ring and a knob under the thumb for the frames it is
+    /// down, which reads as a control that was about to do something.
+    /// </summary>
+    public bool StickActive => _moveFinger != -1 && _moveEngaged;
     public Vector2 StickOrigin => _moveOrigin;
     public Vector2 StickCurrent => _moveCurrent;
 
@@ -114,6 +181,13 @@ public sealed class TouchControls
                 {
                     _moveFinger = t.Index;
                     _moveOrigin = _moveCurrent = t.Position;
+                    _moveEngaged = false;
+                }
+                else if (t.Position.X < mid && _tapFinger == -1)
+                {
+                    _tapFinger = t.Index;
+                    _tapOrigin = t.Position;
+                    _tapFingerMoved = false;
                 }
                 else if (t.Position.X >= mid && _lookFinger == -1)
                 {
@@ -129,7 +203,22 @@ public sealed class TouchControls
                 // below would let it through - as a tap, at the place
                 // the thumb left, which retargets whatever is there.
                 _mouseIsEcho = true;
-                if (t.Index == _moveFinger) { _moveFinger = -1; Move = Vector2.Zero; }
+                if (t.Index == _moveFinger)
+                {
+                    // Lifted without ever waking the stick: the thumb
+                    // pointed at something instead of steering with it.
+                    // Move was never anything but zero for this touch,
+                    // so there is nothing to undo and nothing lurched.
+                    if (!_moveEngaged) { _tapped = true; _tapAt = t.Position; }
+                    _moveFinger = -1;
+                    _moveEngaged = false;
+                    Move = Vector2.Zero;
+                }
+                if (t.Index == _tapFinger)
+                {
+                    if (!_tapFingerMoved) { _tapped = true; _tapAt = t.Position; }
+                    _tapFinger = -1;
+                }
                 if (t.Index == _lookFinger)
                 {
                     if (!_lookMoved) { _tapped = true; _tapAt = t.Position; }
@@ -139,7 +228,18 @@ public sealed class TouchControls
 
             case InputEventScreenDrag d when d.Index == _moveFinger:
                 _moveCurrent = d.Position;
-                Move = Clamp((_moveCurrent - _moveOrigin) / StickRadius);
+                // A touch reports drags for three pixels of thumb roll as
+                // readily as for a push, and until this wakes the stick
+                // those three pixels used to be a step of walking: a tap
+                // that nudged the avatar. Measured from the ORIGIN, not
+                // frame to frame, so a slow push crosses it exactly once.
+                if ((_moveCurrent - _moveOrigin).Length() > TapSlop) _moveEngaged = true;
+                Move = _moveEngaged ? Clamp((_moveCurrent - _moveOrigin) / StickRadius)
+                                    : Vector2.Zero;
+                break;
+
+            case InputEventScreenDrag d when d.Index == _tapFinger:
+                if ((d.Position - _tapOrigin).Length() > TapSlop) _tapFingerMoved = true;
                 break;
 
             case InputEventScreenDrag d when d.Index == _lookFinger:
