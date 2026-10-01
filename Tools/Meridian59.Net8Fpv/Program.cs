@@ -20,7 +20,8 @@ static class Fpv
         {
             if (a[i].StartsWith("--"))
             {
-                if (a[i] == "--sprite" || a[i] == "--time" || a[i] == "--pitch" || a[i] == "--sky") i++;
+                if (a[i] == "--sprite" || a[i] == "--time" || a[i] == "--pitch" || a[i] == "--sky"
+                    || a[i] == "--grass" || a[i] == "--bench") i++;
                 if (a[i] == "--torch") i += 5;   // takes a value
                 continue;
             }
@@ -185,8 +186,49 @@ static class Fpv
                 }
             }
         }
+        // The room's grass - the reference's default (CreateDecoration,
+        // called from ControllerRoom.cpp:485, with
+        // DEFAULTVAL_ENGINE_DECORATIONINTENSITY = 20). --nograss leaves
+        // it out, for comparing; --grass <n> mirrors the reference's
+        // DecorationIntensity setting.
+        int gi = Array.IndexOf(flags, "--grass");
+        if (gi >= 0 && gi + 1 < flags.Length) M59Grass.Intensity = int.Parse(flags[gi + 1]);
+        if (flags.Contains("--nograss")) M59Grass.Intensity = 0;
+        if (M59Grass.Intensity > 0)
+        {
+            string gd = M59Grass.FindDir(dir);
+            var gdefs = M59Grass.LoadDefs(gd);
+            var sw0 = System.Diagnostics.Stopwatch.StartNew();
+            r.Grass = M59Grass.Build(roo, gdefs, M59Grass.Intensity);
+            sw0.Stop();
+            Console.WriteLine(r.Grass == null
+                ? $"no grass: defs {(gdefs == null ? "missing" : "ok")} from {gd ?? "(nowhere)"}"
+                : $"grass {r.Grass.Count} clumps, {r.Grass.TextureCount} textures, "
+                  + $"built in {sw0.Elapsed.TotalMilliseconds:F1} ms");
+        }
+
         var px = new uint[W * H];
         int closed = r.Render(px, W, H, camX, camY, camZ, angle);
+
+        // --bench <n> renders the same frame n times and reports the
+        // median, which is how the cost of a change to the renderer is
+        // actually established rather than guessed at.
+        int bi = Array.IndexOf(flags, "--bench");
+        if (bi >= 0 && bi + 1 < flags.Length)
+        {
+            int n = int.Parse(flags[bi + 1]);
+            var ms = new double[n];
+            for (int i = 0; i < n; i++)
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                r.Render(px, W, H, camX, camY, camZ, angle);
+                sw.Stop();
+                ms[i] = sw.Elapsed.TotalMilliseconds;
+            }
+            Array.Sort(ms);
+            Console.WriteLine($"bench {W}x{H} n={n}: median {ms[n / 2]:F2} ms, "
+                + $"min {ms[0]:F2}, max {ms[n - 1]:F2}, {r.DecorationDrawn} clumps drawn");
+        }
 
         var rgba = new byte[W * H * 4];
         for (int i = 0; i < px.Length; i++)

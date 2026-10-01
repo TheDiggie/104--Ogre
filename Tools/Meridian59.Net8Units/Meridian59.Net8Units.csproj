@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="../../MobileClient/M59Geo.cs" Link="M59Geo.cs" />
     <Compile Include="../../MobileClient/Renderer.cs" Link="Renderer.cs" />
+    <Compile Include="../../MobileClient/M59Grass.cs" Link="M59Grass.cs" />
     <Compile Include="../../MobileClient/M59Sky.cs" Link="M59Sky.cs" />
     <Compile Include="../../MobileClient/M59Png.cs" Link="M59Png.cs" />
     <Compile Include="../../MobileClient/M59Water.cs" Link="M59Water.cs" />

@@ -71,9 +71,26 @@ public sealed class WorldSync
         if (!_texLooked) { _texDir = TexCache.FindRoomTextures(RootPath); _texLooked = true; }
         Renderer = new Renderer(current, new TexCache(_rm) { RoomTextureDir = _texDir })
                    { Sky = _sky };
+        // The room's grass. Generated HERE and only here, because the
+        // reference generates it once per room load too - LoadRoom calls
+        // CreateDecoration at ControllerRoom.cpp:485 and times it
+        // separately from the geometry - and because a room whose grass
+        // moved every frame would shimmer. The definitions are looked for
+        // once: the folder does not move, and a machine without the
+        // decoration art must not pay for the miss on every room change.
+        if (!_grassLooked)
+        {
+            _grassDefs = M59Grass.LoadDefs(M59Grass.FindDir(RootPath));
+            _grassLooked = true;
+        }
+        Renderer.Grass = M59Grass.Build(current, _grassDefs, M59Grass.Intensity);
         RoomChanges++;
         return true;
     }
+
+    /// <summary>The grass mappings and art, once they have been looked for.</summary>
+    M59Grass.Defs _grassDefs;
+    bool _grassLooked;
 
     /// <summary>Where the sky faces are, once one has been looked for.</summary>
     string _skyDir;

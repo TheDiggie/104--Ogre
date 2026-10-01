@@ -262,6 +262,34 @@ public sealed class Tex
     /// </summary>
     public void RebuildMips() => BuildMips();
 
+    /// <summary>
+    /// Snaps every texel's alpha to nothing or to opaque at a threshold,
+    /// on every reduced copy as well as the full one.
+    ///
+    /// This is what an alpha-tested material does, and some of the art
+    /// this renderer draws is drawn by one: `base_material`, which every
+    /// grass material derives from, rejects a fragment whose alpha is
+    /// under 64 and draws the rest at full opacity with no blending
+    /// (general.material:287-293). The GPU applies that test to the
+    /// FILTERED sample, which is why the reduced copies have to be keyed
+    /// too - the sprite blit treats any non-zero alpha as solid, so a
+    /// mip texel that averaged out to a quarter coverage would otherwise
+    /// come out as an opaque block and a receding tuft would grow a
+    /// square halo.
+    /// </summary>
+    public void KeyAlpha(uint threshold)
+    {
+        if (_levels == null) { Key(P, threshold); return; }
+        foreach (uint[] lv in _levels) Key(lv, threshold);
+    }
+
+    static void Key(uint[] p, uint threshold)
+    {
+        if (p == null) return;
+        for (int i = 0; i < p.Length; i++)
+            p[i] = (p[i] >> 24) >= threshold ? (p[i] | 0xFF000000u) : (p[i] & 0x00FFFFFFu);
+    }
+
     void BuildMips()
     {
         var lv = new List<uint[]> { P };

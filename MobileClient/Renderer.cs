@@ -339,6 +339,31 @@ public sealed class Renderer
     /// <summary>Objects drawn after the walls, occluded by them.</summary>
     public readonly List<Sprite> Sprites = new List<Sprite>();
 
+    /// <summary>
+    /// The room's grass, or null for a room with none.
+    ///
+    /// Room decoration is the reference's default (CreateDecoration,
+    /// ControllerRoom.cpp:853-997, called from LoadRoom at :485, at
+    /// DEFAULTVAL_ENGINE_DECORATIONINTENSITY = 20) and it cannot live in
+    /// <see cref="Sprites"/>, because WorldSync.SyncSprites clears that
+    /// list and refills it from the server every frame. Grass is static
+    /// per room - generated once on a room change - so it keeps its own
+    /// structure and the renderer draws it alongside. See M59Grass.
+    /// </summary>
+    public M59Grass Grass;
+
+    /// <summary>
+    /// The clumps in view this frame. Reused rather than rebuilt: the
+    /// cull runs every frame and a fresh list per frame is a few hundred
+    /// entries of garbage per frame for no reason.
+    /// </summary>
+    readonly List<Sprite> _decor = new List<Sprite>(512);
+    /// <summary>The draw order for one frame's sprites, reused for the same reason.</summary>
+    readonly List<(float depth, Sprite s, float lateral)> _order2D =
+        new List<(float, Sprite, float)>(512);
+    /// <summary>How many clumps the last frame drew, for a test to check.</summary>
+    public int DecorationDrawn { get; private set; }
+
     /// <summary>Per-direction sprite frames, resolved as the view changes.</summary>
     public readonly SpriteCache SpriteFrames = new SpriteCache();
 
@@ -590,9 +615,22 @@ public sealed class Renderer
         int bands = Threaded ? Math.Min(System.Environment.ProcessorCount, Math.Max(1, W / 48)) : 1;
         EnsureScratch(bands);
 
+        // Which clumps of grass are in view. Done before the columns so
+        // the sprite-depth buffer below knows whether it is needed at
+        // all, and once per frame rather than per band: the cull is
+        // read-only over the room's static grass and the result is shared
+        // by every band's worth of columns. See M59Grass.Collect for why
+        // this cannot be left to DrawSprites.
+        _decor.Clear();
+        if (Grass != null)
+            Grass.Collect(camX, camY, angle,
+                          MathF.Atan(W * 0.5f / proj), M59Grass.Distance,
+                          M59Grass.MaxPerFrame, _decor);
+        DecorationDrawn = _decor.Count;
+
         // Where a sprite is, and how far away, so see-through walls drawn
         // afterwards know which pixels they must not cover.
-        if (Sprites.Count > 0)
+        if (Sprites.Count > 0 || _decor.Count > 0)
         {
             if (_spriteDepth == null || _spriteDepth.Length < W * H) _spriteDepth = new float[W * H];
             Array.Clear(_spriteDepth, 0, W * H);
@@ -1003,20 +1041,30 @@ public sealed class Renderer
     void DrawSprites(uint[] px, int W, int H, float camX, float camY, float camZ,
                      float angle, float proj, float horizon)
     {
-        if (Sprites.Count == 0) return;
+        if (Sprites.Count == 0 && _decor.Count == 0) return;
 
         float ca = MathF.Cos(-angle), sa = MathF.Sin(-angle);
-        var order = new List<(float depth, Sprite s, float lateral)>(Sprites.Count);
+        var order = _order2D;
+        order.Clear();
 
-        foreach (Sprite sp in Sprites)
+        // The room's own objects and the room's grass go through ONE
+        // sorted list rather than two passes. They have to: a duskrat
+        // standing behind a tuft and a tuft standing behind a duskrat are
+        // both ordinary, and two passes would get one of them wrong
+        // whichever order the passes ran in.
+        for (int pass = 0; pass < 2; pass++)
         {
-            if (sp.Bgf == null && sp.Texture == null) continue;
-            float rx = sp.X - camX, ry = sp.Y - camY;
-            // Into camera space: +depth is straight ahead.
-            float depth = rx * ca - ry * sa;
-            float lateral = rx * sa + ry * ca;
-            if (depth < 32f) continue;                       // behind or on top of us
-            order.Add((depth, sp, lateral));
+            List<Sprite> src = pass == 0 ? Sprites : _decor;
+            foreach (Sprite sp in src)
+            {
+                if (sp.Bgf == null && sp.Texture == null) continue;
+                float rx = sp.X - camX, ry = sp.Y - camY;
+                // Into camera space: +depth is straight ahead.
+                float depth = rx * ca - ry * sa;
+                float lateral = rx * sa + ry * ca;
+                if (depth < 32f) continue;                    // behind or on top of us
+                order.Add((depth, sp, lateral));
+            }
         }
         order.Sort((a, b) => b.depth.CompareTo(a.depth));    // far first
 
