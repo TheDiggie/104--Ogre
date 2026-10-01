@@ -71,7 +71,7 @@ public partial class LostConnection : Control
     {
         if (_back == null) return;
         Vector2 v = GetViewportRect().Size;
-        float side = Mathf.Max(20f, v.X * 0.08f);
+        float side = Panels.Side(v, 0.08f, 20f);
         float rowH = FontSize * 2.6f;
 
         // Sized here rather than anchored: this lives under a

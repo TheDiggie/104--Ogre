@@ -44,9 +44,9 @@ public static class Panels
     /// grows with the screen instead of being a number that looks
     /// right on one device.
     /// </summary>
-    public static float Side(Vector2 v, float fraction)
+    public static float Side(Vector2 v, float fraction, float least = 16f)
     {
-        float side = Mathf.Max(16f, v.X * fraction);
+        float side = Mathf.Max(least, v.X * fraction);
         float usable = v.X - side * 2f;
         float band = Mathf.Min(usable, Mathf.Max(900f, v.Y * 1.45f));
         return side + Mathf.Max(0f, (usable - band) * 0.5f);

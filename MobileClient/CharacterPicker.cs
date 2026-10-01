@@ -61,7 +61,7 @@ public partial class CharacterPicker : Control
         _bg.Position = Vector2.Zero;
         _bg.Size = v;
 
-        float pad = Mathf.Max(24f, v.X * 0.08f);
+        float pad = Panels.Side(v, 0.08f, 24f);
         _title.Position = new Vector2(pad, pad);
         _rows.Position = new Vector2(pad, pad + FontSize * 3f);
         _rows.Size = new Vector2(v.X - pad * 2, v.Y - pad * 2 - FontSize * 3f);
