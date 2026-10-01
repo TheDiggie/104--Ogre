@@ -72,7 +72,6 @@ static class Oracle{ static void Main(string[] a){
  foreach(var kv in vBadBy.OrderByDescending(x=>x.Value).Take(6))
   Console.WriteLine($"   {kv.Value,6}  vertical {kv.Key}");
 
- AnimProbe(dir,rm);
  Slopes(dir,rm);
  Sides(dir,rm);
  Flats(dir);
@@ -133,20 +132,6 @@ static void Sides(string dir, ResourceManager rm){
  Console.WriteLine($"  left side agrees        : {lOk}   disagrees: {lBad}");
  Console.WriteLine($"  left side before the fix disagreed: {lWouldFail}");
  if(worst>0) Console.WriteLine($"  worst: {worstWhere} off by {worst:F4} of a texture");
-}
-static void AnimProbe(string dir, ResourceManager rm){
- var liq = new HashSet<ushort>{1802,3203,7201,7202,7203,7204,8894,8895,8911,8912,8913,8914,9083,9084,61018};
- foreach(string path in new[]{"barlmarket.roo","berg_devroom.roo","bergleader_hall.roo"}){
-  string full=Path.Combine(dir,path); if(!File.Exists(full)) continue;
-  RooFile roo; try{ roo=new RooFile(full); roo.ResolveResources(rm);}catch{continue;}
-  foreach(var leaf in roo.BSPTreeLeaves){
-   if(leaf.Sector==null||leaf.Vertices==null||leaf.Vertices.Count<3) continue;
-   if(!liq.Contains(leaf.Sector.FloorTexture)) continue;
-   double cx=0,cy=0; foreach(var v in leaf.Vertices){cx+=v.X;cy+=v.Y;}
-   cx/=leaf.Vertices.Count; cy/=leaf.Vertices.Count;
-   Console.WriteLine($"LIQ {path} at {cx:F0},{cy:F0} grd{leaf.Sector.FloorTexture} floor {leaf.Sector.FloorHeight*16}");
-  }
- }
 }
 static void Slopes(string dir, ResourceManager rm){
  int sectors=0, sloped=0, verts=0, ok=0, bad=0, oldBad=0;
