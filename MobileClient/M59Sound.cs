@@ -243,6 +243,12 @@ public partial class M59Sound : Node
                 // you are. Playing it at the listener instead - full
                 // volume, dead centre - turned every stale object id
                 // into a sound in your ear.
+                //
+                // A ONE-SHOT is left there, as the reference has it. A
+                // LOOP is started there too but does not stay: Follow
+                // drops a loop whose object is not in the room, on
+                // purpose and against the reference - see the long
+                // comment in Follow before changing either.
                 sx = sy = sh = 0f;
             }
             else
@@ -510,6 +516,91 @@ public partial class M59Sound : Node
                 (bool here, float x, float y, float h) = present(l.Owner);
                 if (!here)
                 {
+                    // DELIBERATE DIVERGENCE - do not "fix" by matching.
+                    // A loop whose object is not in the room is dropped
+                    // here, whether the object LEFT (the case this
+                    // exists for) or NEVER WAS (a "ghost" id). The
+                    // reference keeps the ghost: with no object to
+                    // find, `StartSound` leaves x, y, z at 0, attaches
+                    // nothing, files the sound in the global list and
+                    // plays it at the origin until a StopWave or the
+                    // next Player message (`ControllerSound.cpp:393-411`,
+                    // `:472-476`, `:326-335`, `:341-357`). Verified
+                    // here (M59_SNDGHOST; before this comment): the
+                    // loop starts at gain 0.33, is dropped the next
+                    // frame, and a StopWave for the id logs "loops 0"
+                    // and does nothing.
+                    //
+                    // Why that is right, and matching would not be:
+                    //  - The reference's ghost is not a design, it is
+                    //    a null check falling through. Its design is
+                    //    that a sound lives and dies with its object
+                    //    (`RemoteNode.cpp:112-125` stops them in the
+                    //    node's destructor), and an id that is not in
+                    //    the room names an object that is already
+                    //    dead. This client has no node destructor, so
+                    //    this branch IS that destructor; ghost and
+                    //    departed are the same case to it.
+                    //  - Server-104 never sends a loop with an object
+                    //    id (`room.kod:684-689,715-719`: row and col
+                    //    only), so a ghost can only be a race (the
+                    //    object left between the two messages) or a
+                    //    bug. Matching would turn either into a
+                    //    permanent hum from the room's corner: at the
+                    //    origin the distance is that of the avatar from
+                    //    (0,0), ~1000 units in barinn, so gain ~0.33 -
+                    //    and the clamp at 2000 (Mix) leaves it never
+                    //    below 0.2. It is NOT inaudible: measured on
+                    //    the Master bus, music alone 0.0355 RMS, with
+                    //    the pinned loop 0.041, and nothing ends it
+                    //    short of a stop that names this exact id or
+                    //    the next room. On a phone a hum that cannot
+                    //    be placed is worse than a missing ambient.
+                    //  - What the drop costs is nothing visible: a
+                    //    StopWave that finds nothing is the same no-op
+                    //    the reference gives for an unknown sound
+                    //    (`ControllerSound.cpp:272-337` falls out of
+                    //    all three lists; Stop below does likewise)
+                    //    and raises no UI. Measured: stop for a never-
+                    //    played id leaves the bus flat.
+                    //
+                    // What else depends on this branch, and was checked
+                    // so the next audit need not:
+                    //  - It only runs once the avatar exists
+                    //    (GameView.FollowSounds returns first
+                    //    otherwise), and the library adds the avatar
+                    //    and every other object inside ONE
+                    //    RoomContents handler, which `ProcessQueues`
+                    //    drains before the frame
+                    //    (`DataController.cs:2147-2215`,
+                    //    `BaseClient.cs:333-349`). So a loop that
+                    //    arrives BEFORE RoomContents (the ordering of
+                    //    the 2cc4f2f bug) is never dropped for its
+                    //    object being late: it plays, and binds to
+                    //    the object the first frame it exists
+                    //    (measured, id of a rat in the contents:
+                    //    0.0724 RMS at the rat, stop by id finds it).
+                    //    The reference does not even do that - it
+                    //    pins that sound at the origin for good
+                    //    (0.0412 under the matching variant) - so
+                    //    matching would REGRESS this case.
+                    //  - A loop whose object is added AFTER the
+                    //    avatar is in, in a later frame than the
+                    //    sound, is dropped. The stream is ordered and
+                    //    a server adds an object before it speaks for
+                    //    it, so that is a server bug, and silence is
+                    //    the safe way to meet one.
+                    //  - One-shots never come through here: a ghost
+                    //    one-shot plays once at the origin as the
+                    //    reference does (it ends by itself, and a stop
+                    //    for the id cuts it - 0.0552 RMS, stopped
+                    //    after 4 s), and one whose object leaves
+                    //    first is left to finish (see below).
+                    //  - Objects that leave (the case this exists
+                    //    for, M59_SNDOWNER) are dropped as the
+                    //    reference's destructor would, whether they
+                    //    go a second or a frame after the sound
+                    //    starts.
                     (gone ??= new List<string>()).Add(kv.Key);
                     continue;
                 }
