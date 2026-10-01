@@ -28,6 +28,20 @@ using Godot;
 ///    fire the first one's action. That matters here for the same
 ///    reason it mattered there: these actions are irreversible.
 ///
+/// A fifth, which the reference gets from its window system and this
+/// client has to build: the window is AlwaysOnTop
+/// (`Meridian59.layout:2859`, `:2873`) and is not modal
+/// (`UIConfirmPopup.cpp`), so it is moved to front when shown and nothing
+/// else is ever drawn over it afterwards. Here "on top" is "last child".
+/// <see cref="Panels.ToFront"/> puts it back after any panel that raises
+/// itself through it, and <see cref="Reraise"/> - hung off the parent's
+/// ChildOrderChanged - catches the rest: a panel's own MoveChild, and
+/// every AddChild of a node built after the popup. A question that is
+/// armed is a question that is visible.
+///
+/// And one decision the reference does not make for us: what an arriving
+/// question does to the one on screen. See <see cref="Choice"/>.
+///
 /// Until now the mobile client sent exile, disband and abandon-hall
 /// straight off the button press with nothing in between. On a phone
 /// that is worse than on a desktop, not better.
@@ -43,6 +57,19 @@ public partial class ConfirmPopup : Control
     Action<uint> _confirmed;
     Action _cancelled;
     uint _id;
+
+    /// <summary>Statements waiting behind the one on screen. See <see cref="Tell"/>.</summary>
+    struct Waiting { public string Text; public Action<uint> Acknowledged; public bool CloseOnInvalidate; }
+    readonly System.Collections.Generic.Queue<Waiting> _waiting = new System.Collections.Generic.Queue<Waiting>();
+    const int MaxWaiting = 8;
+
+    /// <summary>
+    /// A question was turned away because another one was on screen.
+    /// The argument is the text that was refused. GameView puts it in the
+    /// chat, so a refusal is something the player is told rather than a
+    /// button that silently did nothing.
+    /// </summary>
+    public event Action<string> Refused;
 
     /// <summary>
     /// Whether an invalidation of the server's data takes this popup
@@ -92,7 +119,42 @@ public partial class ConfirmPopup : Control
         _ok = Push("OK", () => Answer(true));
 
         GetViewport().SizeChanged += Layout;
+        // AlwaysOnTop, for real. Anything that adds, removes or moves a
+        // sibling raises ChildOrderChanged on the parent, so this sees
+        // every way a node can end up above an armed popup, including the
+        // ones that never go near Panels.ToFront. Deferred because the
+        // signal fires from inside the move or the add, and changing the
+        // child list from in there is exactly what the engine refuses
+        // while a parent is busy setting up its children.
+        Node parent = GetParent();
+        if (parent != null) parent.ChildOrderChanged += OnSiblingsChanged;
         Layout();
+    }
+
+    public override void _ExitTree()
+    {
+        Node parent = GetParent();
+        if (parent != null && GodotObject.IsInstanceValid(parent))
+            parent.ChildOrderChanged -= OnSiblingsChanged;
+    }
+
+    bool _reraisePending;
+
+    void OnSiblingsChanged()
+    {
+        if (!IsOpen || _reraisePending) return;
+        Node parent = GetParent();
+        if (parent == null || parent.GetChildCount() < 2 || parent.GetChild(parent.GetChildCount() - 1) == this) return;
+        _reraisePending = true;
+        CallDeferred(nameof(Reraise));
+    }
+
+    /// <summary>Back to the last child, if something has got in front of it.</summary>
+    void Reraise()
+    {
+        _reraisePending = false;
+        if (!IsOpen || !IsInsideTree()) return;
+        Panels.KeepPopupOnTop(GetParent());
     }
 
     Button Push(string text, Action pressed)
@@ -174,10 +236,40 @@ public partial class ConfirmPopup : Control
     /// <summary>
     /// A yes/no question. <paramref name="id"/> comes back with the
     /// answer, which is how the caller knows what it asked about.
+    ///
+    /// Returns false, and asks nothing, when something is already on
+    /// screen. That is a decision, not a gap. The reference has no
+    /// answer to copy: its ShowChoice overwrites the text and the id and
+    /// then `Show*` adds the handler with `+=` (`UIConfirmPopup.cpp:52-82`),
+    /// so a second question leaves BOTH actions bound to the one Yes -
+    /// the very hazard `_RaiseConfirm` clearing the handlers afterwards
+    /// exists to contain. Replacing the question is the same bug with a
+    /// different face: the player is reading "exile Bob?", a push swaps
+    /// the words under their thumb, and the Yes they were about to press
+    /// answers something else. Queueing a QUESTION is no better, because
+    /// it comes up later, after the player has moved on, asking about
+    /// something they no longer have in front of them - the exact
+    /// out-of-context popup this class exists to prevent.
+    ///
+    /// So a question never displaces and never waits: it is refused, the
+    /// caller is told (and <see cref="Refused"/> tells the player), and
+    /// whatever started it can be started again once the screen is clear.
+    /// Every question this client asks starts from the player's own tap,
+    /// and with the shade over everything the only way to start a second
+    /// is a keyboard or a typed command (/suicide), which is a "try again"
+    /// and costs nothing. Nothing that a server pushes is a question - see
+    /// <see cref="Tell"/> for the ones that are.
     /// </summary>
-    public void Choice(string text, uint id, Action<uint> confirmed, Action cancelled = null,
+    public bool Choice(string text, uint id, Action<uint> confirmed, Action cancelled = null,
                        bool closeOnInvalidate = true)
     {
+        if (IsOpen)
+        {
+            GD.Print($"[ConfirmPopup] refused a question while one is open: {text}");
+            Refused?.Invoke(text);
+            return false;
+        }
+
         _text.Text = text;
         _id = id;
         _confirmed = confirmed;
@@ -189,10 +281,40 @@ public partial class ConfirmPopup : Control
 
         _yes.Visible = true; _no.Visible = true; _ok.Visible = false;
         Show(true);
+        return true;
     }
 
-    /// <summary>Something to say, with one way out.</summary>
+    /// <summary>
+    /// Something to say, with one way out.
+    ///
+    /// Unlike a question, a statement is queued behind whatever is on
+    /// screen rather than refused or replaced, and shown when the player
+    /// has answered it. These are the things a SERVER pushes at an
+    /// arbitrary moment - a shield claim's refusal (`GameView.ShieldError`,
+    /// polled off `GuildShieldInfo`), the password change's verdict
+    /// (`PasswordAnswered`) - so two can land in one frame, or land on top
+    /// of a question the player is reading. A statement carries no action
+    /// the player could be tricked into, so replacing it would only lose
+    /// the news, and refusing it would lose the news too; waiting costs
+    /// one more tap. They keep arrival order, a repeat of one already
+    /// waiting is dropped, and at most <see cref="MaxWaiting"/> wait (the
+    /// oldest is kept, the newest dropped - a flood is not a reason to
+    /// bury the first thing that was said).
+    /// </summary>
     public void Tell(string text, Action<uint> acknowledged = null, bool closeOnInvalidate = true)
+    {
+        if (IsOpen)
+        {
+            foreach (Waiting w in _waiting)
+                if (w.Text == text) return;
+            if (_waiting.Count >= MaxWaiting) return;
+            _waiting.Enqueue(new Waiting { Text = text, Acknowledged = acknowledged, CloseOnInvalidate = closeOnInvalidate });
+            return;
+        }
+        ShowTell(text, acknowledged, closeOnInvalidate);
+    }
+
+    void ShowTell(string text, Action<uint> acknowledged, bool closeOnInvalidate)
     {
         _text.Text = text;
         _id = 0;
@@ -204,13 +326,23 @@ public partial class ConfirmPopup : Control
         Show(true);
     }
 
+    /// <summary>The next statement in line, if the screen is clear.</summary>
+    void Next()
+    {
+        if (IsOpen || _waiting.Count == 0 || !IsInsideTree()) return;
+        Waiting w = _waiting.Dequeue();
+        ShowTell(w.Text, w.Acknowledged, w.CloseOnInvalidate);
+    }
+
     void Show(bool on)
     {
-        // Above whatever else is open - see Panels.ToFront.
-        if (on) Panels.ToFront(this);
+        // Above whatever else is open - see Panels.ToFront. The popup is
+        // the one thing that goes to the very end of the parent's
+        // children, and ToFront's own re-raise of an open popup is a
+        // no-op for it because it is already last.
         _shade.Visible = on; _panel.Visible = on; _text.Visible = on;
         if (!on) { _yes.Visible = false; _no.Visible = false; _ok.Visible = false; }
-        if (on) GetParent()?.MoveChild(this, -1);
+        if (on) Panels.ToFront(this);
         Layout();
     }
 
@@ -230,6 +362,10 @@ public partial class ConfirmPopup : Control
 
         if (yes) confirmed?.Invoke(id);
         else cancelled?.Invoke();
+
+        // After the handler, so one that asks a follow-up question gets
+        // the screen first and the waiting statements come after it.
+        Next();
     }
 
     /// <summary>
@@ -267,10 +403,22 @@ public partial class ConfirmPopup : Control
     /// </summary>
     public void DataInvalidated()
     {
-        if (!_closeOnInvalidate) return;
+        // The waiting ones go by the same rule as the one on screen:
+        // those that were about the world are stale, the rest are not.
+        if (_waiting.Count > 0)
+        {
+            var keep = new System.Collections.Generic.Queue<Waiting>();
+            foreach (Waiting w in _waiting) if (!w.CloseOnInvalidate) keep.Enqueue(w);
+            _waiting.Clear();
+            foreach (Waiting w in keep) _waiting.Enqueue(w);
+        }
 
-        _confirmed = null; _cancelled = null; _id = 0;
-        Show(false);
+        if (IsOpen && _closeOnInvalidate)
+        {
+            _confirmed = null; _cancelled = null; _id = 0;
+            Show(false);
+        }
+        Next();
     }
 
     /// <summary>

@@ -347,7 +347,9 @@ public partial class GuildCreatePanel : Control
         _create.Visible = on; _close.Visible = on;
         if (!on) _note.Visible = false;
 
-        if (on) GetParent()?.MoveChild(this, -1);
+        // No MoveChild of its own: ToFront above is the one raise, and it
+        // puts an open ConfirmPopup back over this panel (a GuildAsk can
+        // arrive while the exile question is waiting).
         Layout();
     }
 

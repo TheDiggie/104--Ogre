@@ -738,7 +738,7 @@ public partial class GameView : Node2D
         // The same instances, deliberately: Begin adopts whatever is here
         // rather than building a second panel, so a volume set on the
         // login screen is the volume in the world.
-        Widget("ask", () => { if (_ask == null) { _ask = new ConfirmPopup(); _ui.AddChild(_ask); } });
+        Widget("ask", MakeAsk);
         Widget("options", () => Settings());
 
         _login = new LoginPrompt();
@@ -1610,7 +1610,7 @@ public partial class GameView : Node2D
         });
         // Ask() may already have built this, so the login screen had
         // something for Settings to complain through.
-        Widget("ask", () => { if (_ask == null) { _ask = new ConfirmPopup(); _ui.AddChild(_ask); } });
+        Widget("ask", MakeAsk);
         Widget("statwizard", () =>
         {
             // No button opens this either: the server offers a stat
@@ -2627,6 +2627,27 @@ public partial class GameView : Node2D
         // than by tapping: the object leaves the room, you change room,
         // you log out, or the library re-binds the target when the
         // object model is rebuilt.
+        // The guild window clears the shield model when it closes
+        // (`UIGuild.cpp:951`); hand it the model rather than let it
+        // reflect on the designer's private field. Data is created by
+        // Init and its GuildShieldInfo is a readonly field of it, so this
+        // is the one instance for the life of the client.
+        if (_guild != null) _guild.ShieldInfo = _client.Data.GuildShieldInfo;
+
+        // A shield refusal is shown the moment it arrives, as the reference
+        // does (it hangs the popup off this property, `UIGuild.cpp:265-267`),
+        // and not only on the per-frame poll in ShieldError: the model holds
+        // ONE ServerString, so two refusals landing in the same frame left
+        // the poll to see the second and lose the first. Messages are
+        // handled inside _client.Update() on this thread, so the handler may
+        // touch the popup. ConfirmPopup.Tell queues them behind whatever is
+        // being read; the poll stays as the net for one already there.
+        _client.Data.GuildShieldInfo.PropertyChanged += (_, e) =>
+        {
+            if (e?.PropertyName == Meridian59.Data.Models.GuildShieldInfo.PROPNAME_GUILDSHIELDERROR)
+                ShieldError();
+        };
+
         _client.Data.PropertyChanged += (_, e) =>
         {
             if (e?.PropertyName != Meridian59.Data.DataController.PROPNAME_TARGETOBJECT) return;
@@ -3218,6 +3239,19 @@ public partial class GameView : Node2D
     /// A missing widget is written into the status text so it is visible
     /// on the device, where there is no console to read.
     /// </summary>
+    /// <summary>
+    /// The one confirmation popup, built once. A question turned away
+    /// because another is on screen (ConfirmPopup.Choice) is said in the
+    /// chat, so the player is told rather than left with a dead tap.
+    /// </summary>
+    void MakeAsk()
+    {
+        if (_ask != null) return;
+        _ask = new ConfirmPopup();
+        _ask.Refused += what => _chat?.Local("Answer the question on screen first, then try again.");
+        _ui.AddChild(_ask);
+    }
+
     void Widget(string name, Action build)
     {
         try { build(); }

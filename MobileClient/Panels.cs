@@ -89,12 +89,49 @@ public static class Panels
         }
     }
 
-    /// <summary>Puts this panel above its siblings. Called when it opens.</summary>
+    /// <summary>
+    /// Puts this panel above its siblings. Called when it opens - and
+    /// puts an open <see cref="ConfirmPopup"/> back above the panel.
+    ///
+    /// The reference's popup is AlwaysOnTop, both the root window and the
+    /// framed one (`Meridian59.layout:2859`, `:2873`), and it is not modal
+    /// (`UIConfirmPopup.cpp`), so it moves to front once, when shown, and
+    /// nothing else is ever drawn over a question that is waiting. Here
+    /// "on top" is "last child", so the same guarantee is two things:
+    /// this method, which is where almost every panel raises itself, and
+    /// <see cref="ConfirmPopup"/>'s own watch on its parent's child order,
+    /// which catches everything that does NOT come through here - a
+    /// panel's own `MoveChild(this, -1)` (AmountPrompt, ChatOverlay,
+    /// LookPanel, ... still do), and every `AddChild` of a panel built
+    /// after the popup, which lands after it in the tree and so on top of it.
+    /// </summary>
     public static void ToFront(Control panel)
     {
         Node parent = panel?.GetParent();
         if (parent == null) return;
         // -1 is last child, which is drawn last, which is on top.
         if (parent.GetChildCount() > 0) parent.MoveChild(panel, -1);
+        KeepPopupOnTop(parent);
+    }
+
+    /// <summary>
+    /// Makes an open ConfirmPopup the last child of <paramref name="parent"/>
+    /// if it is not already. Immediate, so a panel raised through
+    /// <see cref="ToFront"/> is never drawn over the popup even for a frame.
+    /// </summary>
+    public static void KeepPopupOnTop(Node parent)
+    {
+        if (parent == null) return;
+        int n = parent.GetChildCount();
+        if (n < 2) return;
+        // The popup is the last child when it is where it belongs, so the
+        // common case is one comparison. Otherwise look for it.
+        if (parent.GetChild(n - 1) is ConfirmPopup) return;
+        for (int i = n - 2; i >= 0; i--)
+            if (parent.GetChild(i) is ConfirmPopup p)
+            {
+                if (p.IsOpen) parent.MoveChild(p, -1);
+                return;
+            }
     }
 }
