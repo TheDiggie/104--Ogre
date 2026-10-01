@@ -35,8 +35,18 @@ using Meridian59.Data.Models;
 ///   itself by key (`Config.cs:345-346`), so an alias sits where its
 ///   name puts it. The row does carry a DragContainer
 ///   (`:1070`, Constants.h:923), but that is not for ordering - it
-///   drags the alias onto a hotbar slot (`UIActionButtons.cpp:427-434`),
-///   which is a separate feature this client does not have yet.
+///   drags the alias onto a hotbar slot (`UIActionButtons.cpp:427-434`).
+///
+///   HOTBAR - that drag, which is the reason the DragContainer is there.
+///   Its handle is an icon showing UI_IMAGE_ALIAS_ICON (`:1076-1082`)
+///   with the tooltip "Drag&amp;Drop me on the Button Grid!", and letting
+///   go over a slot calls `SetToAlias` on that slot's model
+///   (`UIActionButtons.cpp:427-434`). A phone cannot do the gesture -
+///   this panel covers the hotbar it would be dropped onto - so the
+///   handle becomes a button that binds, which is the same stand-in
+///   SpellsPanel and ActionsPanel already make for the same drag. It
+///   keeps the reference's icon and the reference's place at the head of
+///   the row.
 ///
 /// WHAT THIS ONE DOES DIFFERENTLY
 ///
@@ -75,6 +85,15 @@ public partial class AliasEditor : Control
     /// there, the way the reference's category button is.
     /// </summary>
     public event Action Closed;
+
+    /// <summary>
+    /// Put this alias on the hotbar - the row's stand-in for dragging it
+    /// onto a slot (`UIOptions.cpp:1070`, dropped at
+    /// `UIActionButtons.cpp:427-434`). The pair itself is handed over,
+    /// not its key: `SetToAlias` keeps the object, so the button follows
+    /// later edits to the alias rather than a snapshot of it.
+    /// </summary>
+    public event Action<KeyValuePairString> Assign;
 
     public override void _Ready()
     {
@@ -225,6 +244,26 @@ public partial class AliasEditor : Control
         var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
         line.AddThemeConstantOverride("separation", 6);
 
+        // First in the row, where the reference puts its drag handle
+        // (`UI_OPTIONS_CHILDINDEX_ALIAS_DRAG` is child 0, `:1070`), and
+        // carrying the same picture it does (`:1076-1082`). The tooltip
+        // says what the reference's says, minus the gesture: there is
+        // nothing to drag.
+        var bind = new Button
+        {
+            Icon = ActionButtons.AliasIcon(),
+            // Only when the icon failed to load - see AliasIcon. A blank
+            // square would be a button nobody presses.
+            Text = ActionButtons.AliasIcon() == null ? "+" : "",
+            ExpandIcon = false,
+            TooltipText = "Put on the hotbar",
+            CustomMinimumSize = new Vector2(52, 0),
+            Name = $"aliasBind{index}",
+        };
+        bind.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        bind.Pressed += () => Hotbar(index);
+        line.AddChild(bind);
+
         var key = new LineEdit
         {
             Text = alias.Key ?? "",
@@ -345,6 +384,32 @@ public partial class AliasEditor : Control
         alias.Value = val;
         AliasStore.Save(_config);
         _note.Text = "";
+    }
+
+    /// <summary>
+    /// Hands the row's alias to whoever is listening, which in practice
+    /// is the view calling `ActionButtons.Bind` - the drop handler's job
+    /// in the reference (`UIActionButtons.cpp:427-434`).
+    ///
+    /// The index is looked up against the list at the moment of the
+    /// press rather than trusted, for the same reason the commits above
+    /// guard it: a row lives exactly as long as its index, and a stale
+    /// one must bind nothing rather than bind the wrong alias.
+    ///
+    /// Nothing is saved here. The binding belongs to the hotbar, and
+    /// HotbarStore writes it; the alias itself has not changed.
+    /// </summary>
+    void Hotbar(int index)
+    {
+        if (_config?.Aliases == null || index < 0 || index >= _config.Aliases.Count) return;
+
+        KeyValuePairString alias = _config.Aliases[index];
+        if (alias == null) return;
+
+        Assign?.Invoke(alias);
+        // Said here rather than left to the chat line, because the chat
+        // is behind this panel while it is open.
+        _note.Text = $"\"{alias.Key}\" put on the hotbar.";
     }
 
     /// <summary>

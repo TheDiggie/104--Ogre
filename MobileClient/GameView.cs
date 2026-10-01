@@ -786,6 +786,15 @@ public partial class GameView : Node2D
             // is reversible with the button the player already found.
             _aliases = new AliasEditor();
             _aliases.Closed += () => _options?.Open();
+            // The alias row's stand-in for dragging it onto a hotbar
+            // slot (`UIOptions.cpp:1070` drags, `UIActionButtons.cpp:427-434`
+            // drops and calls SetToAlias). Not wrapped in Act: nothing is
+            // sent, so a pending server reply is no reason to refuse it.
+            _aliases.Assign += a =>
+            {
+                if (ActionButtons.Bind(_client.Data, a))
+                    _chat?.Local($"\"{a.Key}\" is on the hotbar. Hold the button to clear it.");
+            };
             _ui.AddChild(_aliases);
         });
         Widget("guild", () =>

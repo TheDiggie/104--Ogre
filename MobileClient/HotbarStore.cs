@@ -58,6 +58,19 @@ public static class HotbarStore
                 if (b == null || b.ButtonType == ActionButtonType.Unset) continue;
                 // Tab separated: a button's name is a thing the server
                 // chose and may hold anything typographic, but not a tab.
+                //
+                // For an alias, Name is the alias KEY and nothing else -
+                // `SetToAlias` copies `Item.Key` into name and leaves
+                // NumOfSameName at zero
+                // (`Meridian59/Data/Models/ActionButtonConfig.cs:267-278`).
+                // The key is therefore the whole of what identifies an
+                // alias button on disk, which is exactly what the game
+                // stores: its &lt;actionbutton&gt; element carries num, type,
+                // name and numofsamename and no more
+                // (`Meridian59.Ogre.Client/OgreClientConfig.cpp:1206-1211`),
+                // and the expansion is not stored with the button - it is
+                // looked up again from the alias list on the way back in,
+                // so editing an alias changes every button bound to it.
                 rows.Add($"{b.Num}\t{b.ButtonType}\t{b.NumOfSameName}\t{b.Name}");
             }
 
@@ -99,11 +112,39 @@ public static class HotbarStore
                 if (type == ActionButtonType.Unset) continue;
                 uint.TryParse(f[2], out uint same);
 
+                // An alias is the one type whose data is NOT the
+                // server's to fill in, and the one the game's loader
+                // resolves for itself: having read the type and the
+                // name, it does `data = aliases->GetItemByKey(name)`,
+                // and where that finds nothing it throws the whole
+                // button away - type back to Unset, name blanked
+                // (`Meridian59.Ogre.Client/OgreClientConfig.cpp:614-627`).
+                // It has to, because nothing later will ever bind it:
+                // the data controller matches arriving items, spells and
+                // skills by name, and an alias arrives from no server at
+                // all. A button left dataless would be one BaseClient's
+                // dispatch silently ignores forever
+                // (`Meridian59/Client/BaseClient.cs:272` guards the whole
+                // switch on Data being non-null).
+                //
+                // Dropping the row rather than keeping an Unset one is
+                // this loader's existing habit two lines up, and comes to
+                // the same place: Save writes no Unset buttons, and
+                // Bind reuses or appends a slot regardless.
+                object bound = null;
+                if (type == ActionButtonType.Alias)
+                {
+                    bound = AliasStore.Current?.Aliases?.GetItemByKey(f[3]);
+                    if (bound == null) continue;
+                }
+
                 // The constructor resolves an Action's data from its own
                 // name, and leaves everything else dataless for the
                 // server to fill in - which is exactly the split the
-                // game's own loader relies on.
-                restored.Add(new ActionButtonConfig(num, type, f[3], null, null, same));
+                // game's own loader relies on. An alias comes in with the
+                // data just resolved, exactly as `OgreClientConfig.cpp:630-636`
+                // passes it to the same constructor.
+                restored.Add(new ActionButtonConfig(num, type, f[3], bound, null, same));
             }
 
             if (restored.Count == 0) return false;

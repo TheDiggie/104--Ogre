@@ -240,6 +240,20 @@ public partial class ActionButtons : Control
             // constructor - see Seed: a config with a null Data is a
             // button BaseClient's dispatch does nothing for.
             case AvatarAction act:     slot.SetToAction(act);   break;
+            // An alias, dragged out of the alias page in the reference:
+            // the row carries a CEGUI::DragContainer
+            // (`Meridian59.Ogre.Client/UIOptions.cpp:1070`, its icon set
+            // at `:1082`) and dropping it on a slot ends in
+            // `buttonModels[indexbutton]->SetToAlias(aliasModels[index])`
+            // (`UIActionButtons.cpp:427-434`). So the same library
+            // setter is called here, with the same object: the
+            // KeyValuePairString that lives in Config.Aliases, not a
+            // copy of it. That identity is the point - `SetToAlias`
+            // hangs the pair itself on Data (`ActionButtonConfig.cs:267-278`)
+            // and BaseClient reads `.Value` off it at the press
+            // (`BaseClient.cs:292-296`), so editing the alias in the
+            // editor changes what the button sends, with no rebinding.
+            case KeyValuePairString alias: slot.SetToAlias(alias); break;
             default: return false;
         }
 
@@ -317,8 +331,18 @@ public partial class ActionButtons : Control
 
             // Label is an empty string rather than null when unset, so a
             // null-coalesce picks the blank one and every button reads "?".
-            ImageTexture icon = Icon(cfg);
+            Texture2D icon = Icon(cfg);
             b.Icon = icon;
+            // Every alias shares one picture, so the picture alone says
+            // "an alias" and never which one. The reference can afford
+            // that because the slot carries a tooltip with the name in
+            // it (`UIActionButtons.cpp:177-183`) and a mouse to hover
+            // with; a thumb has neither. So an alias button shows the
+            // icon AND its key, which is the one departure here, and the
+            // room for the text is bought by keeping the sprite at its
+            // native 24 pixels rather than expanding it.
+            bool isAlias = cfg.ButtonType == ActionButtonType.Alias;
+            b.ExpandIcon = false;
             // Named by the button's number so a scripted run can press
             // one. A bound spell or item shows a picture and no text, so
             // until now there was nothing to find those by at all - the
@@ -330,8 +354,16 @@ public partial class ActionButtons : Control
             // button that has no picture to show, which is every action
             // button, so it has to be the name: Label holds the key the
             // game binds the slot to, and there are no keys on a phone.
-            b.Text = icon != null ? "" : Short(cfg.Name);
-            b.TooltipText = cfg.Name;
+            b.Text = icon != null && !isAlias ? "" : Short(cfg.Name, isAlias ? 6 : 8);
+            // The reference's tooltip is the name over "Key: <label>"
+            // (`:177-183`); Label is the keyboard binding, which a phone
+            // does not have, so the second line is spent on the thing
+            // the player actually wants confirmed - what the alias
+            // expands to, which is the Value that `BaseClient.cs:292-296`
+            // will send.
+            b.TooltipText = isAlias && cfg.Data is KeyValuePairString kv
+                ? cfg.Name + "\n" + kv.Value
+                : cfg.Name;
             b.Position = new Vector2(LeftReserve + gap + i * (ButtonSize + gap), y);
             b.Size = new Vector2(ButtonSize, ButtonSize);
             b.Visible = true;
@@ -441,10 +473,17 @@ public partial class ActionButtons : Control
     /// first picture it was ever drawn with for the rest of the session -
     /// where the game re-pushes the texture every time the object changes.
     /// </summary>
-    ImageTexture Icon(ActionButtonConfig cfg)
+    Texture2D Icon(ActionButtonConfig cfg)
     {
+        // An alias has no game object behind it and so nothing to
+        // compose, which is why the reference gives it a fixed picture
+        // instead: the one branch of ActionButtonChange that does not
+        // touch an image composer just sets UI_IMAGE_ALIAS_ICON on the
+        // button (`UIActionButtons.cpp:334-338`). See AliasIcon for
+        // where that picture comes from.
+        if (cfg.ButtonType == ActionButtonType.Alias) return AliasIcon();
+
         if (cfg.ButtonType == ActionButtonType.Action ||
-            cfg.ButtonType == ActionButtonType.Alias ||
             cfg.ButtonType == ActionButtonType.Unset) return null;
         if (cfg.Data is not ObjectBase o || o.Resource == null) return null;
 
@@ -459,11 +498,42 @@ public partial class ActionButtons : Control
         return tex;
     }
 
-    static string Short(string s)
+    /// <summary>
+    /// The reference's alias picture, shared by the hotbar button and by
+    /// the alias editor's own bind button - both places the reference
+    /// draws it (`UIActionButtons.cpp:337`, `UIOptions.cpp:1082`, both
+    /// naming UI_IMAGE_ALIAS_ICON, which `Constants.h:331` defines as
+    /// "TaharezLook/AliasIcon").
+    ///
+    /// That name is a CEGUI imageset entry, not a game resource: a
+    /// 24x24 rectangle at (133,304) of the UI sheet
+    /// (`Resources/ui/imagesets/TaharezLook.imageset:314`), and what is
+    /// in that rectangle is a letter A. There is no CEGUI here to ask
+    /// for it, so it is cut out of the repo's own sheet into
+    /// art/alias.png rather than invented - the same thing MiniMap does
+    /// with the dial it draws on.
+    ///
+    /// Loaded once and kept, because it never changes and every alias
+    /// button shows the same one. A null is survivable and deliberately
+    /// not treated as an error: the caller falls back to the key as
+    /// text, which is the better half of the label anyway.
+    /// </summary>
+    static Texture2D _aliasIcon;
+    static bool _aliasIconTried;
+    public static Texture2D AliasIcon()
+    {
+        if (_aliasIconTried) return _aliasIcon;
+        _aliasIconTried = true;
+        try { _aliasIcon = GD.Load<Texture2D>("res://art/alias.png"); }
+        catch (Exception e) { GD.PrintErr($"[ActionButtons] alias icon: {e.Message}"); }
+        return _aliasIcon;
+    }
+
+    static string Short(string s, int max = 8)
     {
         if (string.IsNullOrWhiteSpace(s)) return "?";
         s = s.Trim();
-        return s.Length <= 8 ? s : s.Substring(0, 8);
+        return s.Length <= max ? s : s.Substring(0, max);
     }
 
     Button Take(int index)

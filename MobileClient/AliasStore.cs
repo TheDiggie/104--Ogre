@@ -48,6 +48,27 @@ public static class AliasStore
     const string Section = "aliases";
 
     /// <summary>
+    /// The config whose Aliases this last filled, so a restored hotbar
+    /// button can be resolved back to a live alias object.
+    ///
+    /// The reference has no need for a hook like this because one object
+    /// owns both halves: `OgreClientConfig::Load` reads the &lt;aliases&gt;
+    /// block into its own list and then reads the &lt;actionbuttonsets&gt;
+    /// block a few hundred lines later, so when it comes to resolve an
+    /// alias button it simply says `aliases->GetItemByKey(name)`
+    /// (`Meridian59.Ogre.Client/OgreClientConfig.cpp:616-619`) - the
+    /// list is right there. Here the two halves are two files with two
+    /// loaders, and HotbarStore is handed a DataController and no Config
+    /// at all. Rather than thread one through `ActionButtons.Seed` and
+    /// its callers in the view, the load that fills the list remembers
+    /// which list it filled. The ordering that makes this safe is the
+    /// reference's own: aliases are loaded before the buttons that
+    /// reference them (GameView loads the config and calls Load here
+    /// during startup, long before a character is chosen and Seed runs).
+    /// </summary>
+    public static Config Current { get; private set; }
+
+    /// <summary>
     /// Fills <paramref name="config"/>.Aliases from the saved file.
     ///
     /// When there is nothing saved and nothing loaded from a
@@ -59,6 +80,7 @@ public static class AliasStore
     public static void Load(Config config)
     {
         if (config?.Aliases == null) return;
+        Current = config;
 
         try
         {
@@ -112,6 +134,7 @@ public static class AliasStore
     public static void Save(Config config)
     {
         if (config?.Aliases == null) return;
+        Current = config;
 
         try
         {
