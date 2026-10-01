@@ -293,6 +293,116 @@ static class FakeServer
     static int stackCount = -1;      // -1: not running
     static uint coinId = 8003;
     static uint coinNow = 25;
+
+    // --- Sound ---------------------------------------------------------------
+    // The fixture's whole audible surface used to be three messages in room 1:
+    // a one-shot from a rat, one music track, one looping sound (the same
+    // file as the one-shot). Room 2 said nothing at all, so the room-change
+    // sound path was only ever run in the direction where the loop had
+    // already been stopped. Everything here is off unless set, and unset the
+    // sounds go out exactly as before. The FX* files come from make-sounds.sh
+    // (the test dump holds two oggs, both 2 s of 440 Hz at -21 dB); each has
+    // its own level so the Master bus says WHICH sound is sounding.
+    // Timed events count client messages from the room entry, like M59_SHOOT:
+    // M59_SND_AFTER (default 8, which is also how long the room-1 loop has
+    // always lived before its StopWave - so it moves that stop too).
+    //
+    // M59_LOOPFIRST=1  room 1's loop goes out right after PlayerMessage,
+    //   before RoomContents. The real server does exactly that: ToCliPlayer
+    //   sends BP_PLAYER and then `Send(poOwner,@SendLoopingSounds,#who=self)`
+    //   (`user.kod:3370-3395`, `room.kod:662-690`); the music comes later,
+    //   from the room's own SomethingEnter (`room.kod:2127-2129`). The
+    //   fixture put the loop after the contents, so the Player message and
+    //   the loop were never in the same drained batch the way they are live.
+    //   (Room 2's own loop, below, always goes out in the real place.)
+    // M59_ROOM2SND=1   room 2 gets its own looping ambient (FXRoom2, at the
+    //   grid square of its spawn, SOUND_LOOP, no object: `room.kod:686-689`)
+    //   sent right after Player, and its own music track (FXMusic2, after the
+    //   contents, `room.kod:2129`). Real rooms do both on every entry, and
+    //   most rooms have their own music, so a Go is a change of track.
+    // M59_MUSIC=swap|repeat|zero   one PlayMusic, M59_SND_AFTER messages in.
+    //   swap:   the OTHER track (room 1: FXMusic2; room 2: AMBCave) - a room
+    //     that changes its music under you, as feyforst and duke5 do for
+    //     everyone present (`feyforst.kod:250-264`, `duke5.kod:264,319`);
+    //     the client must stop the old one and start the new
+    //     (`ControllerSound.cpp:506-519`).
+    //   repeat: the track already playing, again - SendRoomMusic is sent on
+    //     EVERY entry and by those re-sends (`room.kod:2129`); the client must
+    //     not restart it (`ControllerSound.cpp:492-519` only starts when there
+    //     is none or the name differs, `:505`).
+    //   zero:   PlayMusic with resource 0 - `SendRoomMusic(music_rsc = $)`
+    //     writes `AddPacket(4,0)` (`user.kod:4530-4545`), what a room with no
+    //     music sends; the reference returns before touching what is playing
+    //     (`ControllerSound.cpp:485`).
+    // M59_WADE=<1-3>   the room named by M59_WADE_ROOM (1 or 2, default 1)
+    //   sends a WadingSoundFileRID (FXSplash) in its PlayerMessage and, right
+    //   after it, a SectorChange putting the sector under the spawn at that
+    //   depth. The real Player packet carries the room's wading sound in
+    //   SendExtraRoomInfo (`room.kod:2272-2285`; vrWading_Sound defaults to
+    //   splash.ogg for EVERY room, `room.kod:81,192` - so the fixture's 0 was
+    //   the unfaithful value) and depth arrives as SectorChangeSendUser from
+    //   plSector_flag_changes (`user.kod:3399`, `room.kod:2209-2223`,
+    //   `user.kod:4757-4770`). Wading only fires when the avatar MOVES in
+    //   that sector (ControllerSound.cpp:155-195), so drive a walk.
+    // M59_SNDNAME=miscase|missing
+    //   miscase: room 1's whole soundscape goes out under names the disk does
+    //     not spell that way: one-shot "rat_awr.wav", loop "RAT_AWR.WAV",
+    //     music "ambcave.wav" (disk: Rat_awr.ogg, AMBCave.ogg). A .rsb written
+    //     on a case-insensitive filesystem names files in whatever case its
+    //     author typed; 238 of 520 names in a real dump differ from the file.
+    //     THIS ONE MUST PASS: same levels as a run without it. The client
+    //     resolves case-insensitively (ResourceManager's Wavs/Music maps use
+    //     OrdinalIgnoreCase; M59Sound.OnDisk is the backstop).
+    //   missing: a one-shot, a loop and a music track whose files are not on
+    //     disk (FXGone, FXGoneMusic), then a StopWave for the file that never
+    //     started. A client on an older resource set than the server: kod
+    //     names whatever it likes. Nothing may play, the music in progress
+    //     must carry on, and the next real sound must still work.
+    // M59_SNDSTOP=none|loop|oneshot   any value splits the one file that the
+    //   loop and the one-shot shared: the loop is FXLoop1 (2 s, looped), the
+    //   one-shot is FXShot (10 s, from rat 2001), and the stop is sent by
+    //   NAME with no object, as `WaveSendUserStop(wave_rsc, source_obj = 0)`
+    //   does (`user.kod:4518-4527`, `room.kod:742`). loop stops only the loop
+    //   (the one-shot must run on), oneshot stops only the one-shot (the
+    //   loop must run on), none sends no stop. The old loop stop is not sent.
+    // M59_LOOPS2=1     a second, different loop (FXLoop2, the square beside)
+    //   - plLooping_sounds is a list and SendLoopingSounds sends every entry
+    //   (`room.kod:662-690`; the sewer king's lair has six). The default
+    //   stop (Rat_awr) or M59_SNDSTOP=loop must leave this one sounding.
+    // M59_SNDOWNER=1   a loop whose source is rat 2003 (FXLoop3, ID set),
+    //   then rat 2003 is REMOVED, with no StopWave. The client has to drop
+    //   it with the object (`RemoteNode.cpp:111-124` stops a node's sounds
+    //   in its destructor; `ControllerSound.cpp:405-408`). Server-104's kod
+    //   never sends a loop with an object: SendLoopingSounds and
+    //   AddLoopingSound pass row/col only (`room.kod:684-689,715-719`) - this
+    //   is the wire shape the library and the reference accept
+    //   (`PlaySound.cs` ID + Flags.IsLoop), not something Server-104 does.
+    // M59_SNDGHOST=1   a loop with an id for an object that is not in the
+    //   room (9999, FXLoop3), then a StopWave naming the same id. Lookup
+    //   fails in the reference (`ControllerSound.cpp:393-411` leaves x,y,z at 0
+    //   and attaches nothing), so it plays at the origin, is kept in the
+    //   global list, and the stop's third pass finds it (`:326-335`). Server-104 sends ids of objects that can leave
+    //   before the sound does. Use either this or M59_SNDOWNER in one run,
+    //   they share FXLoop3.
+    static readonly bool loopFirst = EnvOn("M59_LOOPFIRST");
+    static readonly bool room2Snd = EnvOn("M59_ROOM2SND");
+    static readonly string musicMode = EnvStr("M59_MUSIC");
+    static readonly int wadeDepth = EnvInt("M59_WADE", 0);
+    static readonly int wadeRoom = EnvInt("M59_WADE_ROOM", 1);
+    static readonly string sndName = EnvStr("M59_SNDNAME");
+    static readonly string sndStop = EnvStr("M59_SNDSTOP");
+    static readonly bool loops2 = EnvOn("M59_LOOPS2");
+    static readonly bool sndOwner = EnvOn("M59_SNDOWNER");
+    static readonly bool sndGhost = EnvOn("M59_SNDGHOST");
+    static readonly int sndAfter = EnvInt("M59_SND_AFTER", 8);
+    static int sndClock = -1;        // -1: no timed sound events this room
+    static readonly List<(int At, Action<NetworkStream, MessageControllerClient> Do)> sndPlan
+        = new List<(int, Action<NetworkStream, MessageControllerClient>)>();
+    static uint musicNow;            // the track the client was last told
+    static bool SndSplit => sndStop != null;
+    static uint ShotRid => SndSplit ? RID_FXSHOT : sndName == "miscase" ? RID_RATSOUND_LC : RID_RATSOUND;
+    static uint LoopRid => SndSplit ? RID_FXLOOP1 : sndName == "miscase" ? RID_RATSOUND_UC : RID_RATSOUND;
+    static uint Music1Rid => sndName == "miscase" ? RID_MUSIC_LC : RID_MUSIC;
     // ===================================================================
     const uint RID_SPELLDESC = 60110;
     const uint RID_SCHOOL = 60111;
@@ -318,6 +428,23 @@ static class FakeServer
     const uint RID_QREQ3 = 60125;
     const uint RID_RATSOUND = 60080;
     const uint RID_MUSIC = 60081;
+    // The audible test surface (see "Sound" in the switch block). The FX*
+    // files do not exist in the client's test dump, which holds exactly two
+    // oggs; Tools/Meridian59.Net8FakeServer/make-sounds.sh writes them into
+    // a resource folder. The *_LC / *_UC ids name files that DO exist
+    // (Rat_awr.ogg, AMBCave.ogg) in a case the disk does not use.
+    const uint RID_FXLOOP1 = 60170;
+    const uint RID_FXLOOP2 = 60171;
+    const uint RID_FXLOOP3 = 60172;
+    const uint RID_FXSHOT = 60173;
+    const uint RID_FXROOM2 = 60174;
+    const uint RID_FXMUSIC2 = 60175;
+    const uint RID_FXSPLASH = 60176;
+    const uint RID_RATSOUND_LC = 60177;
+    const uint RID_RATSOUND_UC = 60178;
+    const uint RID_MUSIC_LC = 60179;
+    const uint RID_FXGONE = 60180;
+    const uint RID_FXGONEMUSIC = 60181;
 
     /// <summary>The server's own copy of what it wrote to the string file.</summary>
     /// <summary>How many times each object has been attacked this run.</summary>
@@ -468,6 +595,24 @@ static class FakeServer
                 "~rRequires a lantern you do not have.~n", 4),
             new RsbResourceID(RID_RATSOUND,   "Rat_awr.wav",      4),
             new RsbResourceID(RID_MUSIC,      "AMBCave.wav",      4),
+            new RsbResourceID(RID_FXLOOP1,    "FXLoop1.wav",      4),
+            new RsbResourceID(RID_FXLOOP2,    "FXLoop2.wav",      4),
+            new RsbResourceID(RID_FXLOOP3,    "FXLoop3.wav",      4),
+            new RsbResourceID(RID_FXSHOT,     "FXShot.wav",       4),
+            new RsbResourceID(RID_FXROOM2,    "FXRoom2.wav",      4),
+            new RsbResourceID(RID_FXMUSIC2,   "FXMusic2.wav",     4),
+            // Named .ogg, as Server-104 names every sound (`room.kod:81`, splash.ogg):
+            // RoomInfo resolves the wading name as sent, with none of the
+            // .wav -> .ogg swap PlaySound applies (`RoomInfo.cs:849`).
+            new RsbResourceID(RID_FXSPLASH,   "FXSplash.ogg",     4),
+            // The same two files as above, spelled the way a .rsb that was
+            // written on a case-insensitive filesystem spells them.
+            new RsbResourceID(RID_RATSOUND_LC, "rat_awr.wav",     4),
+            new RsbResourceID(RID_RATSOUND_UC, "RAT_AWR.WAV",     4),
+            new RsbResourceID(RID_MUSIC_LC,   "ambcave.wav",      4),
+            // Names with no file behind them at all.
+            new RsbResourceID(RID_FXGONE,     "FXGone.wav",       4),
+            new RsbResourceID(RID_FXGONEMUSIC, "FXGoneMusic.wav", 4),
             new RsbResourceID(RID_RATLOOK,
                 "A duskrat, grey-brown and unbothered. Its tail is longer than the rest of it.", 4),
         };
@@ -567,7 +712,7 @@ static class FakeServer
             if (stopAfter > 0 && --stopAfter == 0)
             {
                 Send(ns, ctrl, new StopWaveMessage(
-                    new StopSound(RID_RATSOUND, 0)));
+                    new StopSound(LoopRid, 0)));
             }
 
             // Paralyze holds you still until a Release; Wait is the
@@ -646,6 +791,7 @@ static class FakeServer
             // The test-surface switches that run on a message count.
             Geometry(ns, ctrl);
             StackChange(ns, ctrl);
+            SoundPlan(ns, ctrl);
 
             switch ((MessageTypeGameMode)pi)
             {
@@ -1912,6 +2058,117 @@ static class FakeServer
         }
     }
 
+
+    /// <summary>
+    /// Room 1's looping sounds, as SendLoopingSounds sends them
+    /// (`room.kod:662-690`): row/col, SOUND_LOOP, no object. M59_LOOPS2 adds
+    /// a second entry, which the real list can hold any number of.
+    /// </summary>
+    static void SendRoom1Loops(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        Send(ns, ctrl, new PlayWaveMessage(
+            new PlaySound(LoopRid, 0, new PlaySound.Flags(1), 11, 12, 0, 100)));
+        if (loops2)
+            Send(ns, ctrl, new PlayWaveMessage(
+                new PlaySound(RID_FXLOOP2, 0, new PlaySound.Flags(1), 12, 12, 0, 100)));
+    }
+
+    /// <summary>M59_WADE: the wading sound this room's Player message carries.</summary>
+    static uint WadeRid(int roomNo) => wadeDepth > 0 && wadeRoom == roomNo ? RID_FXSPLASH : 0u;
+
+    /// <summary>
+    /// M59_WADE: the depth of the sector under the spawn, sent where the real
+    /// server sends its flag changes - straight after the Player packet
+    /// (`user.kod:3399`, `room.kod:2209-2223`).
+    /// </summary>
+    static void SendWade(NetworkStream ns, MessageControllerClient ctrl, int roomNo,
+                         string file, ushort kx, ushort ky)
+    {
+        if (WadeRid(roomNo) == 0) return;
+        int sid = -1;
+        try
+        {
+            var roo = new RooFile(Path.Combine(dir, file));
+            roo.GetHeightAt((kx - 64f) * 16f, (ky - 64f) * 16f, out RooSubSector leaf, false, false);
+            if (leaf?.Sector != null) sid = leaf.Sector.ServerID;
+        }
+        catch (Exception e) { Console.WriteLine($"  !! no sector under the spawn in {file}: {e.GetType().Name}"); }
+        if (sid < 0) { Console.WriteLine("  !! M59_WADE: no sector found, no depth sent"); return; }
+        Console.WriteLine($"  -> SectorChange sector {sid} depth {wadeDepth} (wading sound FXSplash)");
+        Send(ns, ctrl, new SectorChangeMessage(new SectorChange(
+            (ushort)sid, (RooSectorFlags.DepthType)wadeDepth, (TextureScrollSpeed)4)));
+    }
+
+    /// <summary>
+    /// Builds this room's timed sound events from the switches (see the
+    /// Sound block); empty, and the clock off, when none is set.
+    /// </summary>
+    static void PlanSound(bool second)
+    {
+        sndPlan.Clear();
+        sndClock = -1;
+        int at = sndAfter;
+
+        if (sndStop == "loop" && !second)
+            sndPlan.Add((at, (n, c) => { Console.WriteLine("  -> StopWave FXLoop1 (the loop, by name)");
+                Send(n, c, new StopWaveMessage(new StopSound(RID_FXLOOP1, 0))); }));
+        if (sndStop == "oneshot" && !second)
+            sndPlan.Add((at, (n, c) => { Console.WriteLine("  -> StopWave FXShot (the one-shot, by name)");
+                Send(n, c, new StopWaveMessage(new StopSound(RID_FXSHOT, 0))); }));
+
+        if (musicMode == "swap" || musicMode == "repeat" || musicMode == "zero")
+            sndPlan.Add((at, (n, c) =>
+            {
+                uint now = musicNow != 0 ? musicNow : RID_MUSIC;
+                uint next = musicMode == "repeat" ? now
+                          : musicMode == "zero" ? 0u
+                          : (now == RID_FXMUSIC2 ? RID_MUSIC : RID_FXMUSIC2);
+                Console.WriteLine($"  -> PlayMusic {(next == 0 ? "0 (no music)" : next.ToString())} ({musicMode})");
+                Send(n, c, new PlayMusicMessage(next));
+                if (next != 0) musicNow = next;
+            }));
+
+        if (sndName == "missing")
+        {
+            sndPlan.Add((at, (n, c) => { Console.WriteLine("  -> PlayWave FXGone (no such file)");
+                Send(n, c, new PlayWaveMessage(new PlaySound(RID_FXGONE, 0, new PlaySound.Flags(0), 0, 0, 0, 100))); }));
+            sndPlan.Add((at + 1, (n, c) => { Console.WriteLine("  -> PlayWave FXGone loop (no such file)");
+                Send(n, c, new PlayWaveMessage(new PlaySound(RID_FXGONE, 0, new PlaySound.Flags(1), 11, 12, 0, 100))); }));
+            sndPlan.Add((at + 2, (n, c) => { Console.WriteLine("  -> PlayMusic FXGoneMusic (no such file)");
+                Send(n, c, new PlayMusicMessage(RID_FXGONEMUSIC)); }));
+            sndPlan.Add((at + 3, (n, c) => { Console.WriteLine("  -> StopWave FXGone (never started)");
+                Send(n, c, new StopWaveMessage(new StopSound(RID_FXGONE, 0))); }));
+        }
+
+        if (sndOwner)
+        {
+            uint owner = second ? 2004u : 2003u;
+            sndPlan.Add((at, (n, c) => { Console.WriteLine($"  -> PlayWave FXLoop3 loop owned by {owner}");
+                Send(n, c, new PlayWaveMessage(new PlaySound(RID_FXLOOP3, owner, new PlaySound.Flags(1), 0, 0, 0, 100))); }));
+            sndPlan.Add((at + 6, (n, c) => { Console.WriteLine($"  -> Remove {owner} (no StopWave)");
+                Send(n, c, new RemoveMessage(owner)); }));
+        }
+
+        if (sndGhost)
+        {
+            sndPlan.Add((at, (n, c) => { Console.WriteLine("  -> PlayWave FXLoop3 loop, source 9999 (not in the room)");
+                Send(n, c, new PlayWaveMessage(new PlaySound(RID_FXLOOP3, 9999, new PlaySound.Flags(1), 0, 0, 0, 100))); }));
+            sndPlan.Add((at + 6, (n, c) => { Console.WriteLine("  -> StopWave FXLoop3 for source 9999");
+                Send(n, c, new StopWaveMessage(new StopSound(RID_FXLOOP3, 9999))); }));
+        }
+
+        if (sndPlan.Count > 0) sndClock = 0;
+    }
+
+    /// <summary>Fires the timed sound events; one tick per client message.</summary>
+    static void SoundPlan(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        if (sndClock < 0) return;
+        sndClock++;
+        foreach (var e in sndPlan)
+            if (e.At == sndClock) e.Do(ns, ctrl);
+    }
+
     /// <summary>
     /// The room a Go leads to: the same avatar, one rat, nothing else.
     /// </summary>
@@ -1933,11 +2190,23 @@ static class FakeServer
             AmbientLight: ambient,
             AvatarLight: 0,
             BackgroundFileRID: 0,
-            WadingSoundFileRID: 0,
+            WadingSoundFileRID: WadeRid(2),
             Flags: 0,
             Depth1: 0, Depth2: 0, Depth3: 0);
 
         Send(ns, ctrl, new PlayerMessage(info));
+
+        // Straight after BP_PLAYER, as in room 1 (`user.kod:3395-3399`).
+        SendWade(ns, ctrl, 2, badRoom ? "" : room2, sx, sy);
+        if (room2Snd)
+        {
+            // The grid square of the spawn: the client takes the middle of
+            // (column - 1) * 1024 + 512 room units, and kod = room/16 + 64.
+            int col = (int)((sx - 64) * 16) / 1024 + 1, row = (int)((sy - 64) * 16) / 1024 + 1;
+            Console.WriteLine($"  -> room 2 loop FXRoom2 at row {row} col {col}");
+            Send(ns, ctrl, new PlayWaveMessage(
+                new PlaySound(RID_FXROOM2, 0, new PlaySound.Flags(1), row, col, 0, 100)));
+        }
 
         // Everything after the Player message can be held back by
         // M59_ROOMGAP_MS; with the switch off this runs at once.
@@ -1966,6 +2235,14 @@ static class FakeServer
             if (wantRoom2Buffs)
                 Send(ns, ctrl, new AddEnchantmentMessage(BuffType.RoomBuff,
                     Item(6111, RID_COINBGF, RID_ROOMBUFF2, 1)));
+
+            // M59_ROOM2SND: the room's own track, after the contents as
+            // the real server sends it (`room.kod:2127-2129`).
+            if (room2Snd)
+            {
+                Send(ns, ctrl, new PlayMusicMessage(RID_FXMUSIC2));
+                musicNow = RID_FXMUSIC2;
+            }
         });
     }
 
@@ -2182,6 +2459,7 @@ static class FakeServer
     {
         const uint avatarId = 1001;
         roomsEntered++;
+        PlanSound(inRoom2);
         if (sectorId >= 0 || sectorChangeId >= 0 || wallId >= 0 || texId >= 0)
             geomCount = 0;       // the opening comes M59_GEOM_AFTER messages from now
 
@@ -2204,7 +2482,7 @@ static class FakeServer
             AmbientLight: ambient,
             AvatarLight: 0,
             BackgroundFileRID: 0,
-            WadingSoundFileRID: 0,
+            WadingSoundFileRID: WadeRid(1),
             Flags: 0,
             Depth1: 0, Depth2: 0, Depth3: 0);
 
@@ -2217,6 +2495,11 @@ static class FakeServer
         // 752,672), so barinn is unchanged and another room is usable.
         (ushort sx, ushort sy, float sa) = SpawnFor(room, EnvStr("M59_SPAWN"), true);
         okX = sx; okY = sy; okAngle = 0;
+
+        // What the real server sends straight after BP_PLAYER
+        // (`user.kod:3395-3399`): looping sounds and sector depth.
+        SendWade(ns, ctrl, 1, room, sx, sy);
+        if (loopFirst) SendRoom1Loops(ns, ctrl);
 
         // Everything from here is what the client gets AFTER Player, and
         // M59_ROOMGAP_MS can hold all of it back (a Go only).
@@ -2295,8 +2578,9 @@ static class FakeServer
         // hum. A sound with a source id plays at that object; the music
         // is a room property rather than a one-shot.
         Send(ns, ctrl, new PlayWaveMessage(
-            new PlaySound(RID_RATSOUND, 2001, new PlaySound.Flags(0), 0, 0, 0, 100)));
-        Send(ns, ctrl, new PlayMusicMessage(RID_MUSIC));
+            new PlaySound(ShotRid, 2001, new PlaySound.Flags(0), 0, 0, 0, 100)));
+        Send(ns, ctrl, new PlayMusicMessage(Music1Rid));
+        musicNow = Music1Rid;
 
         // A sound with no source object but a grid square, which is how
         // the server places a noise at a spot in the room rather than on
@@ -2305,9 +2589,10 @@ static class FakeServer
         // the avatar starts, because the game stops mixing a sound past
         // 2000 units and one across the map is silent by design. The stop
         // for it goes out a little later, from the message loop.
-        Send(ns, ctrl, new PlayWaveMessage(
-            new PlaySound(RID_RATSOUND, 0, new PlaySound.Flags(1), 11, 12, 0, 100)));
-        stopAfter = 8;
+        if (!loopFirst) SendRoom1Loops(ns, ctrl);
+        // M59_SNDSTOP and the other timed sound switches send their own
+        // stop (see PlanSound), so the old fixed one is not sent with them.
+        stopAfter = SndSplit ? 0 : sndAfter;
 
         // Once per session, not once per room. Everything below used
         // to run on every EnterRoom, which was the same thing until Go

@@ -239,3 +239,109 @@ Not closed:
   255; treat it as unverified.
 
 See also: the client -> mobile-client.md | harness.md | wire-format.md
+
+## The sound surface: the whole of it was three messages in one room
+Tags: process, lessons | A one-shot, one track and one loop in room 1 hid seven audio bugs; nine off-by-default switches (M59_LOOPFIRST, ROOM2SND, MUSIC, WADE, SNDNAME, SNDSTOP, LOOPS2, SNDOWNER, SNDGHOST) now cover them, measured on the Master bus
+
+The audit's gaps were all real, checked in Program.cs before building:
+room 2 (`EnterSecondRoom`) sent no PlayWave and no PlayMusic; there was
+one music id; both rooms sent `WadingSoundFileRID: 0`; the loop and the
+one-shot were the same id (`RID_RATSOUND`), so a stop could not tell them
+apart; every table string matched its file case-exactly and no file was
+ever absent; every loop had id 0; one loop, the music never re-sent, no
+id for an absent object. One more turned up reading the server: the
+fixture sent the room's loop AFTER RoomContents, while `ToCliPlayer` sends
+BP_PLAYER and then `SendLoopingSounds` at once (`user.kod:3370-3395`), so
+"Player and the loop in one drained batch" - the shape of the
+ambient-killed-on-entry bug - was not what the fixture produced either.
+The real wading default is `splash.ogg` in EVERY room (`room.kod:81,192`),
+so the fixture's 0 was the odd one out.
+
+Files: the test dump holds two oggs (both 2 s of 440 Hz at -21 dB), so
+`Tools/Meridian59.Net8FakeServer/make-sounds.sh <dir>` writes seven
+synthetic ones (FXLoop1/2/3, FXShot 10 s, FXRoom2, FXMusic2, FXSplash),
+each at its own level so the bus says which is sounding. Run each server
+on its own port with its own dir of symlinks plus those files - the
+server rewrites `rsc0000.rsb` there. Timed events count client messages
+from the room entry (M59_SND_AFTER, default 8 - which also moves the old
+room-1 loop stop, so set it the same in a control). Pings are ~1 a second
+after the start-up burst, so 17 is about 3 s, 25 about 10 s.
+
+- M59_LOOPFIRST=1: room 1's loop goes out right after Player, not after
+  the contents. Room 2's own loop always does (it is new).
+- M59_ROOM2SND=1: room 2 sends its own loop (FXRoom2, at the spawn's grid
+  square, `room.kod:686`) after Player and its own track (FXMusic2) after
+  the contents (`room.kod:2129`). A Go is now a change of track.
+- M59_MUSIC=swap|repeat|zero: the other track / the same one again /
+  resource 0, M59_SND_AFTER messages in (`feyforst.kod:264`,
+  `room.kod:2129`, `user.kod:4530-4545`; `ControllerSound.cpp:485,492-519`).
+- M59_WADE=1..3 with M59_WADE_ROOM (1, 2): that room's Player carries
+  FXSplash and a SectorChange puts the spawn's sector at that depth
+  (`room.kod:2272-2285`, `user.kod:3399,4757`). The wading name is sent
+  as .ogg, as Server-104 names everything: RoomInfo does not do the
+  .wav-to-.ogg swap PlaySound does (`RoomInfo.cs:849`). Needs a walk.
+- M59_SNDNAME=miscase|missing: room 1's three sounds under names in the
+  wrong case (rat_awr.wav, RAT_AWR.WAV, ambcave.wav); or sounds and a track
+  whose files do not exist, plus a stop for one that never started.
+- M59_SNDSTOP=none|loop|oneshot: splits the shared file (loop FXLoop1,
+  one-shot FXShot from rat 2001) and sends the stop by name, no object
+  (`user.kod:4518`, `room.kod:742`). M59_LOOPS2=1 adds a second loop
+  (FXLoop2; `room.kod:662-690`) that a stop of the first must leave alone.
+- M59_SNDOWNER=1: a loop owned by rat 2003, then the rat is removed with
+  no StopWave. M59_SNDGHOST=1: a loop with source 9999, not in the room,
+  then a stop naming 9999. They share FXLoop3; use one per run.
+
+Measured, headless, Godot on the dummy audio driver, an AudioEffectCapture
+on Master read as RMS per 0.25 s. The capture is not in the client (I
+could not edit it): it is a 20-line Node added to a scratch copy of the
+project's SceneShot. Music alone reads 0.0355 (AMBCave x 0.4), with the
+default loop 0.0440.
+- ROOM2SND + LOOPFIRST, Go, Go: room 1 0.0448; after the Go the log says
+  "Player message: room sounds stopped", then "FXRoom2.ogg gain 0.36 loop
+  True" and "music FXMusic2.ogg" in the same frame, and the level holds at
+  0.1416 for 48 windows (the new track alone would be 0.106, so the loop
+  is in it); Go back, 0.0445. The ambient survives the room change.
+- miscase: 0.0440 then 0.0355, identical to the control run; the log has
+  the one-shot, the loop and the track, no "no such file". missing: "no
+  music file for FXGoneMusic.ogg", level 0.0355 before and after, the
+  stop finds "loops 0".
+- SNDSTOP=loop with LOOPS2: 0.1837 to 0.1659 when FXLoop1 stops (the
+  one-shot runs on), to 0.0513 when the one-shot ends (music + FXLoop2,
+  which survived). oneshot: 0.1908 to 0.1074 (music + FXLoop1),
+  "stopped one-shot fxshot.ogg".
+- MUSIC swap: 0.0355 to 0.1066, FXMusic2 alone, so the old track stopped.
+  repeat: no second "music" line, level flat. zero: "no music file for",
+  level flat.
+- WADE=2 and a walk in barinn: depth Depth2, floor 128.0, avatar 102.4,
+  three "FXSplash.ogg gain 1.00" lines, RMS pulsing 0.044 to 0.18. Gaps
+  between splashes, measured: 599 ms at depth 1, 1544 ms at depth 3 -
+  above the 500 ms x depth floor, to frame granularity.
+- SNDOWNER: 0.0726 then "dropped 2003 ... its object left" then 0.0355.
+
+`sound-guard.sh <godot> <MobileClient> <resdir> [port]` is the scripted
+regression guard for the two name cases, from the client's own
+M59SOUNDLOG lines, so it needs no probe: miscase must play all three and
+report nothing missing; missing must report the track, start nothing,
+and leave the real loop's stop working. It passes on HEAD and FAILS
+(miscase, four lines) when M59Sound.OnDisk's case-insensitive backstop
+is removed in a scratch copy.
+
+Not closed:
+- M59_SNDGHOST found a client difference and I left it. The reference,
+  given an id with no object, plays at the origin and keeps the sound in
+  its global list until a stop or the next Player (`ControllerSound.cpp:
+  393-411,326-335`). M59Sound keeps Owner 9999 and Follow drops the loop
+  on the next frame ("dropped 9999 ... its object left"), so the stop
+  finds nothing. Whether the origin is audible is a matter of distance.
+- Server-104 never sends a loop with an object id (`room.kod:684,715`).
+  SNDOWNER is the library's and the reference's shape, not the server's.
+- The wading sector is the one under the spawn. barinn's has no server id
+  (0), and a SectorChange for 0 reaches every sector without one, so all
+  of barinn wades; another room may be narrower. barlmarket not run.
+- Levels tell the sounds apart, not their content: they are tones.
+  PlayMidi, random pitch/place flags, radius and max volume (sent as 0
+  and 100) and a one-shot with an absent id are not covered.
+- A full rebuild of the library prints one warning, SYSLIB0014 at
+  `Protocol/DownloadHandler.cs:74`; the fake server project has none.
+
+See also: the client -> ../M59Sound.cs | harness.md | parsing notes above
