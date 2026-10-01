@@ -27,7 +27,7 @@ public partial class LookPanel : Control
     [Export] public int FontSize = 16;
     [Export] public int PictureSize = 128;
 
-    ColorRect _panel;
+    ColorRect _shade, _panel;
     TextureRect _picture;
     Label _name;
     RichTextLabel _description;
@@ -45,7 +45,18 @@ public partial class LookPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.95f), Visible = false };
+        // A shade behind it, which is what makes it a window rather
+        // than a picture lying on the panel underneath. Opened from the
+        // bag, the Look window left the bag's own Use / Drop / Look /
+        // Hotbar row and its Close button live and undimmed below it -
+        // two Close buttons on screen, and pressing the lower one shut
+        // the bag and left this orphaned. MouseFilter.Stop is the half
+        // that matters: it swallows the taps.
+        _shade = new ColorRect { Color = new Color(0, 0, 0, 0.5f), Visible = false,
+                                 MouseFilter = MouseFilterEnum.Stop };
+        AddChild(_shade);
+
+        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.98f), Visible = false };
         AddChild(_panel);
 
         _picture = new TextureRect
@@ -113,8 +124,28 @@ public partial class LookPanel : Control
 
         float side = Panels.Side(v, 0.06f);
         float w = v.X - side;
-        float h = Mathf.Min(v.Y * 0.55f, 520f);
+
+        // As tall as it needs to be. A fixed 55% of the screen meant a
+        // one-line description sat above two hundred pixels of empty
+        // black with the Close button parked at the bottom of it - and
+        // an inscription box floating in the middle of that void. The
+        // text decides, between enough for the picture and the old
+        // maximum.
+        float textW = w - side;
+        float bodyH = _description != null
+            ? _description.GetThemeFont("normal_font").GetMultilineStringSize(
+                  _description.Text ?? "", HorizontalAlignment.Left, textW,
+                  _description.GetThemeFontSize("normal_font_size")).Y
+            : 0f;
+        float needed = PictureSize + 26f          // the picture and the name
+                     + bodyH * 1.15f + 16f        // the description
+                     + FontSize * 9.5f;           // detail, inscription, Close and air
+        float h = Mathf.Clamp(needed, Mathf.Min(v.Y * 0.30f, 260f),
+                              Mathf.Min(v.Y * 0.8f, 620f));
         float top = v.Y * 0.18f;
+
+        _shade.Position = Vector2.Zero;
+        _shade.Size = v;
 
         _panel.Position = new Vector2(side * 0.5f, top);
         _panel.Size = new Vector2(w, h);
@@ -164,6 +195,7 @@ public partial class LookPanel : Control
         // without this it opens behind them.
         if (on) GetParent()?.MoveChild(this, -1);
 
+        _shade.Visible = on;
         _panel.Visible = on;
         _picture.Visible = on && _picture.Texture != null;
         _name.Visible = on;
@@ -173,6 +205,10 @@ public partial class LookPanel : Control
         _write.Visible = on && _editable;
         _detail.Visible = on && !string.IsNullOrWhiteSpace(_detail.Text);
         _close.Visible = on;
+        // The window is as tall as its text, so it has to be laid out
+        // again every time the text changes - which is every time it
+        // is shown.
+        Layout();
     }
 
     ObjectInfo _info;

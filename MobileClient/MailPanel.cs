@@ -221,7 +221,11 @@ public partial class MailPanel : Control
         // and the only way out looks cut off.
         float buttons = rowH * 2f + 8f + 12f;
         float rest = top + height - buttons - 8f - y;
-        float listH = rest * 0.45f;
+        // The list is the window. It had 45% of the space and the body
+        // had the rest, so thirty-eight letters were shown through a
+        // five-row slot with the last one sliced in half, while a
+        // one-line message sat above two hundred pixels of nothing.
+        float listH = rest * 0.62f;
 
         _scroll.Position = new Vector2(side, y);
         _scroll.Size = new Vector2(w, listH);

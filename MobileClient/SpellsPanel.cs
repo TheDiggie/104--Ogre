@@ -196,6 +196,16 @@ public partial class SpellsPanel : Control
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
 
         _title.Text = _showingSpells ? $"Spells ({list.Count})" : $"Skills ({list.Count})";
+
+        // Which tab you are on, said by the tab rather than only by the
+        // title. The two buttons were drawn identically whichever list
+        // was showing.
+        _tabSpells.Flat = !_showingSpells;
+        _tabSkills.Flat = _showingSpells;
+        _tabSpells.AddThemeColorOverride("font_color",
+            _showingSpells ? new Color(1f, 0.92f, 0.6f) : new Color(0.72f, 0.74f, 0.8f));
+        _tabSkills.AddThemeColorOverride("font_color",
+            _showingSpells ? new Color(0.72f, 0.74f, 0.8f) : new Color(1f, 0.92f, 0.6f));
         foreach (StatList s in list) _rows.AddChild(Row(s));
     }
 
