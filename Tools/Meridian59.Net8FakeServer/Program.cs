@@ -119,7 +119,7 @@ static class FakeServer
 
     static string room = "barinn.roo";
     /// <summary>Where a Go takes you, and a second Go brings you back.</summary>
-    static string room2 = "a1.roo";
+    static string room2 = "barlmarket.roo";
     static bool inRoom2;
     /// <summary>Session-scoped things are sent once, not once per room.</summary>
     static bool sessionExtrasSent;
@@ -279,14 +279,25 @@ static class FakeServer
     }
 
     /// <summary>True when every id we hand out is already in that file.</summary>
+    /// <summary>
+    /// True when the file on disk already says everything this run
+    /// intends to say. Ids alone are not enough: an id whose TEXT
+    /// changed - the second room's filename, say - would keep the old
+    /// value, and the client would then load a room the server never
+    /// named while both logs looked right. That cost a run.
+    /// </summary>
     static bool HasAll(string path, List<RsbResourceID> wanted)
     {
         try
         {
             var have = new RsbFile(); have.Load(path);
-            var ids = new HashSet<uint>();
-            foreach (RsbResourceID r in have.StringResources) ids.Add(r.ID);
-            foreach (RsbResourceID r in wanted) if (!ids.Contains(r.ID)) return false;
+            var text = new Dictionary<uint, string>();
+            foreach (RsbResourceID r in have.StringResources) text[r.ID] = r.Text;
+
+            foreach (RsbResourceID r in wanted)
+                if (!text.TryGetValue(r.ID, out string was) || was != r.Text)
+                    return false;
+
             return true;
         }
         catch { return false; }
@@ -1546,7 +1557,11 @@ static class FakeServer
         var objects = new[]
         {
             Obj(avatarId, RID_PLAYERBGF, RID_PLAYERNAME, sx, sy, 0f, OF_PLAYER),
-            Obj(2004, RID_RATBGF, RID_RATNAME, (ushort)(sx + 4), sy, 2f,
+            // A grid square away, not four units: the README already
+            // records what four looks like - one duskrat filling the
+            // screen - and the first cut of this room reproduced it,
+            // brown blocks and all.
+            Obj(2004, RID_RATBGF, RID_RATNAME, (ushort)(sx + 64), sy, 2f,
                 OF_ATTACKABLE, MM_MONSTER),
         };
         Send(ns, ctrl, new RoomContentsMessage(new ObjectID(2, 0), objects));

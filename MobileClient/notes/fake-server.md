@@ -74,6 +74,10 @@ barinn it returns 752,672 - exactly the coordinate this fixture has
 used by hand since the beginning, which is the check that the
 conversion is right.
 
+The second room is `barlmarket.roo`, which is lit: `a1.roo` worked but
+is near-black where its biggest leaf is, so every shot of the room
+change was a black rectangle that proved nothing to the eye.
+
 See also: the client -> mobile-client.md | harness.md
 
 ## Once per session is not once per room any more
@@ -96,3 +100,16 @@ guard. Found by stacking the same 200x30 crop from before and after and
 counting icons, not by reading code.
 
 See also: harness.md | the client -> mobile-client.md
+
+## A changed string in the .rsb does not reach the client
+Tags: gotchas, lessons | EnsureStrings skipped the rewrite when every id was present, so an id whose TEXT changed kept the old value - the server said barlmarket and the client loaded a1, both logs looking right
+
+The check compares text as well as ids now. The failure is nasty
+because nothing errors: the fixture prints the room it meant to send,
+the client prints the room it actually got, and the two lines are
+twenty lines apart in different logs.
+
+Delete `rsc0000.rsb` from the resource folder if the dictionary ever
+looks stale anyway; it is rewritten on the next start.
+
+See also: harness.md
