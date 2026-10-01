@@ -303,7 +303,7 @@ public partial class PlayersPanel : Control
             Name = $"mute{index}",
             // Its own column, so the boxes line up down the list
             // instead of each sitting at the end of its own row.
-            CustomMinimumSize = new Vector2(MuteW, 0),
+            CustomMinimumSize = new Vector2(MuteW, M59Skin.TapMin),
             SizeFlagsVertical = SizeFlags.ShrinkCenter,
         };
         ignore.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);

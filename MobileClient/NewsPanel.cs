@@ -271,7 +271,10 @@ public partial class NewsPanel : Control
 
         _scroll.Position = new Vector2(body.Position.X, top);
         _scroll.Size = new Vector2(listW, listH);
-        _rows.CustomMinimumSize = new Vector2(listW - 14f, 0);
+        // 14 was the old bar's width and the bar is 28 now, so the
+        // rows ran under the grabber. One number, in the skin.
+        _rows.CustomMinimumSize = new Vector2(
+            M59Skin.RowsW(new Rect2(Vector2.Zero, new Vector2(listW, 0))), 0);
         _empty.Position = _scroll.Position;
         _empty.Size = _scroll.Size;
 

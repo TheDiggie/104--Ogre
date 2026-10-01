@@ -218,7 +218,20 @@ public partial class LookPanel : Control
         // line, because that is where the reference puts it and because
         // it is part of how a player is addressed - it reads as part of
         // the name, not as a footnote.
+        // ClipText, even though this one wraps. A wrapping Label takes
+        // its MINIMUM height from the width it last shaped at, and this
+        // one is built hidden and only sized inside `if (Visible)` - so
+        // it has never been shaped at anything but one point, and the
+        // first frame with text in it would ask for a height measured
+        // against a 1pt line. That is the 989-point and 3717-point
+        // label notes/godot-ui.md records; ClipText pins the minimum at
+        // 1x1 and lets the explicit Size in Layout win.
+        //
+        // Latent rather than seen, because the fixture has no LookPlayer
+        // reply and so has never drawn this branch at all. Fixed at the
+        // source instead of waiting for it.
         _titles = new Label { Visible = false, MouseFilter = MouseFilterEnum.Ignore,
+                              ClipText = true,
                               AutowrapMode = TextServer.AutowrapMode.WordSmart };
         _titles.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
         _titles.AddThemeColorOverride("font_color", new Color(0.88f, 0.84f, 0.62f));

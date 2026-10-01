@@ -294,7 +294,10 @@ public partial class NpcQuestsPanel : Control
 
         _scroll.Position = new Vector2(body.Position.X, top);
         _scroll.Size = new Vector2(listW, listH);
-        _rows.CustomMinimumSize = new Vector2(listW - 14f, 0);
+        // 14 was the old bar's width and the bar is 28 now, so the
+        // rows ran under the grabber. One number, in the skin.
+        _rows.CustomMinimumSize = new Vector2(
+            M59Skin.RowsW(new Rect2(Vector2.Zero, new Vector2(listW, 0))), 0);
         _empty.Position = _scroll.Position;
         _empty.Size = _scroll.Size;
 
@@ -502,10 +505,17 @@ public partial class NpcQuestsPanel : Control
         if (index < 0 || index >= _quests.Count)
         {
             _desc.Text = ""; _req.Text = "";
+            // And the heading over the empty half. The description side
+            // has a placeholder to put there; this side has nothing, so
+            // "Requirements" stood as a gold heading over blank space,
+            // which reads as a panel that failed to load rather than one
+            // with nothing to say.
+            _reqLabel.Visible = false;
             _title.Text = $"Quests ({_quests.Count})";
             _accept.Disabled = true;
             return;
         }
+        _reqLabel.Visible = true;
 
         // The two blocks are sized to the text that is about to go in
         // them, which the engine has not measured yet.

@@ -935,9 +935,20 @@ public partial class SceneShot : Node
         return null;
     }
 
+    /// <summary>One line, single spaces, for comparing captions.</summary>
+    static string Flat(string s)
+        => string.Join(" ", (s ?? "").Split(new[] { ' ', '\n', '\r', '\t' },
+                                            StringSplitOptions.RemoveEmptyEntries));
+
     static Button FindButton(Node from, string text)
     {
-        if (from is Button b && Showing(b) && b.Text == text) return b;
+        // Whitespace-insensitive, because a caption is laid out for the
+        // player and not for this. "Target Next" is written with a hard
+        // line break so it fits inside a round seat, and matching the
+        // raw string made the button unpressable from a script the
+        // moment that break went in - a harness that cannot reach a
+        // control is a feature that cannot be checked.
+        if (from is Button b && Showing(b) && Flat(b.Text) == Flat(text)) return b;
         foreach (Node child in from.GetChildren())
         {
             Button found = FindButton(child, text);

@@ -42,6 +42,10 @@ public partial class TradePanel : Control
     [Export] public int IconSize = 36;
     [Export] public int RowHeight = 48;
 
+    /// <summary>The gap between two rows, which is also the gap between
+    /// two amount buttons. See where it is applied.</summary>
+    const int RowGap = 8;
+
     /// <summary>Send what is on your side.</summary>
     public event Action<List<ObjectID>> Offer;
     public event Action Accept;
@@ -228,7 +232,12 @@ public partial class TradePanel : Control
         _notice.VerticalAlignment = VerticalAlignment.Center;
 
         _rowsMine = new VBoxContainer();
-        _rowsMine.AddThemeConstantOverride("separation", 3);
+        // Eight, not three. Each row carries a 44-point amount button
+        // inside a 48-point row, so three left FIVE points between two
+        // of them - and a miss here does not scroll past something, it
+        // changes an offer in a trade. Eight is the gap the guides ask
+        // for between targets.
+        _rowsMine.AddThemeConstantOverride("separation", RowGap);
         // The rows span the panel: a ScrollContainer sizes its child
         // to that child's MINIMUM width unless it asks to expand, so
         // without this the list is only as wide as its longest line and
@@ -240,7 +249,7 @@ public partial class TradePanel : Control
         AddChild(_scrollMine);
 
         _rowsTheirs = new VBoxContainer();
-        _rowsTheirs.AddThemeConstantOverride("separation", 3);
+        _rowsTheirs.AddThemeConstantOverride("separation", RowGap);
         _rowsTheirs.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _scrollTheirs = new TouchScroll { Visible = false };
         _scrollTheirs.AddChild(_rowsTheirs);
@@ -376,7 +385,7 @@ public partial class TradePanel : Control
         int longest = Mathf.Max(1, Mathf.Max(_rowsMine?.GetChildCount() ?? 0,
                                              _rowsTheirs?.GetChildCount() ?? 0));
         float noteH = _notice.Text != "" ? 52f : 0f;
-        Rect2 card = M59Skin.Frame(v, headH + longest * (RowHeight + 3f) + noteH + M59Skin.Gap);
+        Rect2 card = M59Skin.Frame(v, headH + longest * (RowHeight + RowGap) + noteH + M59Skin.Gap);
         Rect2 body = M59Skin.Body(card);
         Rect2 foot = M59Skin.Foot(card);
 
@@ -414,7 +423,12 @@ public partial class TradePanel : Control
         _mine.Size = new Vector2(colW, headH);
         _scrollMine.Position = new Vector2(body.Position.X, body.Position.Y + headH);
         _scrollMine.Size = new Vector2(colW, colH);
-        _rowsMine.CustomMinimumSize = new Vector2(colW, 0);
+        // Clear of the scrollbar. This is the one list in the client
+        // with a PRESSABLE control at the row's right edge - the amount
+        // button - so a row laid out to the full column put a 72x44
+        // target under the grabber: a thumb aimed at the bar changed an
+        // offer. See M59Skin.RowsW.
+        _rowsMine.CustomMinimumSize = new Vector2(M59Skin.RowsW(new Rect2(Vector2.Zero, new Vector2(colW, 0))), 0);
         _noneMine.Position = _scrollMine.Position;
         _noneMine.Size = _scrollMine.Size;
 
@@ -422,7 +436,7 @@ public partial class TradePanel : Control
         _theirs.Size = new Vector2(colW, headH);
         _scrollTheirs.Position = new Vector2(x2, y2 + headH);
         _scrollTheirs.Size = new Vector2(colW, colH);
-        _rowsTheirs.CustomMinimumSize = new Vector2(colW, 0);
+        _rowsTheirs.CustomMinimumSize = new Vector2(M59Skin.RowsW(new Rect2(Vector2.Zero, new Vector2(colW, 0))), 0);
         _noneTheirs.Position = _scrollTheirs.Position;
         _noneTheirs.Size = _scrollTheirs.Size;
 

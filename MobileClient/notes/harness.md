@@ -455,3 +455,16 @@ one frame.
 The rule: when a fixture invents a value, invent it in the SHAPE the
 real thing uses, even when a prettier value would make the
 screenshots nicer. A pretty value is a check that cannot fail.
+
+## A caption laid out for the player is not a string to match on
+
+`--press` finds a button by its text. "Target Next" is written with a
+hard line break so the two words sit inside a round seat, and the
+moment that break went in the button became unpressable from a
+script - the harness reported "no button called Target Next" while
+the control was on screen and working.
+
+FindButton compares with whitespace flattened now. The general shape:
+a check that matches on something laid out for a human will break
+when the layout changes, and it breaks SILENTLY, reporting the
+feature missing rather than the matcher wrong.
