@@ -110,7 +110,7 @@ public partial class GameView : Node2D
     ObjectBase _amountForTrade;
     uint _targetBeforeBag = uint.MaxValue;
     RoomBuffsPanel _roomBuffs;
-    Button _loot, _go, _auto;
+    Button _loot, _go, _auto, _next;
     LootPanel _lootList;
     ActionsPanel _acts;
     LootPanel _contents;
@@ -314,6 +314,13 @@ public partial class GameView : Node2D
         {
             _auto.Size = new Vector2(slot, 40);
             _auto.Position = new Vector2(v.X - (past + (slot + gap) + slot), v.Y - 40f - 12f);
+        }
+
+        if (_next != null)
+        {
+            _next.Size = new Vector2(slot, 40);
+            _next.Position = new Vector2(
+                v.X - (past + (slot + gap) * 3f + slot), v.Y - 40f - 12f);
         }
     }
 
@@ -989,6 +996,17 @@ public partial class GameView : Node2D
             _ui.AddChild(_auto);
             Panels.Opener(_auto);
 
+            // The game's NextTarget key (`ControllerInput.cpp:564`).
+            // The library does the choosing - nearest guild enemy
+            // first, then nearest attackable, skipping the ones
+            // already visited (`DataController.NextTarget`) - and a
+            // phone needs it more than a mouse does: a rat across a
+            // dark room is a few pixels of tap target.
+            _next = new Button { Text = "Next" };
+            _next.Pressed += () => Act(() => _client.Data?.NextTarget());
+            _ui.AddChild(_next);
+            Panels.Opener(_next);
+
             // The list the game has: what is in the thing, with names in
             // the library's own colours, and a Get for one item as well as
             // the Get All this button does.
@@ -1238,6 +1256,7 @@ public partial class GameView : Node2D
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;
         if (_go != null) _go.Visible = inWorld;
+        if (_next != null) _next.Visible = inWorld;
         if (_auto != null)
         {
             _auto.Visible = inWorld;

@@ -67,6 +67,8 @@ Tags: process | Kept so the next session tests something new rather than re-prov
 - NPC quests: `@obj:Alice` then Quest lists her three, with description
   and instructions, and Continue sends `ReqTriggerQuest`.
 - Skills: the Skills tab, row tapped twice, `ReqPerform` on the wire.
+- Next target: two presses walk Boris the Outlaw then the duskrat,
+  guild enemy first, as the library orders them.
 - Actions: the Acts panel lists all eleven, Dance sends an `Action`,
   and binding Point adds a ninth hotbar button.
 - Autorun: the Auto button walks with nothing touching the screen, and

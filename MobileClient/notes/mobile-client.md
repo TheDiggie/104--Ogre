@@ -146,3 +146,22 @@ Played: Dance puts an `Action` on the wire, and binding Point puts a
 ninth button on the hotbar.
 
 See also: the hotbar -> ActionButtons.cs | godot-ui.md
+
+## Next target
+Tags: design | The reference's NextTarget key - a phone needs it more than a mouse does
+
+`ControllerInput.cpp:564` calls `Data->NextTarget()`, and the library
+does all the choosing: objects within the target radii, attackable or
+minimap-enemy, the ones not visited yet, nearest guild enemy before
+nearest anything else (`DataController.NextTarget`). Nothing here
+repeats any of that - the button is one call.
+
+It earns its place on a phone. Tapping picks what is under your
+thumb; a rat across a dark room is a few pixels wide, and a thumb is
+not a mouse pointer.
+
+Played: first press takes Boris the Outlaw, who is the minimap enemy,
+second takes the duskrat - which is the library's order, guild enemies
+before the rest.
+
+See also: godot-ui.md
