@@ -225,6 +225,23 @@ public partial class HudEditor : Control
         _hide = Make("Hide", "hudHide", M59Skin.Kind.Secondary, () =>
         {
             if (_picked == null) return;
+            // The one piece that may not be hidden. The menu band carries
+            // the Menu control (`Panels.cs:238`, which applies the
+            // player's hide to it), and Menu -> Settings -> Interface ->
+            // Arrange is the ONLY way into this editor
+            // (`GameView.cs:791`; the Settings tile itself lives in the
+            // drawer Menu opens). Hiding it takes the door with it, and
+            // the choice is saved - so the next launch comes up with no
+            // way to undo it and no way back to Settings at all. This is
+            // the same rule the store's clamp already keeps for dragging
+            // ("a control a player cannot see is a control they cannot
+            // drag back", M59Hud.Place): everything else about the band
+            // still moves, scales and fades.
+            //
+            // Guarded here and not only on `Disabled`, because a Godot
+            // Button honours an emitted Pressed while disabled
+            // (notes/harness.md, "A press proves the node was FOUND").
+            if (_picked.Id == Panels.TopId && !_picked.Hidden) { Follow(); return; }
             _picked.Hidden = !_picked.Hidden;
             M59Hud.Touch();
             Follow();
@@ -300,8 +317,14 @@ public partial class HudEditor : Control
         M59Hud.Editing = true;
         _picked = null;
         _track = 0; _drag = null;
+        // ToFront already makes this the last child AND puts an open
+        // ConfirmPopup back above it. The MoveChild that used to follow
+        // undid the second half: a question waiting for an answer would
+        // have ended up under a full-screen editor that eats every
+        // touch, which is the one invariant notes/godot-ui.md names -
+        // "nothing may end up above an armed ConfirmPopup". A trade
+        // offer arriving while the editor is open is enough to reach it.
         Panels.ToFront(this);
-        GetParent()?.MoveChild(this, -1);
         Visible = true;
         M59Hud.Touch();
         Follow();
@@ -532,6 +555,9 @@ public partial class HudEditor : Control
             // not press a toggle"). It says which way it goes instead.
             _hide.Text = _picked.Hidden ? "Show" : "Hide";
             M59Skin.Dress(_hide, _picked.Hidden ? M59Skin.Kind.Primary : M59Skin.Kind.Secondary);
+            // Greyed rather than missing: a verb that is simply absent on
+            // one piece reads as a bug in the editor, and the bar says why.
+            _hide.Disabled = _picked.Id == Panels.TopId;
         }
 
         for (int i = 0; i < _slots.Count; i++)
@@ -540,8 +566,10 @@ public partial class HudEditor : Control
         Clashes();
         _barHint.Text = _clash.Count > 0
             ? $"{_clash.Count / 2} overlap{(_clash.Count / 2 == 1 ? "" : "s")} - the commonest HUD mistake"
-            : (_picked != null ? "Drag to move. Tap the background to deselect."
-                              : "Tap a piece to edit it. Drag it to move it.");
+            : (_picked != null && _picked.Id == Panels.TopId
+                   ? "Menu is the way back here, so this piece cannot be hidden - it still moves and scales."
+               : _picked != null ? "Drag to move. Tap the background to deselect."
+                                 : "Tap a piece to edit it. Drag it to move it.");
         _barHint.AddThemeColorOverride("font_color",
             _clash.Count > 0 ? M59Skin.Danger : M59Skin.GoldDim);
 

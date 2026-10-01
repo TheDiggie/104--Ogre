@@ -122,6 +122,9 @@ public static class M59Hud
             // say about it, so a late register still picks up whatever
             // the file holds for it.
             ApplySaved(p);
+            // A late register picks up the file's value, including a
+            // hidden flag the editor would never have written. See Unbrick.
+            if (id == "openers") p.Hidden = false;
         }
         p.Name = name ?? id;
         if (node != null) p.Node = node;
@@ -245,6 +248,25 @@ public static class M59Hud
         catch { /* a layout is a convenience; never let it stop the client */ }
 
         foreach (Piece p in Order) ApplySaved(p);
+        Unbrick();
+    }
+
+    /// <summary>
+    /// The one piece that may not come back hidden, whatever the file
+    /// says.
+    ///
+    /// The editor refuses to hide the menu band because Menu is the
+    /// only door into the editor, but that guard is in the editor and
+    /// this file is plain text the store's own comment invites a player
+    /// to edit. A hidden band loaded from disk would be a client with
+    /// no menu, no settings and no way to reach the screen that could
+    /// undo it - so the rule is kept here, where the value actually
+    /// arrives, as well as there, where it is chosen.
+    /// </summary>
+    static void Unbrick()
+    {
+        Piece door = Get("openers");
+        if (door != null) door.Hidden = false;
     }
 
     static void ApplySaved(Piece p)
@@ -310,6 +332,16 @@ public static class M59Hud
             p.Offset = Vector2.Zero; p.Scale = 1f; p.Alpha = 1f; p.Hidden = false;
             ApplySaved(p);
         }
+        // And again, now that Slot has moved. The first Save wrote the
+        // layout being LEFT along with `slot=` still pointing at it, so
+        // without this the choice of layout lived only in memory: a
+        // player who switched to Layout 2 and backed out of the editor
+        // with Cancel - which does not Save - came back after a restart
+        // on Layout 1, with no sign that the switch had been dropped.
+        // The pieces have just been reloaded from this slot's own saved
+        // values, so writing them back changes nothing but the slot
+        // number. See HudEditor.Pick.
+        Save();
         Touch();
     }
 

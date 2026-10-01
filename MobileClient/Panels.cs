@@ -315,7 +315,14 @@ public static class Panels
     /// player would separate first: the band is Menu and Map, the edge is
     /// Auto beside the walking thumb.
     /// </summary>
-    const string TopId = "openers", SideId = "sidekeys";
+    /// <remarks>
+    /// TopId is public because the HUD editor has to know which piece
+    /// carries the Menu control: it is the only door into the editor,
+    /// and a piece that can hide its own door is a HUD a player cannot
+    /// get back. See <see cref="HudEditor"/>.
+    /// </remarks>
+    public const string TopId = "openers";
+    const string SideId = "sidekeys";
 
     /// <summary>The player's size for a piece, inside the model's band.</summary>
     static float HudScale(string id)
