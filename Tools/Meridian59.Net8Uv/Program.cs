@@ -72,6 +72,7 @@ static class Oracle{ static void Main(string[] a){
  foreach(var kv in vBadBy.OrderByDescending(x=>x.Value).Take(6))
   Console.WriteLine($"   {kv.Value,6}  vertical {kv.Key}");
 
+ Slopes(dir,rm);
  Sides(dir,rm);
  Flats(dir);
 }
@@ -131,6 +132,60 @@ static void Sides(string dir, ResourceManager rm){
  Console.WriteLine($"  left side agrees        : {lOk}   disagrees: {lBad}");
  Console.WriteLine($"  left side before the fix disagreed: {lWouldFail}");
  if(worst>0) Console.WriteLine($"  worst: {worstWhere} off by {worst:F4} of a texture");
+}
+static void Slopes(string dir, ResourceManager rm){
+ int sectors=0, sloped=0, verts=0, ok=0, bad=0, oldBad=0;
+ double worst=0; string worstWhere="";
+ foreach(string p in Directory.GetFiles(dir,"*.roo").OrderBy(x=>x)){
+  RooFile roo; try{ roo=new RooFile(p); roo.ResolveResources(rm);}catch{continue;}
+  foreach(var sec in roo.Sectors){ sectors++; if(sec.SlopeInfoFloor!=null||sec.SlopeInfoCeiling!=null) sloped++; }
+  foreach(var leaf in roo.BSPTreeLeaves){
+   var sl = leaf.Sector?.SlopeInfoFloor; if(sl==null) continue;
+   for(int i=0;i<leaf.Vertices.Count;i++){
+    var wp = leaf.FloorP[i];
+    // The renderer's own arithmetic, transcribed.
+    double u,v; SlopeUV(sl, wp.X, wp.Y, leaf.Sector.TextureX*16.0, leaf.Sector.TextureY*16.0, out u, out v);
+    double libU = leaf.FloorUV[i].X, libV = leaf.FloorUV[i].Y;
+    verts++;
+    if(Math.Abs(u-libU)<=1e-4*Math.Max(1,Math.Abs(libU)) && Math.Abs(v-libV)<=1e-4*Math.Max(1,Math.Abs(libV))) ok++;
+    else { bad++; double e=Math.Max(Math.Abs(u-libU),Math.Abs(v-libV));
+      if(e>worst){worst=e; worstWhere=$"{Path.GetFileName(p)} leaf vertex: lib ({libU:F4},{libV:F4}) here ({u:F4},{v:F4})";} }
+    // What it did before: world x/y, as for a level floor.
+    double oldU=(wp.Y - leaf.Sector.TextureY*16.0)/1024.0, oldV=(wp.X - leaf.Sector.TextureX*16.0)/1024.0;
+    if(!(Math.Abs(oldU-libU)<=1e-4*Math.Max(1,Math.Abs(libU)) && Math.Abs(oldV-libV)<=1e-4*Math.Max(1,Math.Abs(libV)))) oldBad++;
+   }
+  }
+ }
+ Console.WriteLine($"{sectors} sectors, {sloped} with a slope");
+ Console.WriteLine($"{verts} sloped-floor leaf vertices compared against the library's own UVs");
+ Console.WriteLine($"  agrees                  : {ok}   disagrees: {bad}");
+ Console.WriteLine($"  disagreed before the fix: {oldBad}");
+ if(worst>0) Console.WriteLine($"  worst: {worstWhere}");
+}
+
+// Transcription of Renderer.SlopeUV, so the two can be compared.
+static void SlopeUV(RooSectorSlopeInfo sl, double wx, double wy,
+                    double texOffX, double texOffY, out double u, out double v){
+ double pz = (-sl.A*wx - sl.B*wy - sl.D)/sl.C;
+ double p0x=sl.P0.X, p0y=sl.P0.Y, p0z=sl.P0.Z;
+ double d1x=wx-p0x, d1y=wy-p0y, d1z=pz-p0z;
+ double d2x=sl.P1.X-p0x, d2y=sl.P1.Y-p0y, d2z=sl.P1.Z-p0z;
+ double d3x=sl.P2.X-p0x, d3y=sl.P2.Y-p0y, d3z=sl.P2.Z-p0z;
+ double du=Perp(d1x,d1y,d1z,d2x,d2y,d2z), dv=Perp(d1x,d1y,d1z,d3x,d3y,d3z);
+ du += texOffY/2.0; dv += texOffX/2.0;
+ double vl=Math.Sqrt(d1x*d1x+d1y*d1y); if(vl==0) vl=1;
+ double vx=d1x/vl, vy=d1y/vl;
+ double ul=Math.Sqrt(d2x*d2x+d2y*d2y); if(ul==0) ul=1;
+ double vl2=Math.Sqrt(d3x*d3x+d3y*d3y); if(vl2==0) vl2=1;
+ if(vx*(d2x/ul)+vy*(d2y/ul) <= 0) dv = -dv;
+ if(vx*(d3x/vl2)+vy*(d3y/vl2) > 0) du = -du;
+ u = du/1024.0; v = dv/1024.0;
+}
+static double Perp(double px,double py,double pz,double ax,double ay,double az){
+ double den=ax*ax+ay*ay+az*az; if(den==0) den=1;
+ double k=(px*ax+py*ay+pz*az)/den;
+ double ex=px-k*ax, ey=py-k*ay, ez=pz-k*az;
+ return Math.Sqrt(ex*ex+ey*ey+ez*ez);
 }
 static bool Near(double a,double b)=>Math.Abs(a-b)<=1e-4*Math.Max(1.0,Math.Abs(a));
 static void Worse(ref double worst, ref string where, double lib, double mine, string what){

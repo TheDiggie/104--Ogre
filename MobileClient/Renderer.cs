@@ -1061,6 +1061,65 @@ public sealed class Renderer
             px[y * W + sx] = c;
         }
     }
+    /// <summary>
+    /// The texture coordinate of a point on a sloped floor or ceiling,
+    /// following `RooSubSector.UpdateVertexUV` exactly.
+    ///
+    /// The slope carries its own texture frame: an origin P0 at
+    /// (X0, Y0) on the plane, and two axis endpoints P1 and P2 one
+    /// FINENESS away along the stored texture angle and its
+    /// perpendicular. A point's two coordinates are its perpendicular
+    /// distances from the two axis lines, measured in the plane - so the
+    /// texture lies flat on the slope and turns with it, rather than
+    /// being projected down from above.
+    ///
+    /// The signs, the halved sector offsets and the 1/(64&lt;&lt;4) scale
+    /// are the library's, quirks included: the sloped branch halves
+    /// TextureX and TextureY and adds them, where the level branch uses
+    /// them whole and subtracts. RooSubSector.cs:448 against :492.
+    /// </summary>
+    public static void SlopeUV(RooSectorSlopeInfo sl, float wx, float wy, float camZ,
+                               float texOffX, float texOffY, out float u, out float v)
+    {
+        float pz = M59Geo.Plane(sl, wx, wy);
+        float p0x = (float)sl.P0.X, p0y = (float)sl.P0.Y, p0z = (float)sl.P0.Z;
+        float d1x = wx - p0x, d1y = wy - p0y, d1z = pz - p0z;
+        float d2x = (float)sl.P1.X - p0x, d2y = (float)sl.P1.Y - p0y, d2z = (float)sl.P1.Z - p0z;
+        float d3x = (float)sl.P2.X - p0x, d3y = (float)sl.P2.Y - p0y, d3z = (float)sl.P2.Z - p0z;
+
+        float du = Perp(d1x, d1y, d1z, d2x, d2y, d2z);
+        float dv = Perp(d1x, d1y, d1z, d3x, d3y, d3z);
+
+        // The library adds the sector offsets halved, then flips the sign
+        // of the whole thing - offset included - on the far side of each
+        // axis. Order matters; doing it the other way round moves the
+        // texture by twice the offset across the axis line.
+        du += texOffY * 0.5f;
+        dv += texOffX * 0.5f;
+
+        // Which side of each axis the point is on, decided in plan view
+        // from the normalised 2D vectors, as the library does.
+        float vlen = MathF.Sqrt(d1x * d1x + d1y * d1y); if (vlen == 0f) vlen = 1f;
+        float vx = d1x / vlen, vy = d1y / vlen;
+        float ulen = MathF.Sqrt(d2x * d2x + d2y * d2y); if (ulen == 0f) ulen = 1f;
+        float vlen2 = MathF.Sqrt(d3x * d3x + d3y * d3y); if (vlen2 == 0f) vlen2 = 1f;
+        if (vx * (d2x / ulen) + vy * (d2y / ulen) <= 0f) dv = -dv;
+        if (vx * (d3x / vlen2) + vy * (d3y / vlen2) > 0f) du = -du;
+
+        u = du / M59Geo.Fineness;
+        v = dv / M59Geo.Fineness;
+    }
+
+    /// <summary>Distance from a point to the line through the origin along an axis.</summary>
+    static float Perp(float px, float py, float pz, float ax, float ay, float az)
+    {
+        float den = ax * ax + ay * ay + az * az;
+        if (den == 0f) den = 1f;
+        float k = (px * ax + py * ay + pz * az) / den;
+        float ex = px - k * ax, ey = py - k * ay, ez = pz - k * az;
+        return MathF.Sqrt(ex * ex + ey * ey + ez * ez);
+    }
+
     static void FillFlat(uint[] px, int W, int H, int sx, int y0, int y1, bool ceiling,
                          RooSector sec, float camX, float camY, float camZ,
                          float horizon, float proj, float angle, float rayA, TexCache tc,
@@ -1140,10 +1199,34 @@ public sealed class Renderer
             if (anchors != null && !anchors.Empty)
                 anchors.TryAnchor(wx, wy, out anchorX, out anchorY);
 
+            float su, sv;
+            if (slope != null)
+            {
+                // A sloped floor does not take its texture from the world's
+                // x and y. `RooSubSector.UpdateVertexUV` (RooSubSector.cs:
+                // 402-483) measures each point's perpendicular distance
+                // from two lines drawn on the plane itself: the slope's own
+                // texture origin P0, and the axes P0->P1 and P0->P2 that
+                // `RooSectorSlopeInfo.Calculate` builds from the stored
+                // texture angle (RooSectorSlopeInfo.cs:313-346). Feeding it
+                // world x and y instead - which is what this renderer did -
+                // gives a texture that ignores the slope's rotation and
+                // shears as the plane tilts.
+                //
+                // 4674 of the 30806 sectors in the game carry a slope, so
+                // this is not a corner case; it is every ramp, hillside and
+                // sloping roof in Meridian.
+                SlopeUV(slope, wx, wy, camZ, texOffX, texOffY, out su, out sv);
+            }
+            else
+            {
+                su = (wy - anchorY - texOffY) / M59Geo.Fineness;
+                sv = (wx - anchorX - texOffX) / M59Geo.Fineness;
+            }
+
             px[y * W + sx] = Shade(
                 noSample ? t.P[0]
-                         : t.Sample((wy - anchorY - texOffY) / M59Geo.Fineness + scrollU,
-                                    (wx - anchorX - texOffX) / M59Geo.Fineness + scrollV, texelsPerPixel),
+                         : t.Sample(su + scrollU, sv + scrollV, texelsPerPixel),
                 fog);
         }
     }
