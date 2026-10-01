@@ -77,11 +77,29 @@ public partial class OptionsPanel : Control
     readonly List<CheckBox> _switches = new List<CheckBox>();
     string _signature = "";
 
-    // The client-side settings live here rather than in a config file:
-    // this client has no options file yet, and inventing one to hold
-    // six numbers would be the larger change.
-    float _sound = 7f, _music = 5f, _bright = 0f, _look = 1f;
+    // The client-side settings, on the game's own 0..10 scale, starting
+    // where the reference's configuration file starts them:
+    // DEFAULTVAL_ENGINE_SOUNDVOLUME is 10 and
+    // DEFAULTVAL_ENGINE_MUSICVOLUME is 4 (`OgreClientConfig.h:56-57`),
+    // DEFAULTVAL_ENGINE_BRIGHTNESSFACTOR is 0 (:54) and
+    // DEFAULTVAL_ENGINE_DISABLELOOPSOUNDS is false (:58). Seven and five
+    // were nobody's numbers, and the game is a quieter game at seven
+    // than the one the sounds were mixed for.
+    float _sound = 10f, _music = 4f, _bright = 0f, _look = 1f;
     bool _loops = true, _invert;
+
+    // Where they are kept between sessions. The reference writes all of
+    // these into configuration.xml on the way out
+    // (`OgreClientConfig.cpp` saves the <engine> block from the same
+    // literals above), and nothing here kept them at all: every start
+    // put the volume back and a player who wants the game silent had to
+    // silence it again each time. Persisted the way this client persists
+    // its other state - a Godot ConfigFile under user:// - for the
+    // reasons AliasStore and HotbarStore both give at length: there is
+    // no writable file beside the executable on a phone, and no
+    // shutdown to hang a save on, so every change writes.
+    const string StorePath = "user://settings.cfg";
+    const string StoreSection = "client";
 
     public bool IsOpen => _panel != null && _panel.Visible;
 
@@ -92,6 +110,8 @@ public partial class OptionsPanel : Control
     {
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
+
+        Restore();
 
         _open = new Button { Text = "Settings", Name = "settingsButton" };
         _open.AddThemeFontSizeOverride("font_size", FontSize);
@@ -120,6 +140,68 @@ public partial class OptionsPanel : Control
 
         GetViewport().SizeChanged += Layout;
         Layout();
+    }
+
+    /// <summary>
+    /// Reads the saved settings, if there are any. Called from _Ready so
+    /// the first Build shows what is actually in force.
+    /// </summary>
+    void Restore()
+    {
+        try
+        {
+            var file = new ConfigFile();
+            if (file.Load(StorePath) != Error.Ok) return;
+            _sound  = (float)file.GetValue(StoreSection, "sound", _sound);
+            _music  = (float)file.GetValue(StoreSection, "music", _music);
+            _bright = (float)file.GetValue(StoreSection, "brightness", _bright);
+            _look   = (float)file.GetValue(StoreSection, "look", _look);
+            _loops  = (bool)file.GetValue(StoreSection, "loops", _loops);
+            _invert = (bool)file.GetValue(StoreSection, "invert", _invert);
+        }
+        catch (Exception e) { GD.PrintErr($"[OptionsPanel] load: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// Writes them. On every change rather than on the way out - see
+    /// AliasStore.Save for why a phone client has no way out to write
+    /// on.
+    /// </summary>
+    void Keep()
+    {
+        try
+        {
+            var file = new ConfigFile();
+            file.SetValue(StoreSection, "sound", _sound);
+            file.SetValue(StoreSection, "music", _music);
+            file.SetValue(StoreSection, "brightness", _bright);
+            file.SetValue(StoreSection, "look", _look);
+            file.SetValue(StoreSection, "loops", _loops);
+            file.SetValue(StoreSection, "invert", _invert);
+            file.Save(StorePath);
+        }
+        catch (Exception e) { GD.PrintErr($"[OptionsPanel] save: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// Hands the current settings to whoever is listening.
+    ///
+    /// The events are wired by the view as it builds its widgets, and
+    /// the things that act on them - the sound player, the touch
+    /// controls - are built after this panel is. So the restored values
+    /// would sit here doing nothing until the player happened to press a
+    /// plus. The view calls this once everything exists, which is the
+    /// same order the reference works in: Config->Load runs before the
+    /// controllers that read it.
+    /// </summary>
+    public void Apply()
+    {
+        SoundVolume?.Invoke(_sound / 10f);
+        MusicVolume?.Invoke(_music / 10f);
+        LoopSounds?.Invoke(_loops);
+        Brightness?.Invoke(_bright);
+        LookSpeed?.Invoke(_look);
+        InvertLook?.Invoke(_invert);
     }
 
     public void Open() { Build(); Show(true); }
@@ -180,22 +262,22 @@ public partial class OptionsPanel : Control
 
         _rows.AddChild(Section("Sound"));
         _rows.AddChild(Slider("Sound volume", () => _sound, v =>
-            { _sound = v; SoundVolume?.Invoke(v / 10f); }));
+            { _sound = v; SoundVolume?.Invoke(v / 10f); Keep(); }));
         _rows.AddChild(Slider("Music volume", () => _music, v =>
-            { _music = v; MusicVolume?.Invoke(v / 10f); }));
+            { _music = v; MusicVolume?.Invoke(v / 10f); Keep(); }));
         _rows.AddChild(Switch("Looping sounds", () => _loops, on =>
-            { _loops = on; LoopSounds?.Invoke(on); }));
+            { _loops = on; LoopSounds?.Invoke(on); Keep(); }));
 
         _rows.AddChild(Section("Picture"));
         // 0 to 0.8, which is the file's own cap, in tenths.
         _rows.AddChild(Slider("Brightness", () => _bright * 10f, v =>
-            { _bright = Mathf.Min(v, 8f) / 10f; Brightness?.Invoke(_bright); }, 8f));
+            { _bright = Mathf.Min(v, 8f) / 10f; Brightness?.Invoke(_bright); Keep(); }, 8f));
 
         _rows.AddChild(Section("Controls"));
         _rows.AddChild(Slider("Look speed", () => _look * 10f, v =>
-            { _look = Mathf.Max(v, 1f) / 10f; LookSpeed?.Invoke(_look); }, 30f));
+            { _look = Mathf.Max(v, 1f) / 10f; LookSpeed?.Invoke(_look); Keep(); }, 30f));
         _rows.AddChild(Switch("Invert look", () => _invert, on =>
-            { _invert = on; InvertLook?.Invoke(on); }));
+            { _invert = on; InvertLook?.Invoke(on); Keep(); }));
 
         _rows.AddChild(Section("Character"));
         _rows.AddChild(Preference("Safety off", () => _prefs != null && _prefs.IsSafetyOff,

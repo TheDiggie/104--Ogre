@@ -1400,6 +1400,12 @@ public partial class GameView : Node2D
             };
         });
 
+        // Now that the sound player and the touch controls exist, the
+        // settings the panel restored can actually reach them. The panel
+        // is built before they are, so it cannot do this itself - see
+        // OptionsPanel.Apply.
+        Widget("settings", () => _options?.Apply());
+
         // RootClient.Start loads the config before calling Init, and this
         // did not load it at all. It is where the player's aliases, ignore
         // list and language come from, it falls back to defaults when
@@ -2018,7 +2024,25 @@ public partial class GameView : Node2D
     {
         if (_sound == null || _client?.Data == null) return;
         RoomObject me = _client.Data.AvatarObject;
-        RooSubSector leaf = me?.SubSector;
+        if (me == null) return;
+
+        // Only when you have actually MOVED. In the reference this block
+        // is inside UpdateListener, which is reached from nothing but the
+        // avatar's own PropertyChanged for Angle and Position3D
+        // (`ControllerSound.cpp:119-127`) - and it then insists on
+        // `lastListenerPosition != pos` on top of that (:155), storing
+        // the position afterwards whatever the wading checks decide
+        // (:195). Called once a frame with no such test, this splashed
+        // away every half-second while you stood in a puddle reading the
+        // chat, which is a thing a person does and not a thing wading
+        // sounds like. The store is unconditional here for the same
+        // reason it is there: a turn on the spot is not a step.
+        V3 stood = me.Position3D;
+        bool moved = stood != _heardFrom;
+        _heardFrom = stood;
+        if (!moved) return;
+
+        RooSubSector leaf = me.SubSector;
         if (leaf?.Sector == null) return;
 
         var depth = leaf.Sector.Flags.SectorDepth;
@@ -2106,15 +2130,28 @@ public partial class GameView : Node2D
         RoomObject me = _client.Data.AvatarObject;
         if (me == null) return;
 
+        // The height goes with the other two. The reference gives
+        // irrklang all three components of both the source
+        // (`ControllerSound.cpp:405-408`, :420-428) and the listener
+        // (:140-142); measuring the distance flat made a sound one floor
+        // down as loud as one in the room.
         _sound.Follow(id =>
         {
             RoomObject o = _client.Data.RoomObjects?.GetItemByID(id);
-            return o == null ? (false, 0f, 0f) : (true, o.Position3D.X, o.Position3D.Z);
-        }, me.Position3D.X, me.Position3D.Z, me.Angle);
+            return o == null ? (false, 0f, 0f, 0f)
+                             : (true, o.Position3D.X, o.Position3D.Z, o.Position3D.Y);
+        }, me.Position3D.X, me.Position3D.Z, me.Position3D.Y, me.Angle);
     }
 
     /// <summary>When the last splash was, so the next one waits its turn.</summary>
     double _splashedAt;
+
+    /// <summary>
+    /// Where you were standing when the wading check last ran - the
+    /// reference's `lastListenerPosition` (`ControllerSound.cpp:12`,
+    /// stored at :195).
+    /// </summary>
+    V3 _heardFrom = V3.ZERO;
 
     void PlaySound(PlaySound info)
     {
@@ -2124,9 +2161,9 @@ public partial class GameView : Node2D
         // on entering a room - and a sound with nowhere to stand is still
         // a sound, so it plays flat rather than being dropped.
         RoomObject me = _client.Data?.AvatarObject;
-        float lx = 0f, ly = 0f, facing = 0f;
+        float lx = 0f, ly = 0f, lh = 0f, facing = 0f;
         if (me != null)
-        { lx = me.Position3D.X; ly = me.Position3D.Z; facing = me.Angle; }
+        { lx = me.Position3D.X; ly = me.Position3D.Z; lh = me.Position3D.Y; facing = me.Angle; }
 
         if (info.ID > 0)
         {
@@ -2135,13 +2172,16 @@ public partial class GameView : Node2D
             {
                 // Played at the object, by pretending the listener is
                 // where they are relative to it - the player takes a
-                // place and works out the rest.
-                _sound.PlayAt(info, source.Position3D.X, source.Position3D.Z, lx, ly, facing);
+                // place and works out the rest. All three components of
+                // it, as the reference reads all three off the source's
+                // scene node (`ControllerSound.cpp:405-408`).
+                _sound.PlayAt(info, source.Position3D.X, source.Position3D.Z,
+                              source.Position3D.Y, lx, ly, lh, facing);
                 return;
             }
         }
 
-        _sound.Play(info, _world.Room, lx, ly, facing);
+        _sound.Play(info, _world.Room, lx, ly, lh, facing);
     }
 
     /// <summary>
@@ -2314,14 +2354,23 @@ public partial class GameView : Node2D
         bool fresh = _world.SyncRoom(_client.Data?.RoomInformation?.ResourceRoom);
         if (!fresh && !_arrived) return;
         _arrived = false;
-        if (_world.Room == null) return;
 
         // The room's sounds belong to the room. The reference stops and
         // drops every one of them when a Player message arrives
         // (`ControllerSound.cpp:341-357`); without it a fountain from
         // three rooms back keeps running, and another joins it at every
         // doorway until the session is a swamp.
+        //
+        // First thing, and before the `Room == null` check below, because
+        // that is where the reference does it: HandlePlayerMessage walks
+        // and clears the list unconditionally, with nothing about the new
+        // room's file in the way. A .roo that fails to load is exactly
+        // when this matters most - the arrival flag has already been
+        // spent, so nothing would come back to stop the old room's loops
+        // and they played for the rest of the session over a room that
+        // was not there.
         _sound?.StopAll();
+        if (_world.Room == null) return;
         // Rebuilt even on a second visit: RooFile.Reset puts every
         // sidedef's flags back to FlagsOrig (RooSideDef.cs:768-774), so
         // which walls belong on the map can have changed since the

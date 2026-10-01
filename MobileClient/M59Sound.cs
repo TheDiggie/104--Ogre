@@ -38,17 +38,27 @@ public partial class M59Sound : Node
     /// AdjustSoundVolume does (`ControllerSound.cpp:198-227`, called
     /// from the options panel at UIOptions.cpp:2274). Before, moving
     /// the slider did nothing at all until the next sound started.
+    ///
+    /// Full, because the reference's own default is full:
+    /// DEFAULTVAL_ENGINE_SOUNDVOLUME is 10 on a 0..10 scale
+    /// (`OgreClientConfig.h:57`). 0.7 was a quieter game than the one
+    /// this is meant to sound like.
     /// </summary>
     [Export] public float Volume
     {
         get => _volume;
         set { _volume = value; Reheard(); }
     }
-    float _volume = 0.7f;
+    float _volume = 1f;
     /// <summary>
     /// Music has its own level, as it does in the game - two sliders,
     /// not one - and a room's ambience is not the same nuisance as a
     /// fountain three doors away.
+    ///
+    /// Four tenths, which is DEFAULTVAL_ENGINE_MUSICVOLUME
+    /// (`OgreClientConfig.h:56`): the game ships its music well under
+    /// its sounds on purpose, and 0.5 here was neither that nor
+    /// anything else in particular.
     /// </summary>
     [Export] public float MusicLevel
     {
@@ -60,7 +70,7 @@ public partial class M59Sound : Node
                 _music.VolumeDb = Mathf.LinearToDb(Mathf.Clamp(_musicLevel, 0.0001f, 1f));
         }
     }
-    float _musicLevel = 0.5f;
+    float _musicLevel = 0.4f;
     /// <summary>
     /// Off silences the looping sounds only, which is what
     /// Config->DisableLoopSounds does: a fountain stops, a sword does
@@ -79,33 +89,63 @@ public partial class M59Sound : Node
     /// a sound is heard at 1/(1 + 0.002 * distance) of its level.
     /// </summary>
     [Export] public float Rolloff = 0.002f;
-    /// <summary>How many one-shot sounds may overlap.</summary>
-    [Export] public int Voices = 12;
+    /// <summary>
+    /// How many one-shot sounds may overlap.
+    ///
+    /// The reference has no cap at all: `StartSound` hands every wave to
+    /// irrklang and keeps the ISound it gets back
+    /// (`ControllerSound.cpp:455-480`), and the mixer decides how many
+    /// it can carry. Twelve here, with the thirteenth DROPPED, was the
+    /// wrong end to give way at: a melee in a crowded room filled the
+    /// pool with other people's swings and then swallowed your own,
+    /// which is the one sound in the room you are listening for. So the
+    /// number is higher - a phone mixer will not notice two dozen
+    /// short oggs - and when it is reached the QUIETEST voice gives way
+    /// rather than the newest, since the quietest is by construction
+    /// the one furthest away and the least likely to be missed.
+    /// </summary>
+    [Export] public int Voices = 24;
     /// <summary>Prints what it plays, for the test harnesses.</summary>
     [Export] public bool Verbose = false;
 
     readonly Dictionary<string, AudioStream> _streams = new Dictionary<string, AudioStream>();
-    readonly List<AudioStreamPlayer2D> _pool = new List<AudioStreamPlayer2D>();
     /// <summary>
-    /// One looping voice: the player, which object it belongs to, and
-    /// where that object was the last time it was heard from.
+    /// One voice: the player, which object it belongs to, and where that
+    /// object was the last time it was heard from.
     ///
-    /// The reference attaches a looping sound to the object's scene
-    /// node (`ControllerSound.cpp:471-472`) and moves it whenever the
-    /// object moves (`RemoteNode.cpp:510-535`), and throws it away with
-    /// the node (:112-125). Keyed on the filename alone, as this was,
+    /// The reference attaches a sound to the object's scene node
+    /// (`ControllerSound.cpp:471-472`) and moves it whenever the object
+    /// moves (`RemoteNode.cpp:510-535`), and throws it away with the
+    /// node (:112-125). Keyed on the filename alone, as this once was,
     /// two fountains in one room share one voice and a StopWave naming
-    /// the file silences both - so the object's id is part of the key.
+    /// the file silences both - so what identifies the sound is part of
+    /// the key. See LoopKey.
     /// </summary>
-    sealed class Loop
+    sealed class Voice
     {
         public AudioStreamPlayer2D Player;
         public uint Owner;          // 0 when the sound has no object
-        public float X, Y;          // where it is, in the server's units
+        /// <summary>
+        /// An id-less, place-less sound: the reference attaches this one
+        /// to the AVATAR's node (`ControllerSound.cpp:431-447`) and
+        /// `RemoteNode::RefreshPosition` carries it along as you walk
+        /// (`RemoteNode.cpp:510-535`). Emitting it at wherever you were
+        /// standing, as this did, meant a looping sound played on you
+        /// stayed behind at that spot and got quieter and more
+        /// off-centre the further you walked from it. Flagged rather
+        /// than given co-ordinates, because its co-ordinates are always
+        /// the listener's.
+        /// </summary>
+        public bool OnListener;
+        public float X, Y, H;       // where it is, in the server's units - H is height
         public string File;
+        /// <summary>Its gain before the master level, so a slider can be re-applied.</summary>
+        public float Shape;
     }
 
-    readonly Dictionary<string, Loop> _loops = new Dictionary<string, Loop>();
+    /// <summary>The one-shot voices, re-used as they fall silent.</summary>
+    readonly List<Voice> _pool = new List<Voice>();
+    readonly Dictionary<string, Voice> _loops = new Dictionary<string, Voice>();
     AudioStreamPlayer _music;
     string _musicPlaying = "";
 
@@ -132,81 +172,81 @@ public partial class M59Sound : Node
     }
 
     /// <summary>
-    /// Gives every voice a chance to hear a volume change. Only the
-    /// loops need their position kept - a one-shot is over before a
-    /// slider can move - so the pan is left alone and only the level
-    /// is re-applied, from the gain each voice was started with.
+    /// Gives every voice a chance to hear a volume change, from the gain
+    /// it was last mixed with. The reference walks its own list and
+    /// every node's list for the same reason
+    /// (`ControllerSound.cpp:206-227`), and it makes no distinction
+    /// between a loop and a one-shot while doing it.
     /// </summary>
     void Reheard()
     {
-        foreach (var kv in _loops)
-            if (kv.Value?.Player != null && kv.Value.Player.Playing
-                && _gain.TryGetValue(kv.Value.Player, out float g))
-                kv.Value.Player.VolumeDb = Mathf.LinearToDb(Mathf.Max(0.0001f, g * _volume));
-        foreach (var p in _pool)
-            if (p.Playing && _gain.TryGetValue(p, out float g))
-                p.VolumeDb = Mathf.LinearToDb(Mathf.Max(0.0001f, g * _volume));
+        foreach (var kv in _loops) Level(kv.Value);
+        foreach (Voice v in _pool) Level(v);
     }
 
-    /// <summary>Each voice's gain before the master level, so a slider can be re-applied.</summary>
-    readonly Dictionary<AudioStreamPlayer2D, float> _gain =
-        new Dictionary<AudioStreamPlayer2D, float>();
+    void Level(Voice v)
+    {
+        if (v?.Player == null || !v.Player.Playing) return;
+        v.Player.VolumeDb = Mathf.LinearToDb(MathF.Max(0.0001f, v.Shape * _volume));
+    }
 
     /// <summary>
-    /// Plays one. <paramref name="listener"/> is where you are and
-    /// <paramref name="facing"/> which way, both in the server's units,
+    /// Plays one. <paramref name="listenerX"/>, <paramref name="listenerY"/>
+    /// and <paramref name="listenerH"/> are where you are and
+    /// <paramref name="facing"/> which way, all in the server's units,
     /// so the fall-off and the panning have something to measure from.
     /// </summary>
-    public void Play(PlaySound info, RooFile room, float listenerX, float listenerY, float facing)
+    public void Play(PlaySound info, RooFile room,
+                     float listenerX, float listenerY, float listenerH, float facing)
     {
         if (info == null || string.IsNullOrEmpty(info.Resource)) return;
 
         AudioStream stream = Load(info.Resource);
         if (stream == null) return;
 
-        if (!Where(info, room, listenerX, listenerY, out float sx, out float sy))
-        { sx = listenerX; sy = listenerY; }
-
-        Emit(info, stream, sx, sy, listenerX, listenerY, facing);
-    }
-
-    void Emit(PlaySound info, AudioStream stream, float sx, float sy,
-              float listenerX, float listenerY, float facing)
-    {
-        float dx = sx - listenerX, dy = sy - listenerY;
-        float distance = MathF.Sqrt(dx * dx + dy * dy);
-
-        // The game's own fall-off, which is inverse-distance rather than
-        // linear: `setRolloffFactor(0.002f)` with a maximum distance of
-        // 2000 and a minimum of 0 (`ControllerSound.cpp:45-47`). Past the
-        // maximum the sound does not vanish, it stops getting quieter -
-        // so a distant bell is faint and still there, where a linear
-        // ramp cut it off dead. A linear ramp was also much too loud in
-        // the middle: at 500 units it gave 0.75 of full where the game
-        // gives 0.50.
-        float d = MathF.Min(distance, MaxDistance);
-        float shape = 1f / (1f + Rolloff * d);
-        float gain = Volume * shape;
-        if (gain <= 0.001f) return;
-
-        // Panned by which side of you it is on: the component of the
-        // direction across your facing, -1 hard left to +1 hard right.
-        float pan = 0f;
-        if (distance > 1f)
+        bool onListener = false;
+        if (!Where(info, room, out float sx, out float sy, out float sh))
         {
-            float c = MathF.Cos(facing), s = MathF.Sin(facing);
-            pan = Mathf.Clamp((dx * s - dy * c) / distance, -1f, 1f);
+            if (info.ID > 0)
+            {
+                // A sound on an object nobody can find. The reference
+                // never assigns a position in that case: x, y and z are
+                // initialised to zero and the `if (source && ...)`
+                // inside the ID branch simply does not fire
+                // (`ControllerSound.cpp:388-411`), so the sound plays at
+                // the room's origin and is heard faintly from wherever
+                // you are. Playing it at the listener instead - full
+                // volume, dead centre - turned every stale object id
+                // into a sound in your ear.
+                sx = sy = sh = 0f;
+            }
+            else
+            {
+                // No id and no grid square: the reference plays this one
+                // on the avatar's own node (:431-447), which is to say
+                // on you, and keeps it there.
+                onListener = true;
+                sx = listenerX; sy = listenerY; sh = listenerH;
+            }
         }
 
+        Emit(info, stream, sx, sy, sh, onListener, listenerX, listenerY, listenerH, facing);
+    }
+
+    void Emit(PlaySound info, AudioStream stream, float sx, float sy, float sh, bool onListener,
+              float listenerX, float listenerY, float listenerH, float facing)
+    {
         bool loop = info.PlayFlags != null && info.PlayFlags.IsLoop;
         // Asked for before the player is made, not after: creating the
         // loop player first left an idle node behind for every distinct
         // ambient while looping sounds were switched off.
         if (loop && !Loops) return;
+        if (_volume <= 0.001f) return;
+
         string key = loop ? LoopKey(info) : null;
-        Loop entry = loop ? Voice(key, info, sx, sy) : null;
-        AudioStreamPlayer2D player = loop ? entry?.Player : Idle();
-        if (player == null) return;
+        Voice voice = loop ? Voice3D(key, info, sx, sy, sh, onListener) : Idle(info);
+        if (voice?.Player == null) return;
+        AudioStreamPlayer2D player = voice.Player;
 
         // Looping is a property of the stream in Godot, not of the player,
         // and the streams are shared between callers - so a looping sound
@@ -230,37 +270,92 @@ public partial class M59Sound : Node
         // calls setPosition on each (`RemoteNode.cpp:510-535`). A loop
         // here used to keep for ever the gain and pan it had the instant
         // it started, so a fountain was as loud behind you as in front.
-        // It cannot follow every frame from here, but it can at least be
-        // re-placed whenever the server mentions it again.
-        if (entry != null) { entry.X = sx; entry.Y = sy; }
-        _gain[player] = shape;
-        player.VolumeDb = Mathf.LinearToDb(gain);
-        // Distance and panning are worked out above, in the game's own
+        // Follow does that job frame by frame now; this just records
+        // where the server says the sound is.
+        voice.OnListener = onListener;
+        voice.X = sx; voice.Y = sy; voice.H = sh;
+        // Distance and panning are worked out here, in the game's own
         // units, so Godot must not apply a second fall-off of its own on
         // top: attenuation off, and a distance no sound will reach.
         player.Attenuation = 0f;
         player.MaxDistance = 1e6f;
-        player.Position = new Vector2(pan * 400f, 0f);
+        Mix(voice, listenerX, listenerY, listenerH, facing);
         if (!alreadyRunning) player.Play();
-        if (Verbose) GD.Print($"[M59Sound] {info.ResourceName} gain {gain:0.00} pan {pan:0.00} loop {loop}");
+        if (Verbose)
+            GD.Print($"[M59Sound] {info.ResourceName} gain {voice.Shape * _volume:0.00} loop {loop}");
     }
 
     /// <summary>
     /// Plays one at a known place, for the case where the caller has
     /// already resolved the source object's position.
     /// </summary>
-    public void PlayAt(PlaySound info, float sx, float sy,
-                       float listenerX, float listenerY, float facing)
+    public void PlayAt(PlaySound info, float sx, float sy, float sh,
+                       float listenerX, float listenerY, float listenerH, float facing)
     {
         if (info == null || string.IsNullOrEmpty(info.Resource))
         { if (Verbose) GD.Print($"[M59Sound] no file for {info?.ResourceName}"); return; }
         AudioStream stream = Load(info.Resource);
         if (stream == null) { if (Verbose) GD.Print($"[M59Sound] unreadable {info.Resource}"); return; }
-        Emit(info, stream, sx, sy, listenerX, listenerY, facing);
+        Emit(info, stream, sx, sy, sh, false, listenerX, listenerY, listenerH, facing);
     }
 
     /// <summary>
-    /// Keeps the looping voices where their objects are, and stops the
+    /// Works out one voice's level and panning from where it is and
+    /// where you are.
+    ///
+    /// The distance is the full three-dimensional one, as the game's is:
+    /// `StartSound` fills in all three components of the vec3df it hands
+    /// to play3D - including the room's floor height at the grid square,
+    /// from GetHeightAt (`ControllerSound.cpp:420-427`) - and
+    /// `UpdateListener` gives irrklang the listener's own height as well
+    /// (:140-142). Measuring the distance flat made a fountain in the
+    /// cellar as loud as one at your feet, which in a game of stacked
+    /// rooms and balconies is most of them.
+    /// </summary>
+    void Mix(Voice v, float listenerX, float listenerY, float listenerH, float facing)
+    {
+        float dx = 0f, dy = 0f, dh = 0f;
+        if (!v.OnListener)
+        { dx = v.X - listenerX; dy = v.Y - listenerY; dh = v.H - listenerH; }
+
+        float distance = MathF.Sqrt(dx * dx + dy * dy + dh * dh);
+
+        // The game's own fall-off, which is inverse-distance rather than
+        // linear: `setRolloffFactor(0.002f)` with a maximum distance of
+        // 2000 and a minimum of 0 (`ControllerSound.cpp:45-47`). Past the
+        // maximum the sound does not vanish, it stops getting quieter -
+        // so a distant bell is faint and still there, where a linear
+        // ramp cut it off dead. A linear ramp was also much too loud in
+        // the middle: at 500 units it gave 0.75 of full where the game
+        // gives 0.50.
+        v.Shape = 1f / (1f + Rolloff * MathF.Min(distance, MaxDistance));
+        Level(v);
+
+        // Panned by which side of you it is on: the component of the
+        // direction across your facing, -1 hard left to +1 hard right.
+        //
+        // Which way round that component runs is not a matter of taste -
+        // it has to agree with the picture. The renderer puts a world
+        // point at `W/2 + lateral * scale` with
+        // `lateral = dx * sin(-angle) + dy * cos(-angle)`, that is
+        // `dy * cos(angle) - dx * sin(angle)` (`Renderer.cs:1129-1135`,
+        // and the same expression for the sprites at :941), so THAT is
+        // screen-right; strafing right moves you along (-sin, cos) for
+        // the same reason. This used to compute `dx * s - dy * c`, the
+        // exact negative, so every sound in the game came out of the
+        // wrong speaker: a footstep you could see on your right was
+        // heard on your left.
+        float pan = 0f;
+        if (distance > 1f)
+        {
+            float c = MathF.Cos(facing), s = MathF.Sin(facing);
+            pan = Mathf.Clamp((dy * c - dx * s) / distance, -1f, 1f);
+        }
+        v.Player.Position = new Vector2(pan * 400f, 0f);
+    }
+
+    /// <summary>
+    /// Keeps the voices where their objects are, and stops the looping
     /// ones whose object has gone.
     ///
     /// The reference does both without being asked: the sound hangs off
@@ -272,60 +367,88 @@ public partial class M59Sound : Node
     /// this a fountain was exactly as loud behind you as in front, for
     /// as long as the room lasted.
     ///
+    /// The one-shots are walked too. They were not, on the grounds that
+    /// a one-shot is over before anything can move - but irrklang
+    /// re-mixes every playing sound against the new listener position on
+    /// each `setListenerPosition` (`ControllerSound.cpp:149`), one-shots
+    /// included, and a wave in this game is often a second or more of
+    /// scream or crash. Frozen at the pan they started with, those swung
+    /// to the wrong side of you as you turned and stayed there.
+    ///
     /// <paramref name="present"/> answers "is this object still in the
-    /// room, and where"; a sound with no object (id 0) is left alone,
-    /// since it belongs to the room rather than to anything in it.
+    /// room, and where"; a sound with no object (id 0) is left where the
+    /// server put it, since it belongs to the room rather than to
+    /// anything in it - unless it is one of the avatar's own, which
+    /// Mix keeps on the listener.
     /// </summary>
-    public void Follow(Func<uint, (bool Here, float X, float Y)> present,
-                       float listenerX, float listenerY, float facing)
+    public void Follow(Func<uint, (bool Here, float X, float Y, float H)> present,
+                       float listenerX, float listenerY, float listenerH, float facing)
     {
-        if (_loops.Count == 0) return;
-
         List<string> gone = null;
         foreach (var kv in _loops)
         {
-            Loop l = kv.Value;
+            Voice l = kv.Value;
             if (l?.Player == null) continue;
 
             if (l.Owner != 0 && present != null)
             {
-                (bool here, float x, float y) = present(l.Owner);
+                (bool here, float x, float y, float h) = present(l.Owner);
                 if (!here)
                 {
                     (gone ??= new List<string>()).Add(kv.Key);
                     continue;
                 }
-                l.X = x; l.Y = y;
+                l.X = x; l.Y = y; l.H = h;
             }
 
-            float dx = l.X - listenerX, dy = l.Y - listenerY;
-            float distance = MathF.Sqrt(dx * dx + dy * dy);
-            float shape = 1f / (1f + Rolloff * MathF.Min(distance, MaxDistance));
-            _gain[l.Player] = shape;
-            l.Player.VolumeDb = Mathf.LinearToDb(Mathf.Max(0.0001f, shape * Volume));
+            Mix(l, listenerX, listenerY, listenerH, facing);
+        }
 
-            float pan = 0f;
-            if (distance > 1f)
+        foreach (Voice v in _pool)
+        {
+            if (!v.Player.Playing) continue;
+            if (v.Owner != 0 && present != null)
             {
-                float c = MathF.Cos(facing), sn = MathF.Sin(facing);
-                pan = Mathf.Clamp((dx * sn - dy * c) / distance, -1f, 1f);
+                (bool here, float x, float y, float h) = present(v.Owner);
+                // A one-shot outlives its object without ceremony: the
+                // reference's node destructor stops looping and
+                // non-looping sounds alike, but a wave from a monster
+                // that has just died is half the point of it dying, so
+                // it is left to finish where it last was.
+                if (here) { v.X = x; v.Y = y; v.H = h; }
             }
-            l.Player.Position = new Vector2(pan * 400f, 0f);
+            Mix(v, listenerX, listenerY, listenerH, facing);
         }
 
         if (gone == null) return;
         foreach (string k in gone)
         {
-            Loop l = _loops[k];
-            l.Player?.Stop();
-            l.Player?.QueueFree();
-            if (l.Player != null) _gain.Remove(l.Player);
+            Drop(_loops[k]);
             _loops.Remove(k);
             if (Verbose) GD.Print($"[M59Sound] dropped {k}: its object left");
         }
     }
 
-    /// <summary>Stops a looping sound the server has finished with.</summary>
+    static void Drop(Voice v)
+    {
+        v?.Player?.Stop();
+        v?.Player?.QueueFree();
+    }
+
+    /// <summary>
+    /// Stops a sound the server has finished with.
+    ///
+    /// The reference looks in three places, in order, and stops the
+    /// FIRST sound it finds whose source is that file: the named
+    /// object's own list, then the avatar's, then its global list -
+    /// returning out of the whole handler the moment it stops one
+    /// (`ControllerSound.cpp:272-337`). Two things follow from that
+    /// which this did not do. One: with no object id it stopped EVERY
+    /// copy of the file, so one guard going quiet silenced the torches
+    /// of all the others. Two: it only ever searched the loops, while
+    /// the reference's lists hold non-looping sounds too - a long wave
+    /// the server wanted cut short played on to its end.
+    /// </summary>
     public void Stop(StopSound info)
     {
         if (info?.ResourceName == null) return;
@@ -337,28 +460,35 @@ public partial class M59Sound : Node
         string file = Key(info.ResourceName);
         if (Verbose) GD.Print($"[M59Sound] stop asked for '{file}' id {info.ID}, loops {_loops.Count}");
 
-        // The reference looks for the sound on the named object first,
-        // then on the avatar, then in its global list
-        // (`ControllerSound.cpp:259-338`). Here: the one voice for that
-        // object and that file if the message names an object, and
-        // every voice of that file if it does not.
-        var doomed = new List<string>();
-        foreach (var kv in _loops)
+        // The reference's three passes, in its order. The last one takes
+        // anything, which is how a sound whose object has since been
+        // forgotten still stops.
+        Func<Voice, bool>[] passes =
         {
-            Loop l = kv.Value;
-            if (l == null || l.File != file) continue;
-            if (info.ID != 0 && l.Owner != info.ID) continue;
-            doomed.Add(kv.Key);
-        }
+            v => info.ID != 0 && v.Owner == info.ID,
+            v => v.OnListener,
+            v => true,
+        };
 
-        foreach (string k in doomed)
+        foreach (Func<Voice, bool> pass in passes)
         {
-            Loop l = _loops[k];
-            l.Player?.Stop();
-            l.Player?.QueueFree();
-            if (l.Player != null) _gain.Remove(l.Player);
-            _loops.Remove(k);
-            if (Verbose) GD.Print($"[M59Sound] stopped {k}");
+            foreach (var kv in _loops)
+            {
+                Voice l = kv.Value;
+                if (l == null || l.File != file || !pass(l)) continue;
+                Drop(l);
+                _loops.Remove(kv.Key);
+                if (Verbose) GD.Print($"[M59Sound] stopped {kv.Key}");
+                return;
+            }
+
+            foreach (Voice v in _pool)
+            {
+                if (!v.Player.Playing || v.File != file || !pass(v)) continue;
+                v.Player.Stop();
+                if (Verbose) GD.Print($"[M59Sound] stopped one-shot {file}");
+                return;
+            }
         }
     }
 
@@ -373,11 +503,9 @@ public partial class M59Sound : Node
     /// </summary>
     public void StopAll()
     {
-        foreach (var kv in _loops)
-            if (kv.Value?.Player != null) { kv.Value.Player.Stop(); kv.Value.Player.QueueFree(); }
+        foreach (var kv in _loops) Drop(kv.Value);
         _loops.Clear();
-        foreach (var p in _pool) p.Stop();
-        _gain.Clear();
+        foreach (Voice v in _pool) { v.Player.Stop(); v.Shape = 0f; v.File = null; v.Owner = 0; }
     }
 
     /// <summary>
@@ -413,12 +541,13 @@ public partial class M59Sound : Node
 
     /// <summary>
     /// Where a sound comes from, in server units. False when the message
-    /// says nothing about a place, which means "at you".
+    /// says nothing about a place, which the caller has to read two ways
+    /// - see Play.
     /// </summary>
-    static bool Where(PlaySound info, RooFile room, float listenerX, float listenerY,
-                      out float x, out float y)
+    static bool Where(PlaySound info, RooFile room,
+                      out float x, out float y, out float h)
     {
-        x = y = 0f;
+        x = y = h = 0f;
 
         // A sound with a source object plays at that object.
         if (info.ID > 0)
@@ -437,6 +566,18 @@ public partial class M59Sound : Node
             float roomY = (info.Row - 1) * 1024f + 512f;
             x = M59Geo.WorldToKod(roomX);
             y = M59Geo.WorldToKod(roomY);
+            // And the height of the floor there, which the reference
+            // asks the room for in exactly this place -
+            // `CurrentRoom->GetHeightAt(x, z, out, true, false)` and then
+            // the same 0.0625 scaling as the other two components
+            // (`ControllerSound.cpp:420-428`). A grid square outside the
+            // BSP tree answers -1, which is not a height; the floor of
+            // the room is the honest guess there.
+            if (room != null)
+            {
+                float height = room.GetHeightAt(roomX, roomY, out RooSubSector _, true, false);
+                if (height > 0f) h = M59Geo.XYHeightToKod(height);
+            }
             return true;
         }
 
@@ -464,17 +605,33 @@ public partial class M59Sound : Node
         return stream;
     }
 
-    AudioStreamPlayer2D Idle()
+    /// <summary>
+    /// A one-shot voice: a silent one if there is one, a new one while
+    /// there is room, and otherwise the quietest of those playing. See
+    /// Voices for why it is the quietest that gives way.
+    /// </summary>
+    Voice Idle(PlaySound info)
     {
-        foreach (AudioStreamPlayer2D p in _pool)
-            if (!p.Playing) return p;
+        Voice free = null;
+        foreach (Voice v in _pool)
+            if (!v.Player.Playing) { free = v; break; }
 
-        if (_pool.Count >= Voices) return null;
+        if (free == null && _pool.Count < Voices)
+        {
+            free = new Voice { Player = new AudioStreamPlayer2D() };
+            AddChild(free.Player);
+            _pool.Add(free);
+        }
 
-        var made = new AudioStreamPlayer2D();
-        AddChild(made);
-        _pool.Add(made);
-        return made;
+        if (free == null)
+            foreach (Voice v in _pool)
+                if (free == null || v.Shape < free.Shape) free = v;
+
+        if (free == null) return null;
+        free.Player.Stop();
+        free.Owner = info.ID;
+        free.File = Key(info.ResourceName);
+        return free;
     }
 
     /// <summary>
@@ -488,21 +645,22 @@ public partial class M59Sound : Node
     /// <summary>
     /// The voice for one looping sound, made if it does not exist.
     /// </summary>
-    Loop Voice(string key, PlaySound info, float sx, float sy)
+    Voice Voice3D(string key, PlaySound info, float sx, float sy, float sh, bool onListener)
     {
         if (key == null) return null;
-        if (_loops.TryGetValue(key, out Loop had) && had?.Player != null)
+        if (_loops.TryGetValue(key, out Voice had) && had?.Player != null)
         {
-            had.X = sx; had.Y = sy;
+            had.X = sx; had.Y = sy; had.H = sh; had.OnListener = onListener;
             return had;
         }
 
-        var made = new Loop
+        var made = new Voice
         {
             Player = new AudioStreamPlayer2D(),
             Owner = info.ID,
+            OnListener = onListener,
             File = Key(info.ResourceName),
-            X = sx, Y = sy,
+            X = sx, Y = sy, H = sh,
         };
         AddChild(made.Player);
         _loops[key] = made;
@@ -510,9 +668,21 @@ public partial class M59Sound : Node
     }
 
     /// <summary>
-    /// What identifies a looping voice: the object it belongs to and
-    /// the file, so two of the same fountain in one room are two
-    /// sounds and stopping one does not stop the other.
+    /// What identifies a looping voice.
+    ///
+    /// The object it belongs to and the file, so two of the same
+    /// fountain in one room are two sounds and stopping one does not
+    /// stop the other - and the GRID SQUARE as well, because a sound
+    /// placed by row and column has no object and its id is therefore
+    /// always 0. Keyed on id and file alone, two fountains using the
+    /// same wav at opposite ends of a room collided on one key: the
+    /// second one found the first one's voice already running, moved it
+    /// to its own square, and one of the two fountains was silent while
+    /// the other was heard from the wrong place. The reference cannot
+    /// have this problem because each play3D hands back its own ISound
+    /// and it keeps them all (`ControllerSound.cpp:414-429`, :455-462,
+    /// :474-476).
     /// </summary>
-    static string LoopKey(PlaySound info) => info.ID + "|" + Key(info.ResourceName);
+    static string LoopKey(PlaySound info)
+        => info.ID + "|" + info.Row + "," + info.Column + "|" + Key(info.ResourceName);
 }
