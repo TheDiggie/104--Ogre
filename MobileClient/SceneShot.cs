@@ -52,6 +52,13 @@ public partial class SceneShot : Node
             {
                 ResourceDir = res,
                 RoomFile = room,
+                // --at X,Y and --face DEG put the camera somewhere
+                // particular, which is the only way to photograph one
+                // named wall rather than whatever the middle of the
+                // biggest leaf happens to look at.
+                CamX = Pair(Arg("--at", null), 0),
+                CamY = Pair(Arg("--at", null), 1),
+                CamFacing = float.TryParse(Arg("--face", ""), out float fa) ? fa : float.NaN,
                 RenderWidth = height * 2,
             };
             AddChild(view);
@@ -744,6 +751,14 @@ public partial class SceneShot : Node
     }
 
     /// <summary>The live view, when there is one (--host).</summary>
+    /// <summary>One number out of an "x,y" argument, or NaN.</summary>
+    static float Pair(string text, int index)
+    {
+        if (text == null) return float.NaN;
+        string[] bits = text.Split(',');
+        return bits.Length == 2 && float.TryParse(bits[index], out float f) ? f : float.NaN;
+    }
+
     static GameView FindView(Node n)
     {
         if (n is GameView v) return v;

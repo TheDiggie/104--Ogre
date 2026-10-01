@@ -69,9 +69,14 @@ Three things assumed height:
 - The field of view was horizontal, so a wider screen kept the same
   swath and threw away the sky and the floor instead - 39 degrees
   vertical at 21:9, with a duskrat two metres away filling the frame.
-  `Renderer.Projection` takes whichever of a 60-degree vertical and a
-  75-degree horizontal floor is binding, so the view widens with the
-  screen and a tall window still shows a room.
+  `Renderer.Projection` takes whichever of the vertical field of view
+  and a horizontal floor is binding, so the view widens with the
+  screen and a tall window still shows a room. The vertical angle is
+  45 degrees, which is the game's: `OgreClient.cpp:126` creates the
+  camera and never calls setFOVy, so it keeps Ogre's default. Sixty
+  was a number of mine and Ashton saw it at once - every room looked
+  bigger than it is, because a wider angle puts the walls further
+  away.
 - The chat, the target row and the hotbar stacked bottom-upwards, which
   put the hotbar across the middle of the screen - exactly where both
   thumbs drag. Sideways the chat and the target row keep to the left

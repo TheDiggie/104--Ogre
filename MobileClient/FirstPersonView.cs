@@ -37,6 +37,18 @@ public partial class FirstPersonView : Node2D
     /// <summary>Zero means size each one from its own art.</summary>
     [Export] public float DemoSpriteHeight = 0f;
 
+    /// <summary>
+    /// Where to stand, in the room's own world units, and which way to
+    /// face in degrees. Left at NaN the camera goes to the middle of
+    /// the roomiest leaf, which is fine for a general look and no use
+    /// at all when a particular wall is the thing under test - the
+    /// first hour of the no-vertical-tile work went into photographing
+    /// rooms that had no such wall in shot.
+    /// </summary>
+    [Export] public float CamX = float.NaN;
+    [Export] public float CamY = float.NaN;
+    [Export] public float CamFacing = float.NaN;
+
     readonly M59Assets _assets = new M59Assets();
     readonly TouchControls _touch = new TouchControls();
     RoomPicker _picker;
@@ -199,8 +211,10 @@ public partial class FirstPersonView : Node2D
         foreach (var v in best.Vertices) { sx += v.X; sy += v.Y; }
         _camX = sx / best.Vertices.Count;
         _camY = sy / best.Vertices.Count;
+        if (!float.IsNaN(CamX)) _camX = CamX;
+        if (!float.IsNaN(CamY)) _camY = CamY;
         _camZ = M59Geo.FloorXY(_renderer.SectorAtPoint(_camX, _camY)) + Renderer.EyeHeight;
-        _angle = 0f;
+        _angle = float.IsNaN(CamFacing) ? 0f : CamFacing * MathF.PI / 180f;
     }
 
     /// <summary>

@@ -194,3 +194,32 @@ Photographed at last: a silver arrow a few frames from the camera,
 with the fixture firing every twelve messages under M59_SHOOT=1.
 
 See also: WorldSync.cs | the fixture -> fake-server.md
+
+## No vertical tiling
+Tags: design, gotchas | WF_NO_VTILE was honoured only on walls drawn see-through, so 14% of the game's sidedefs tiled a texture up the wall that the game draws once
+
+58,043 of the 362 rooms' 406,792 sidedefs carry the flag. This
+renderer applied it only where the wall was actually drawn
+see-through, and only on the negative side of the UV - so a solid
+one, or a top-down one, repeated. In Raza's forest, where every tree
+and every building face carries it, that is most of what you look at.
+
+The rule is now: a no-vtile middle draws the one tile its mapping
+lands on, and nothing outside it. A see-through wall then shows
+whatever is behind, as it always did; a solid one shows the void,
+because the library's answer is to shorten the quad
+(`RooWall.cs:1304`) and there is nothing behind a one-sided wall to
+see. Middle parts only - the library's own comment says the bottom
+"creates strange holes".
+
+Two things this needed, both kept:
+
+- `--at X,Y` and `--face DEG` on the offline view, because the camera
+  went to the middle of the roomiest leaf and the first hour went
+  into photographing rooms with no such wall in shot.
+- The container's resource folder had 167 of the game's 1,581 room
+  textures, so Raza rendered as flat grey - the `t == null` colour -
+  and the probe that should have lit up never ran. The 71 that room
+  needs are staged now.
+
+See also: Renderer.cs | godot-ui.md

@@ -31,18 +31,24 @@ public sealed class Renderer
     /// angle came out at 39 degrees and a duskrat two metres away
     /// filled the screen.
     ///
-    /// Sixty vertical gives about ninety across at 16:9 and a hundred
-    /// at 21:9, which is what the game looks like.
+    /// Forty-five is the game's: `OgreClient.cpp:126` creates the
+    /// camera and never calls setFOVy, so it keeps Ogre's default
+    /// FOVy of 45 degrees, with the aspect coming from the viewport
+    /// (`:374`). Sixty was my own number and it made every room look
+    /// bigger than it is - a wider angle puts the walls further away.
     /// </summary>
-    public const float FovY = 60f * MathF.PI / 180f;
+    public const float FovY = 45f * MathF.PI / 180f;
 
     /// <summary>
-    /// The horizontal field of view never goes below this. Sixty
-    /// vertical on a tall screen would be a 36-degree slit; the client
-    /// is landscape now, but a window that is taller than it is wide
-    /// should still show a room rather than a corridor.
+    /// The horizontal field of view never goes below this. Forty-five
+    /// vertical on a TALL screen is a 26-degree slit, and while this
+    /// client is landscape now, a window taller than it is wide should
+    /// still show a room rather than a corridor. Sixty rather than the
+    /// old seventy-five so it cannot bind in landscape, where the
+    /// game's own vertical angle has to be the one that decides:
+    /// 45 vertical is 73 across at 16:9 and 84 at 21:9.
     /// </summary>
-    public const float FovXMin = 75f * MathF.PI / 180f;
+    public const float FovXMin = 60f * MathF.PI / 180f;
 
     /// <summary>
     /// Pixels per unit at unit depth. Whichever of the two fields of
@@ -228,6 +234,13 @@ public sealed class Renderer
     /// how the difference gets looked at.
     /// </summary>
     public bool HonourBackwards { get; set; } = true;
+
+    /// <summary>
+    /// WF_NO_VTILE: the texture is drawn once and does not repeat up
+    /// the wall. Off, every wall tiles, which is what this renderer
+    /// did for solid walls and what Ashton spotted from the game.
+    /// </summary>
+    public bool HonourNoVTile { get; set; } = true;
 
     /// <summary>
     /// Seconds of animation time, for scrolling floors and walls - water,
@@ -463,7 +476,8 @@ public sealed class Renderer
                     DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc,
                              side != null ? _tex.Get(side.MiddleTexture, texGroup) : null,
                              along, xOff, yOff, side != null && side.Flags.IsNormalTopDown,
-                             fog, tpp, false, null, 0f, 0, side != null && side.Flags.IsNoVTile,
+                             fog, tpp, false, null, 0f, 0,
+                             HonourNoVTile && side != null && side.Flags.IsNoVTile,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
                              Time);
@@ -492,7 +506,8 @@ public sealed class Renderer
                         {
                             DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid,
                                      along, xOff, yOff, side.Flags.IsNormalTopDown, fog, tpp,
-                                     false, null, 0f, 0, side.Flags.IsNoVTile,
+                                     false, null, 0f, 0,
+                                     HonourNoVTile && side.Flags.IsNoVTile,
                                      side.Flags.ScrollSpeed, side.Flags.ScrollDirection, Time);
                             _depth[sx] = perp;
                             closed = true;
@@ -508,7 +523,7 @@ public sealed class Renderer
                                 Y0 = yTop, Y1 = yBot, SpanTopY = ceilY, SpanBotY = floorY,
                                 SpanTopH = nc, SpanBotH = nf, Along = along, XOff = xOff,
                                 YOff = yOff, TopDown = side.Flags.IsNormalTopDown,
-                                NoVTile = side.Flags.IsNoVTile,
+                                NoVTile = HonourNoVTile && side.Flags.IsNoVTile,
                                 ScrollSpeed = side.Flags.ScrollSpeed,
                                 ScrollDir = side.Flags.ScrollDirection,
                                 Fog = fog, Tpp = tpp, T = mid });
@@ -903,7 +918,21 @@ public sealed class Renderer
                 // clipping a solid wall would leave a hole you can see the
                 // void through. A tiled texture is the better of the two
                 // wrongs.
-                if (noVTile && masked && v < 0f) continue;
+                if (noVTile && (v < 0f || v >= 1f))
+                {
+                    // One tile, and nothing above or below it. The
+                    // library gets there by clipping the quad so the UV
+                    // never leaves [0,1] (`RooWall.cs:1304`); a column
+                    // renderer just declines the texels outside it.
+                    //
+                    // A see-through wall lets the column carry on and
+                    // shows whatever is behind. A solid one has nothing
+                    // behind it - the library's shortened quad would
+                    // show the void there - so the void is what goes
+                    // in, rather than the previous frame's pixels.
+                    if (!masked) px[y * W + sx] = 0xFF000000u;
+                    continue;
+                }
                 uint texel = masked ? t.Sample(v, u) : t.Sample(v, u, tpp);
                 // A see-through wall keeps the palette's transparent index,
                 // which carries alpha 0; those texels are skipped, not
