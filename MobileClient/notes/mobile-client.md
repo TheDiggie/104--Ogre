@@ -59,3 +59,24 @@ red line one row below the crop. Reverted in 4bf67fa.
 branch at all - and it hard-gates on line of sight.
 
 See also: the hotbar -> HotbarStore.cs | lessons -> rulings.md
+
+## The phone has no space bar, so it has a Go button
+Tags: design | ReqGo is the reference's Open key and has no AvatarAction, no target and no other way in - without a button of its own this client could walk around one room and never leave it
+
+`SendReqGo(true)` is what space does in the game
+(`OISKeyBinding.cpp:52` binds it, `ControllerInput.cpp:552` dispatches
+it). The `true` sends the turn and the move out first, so the server
+knows where you are standing and which way you face before it is asked
+to take you through.
+
+It is not the target row's Open and not `AvatarAction.Activate`: those
+act on a thing you tapped, and ReqGo carries no argument at all. There
+is no AvatarAction for it either, so it cannot be a hotbar button - it
+has to be its own control. It sits in the bottom row between Log and
+Settings, registered with `Panels.Opener` so it hides with the row.
+
+Placing it by slot arithmetic alone drew it on top of Settings, which
+is 96 wide where every other slot is 76: the shot read "SetGoings".
+Look at the row, not at the numbers.
+
+See also: godot-ui.md | the fixture -> fake-server.md

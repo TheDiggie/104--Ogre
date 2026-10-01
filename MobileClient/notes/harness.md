@@ -61,6 +61,8 @@ Tags: process | Kept so the next session tests something new rather than re-prov
 - Chat flood: 205 lines, the full log scrolls and closes.
 - Walking: a held stick drag sends `ReqMove`, the minimap redraws, and a
   wall stops you instead of letting you through.
+- Go: the new button puts `ReqGo` on the wire and the fixture answers,
+  which is as far as it can be taken until there is a second room.
 
 See also: the fixture -> fake-server.md | the panels -> mobile-client.md
 

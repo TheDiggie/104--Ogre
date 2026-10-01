@@ -463,6 +463,17 @@ static class FakeServer
                     break;
                 }
 
+                case MessageTypeGameMode.ReqGo:
+                    // The Open key's request: "take me through whatever
+                    // I am standing at". Its body is the PI and nothing
+                    // else - there is no argument to read. A real server
+                    // answers with a room change, which this fixture has
+                    // no second room to give, so it says so instead and
+                    // the client's half is still proved on the wire.
+                    Console.WriteLine("  <- ReqGo");
+                    Say(ns, ctrl, RID_ECHO);
+                    break;
+
                 case MessageTypeGameMode.UserCommand:
                 {
                     // The body is the PI and then the user-command type,

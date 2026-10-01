@@ -81,7 +81,7 @@ public partial class GameView : Node2D
     ObjectBase _amountForTrade;
     uint _targetBeforeBag = uint.MaxValue;
     RoomBuffsPanel _roomBuffs;
-    Button _loot;
+    Button _loot, _go;
     LootPanel _lootList;
     LootPanel _contents;
     BuyPanel _shop;
@@ -250,10 +250,26 @@ public partial class GameView : Node2D
     /// <summary>Bottom right, left of the map toggle.</summary>
     void LayoutLoot()
     {
-        if (_loot == null) return;
         Vector2 v = GetViewportRect().Size;
-        _loot.Size = new Vector2(76, 40);
-        _loot.Position = new Vector2(v.X - 70f - 12f - 76f - 8f, v.Y - 40f - 12f);
+        if (_loot != null)
+        {
+            _loot.Size = new Vector2(76, 40);
+            _loot.Position = new Vector2(v.X - 70f - 12f - 76f - 8f, v.Y - 40f - 12f);
+        }
+
+        // The far end of the same row, past Settings. Slot arithmetic
+        // alone puts it underneath Settings, which is 96 wide rather
+        // than 76 - the first attempt drew "Go" straight through the
+        // word and the shot showed "SetGoings". So: the seven 76-wide
+        // slots from Map to Guild, then Settings' own 96, then this.
+        if (_go != null)
+        {
+            const float edge = 12f, map = 70f, gap = 8f, slot = 76f, settings = 96f;
+            _go.Size = new Vector2(slot, 40);
+            _go.Position = new Vector2(
+                v.X - (edge + map + gap + (slot + gap) * 7f + settings + gap + slot),
+                v.Y - 40f - 12f);
+        }
     }
 
     /// <summary>Status text from a worker thread.</summary>
@@ -860,6 +876,29 @@ public partial class GameView : Node2D
             _ui.AddChild(_loot);
             Panels.Opener(_loot);
 
+            // Go, which is the game's Open key - space, by default
+            // (`OISKeyBinding.cpp:52`), dispatched at
+            // `ControllerInput.cpp:552` as SendReqGo(true).
+            //
+            // It is not AvatarAction.Activate and not the target row's
+            // Open: those act on a thing you have tapped. ReqGo takes no
+            // argument at all - it is "take me through", the doors and
+            // the passages between rooms - and there is no AvatarAction
+            // for it, so it cannot be a hotbar button and has to be its
+            // own control.
+            //
+            // Without it this client could walk around one room and
+            // never leave it. A phone has no space bar; the reference
+            // never had to think about that.
+            _go = new Button { Text = "Go" };
+            // true, so the server is told where we are standing and
+            // which way we face before it is asked to move us - the
+            // reference passes the same, and SendReqGo forces both the
+            // turn and the move out ahead of the request.
+            _go.Pressed += () => Act(() => _client.SendReqGo(true));
+            _ui.AddChild(_go);
+            Panels.Opener(_go);
+
             // The list the game has: what is in the thing, with names in
             // the library's own colours, and a Get for one item as well as
             // the Get All this button does.
@@ -1108,6 +1147,7 @@ public partial class GameView : Node2D
         foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _face, _vitals, _chat })
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;
+        if (_go != null) _go.Visible = inWorld;
 
         // Your target survives a look in the bag. Picking a carried
         // thing targets it, which the game does too, but that is a
