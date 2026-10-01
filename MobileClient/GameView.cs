@@ -2498,7 +2498,7 @@ public partial class GameView : Node2D
 
         RoomObject avatar = _client.Data.AvatarObject;
         if (avatar == null) return;
-        WorldSync.Camera(avatar, out float cx, out float cy, out float cz);
+        _world.Camera(avatar, out float cx, out float cy, out float cz);
 
         // Everything under the thumb, nearest first, so a second tap in
         // the same place reaches what is standing behind the first
@@ -2561,7 +2561,7 @@ public partial class GameView : Node2D
         Vector2 view = GetViewportRect().Size;
         if (view.X < 1f || view.Y < 1f) return false;
 
-        WorldSync.Camera(avatar, out float cx, out float cy, out float cz);
+        _world.Camera(avatar, out float cx, out float cy, out float cz);
 
         // Coarse: a phone sprite a grid step wide is not worth missing,
         // and the whole sweep is a few thousand picks on a buffer that
@@ -3029,7 +3029,7 @@ public partial class GameView : Node2D
         float cx, cy, cz, ang;
         if (avatar != null)
         {
-            WorldSync.Camera(avatar, out cx, out cy, out cz);
+            _world.Camera(avatar, out cx, out cy, out cz);
             ang = avatar.Angle;
         }
         else

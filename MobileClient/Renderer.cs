@@ -84,9 +84,40 @@ public sealed class Renderer
     /// away with it because its avatar is always fully dressed. A
     /// constant that is right for everyone is worth more than a
     /// measurement that is right for most and badly wrong for the
-    /// rest, so this stays until the composed avatar can be trusted.
+    /// rest, so this is the FALLBACK and <see cref="Eye"/> is the
+    /// answer.
     /// </summary>
     public const float EyeHeight = GeometryConstants.PLAYERHEIGHT * M59Geo.HeightToXY;
+
+    /// <summary>
+    /// Where the eye sits above the floor, given how tall the avatar is
+    /// actually drawn.
+    ///
+    /// The reference takes 93% of the drawn height of the whole composed
+    /// body (RemoteNode.cpp:406-425 through Util::GetSceneNodeHeight,
+    /// which is the tallest attached object's bounding box), and it
+    /// only moves the camera when the answer changes by more than
+    /// sixteen units. A billboard's height there is
+    /// RenderInfo.WorldSize.Y (RemoteNode2D.cpp:89-93,
+    /// RenderInfo.cs:523-524), which is the frame's pixels over the
+    /// file's shrink - the same number Renderer.WorldHeight computes.
+    ///
+    /// The reason this was reverted once is real: an avatar whose
+    /// sub-overlays have not arrived composes short, and 93% of short
+    /// puts the camera on the floor with a rat looming over you. The
+    /// reference is exposed to the same thing and gets away with it
+    /// because its avatar is always dressed. So the measurement is
+    /// taken, and refused when it is not believable - outside 0.6 to 2
+    /// times the library's own PLAYERHEIGHT, which spans every race in
+    /// the game and excludes a body that is missing most of itself.
+    /// </summary>
+    public static float Eye(float drawnHeight)
+    {
+        if (drawnHeight <= 0f) return EyeHeight;
+        float eye = drawnHeight * 0.93f;
+        if (eye < EyeHeight * 0.6f || eye > EyeHeight * 2f) return EyeHeight;
+        return eye;
+    }
     public const float FogFar = 4500f;
 
     /// <summary>

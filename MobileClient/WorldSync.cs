@@ -398,12 +398,45 @@ public sealed class WorldSync
               || f.Drawing == ObjectFlags.DrawingType.DitherTrans) sp.Opacity = 0.50f;
     }
 
+    /// <summary>
+    /// How tall the avatar is drawn, in room units, or zero if there is
+    /// nothing to measure yet. Kept between frames because it is the
+    /// camera height and the camera must not bob when a frame of the
+    /// walk animation happens to be shorter.
+    /// </summary>
+    float _avatarHeight;
+
     /// <summary>Camera position in room units, eye height included.</summary>
-    public static void Camera(RoomObject avatar, out float x, out float y, out float z)
+    public void Camera(RoomObject avatar, out float x, out float y, out float z)
     {
         x = M59Geo.KodToWorld(avatar.Position3D.X);
         y = M59Geo.KodToWorld(avatar.Position3D.Z);
-        z = M59Geo.KodHeightToXY(avatar.Position3D.Y) + Renderer.EyeHeight;
+
+        // The eye is 93% of the avatar's own drawn height, as the
+        // reference has it (RemoteNode.cpp:406-425) - see Renderer.Eye,
+        // which refuses a measurement that is not believable. The
+        // reference only moves its camera when the answer shifts by
+        // more than sixteen units (:423-425); the same threshold here
+        // stops the view bobbing on an animation frame.
+        float h = Measured(avatar);
+        if (h > 0f && MathF.Abs(h - _avatarHeight) > 16f) _avatarHeight = h;
+
+        z = M59Geo.KodHeightToXY(avatar.Position3D.Y) + Renderer.Eye(_avatarHeight);
+    }
+
+    /// <summary>The avatar's drawn height, composed body and all.</summary>
+    float Measured(RoomObject avatar)
+    {
+        if (Renderer == null || avatar == null) return 0f;
+        try
+        {
+            ComposeCache.Entry c = Composed ? _compose.Get(avatar, avatar.Position2D, false) : null;
+            if (c != null && c.WorldH > 0f) return c.WorldH;
+            var probe = new Renderer.Sprite { Bgf = avatar.Resource, Group = 1,
+                                              AngleUnits = avatar.ViewerAngle };
+            return Renderer.WorldHeight(probe);
+        }
+        catch { return 0f; }
     }
 
     /// <summary>
