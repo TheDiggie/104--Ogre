@@ -25,6 +25,13 @@ public sealed class M59Assets
     public bool Ready { get; private set; }
     public string Error { get; private set; }
 
+    /// <summary>
+    /// True when Error is a thrown exception rather than a folder the
+    /// player can go and choose again. The two want different
+    /// treatment: one is a bug report, the other is a prompt.
+    /// </summary>
+    public bool Threw { get; private set; }
+
     readonly Dictionary<string, ImageTexture> _cache = new Dictionary<string, ImageTexture>();
 
     /// <summary>
@@ -37,6 +44,7 @@ public sealed class M59Assets
         if (string.IsNullOrWhiteSpace(resourceDir) || !Directory.Exists(resourceDir))
         {
             Error = $"Resource folder not found:\n{resourceDir}";
+            Threw = false;
             return false;
         }
 
@@ -57,6 +65,7 @@ public sealed class M59Assets
             // ResourceManager.Init had thrown it, which cost a build
             // cycle and a guess. A message without a stack is a riddle.
             Error = e.ToString();
+            Threw = true;
             return false;
         }
     }

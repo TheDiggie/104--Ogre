@@ -303,7 +303,17 @@ public partial class GameView : Node2D
     /// <summary>Everything that needs the resource folder, once it is known.</summary>
     void Start(string dir)
     {
-        if (!_assets.Init(dir)) { Boom("loading the game files", _assets.Error); return; }
+        if (!_assets.Init(dir))
+        {
+            // A folder that is simply not there is the player's to fix,
+            // and putting the crash screen over it would bury the
+            // prompt that lets them fix it. A throw is a different
+            // thing and wants its whole stack, on a screen you can
+            // scroll and copy from.
+            if (_assets.Threw) Boom("loading the game files", _assets.Error);
+            else Fail(_assets.Error);
+            return;
+        }
         _resDir = dir;
 
         string user = !string.IsNullOrWhiteSpace(Username)
