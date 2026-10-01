@@ -1083,7 +1083,11 @@ public partial class GameView : Node2D
                 if (_amount == null || o == null) return;
                 _amountFor = null;
                 _amountForTrade = o;
-                _amount.Ask(o.ID, (int)o.Count, o.Name);
+                // Prefilled with what you chose last time, capped at the
+                // live stack. Passing o.Count as both put the whole
+                // stack back every time the prompt was re-opened, and OK
+                // writes the box back - see TradePanel.Chosen.
+                _amount.Ask(o.ID, (int)_trade.Chosen(o), (int)o.Count, o.Name);
             };
             _trade.AddWanted += () =>
             {

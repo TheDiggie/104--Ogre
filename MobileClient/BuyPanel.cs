@@ -173,7 +173,26 @@ public partial class BuyPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.95f), Visible = false };
+        // Opaque. At 0.95 the chat overlay (added to the same layer, and
+        // anchored to the bottom-left) shows through at 5%, which is
+        // plenty for white text on this colour: on 1920x1080 the running
+        // total sits at y~860, exactly where the chat lines draw, and
+        // the one number a player must read before spending had chat
+        // running through it.
+        //
+        // Why the whole panel rather than the alternatives. MOVING the
+        // total only relocates the collision: the chat block is anchored
+        // to the screen, not to this panel, and in portrait it spans the
+        // full width, so nowhere in the lower half of the panel is safe.
+        // GIVING THE TOTAL ITS OWN BACKING fixes one label and leaves the
+        // prices, names and button captions beside it ghosted by the same
+        // bleed. The game has neither problem because its shop is an
+        // opaque CEGUI frame (`UIBuy.cpp:12` takes it as a FrameWindow),
+        // so nothing draws behind any of it; an opaque panel is the same
+        // thing, and the 5% it gives up showed nothing of the world
+        // anyway. ChatOverlay's own full-screen log is opaque for the
+        // same reason (ChatOverlay.cs, `_fullBack`).
+        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 1f), Visible = false };
         AddChild(_panel);
 
         _title = new Label { Text = "For sale", Visible = false };

@@ -112,12 +112,36 @@ public partial class TradePanel : Control
         // IsStackable is Count > 0 (`ObjectID.cs:202-205`), the same
         // test the reference's box visibility uses.
         if (o == null || !o.IsStackable) return 0u;
+        return Chosen(o);
+    }
 
+    /// <summary>
+    /// How many of this stack you have said you are parting with, which
+    /// is the whole stack until you say otherwise.
+    ///
+    /// This is what the amount prompt has to be opened with. Opening it
+    /// on `o.Count` instead put the WHOLE STACK back in the box every
+    /// time you looked at it, and since OK writes the box back, tapping
+    /// the number to check it said 22 and pressing OK handed over all
+    /// 25 - a trade being irreversible once accepted. The reference has
+    /// no such hole because the chosen amount lives in the row's own
+    /// edit box and is read straight back out of it on Offer
+    /// (`UITrade.cpp:207` fills it once from obj->Count, `:398-414`
+    /// reads whatever is in it); here the row is redrawn, so the number
+    /// has to be handed back from the place that kept it.
+    ///
+    /// The CEILING is still the live stack, not this: unlike a shop line
+    /// (`BuyPanel.Most`) nothing ever writes a smaller number into the
+    /// object, so o.Count cannot ratchet down.
+    /// </summary>
+    public uint Chosen(ObjectBase o)
+    {
+        if (o == null) return 0u;
         uint have = o.Count;
         uint n = _amounts.TryGetValue(o.ID, out uint set) ? set : have;
         if (n < 1) n = 1;
         // Never more than the stack holds: the offer path silently
-        // Bounds it (`user.kod:6877-6878`) but the counter-offer path
+        // bounds it (`user.kod:6877-6878`) but the counter-offer path
         // cancels the trade outright (`user.kod:7237-7244`).
         if (n > have) n = have;
         return n;
