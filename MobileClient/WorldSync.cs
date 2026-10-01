@@ -468,6 +468,9 @@ public sealed class WorldSync
     /// </summary>
     float _avatarHeight;
 
+    /// <summary>The reference's 16 scene units, in room units.</summary>
+    public const float EyeDeadband = 256f;
+
     /// <summary>Camera position in room units, eye height included.</summary>
     public void Camera(RoomObject avatar, out float x, out float y, out float z)
     {
@@ -477,11 +480,16 @@ public sealed class WorldSync
         // The eye is 93% of the avatar's own drawn height, as the
         // reference has it (RemoteNode.cpp:406-425) - see Renderer.Eye,
         // which refuses a measurement that is not believable. The
-        // reference only moves its camera when the answer shifts by
-        // more than sixteen units (:423-425); the same threshold here
-        // stops the view bobbing on an animation frame.
+        // reference only moves its camera when the eye shifts by more
+        // than 16.0f (:423-425), but that is SCENE units: the height
+        // is RenderInfo.WorldSize.Y (Util.h:847-867 via
+        // RemoteNode2D.cpp:88-93), and the room is built at SCALE
+        // 0.0625 (ControllerRoom.h:73), so one scene unit is 16 room
+        // units and the dead band is 256 here - the same figure
+        // NameTags.Deadband uses. The comparison is on the EYE
+        // (0.93 of the height, :411 vs :420), not the raw height.
         float h = Measured(avatar);
-        if (h > 0f && MathF.Abs(h - _avatarHeight) > 16f) _avatarHeight = h;
+        if (h > 0f && MathF.Abs(h - _avatarHeight) * 0.93f > EyeDeadband) _avatarHeight = h;
 
         z = M59Geo.KodHeightToXY(avatar.Position3D.Y) + Renderer.Eye(_avatarHeight);
     }

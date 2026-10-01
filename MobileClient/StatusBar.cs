@@ -155,12 +155,13 @@ public partial class StatusBar : Control
         uint tps = data.TPS, rtt = data.RTT;
         int online = data.OnlinePlayers != null ? data.OnlinePlayers.Count : 0;
         bool safetyOff = data.ClientPreferences != null && data.ClientPreferences.IsSafetyOff;
+        bool known = PrefsKnown(data);
         string room = data.RoomInformation != null ? data.RoomInformation.RoomName : "";
         string clock = data.MeridianTime.ToShortTimeString();
 
         // The labels are rebuilt only when something in them changed;
         // this runs every frame.
-        string now = $"{tps}|{rtt}|{online}|{safetyOff}|{room}|{clock}";
+        string now = $"{tps}|{rtt}|{online}|{safetyOff}|{known}|{room}|{clock}";
         if (now == _shown) return;
         _shown = now;
 
@@ -180,21 +181,68 @@ public partial class StatusBar : Control
         _room.Text = string.IsNullOrWhiteSpace(room) ? "" : room;
 
         _players.Text = online.ToString();
-        _safety.Text = safetyOff ? "safety off" : "safety on";
-        _safety.AddThemeColorOverride("font_color", safetyOff ? DarkRed : PaleGreen);
+        // Before the server's word arrives every flag reads zero, so
+        // "safety on" would be a guess dressed as a fact - say so.
+        _safety.Text = !known ? "safety ..." : safetyOff ? "safety off" : "safety on";
+        _safety.AddThemeColorOverride("font_color", !known ? Plain : safetyOff ? DarkRed : PaleGreen);
 
         Layout();
     }
 
     /// <summary>
+    /// Whether the server's preference word has arrived
+    /// (UC_RECEIVE_PREFERENCES sets PreferencesFlags.Enabled,
+    /// DataController.cs:2784-2786).
+    /// </summary>
+    static bool PrefsKnown(DataController data) =>
+        data?.ClientPreferences != null && data.ClientPreferences.Enabled;
+
+    Label _note;
+    int _noteToken;
+
+    /// <summary>
     /// Flips safety the way the file does: the preference first, then
     /// the server is told. Wired by the caller because only it has a
     /// client to tell.
+    ///
+    /// DIVERGES from the reference, on purpose. UIStatusBar.cpp:222-235
+    /// (OnSafetyClicked) flips and sends with no check. But the send is
+    /// the WHOLE 32-bit word (BaseClient.cs:979-989), and until
+    /// UC_RECEIVE_PREFERENCES arrives that word reads zero, so the tap
+    /// would send CF_SAFETY_OFF alone and user.kod:2366-2406
+    /// (UserCommandSetPreferences) would apply every differing bit -
+    /// quietly clearing autoloot, grouping, bags and the rest on the
+    /// server, with safety (which stops you hitting innocents,
+    /// user.kod:2226-2249) the one thing turned OFF. OptionsPanel gates
+    /// its switches on the same flag for the same reason
+    /// (OptionsPanel.cs:850). So the tap does nothing until the word is
+    /// known - and says why, in the page, rather than being a dead
+    /// button.
     /// </summary>
     public void Flip(DataController data)
     {
         if (data?.ClientPreferences == null) return;
+        if (!PrefsKnown(data)) { Explain("Still loading your settings from the server - try again in a moment."); return; }
         data.ClientPreferences.IsSafetyOff = !data.ClientPreferences.IsSafetyOff;
         Safety?.Invoke(data.ClientPreferences.IsSafetyOff);
+    }
+
+    void Explain(string text)
+    {
+        if (_note == null)
+        {
+            _note = Text("");
+            _note.AddThemeColorOverride("font_color", Yellow);
+        }
+        _note.Text = text;
+        // On the first row, past the room name: the line below belongs to
+        // the debug text, and a note drawn over it cannot be read.
+        _note.Position = new Vector2(_room.Position.X + _room.Size.X + 14f, _fps.Position.Y);
+        _note.Visible = true;
+        int token = ++_noteToken;
+        GetTree().CreateTimer(6.0).Timeout += () =>
+        {
+            if (token == _noteToken && _note != null) _note.Visible = false;
+        };
     }
 }
