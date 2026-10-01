@@ -50,7 +50,13 @@ public sealed class M59Assets
         }
         catch (Exception e)
         {
-            Error = $"{e.GetType().Name}: {e.Message}";
+            // The whole trace, not the message. On a phone this line IS
+            // the debugger: the first Android build died here with
+            // "PlatformNotSupportedException: Operation is not supported
+            // on this platform." and nothing to say which call inside
+            // ResourceManager.Init had thrown it, which cost a build
+            // cycle and a guess. A message without a stack is a riddle.
+            Error = e.ToString();
             return false;
         }
     }

@@ -155,9 +155,17 @@ public partial class GameView : Node2D
     /// Puts the whole exception on the screen, because on a phone there
     /// is nowhere else for it to go.
     /// </summary>
-    void Boom(string where, Exception e)
+    void Boom(string where, Exception e) => Boom(where, e.ToString());
+
+    /// <summary>
+    /// The same full-screen report for a failure that is already a
+    /// string - the resource manager hands back its trace that way.
+    /// A stack trace in the one-line status label is a stack trace
+    /// nobody can read, which on a phone means nobody can report it.
+    /// </summary>
+    void Boom(string where, string detail)
     {
-        GD.PrintErr($"[GameView] {where}: {e}");
+        GD.PrintErr($"[GameView] {where}: {detail}");
         if (_crash != null) return;
 
         _crash = new RichTextLabel
@@ -165,7 +173,7 @@ public partial class GameView : Node2D
             BbcodeEnabled = false,
             SelectionEnabled = true,
             ScrollFollowing = false,
-            Text = $"{where} failed" + "\n\n" + e.ToString(),
+            Text = $"{where} failed" + "\n\n" + detail,
         };
         _crash.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         _crash.OffsetLeft = 12; _crash.OffsetTop = 40;
@@ -279,7 +287,7 @@ public partial class GameView : Node2D
     /// <summary>Everything that needs the resource folder, once it is known.</summary>
     void Start(string dir)
     {
-        if (!_assets.Init(dir)) { Fail(_assets.Error); return; }
+        if (!_assets.Init(dir)) { Boom("loading the game files", _assets.Error); return; }
         _resDir = dir;
 
         string user = !string.IsNullOrWhiteSpace(Username)
