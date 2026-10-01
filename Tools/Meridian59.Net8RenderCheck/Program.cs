@@ -39,6 +39,7 @@ static class RenderCheck
         if (mode == "anim"    || mode == "all") bad += Animated(dir);
         if (mode == "anchor"  || mode == "all") Anchor(dir);
         if (mode == "sky"     || mode == "all") bad += Sky(dir);
+        if (mode == "holes"   || mode == "all") Holes(dir);
         return bad == 0 ? 0 : 1;
     }
 
@@ -125,6 +126,53 @@ static class RenderCheck
         if (ax >= ay && ax >= az) return ox > 0 ? 0 : 1;
         if (ay >= az)             return oy > 0 ? 2 : 3;
         return oz < 0 ? 4 : 5;
+    }
+
+    /// <summary>
+    /// Whether a two-sided wall's middle can be seen past is decided in
+    /// the reference per TEXEL, not per sidedef: every wall part gets
+    /// the same cloned base_material_room with
+    /// `alpha_rejection greater_equal 64` (general.material:263) and
+    /// palette index 254 arrives as alpha 0
+    /// (ColorTransformations.cs:256-257). The Ogre client never reads
+    /// WF_TRANSPARENT or WF_NOLOOKTHROUGH at all - their one reader in
+    /// the whole solution is RooWall.IsBlockingSight
+    /// (RooWall.cs:1037-1046), which is targeting and camera collision.
+    ///
+    /// So the renderer keys off the art. This counts how often the art
+    /// and the flags say the same thing, which is what makes the change
+    /// safe to make.
+    /// </summary>
+    static void Holes(string dir)
+    {
+        var rm = new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
+        int agree=0, flagOnly=0, holesOnly=0, art=0;
+        var names = new List<string>();
+        foreach (string path in Directory.GetFiles(dir, "*.roo").OrderBy(x=>x))
+        {
+            RooFile roo; try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
+            var tc = new TexCache(rm);
+            foreach (RooWall w in roo.Walls)
+            {
+                if (w.RightSide == null || w.LeftSide == null) continue;
+                foreach (RooSideDef sd in new[]{ w.RightSide, w.LeftSide })
+                {
+                    if (sd == null || sd.MiddleTexture == 0) continue;
+                    Tex mt = tc.Get(sd.MiddleTexture, 1);
+                    if (mt == null) continue;
+                    art++;
+                    bool fl = sd.Flags.IsTransparent && !sd.Flags.IsNoLookThrough;
+                    if (fl == mt.HasHoles) agree++;
+                    else if (fl) { flagOnly++; if (names.Count < 8) names.Add($"{Path.GetFileName(path)} grd{sd.MiddleTexture} flagged but solid art"); }
+                    else { holesOnly++; if (names.Count < 8) names.Add($"{Path.GetFileName(path)} grd{sd.MiddleTexture} holes but unflagged"); }
+                }
+            }
+        }
+        Console.WriteLine($"{art} two-sided middles whose art is present here");
+        Console.WriteLine($"  flags and art agree                : {agree}");
+        Console.WriteLine($"  flagged see-through, art is solid  : {flagOnly}");
+        Console.WriteLine($"  art has holes, not flagged         : {holesOnly}");
+        foreach (string n in names) Console.WriteLine($"    {n}");
     }
 
     /// <summary>

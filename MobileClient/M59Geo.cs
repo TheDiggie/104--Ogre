@@ -175,6 +175,19 @@ public sealed class Tex
     /// </summary>
     public int Shrink = 1;
 
+    /// <summary>
+    /// Whether any texel carries the transparent key (palette index
+    /// 254). This, not a flag on the sidedef, is what decides whether
+    /// you can see past a wall in the reference: every wall part gets
+    /// the same cloned base_material_room, whose pass is
+    /// `alpha_rejection greater_equal 64` (general.material:263), and
+    /// index 254 reaches the GPU as alpha 0 while every other palette
+    /// entry is forced opaque (ColorTransformations.cs:256-257,
+    /// :401, :485). A rejected fragment writes no colour and no depth,
+    /// so the room behind shows through in exactly the hole texels.
+    /// </summary>
+    public bool HasHoles;
+
     /// <summary>Level 0 is P; each subsequent level is half size.</summary>
     int[] _lw, _lh;
     uint[][] _levels;
@@ -261,6 +274,7 @@ public sealed class Tex
         if (idx == null || w <= 0 || h <= 0 || idx.Length < w * h) return null;
         uint[] pal = ColorTransformation.DefaultPalette;
         var p = new uint[w * h];
+        bool holes = false;
         for (int i = 0; i < w * h; i++)
         {
             byte c = idx[i];
@@ -271,9 +285,11 @@ public sealed class Tex
             // colour outright. Nothing in this renderer's opaque path can see
             // through a wall, so the honest stand-in is the void colour the
             // column walk itself uses when there is nothing to draw.
-            p[i] = c == Transparent ? Void : pal[c] | 0xFF000000u;
+            if (c == Transparent) { p[i] = Void; holes = true; }
+            else p[i] = pal[c] | 0xFF000000u;
         }
-        var t = new Tex { W = w, H = h, P = p, Shrink = Math.Max(1, (int)bgf.ShrinkFactor) };
+        var t = new Tex { W = w, H = h, P = p, HasHoles = holes,
+                          Shrink = Math.Max(1, (int)bgf.ShrinkFactor) };
         t.BuildMips();
         return t;
     }

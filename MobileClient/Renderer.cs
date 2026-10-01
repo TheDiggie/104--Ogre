@@ -381,10 +381,14 @@ public sealed class Renderer
     public bool NoSample { get; set; } = false;
 
     /// <summary>
-    /// Honour WF_TRANSPARENT on two-sided walls: grates, railings and
-    /// doorways are drawn with their transparency and you see past them.
-    /// Off treats them as solid, which is what this renderer did before,
-    /// and is how the difference gets measured.
+    /// Draw a wall's transparency: a grate, railing or doorway whose
+    /// texture has holes in it is seen past. Off treats every one of
+    /// them as solid, which is what this renderer did before, and is how
+    /// the difference gets measured.
+    ///
+    /// Which walls those are comes from the ART - see where this is
+    /// read. It used to come from WF_TRANSPARENT and WF_NOLOOKTHROUGH,
+    /// which the Ogre client never reads for anything.
     /// </summary>
     public bool SeeThroughWalls { get; set; } = true;
 
@@ -796,12 +800,35 @@ public sealed class Renderer
                 // used to be a solid wall.
                 if (side != null && side.MiddleTexture != 0)
                 {
-                    bool seeThrough = SeeThroughWalls
-                                   && side.Flags.IsTransparent && !side.Flags.IsNoLookThrough;
+                    // What decides this is the ART, not the sidedef.
+                    // Every wall part in the reference gets the same
+                    // cloned base_material_room (ControllerRoom.cpp:1008
+                    // into Util.h:536-559), whose pass is
+                    // `alpha_rejection greater_equal 64`
+                    // (general.material:263); palette index 254 reaches
+                    // the GPU as alpha 0 while every other entry is
+                    // forced opaque (ColorTransformations.cs:256-257,
+                    // :401, :485), and a rejected fragment writes
+                    // neither colour nor depth. So a grate's bars occlude
+                    // and its gaps do not, per texel, with no flag
+                    // consulted anywhere: the Ogre client never reads
+                    // WF_TRANSPARENT or WF_NOLOOKTHROUGH at all. Their
+                    // one reader in the whole solution is
+                    // RooWall.IsBlockingSight (RooWall.cs:1037-1046),
+                    // which is targeting and camera collision - "you
+                    // cannot shoot through this even though it has holes
+                    // in it" - and has no business in a draw path.
+                    //
+                    // Flags and art say the same thing 5367 times out of
+                    // 5399 here; the 32 that differ were drawn wrongly,
+                    // and 23 of them were being sent down the masked path
+                    // for a texture with nothing to see through.
+                    Tex solid = _tex.Get(side.MiddleTexture, texGroup);
+                    bool seeThrough = SeeThroughWalls && solid != null && solid.HasHoles;
 
                     if (!seeThrough)
                     {
-                        Tex mid = _tex.Get(side.MiddleTexture, texGroup);
+                        Tex mid = solid;
                         if (mid != null)
                         {
                             DrawWall(px, W, H, sx,

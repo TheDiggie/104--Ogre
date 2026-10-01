@@ -52,6 +52,30 @@ static class Fpv
         // which is what this renderer did before it read
         // RooSubSector.UpdateVertexUV. For comparing.
         if (flags.Contains("--worldflats")) r.LeafAnchoredFlats = false;
+        if (flags.Contains("--holes"))
+        {
+            // (one room; --holesall walks them all)
+            int flagT=0, flagN=0, holeT=0, holeN=0, both=0, onlyFlag=0, onlyHole=0;
+            foreach (var w in roo.Walls)
+            foreach (var sd in new[]{ w.RightSide, w.LeftSide })
+            {
+                if (sd == null || sd.MiddleTexture == 0) continue;
+                if (w.RightSide == null || w.LeftSide == null) continue;   // two-sided only
+                bool fl = sd.Flags.IsTransparent && !sd.Flags.IsNoLookThrough;
+                Tex mt = tc.Get(sd.MiddleTexture, 1);
+                if (mt == null) continue;
+                bool ho = mt.HasHoles;
+                if (fl) flagT++; else flagN++;
+                if (ho) holeT++; else holeN++;
+                if (fl && ho) both++;
+                else if (fl) onlyFlag++;
+                else if (ho) onlyHole++;
+            }
+            Console.WriteLine($"  two-sided middles: flag says see-through {flagT}, solid {flagN}");
+            Console.WriteLine($"                     art has holes {holeT}, none {holeN}");
+            Console.WriteLine($"    agree {both}, flag only {onlyFlag}, holes only {onlyHole}");
+        }
+
         if (flags.Contains("--secdbg"))
         {
             foreach (var g in roo.Sectors.GroupBy(x => x.CeilingTexture).OrderByDescending(x => x.Count()).Take(8))
