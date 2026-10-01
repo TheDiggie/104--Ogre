@@ -62,6 +62,8 @@ Tags: process | Kept so the next session tests something new rather than re-prov
 - Chat flood: 205 lines, the full log scrolls and closes.
 - Resting: Rest raises the RESTING banner, Stand clears it. PARALYZED
   and SAVING photographed too, through the two new fixture switches.
+- Mail: New, a recipient typed in, Send - `ReqLookupNames` validates the
+  name first and `SendMail` follows.
 - NPC quests: `@obj:Alice` then Quest lists her three, with description
   and instructions, and Continue sends `ReqTriggerQuest`.
 - Skills: the Skills tab, row tapped twice, `ReqPerform` on the wire.
@@ -76,6 +78,10 @@ Tags: process | Kept so the next session tests something new rather than re-prov
   the room id and name in the status line, and the target cleared.
   Targeting and three hits then kill the rat in the second room too,
   so the hit count really is per object and not per session.
+
+Not yet played: posting to the news board (the book that stands in for
+it sits too close to the avatar for `@obj:` to find a pixel of it), and
+the guild commands beyond reading the roster.
 
 See also: the fixture -> fake-server.md | the panels -> mobile-client.md
 
