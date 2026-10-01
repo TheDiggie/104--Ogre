@@ -215,6 +215,30 @@ public static class AliasStore
     }
 
     /// <summary>
+    /// The alias key <paramref name="key"/> would resolve against,
+    /// spelled the way the list spells it - or null if it resolves
+    /// against nothing.
+    ///
+    /// This exists so the view can decide "is this line a command?" by
+    /// handing the raw line to `ChatCommand.Parse` and letting the
+    /// parser do the one expansion in the path (`ChatCommand.cs:66-86`),
+    /// instead of expanding first and having the parser expand the
+    /// result again. All the view still needs is the case fix an Android
+    /// keyboard forces on it: the parser's lookup is `==`, so a
+    /// sentence-cased "Chuckle" finds nothing. Canonicalising just the
+    /// first word hands the parser something its own rules can match,
+    /// and leaves the expanding to it.
+    ///
+    /// Same two passes as <see cref="Find"/>, and the same refusal to
+    /// guess between two aliases differing only in case.
+    /// </summary>
+    public static string CanonicalKey(Config config, string key)
+    {
+        if (config?.Aliases == null || string.IsNullOrEmpty(key)) return null;
+        return Find(config, key)?.Key;
+    }
+
+    /// <summary>
     /// The reference's exact-key lookup first, then the one-and-only
     /// case-insensitive match. See Expand for why the second pass is
     /// here and why it refuses to guess.

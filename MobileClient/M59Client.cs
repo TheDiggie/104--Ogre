@@ -399,13 +399,88 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
 #endif
     }
 
-    /// <summary>Enters the world as this character.</summary>
+    /// <summary>
+    /// Enters the world as this character.
+    ///
+    /// The id is copied into a BARE ObjectID rather than handed over as
+    /// the CharSelectItem itself, and that is the whole point of the
+    /// line. UseCharacterMessage writes its CharacterID through the
+    /// virtual serializer - `cursor += CharacterID.WriteTo(Buffer,
+    /// cursor)` (`UseCharacterMessage.cs:42`) over a virtual ByteLength
+    /// (:33) - and CharSelectItem derives from ObjectID and overrides
+    /// both to append NameLEN, the name and a flags byte after the id
+    /// (`CharSelectItem.cs:65-80` for the array form, :96-112 for the
+    /// pointer form). Passing the item therefore put a name and a flag
+    /// on the wire inside a message whose body the protocol defines as
+    /// an id and nothing else, so the very first packet of a session was
+    /// malformed - a login the server is entitled to reject or
+    /// mis-parse, and the worst possible place to be lax.
+    ///
+    /// Both paths in the reference pass a bare id: the welcome window
+    /// goes through the by-index overload
+    /// (`UIWelcome.cpp:175` -> `BaseClient.cs:869-879`, which does
+    /// `new ObjectID(item.ID)`), and the library's own post-creation
+    /// login does the same (`BaseClient.cs:567`). The Name argument is
+    /// kept because it is a local bookkeeping string - it never reaches
+    /// the buffer.
+    /// </summary>
     public void UseCharacter(CharSelectItem pick)
     {
         if (pick == null) return;
         Say($"Entering the world as {pick.Name}...");
-        SendUseCharacterMessage(pick, true, pick.Name);
+        SendUseCharacterMessage(new ObjectID(pick.ID), true, pick.Name);
         EnteredGame?.Invoke(pick.Name);
+    }
+
+    /// <summary>
+    /// Asks the view to confirm a suicide, and is handed the thing to do
+    /// if the player says yes.
+    ///
+    /// `Suicide()` below is the only caller, and the shape is a
+    /// callback rather than an event because there must be exactly one
+    /// answerer: two subscribers would mean two popups over one
+    /// keystroke, and a "yes" on each would send the command twice.
+    /// </summary>
+    public Action<Action> ConfirmSuicide;
+
+    /// <summary>
+    /// `/suicide` - the one chat command the library deliberately leaves
+    /// unfinished.
+    ///
+    /// `ExecChatCommand` parses the word, reaches
+    /// `case ChatCommandType.Suicide` and calls the virtual `Suicide()`
+    /// (`BaseClient.cs:3103-3108`), which the base class defines as an
+    /// empty body with a comment saying a subclass "must be overwritten
+    /// with code calling SendUserCommandSuicide()"
+    /// (`BaseClient.cs:3343-3349`). Nothing here overrode it, so the
+    /// word parsed, dispatched and evaporated: a player could not kill
+    /// their character at all, and got no error either, because as far
+    /// as the parser was concerned the command had succeeded.
+    ///
+    /// The reference supplies exactly the missing half. `OgreClient`
+    /// overrides Suicide to attach a listener and raise a yes/no popup
+    /// reading "Are you sure?" (`OgreClient.cpp:1063-1069`), and the
+    /// listener - and only the listener - sends the command
+    /// (`OgreClient.cpp:1109-1112`, `SendUserCommandSuicide`). The
+    /// confirmation is not decoration on an irreversible act typed as
+    /// one word.
+    ///
+    /// That popup is the client's own in-game ConfirmPopup here, as it
+    /// is there (`ControllerUI::ConfirmPopup::ShowChoice`) - never an
+    /// engine or OS dialog. If no view has claimed
+    /// <see cref="ConfirmSuicide"/> the command does nothing except say
+    /// so: an unconfirmed suicide is a worse failure than a refused one.
+    /// </summary>
+    protected override void Suicide()
+    {
+        Action<Action> ask = ConfirmSuicide;
+        if (ask == null)
+        {
+            Say("Cannot confirm a suicide right now - nothing sent.");
+            return;
+        }
+
+        ask(() => SendUserCommandSuicide());
     }
 
     /// <summary>

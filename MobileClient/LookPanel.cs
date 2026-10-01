@@ -63,6 +63,13 @@ public partial class LookPanel : Control
     bool _playerMode, _playerEditable;
     string _wasDesc = "", _wasUrl = "";
 
+    /// <summary>
+    /// The inscription as the server last sent it, which is what the
+    /// Write button compares against. See that handler, and
+    /// `UIObjectDetails.cpp:258-260`.
+    /// </summary>
+    string _wasIns = "";
+
     public bool IsOpen => _panel != null && _panel.Visible;
 
     public override void _Ready()
@@ -127,9 +134,31 @@ public partial class LookPanel : Control
 
         _write = new Button { Text = "Write", Visible = false };
         _write.AddThemeFontSizeOverride("font_size", FontSize);
+        // Only when the text has actually changed, which is what the
+        // reference tests before it sends: OK on the object-details
+        // window compares the box against `lookInfo->Inscription->
+        // FullString` and sends ChangeDescription only if they differ
+        // (`UIObjectDetails.cpp:258-260`). This button sent on every
+        // press, so reading a scroll, pressing Write and closing rewrote
+        // the inscription to exactly what it already said - a wasted
+        // command against the client's rate limiter, and on a shared
+        // object an edit the player never made.
+        //
+        // The compared value is what ARRIVED, remembered in Take below,
+        // not whatever the box happens to hold: the box is refilled from
+        // the server on every look, so comparing it against itself would
+        // always say "unchanged". The reference's newline strip on the
+        // same lines has no counterpart here - CEGUI's multi-line editbox
+        // appends one and Godot's TextEdit does not - so there is nothing
+        // to strip, and stripping regardless would silently eat a
+        // trailing blank line the player typed on purpose.
         _write.Pressed += () =>
         {
-            if (_shown != 0) Inscribe?.Invoke(_shown, _writing.Text ?? "");
+            if (_shown == 0) return;
+            string now = _writing.Text ?? "";
+            if (now == _wasIns) return;
+            _wasIns = now;
+            Inscribe?.Invoke(_shown, now);
         };
         AddChild(_write);
 
@@ -457,6 +486,8 @@ public partial class LookPanel : Control
             _editable = _info.LookType != null
                      && _info.LookType.IsInscribed && _info.LookType.IsEditable;
             _writing.Text = ins;
+            // What arrived, for the Write button to compare against.
+            _wasIns = ins ?? "";
 
             try
             {

@@ -87,38 +87,77 @@ public partial class GameView : Node2D
     static readonly System.Collections.Generic.HashSet<string> ChatWords = BuildChatWords();
 
     /// <summary>
-    /// Whether this text is meant as a command at all.
+    /// Whether this line is a command, answered by the only thing that
+    /// can answer it: the library's parser.
     ///
-    /// The library's parser accepts one-letter keys - b, y, t, s, a, p
-    /// and more (ChatCommandBroadcast.cs:26, ChatCommandYell.cs:26 and
-    /// their siblings). On a desktop those are a fine thing, because
-    /// you chose to learn them. On a bar whose button says Say they are
-    /// a trap: "b right back" went to the entire server. So a first
-    /// word of one letter is speech here. Every long form still works,
-    /// which puts broadcast, yell, tell and guild one word away, and
-    /// the cost of the other choice is public and irreversible.
+    /// This used to be a word-length heuristic - a first word of two or
+    /// more letters that appeared in the command vocabulary - and it was
+    /// wrong in the way that matters. `ChatCommand.Parse` accepts
+    /// ONE-LETTER keys (b broadcast, y yell, t tell, c/z cast, g guild,
+    /// p/a perform, e emote, m broadcast, s say; see the KEY constants
+    /// in `Meridian59/Data/Models/ChatCommand/`), so the heuristic said
+    /// "not a command" about lines the parser then happily executed.
+    /// The caller below acted on that "no" by doing BOTH things -
+    /// executing the line and saying it aloud - so
+    /// `t alice meet me at the tower` sent the tell and then repeated
+    /// the whole sentence, name and all, to everyone in the room. A
+    /// private message is exactly the thing that must never leak, and
+    /// this leaked it every time.
     ///
-    /// The price is that a one-letter ALIAS stops being a command.
-    /// That is a real loss and a small one beside a private sentence
-    /// shouted at the world.
+    /// Asking Parse costs one parse and cannot disagree with the parse
+    /// that follows, because Parse is a pure function of the text, the
+    /// data controller and the alias list - all three unchanged in
+    /// between. A non-null answer means `ExecChatCommand` will act on
+    /// this line; null means it will do nothing but log it, which is the
+    /// only case where saying it is safe.
+    ///
+    /// Note what is deliberately NOT done here: the line is not
+    /// alias-expanded first. Parse expands a leading alias itself as its
+    /// very first act (`ChatCommand.cs:66-86`), so pre-expanding made
+    /// the expansion happen twice - once here, once inside the parser -
+    /// and a value beginning with another alias key was therefore
+    /// expanded again, where the reference expands exactly once
+    /// (`UIChat.cpp:279` hands the raw line to ExecChatCommand and that
+    /// is the only expansion in the path). Handing Parse the raw line
+    /// restores that. It also restores the reference's command history,
+    /// which holds the line as TYPED: ExecChatCommand logs before it
+    /// parses (`BaseClient.cs:3039` then :3042), so arrow-up now gives
+    /// back "chuckle" rather than "emote chuckles.".
     /// </summary>
     bool IsCommand(string text)
     {
-        string first = (text ?? "").TrimStart();
-        int cut = first.IndexOf(' ');
-        if (cut >= 0) first = first.Substring(0, cut);
-        return first.Length >= 2 && ChatWords.Contains(first);
+        if (string.IsNullOrEmpty(text)) return false;
+        try
+        {
+            return Meridian59.Data.Models.ChatCommand.Parse(
+                text, _client.Data, _client.Config) != null;
+        }
+        catch (Exception e)
+        {
+            // A parser that throws is not a licence to broadcast the
+            // line instead. Treat it as a command and let it fail
+            // loudly rather than quietly turning it into speech.
+            GD.PrintErr($"[GameView] chat parse: {e.Message}");
+            return true;
+        }
     }
 
     /// <summary>
     /// The text as the library's parser needs to see it.
     ///
     /// `ChatCommand.Parse` switches on the word exactly as typed
-    /// (ChatCommand.cs:60, :97), and an Android keyboard sentence-cases
-    /// the first word by default. So "Tell Alice hi" matched nothing,
-    /// was skipped by the say because the word IS a command word, and
-    /// vanished without a sound. The first word is lowered here; the
-    /// rest, which may be a player's name, is left exactly as typed.
+    /// (ChatCommand.cs:60, :97) and looks an alias up with `==`
+    /// (`KeyValuePairStringList.cs:47-53`), and an Android keyboard
+    /// sentence-cases the first word by default. So "Tell Alice hi"
+    /// matched nothing and "Chuckle" matched no alias. Both went out as
+    /// speech, which for a tell is the leak described above.
+    ///
+    /// Only the first word is touched, and only when lowering it turns a
+    /// miss into a hit - either a command word or, via AliasStore, the
+    /// single alias key that matches case-insensitively. The rest of the
+    /// line may be a player's name and is left exactly as typed. There
+    /// is no minimum length any more: "T alice hi" is the tell it looks
+    /// like.
     /// </summary>
     string Commandable(string text)
     {
@@ -126,10 +165,15 @@ public partial class GameView : Node2D
         string trimmed = text.TrimStart();
         int cut = trimmed.IndexOf(' ');
         string first = cut < 0 ? trimmed : trimmed.Substring(0, cut);
-        if (first.Length < 2) return text;
+        if (first.Length == 0) return text;
+
+        string fixedFirst = null;
         string lower = first.ToLowerInvariant();
-        if (!ChatWords.Contains(lower) || lower == first) return text;
-        return lower + (cut < 0 ? "" : trimmed.Substring(cut));
+        if (ChatWords.Contains(lower)) fixedFirst = lower;
+        else fixedFirst = AliasStore.CanonicalKey(_client?.Config, first);
+
+        if (fixedFirst == null || fixedFirst == first) return text;
+        return fixedFirst + (cut < 0 ? "" : trimmed.Substring(cut));
     }
 
     static System.Collections.Generic.HashSet<string> BuildChatWords()
@@ -683,6 +727,37 @@ public partial class GameView : Node2D
         // on _arrived.
         _client.Arrived += () => _arrived = true;
 
+        // `/suicide`. The library parses the word and calls a virtual
+        // Suicide() that its own base class leaves empty on purpose
+        // (`BaseClient.cs:3103-3108` dispatching to :3347-3349), so
+        // until M59Client overrode it the command did nothing whatever -
+        // no death, no error, nothing. The override is in M59Client and
+        // deliberately refuses to send on its own; it asks here first.
+        //
+        // The reference does the identical two-step: OgreClient::Suicide
+        // raises a yes/no popup reading "Are you sure?"
+        // (`OgreClient.cpp:1063-1069`) and only the confirm listener
+        // sends the command (`:1109-1112`). Irreversible and one word
+        // long is exactly the combination that earns a confirmation.
+        //
+        // The popup is this client's own in-game ConfirmPopup, as it is
+        // the reference's own ConfirmPopup there - never an engine or OS
+        // dialog. _ask is looked up when the player types, not now,
+        // because the popup is built by a Widget() that may run after
+        // this line; if it is genuinely missing, nothing is sent and the
+        // chat says so, because an unconfirmed suicide is a worse
+        // outcome than a refused one.
+        _client.ConfirmSuicide = go =>
+        {
+            if (_ask == null)
+            {
+                _chat?.Local("Cannot confirm a suicide right now - nothing sent.");
+                return;
+            }
+
+            _ask.Choice("Are you sure?", 0, _ => go());
+        };
+
         _client.Notice += s =>
         {
             _log.Add(s); GD.Print("[M59] " + s);
@@ -757,31 +832,24 @@ public partial class GameView : Node2D
                     // before every sentence costs far more on a soft
                     // keyboard than on a real one.
                     //
-                    // It does mean the two have to be told apart here,
-                    // and Commandable explains the two things that make
-                    // that harder on a phone than on a desk.
-                    // An alias is resolved before any of that, which is
-                    // where the library resolves it too - the first
-                    // thing `ChatCommand.Parse` does with a line is swap
-                    // a leading alias for its value
-                    // (ChatCommand.cs:66-86). It has to happen HERE as
-                    // well, and not be left to the parser, because the
-                    // decision below is made on the text before the
-                    // parser ever sees it: "chuckle" is not a chat word,
-                    // so IsCommand said no, and the line was both
-                    // executed as the emote AND said out loud - the
-                    // emote, then "chuckle" in the room, every time.
+                    // The departure has exactly one rule, and it was
+                    // broken: a line is EITHER executed OR said, never
+                    // both. It used to be both whenever the length
+                    // heuristic in IsCommand disagreed with the parser -
+                    // which it did for every one-letter key and for
+                    // every alias - so a tell went to its recipient and
+                    // then to the room. IsCommand now asks the parser,
+                    // so the two cannot disagree, and each branch below
+                    // does one thing.
                     //
-                    // One consequence, stated rather than hidden: the
-                    // command history then holds the expanded line,
-                    // where the reference logs the line as typed and
-                    // expands afterwards (BaseClient.cs:3039 before
-                    // :3042). Arrow-up gives you "emote chuckles."
-                    // instead of "chuckle". That is the price of making
-                    // the say/command decision correctly, and it is a
-                    // line that still works when it is sent again.
-                    string sending = Commandable(AliasStore.Expand(_client.Config, text));
-                    if (IsCommand(sending))
+                    // ExecChatCommand gets the line as typed, because it
+                    // is the parser's job to expand a leading alias
+                    // (`ChatCommand.cs:66-86`) and doing it here as well
+                    // expanded twice. Commandable only fixes the case of
+                    // the first word, which is what lets the parser see
+                    // a phone keyboard's "Tell" and "Chuckle" at all.
+                    string line = Commandable(text);
+                    if (IsCommand(line))
                     {
                         // A command runs as a command, and does not
                         // become speech when it fails. "tell Alice"
@@ -789,17 +857,27 @@ public partial class GameView : Node2D
                         // saying it instead would put a private word in
                         // front of the whole room, and the next attempt
                         // would put the message there too.
-                        _client.ExecChatCommand(sending);
+                        _client.ExecChatCommand(line);
                     }
                     else
                     {
                         // Still through the parser first, because that
                         // is what puts the line in the command history
-                        // (BaseClient.cs:3039) - and it will find
-                        // nothing, which is the point.
-                        _client.ExecChatCommand(sending);
+                        // (BaseClient.cs:3039) - and IsCommand has just
+                        // established that it will find nothing, which
+                        // is the point: no command can run here.
+                        _client.ExecChatCommand(line);
+
+                        // Said with a leading alias expanded, because an
+                        // alias whose value is not a command ("brb" ->
+                        // "be right back") is still the player asking
+                        // for the long form. Expanding here and not
+                        // above is what keeps the count at one: the
+                        // parse that just happened produced nothing and
+                        // its expansion was thrown away with it.
                         _client.SendSayToMessage(
-                            Meridian59.Common.Enums.ChatTransmissionType.Normal, sending);
+                            Meridian59.Common.Enums.ChatTransmissionType.Normal,
+                            AliasStore.Expand(_client.Config, line));
                     }
                 }
                 catch (Exception ex) { _chat.Local($"could not send: {ex.Message}"); }
@@ -827,13 +905,13 @@ public partial class GameView : Node2D
             // Each of these is what the game's target window sends,
             // and each acts on the target the library is holding, not
             // on an id this view kept for itself.
-            _actions.LookAt         += () => Act(() => _client.SendReqLookMessage());
-            _actions.AttackTarget   += () => Act(() => _client.SendReqAttackMessage());
-            _actions.ActivateTarget += () => Act(() => _client.ExecAction(AvatarAction.Activate));
-            _actions.BuyFrom        += () => Act(() => _client.SendReqBuyMessage());
-            _actions.TradeWith      += () => Act(() => _client.ExecAction(AvatarAction.Trade));
-            _actions.LootTarget     += () => Act(() => _client.SendReqGetMessage());
-            _actions.AskQuests      += () => Act(() => _client.SendReqNPCQuestsMessage());
+            _actions.LookAt         += () => WorldAct(() => _client.SendReqLookMessage());
+            _actions.AttackTarget   += () => WorldAct(() => _client.SendReqAttackMessage());
+            _actions.ActivateTarget += () => WorldAct(() => _client.ExecAction(AvatarAction.Activate));
+            _actions.BuyFrom        += () => WorldAct(() => _client.SendReqBuyMessage());
+            _actions.TradeWith      += () => WorldAct(() => _client.ExecAction(AvatarAction.Trade));
+            _actions.LootTarget     += () => WorldAct(() => _client.SendReqGetMessage());
+            _actions.AskQuests      += () => WorldAct(() => _client.SendReqNPCQuestsMessage());
             _ui.AddChild(_actions);
             if (_chat != null) _actions.BottomReserve = _chat.BlockHeight;
 
@@ -1102,6 +1180,12 @@ public partial class GameView : Node2D
             // shield's colours and design.
             _shieldDesigner = new GuildShieldPanel();
             _guild.ShieldDesigner += () => _shieldDesigner.Open();
+            // The designer is a TAB of the guild window in the game
+            // (`UIGuild.cpp:15`), so only one of the two is ever on
+            // screen. Told about the roster, it takes the roster's place
+            // when it opens and gives it back when it closes - the trip
+            // Settings and the alias editor already make.
+            _shieldDesigner.Roster = _guild;
             _shieldDesigner.Requested += () => Act(() =>
             {
                 _client.SendUserCommandGuildShieldListReq();
@@ -1352,7 +1436,7 @@ public partial class GameView : Node2D
         Widget("statusbar", () =>
         {
             _bar = new StatusBar();
-            _bar.Mood   += a => Act(() => _client.SendActionMessage(a));
+            _bar.Mood   += a => WorldAct(() => _client.SendActionMessage(a));
             // Non-vanilla, like Server 104: the whole preferences word
             // goes up rather than a dedicated safety command.
             _bar.Safety += _ => Act(() => _client.SendUserCommandSendPreferences());
@@ -1448,8 +1532,8 @@ public partial class GameView : Node2D
         {
             _book = new SpellsPanel { RightReserve = 330f };
             _book.Opened += () => Act(() => { _client.SendSendSpellsMessage(); _client.SendSendSkillsMessage(); });
-            _book.Cast += id => Act(() => _client.SendReqCastMessage(id));
-            _book.Perform += id => Act(() => _client.SendReqPerformMessage(id));
+            _book.Cast += id => WorldAct(() => _client.SendReqCastMessage(id));
+            _book.Perform += id => WorldAct(() => _client.SendReqPerformMessage(id));
             _book.Look += id => Act(() => _client.SendReqLookMessage(id));
             // The row's list and the objects the hotbar needs are two
             // different lists: the panel shows AvatarSpells / AvatarSkills,
@@ -1478,7 +1562,7 @@ public partial class GameView : Node2D
             // Left of Auto, which is left of Go, which is left of the
             // panels' own row.
             _acts = new ActionsPanel { ButtonRight = 12f + 70f + 8f + (76f + 8f) * 7f + 96f + 8f + (76f + 8f) * 2f };
-            _acts.Perform += a => Act(() => _client.ExecAction(a));
+            _acts.Perform += a => WorldAct(() => _client.ExecAction(a));
             _acts.Assign += a => Act(() =>
             {
                 if (ActionButtons.Bind(_client.Data, a))
@@ -1501,7 +1585,7 @@ public partial class GameView : Node2D
         Widget("face", () =>
         {
             // Under the status lines rather than behind them.
-            _face = new AvatarPanel { Size = 72, Margin = 12f };
+            _face = new AvatarPanel { HeadSize = 72, Margin = 12f };
             _face.LookBuff += id => Act(() => _client.SendReqLookMessage(id));
             // Self-target, guarded the way the file guards it. Nothing
             // else here can select you: you cannot tap yourself in
@@ -1535,7 +1619,7 @@ public partial class GameView : Node2D
         {
             _bag = new InventoryPanel();
             _bag.Opened      += () => Act(() => _client.SendReqInventoryMessage());
-            _bag.UseItem     += item => Act(() => _client.UseUnuseApply(item));
+            _bag.UseItem     += item => WorldAct(() => _client.UseUnuseApply(item));
             // One tap puts it on the trade table, rather than the
             // select-then-use a tap normally means.
             _bag.Selected    += item => Act(() =>
@@ -1563,7 +1647,7 @@ public partial class GameView : Node2D
             // UIInventory.cpp: something that is not a stack drops
             // straight away with a count of zero, and a stack asks how
             // many first, prefilled with the lot.
-            _bag.DropItem    += item => Act(() =>
+            _bag.DropItem    += item => WorldAct(() =>
             {
                 if (item.IsStackable && _amount != null)
                     _amount.Ask(item.ID, (int)item.Count, item.Name);
@@ -1598,7 +1682,7 @@ public partial class GameView : Node2D
             // loot window up, and brings it down again if it is already
             // up (ExecAction, AvatarAction.Loot). Taking is what the Get
             // and Get All buttons in that window are for.
-            _loot.Pressed += () => Act(() => _client.ExecAction(AvatarAction.Loot));
+            _loot.Pressed += () => WorldAct(() => _client.ExecAction(AvatarAction.Loot));
             _ui.AddChild(_loot);
             Panels.Opener(_loot);
 
@@ -1621,7 +1705,7 @@ public partial class GameView : Node2D
             // which way we face before it is asked to move us - the
             // reference passes the same, and SendReqGo forces both the
             // turn and the move out ahead of the request.
-            _go.Pressed += () => Act(() => _client.SendReqGo(true));
+            _go.Pressed += () => WorldAct(() => _client.SendReqGo(true));
             _ui.AddChild(_go);
             Panels.Opener(_go);
 
@@ -1647,7 +1731,7 @@ public partial class GameView : Node2D
             // phone needs it more than a mouse does: a rat across a
             // dark room is a few pixels of tap target.
             _next = new Button { Text = "Next" };
-            _next.Pressed += () => Act(() => _client.Data?.NextTarget());
+            _next.Pressed += () => WorldAct(() => _client.Data?.NextTarget());
             _ui.AddChild(_next);
             Panels.Opener(_next);
 
@@ -1655,13 +1739,13 @@ public partial class GameView : Node2D
             // the library's own colours, and a Get for one item as well as
             // the Get All this button does.
             _lootList = new LootPanel { Heading = "Loot", ShowGetAll = true };
-            _lootList.GetAll += () => Act(() => _client.LootAll());
+            _lootList.GetAll += () => WorldAct(() => _client.LootAll());
             // One request per thing ticked, each with its count, which
             // is what the game's own Get loop sends
             // (`UILootList.cpp:270-275`). The count had been left off
             // here, so taking a pile of coins took one coin.
             _lootList.Look += id => Act(() => _client.SendReqLookMessage(id));
-            _lootList.GetItems += items => Act(() =>
+            _lootList.GetItems += items => WorldAct(() =>
             {
                 foreach (ObjectBase o in items)
                     _client.SendReqGetMessage(new ObjectID(o.ID, o.Count));
@@ -1674,7 +1758,7 @@ public partial class GameView : Node2D
             // can take everything at once.
             _contents = new LootPanel { Heading = "Contents", ShowGetAll = false, AllowPut = true };
             _contents.Look += id => Act(() => _client.SendReqLookMessage(id));
-            _contents.GetItems += items => Act(() =>
+            _contents.GetItems += items => WorldAct(() =>
             {
                 foreach (ObjectBase o in items)
                     _client.SendReqGetMessage(new ObjectID(o.ID, o.Count));
@@ -2264,24 +2348,30 @@ public partial class GameView : Node2D
     }
 
     /// <summary>
-    /// Sends something, and says so rather than throwing if it fails.
-    ///
-    /// Nothing is sent while the server has you waiting. The reference
-    /// swallows input at every level during a wait - key down
-    /// (`ControllerInput.cpp:541`), key up (:568), mouse press (:333)
-    /// and mouse release before CEGUI sees it at all (:268), so the
-    /// Attack button and the spell list are dead too. Requests thrown
-    /// into that window are ignored by the server and still spend the
-    /// local attack and cast throttles, so the first thing you do after
-    /// a teleport does nothing.
-    /// </summary>
-    /// <summary>
     /// Throws away what the client thinks about the guild and asks
     /// again. None of the guild commands is echoed, so the reference
     /// clears and re-requests after each one rather than guessing
     /// (`UIGuild.cpp:604-620`) - and it clears the shield model too,
     /// and asks for the guild list as well as the roster, which is
     /// what makes the diplomacy view come back current.
+    ///
+    /// The shield had been half of that: cleared and never asked for
+    /// again. Clearing is the easy half and on its own it is strictly
+    /// worse than doing nothing, because the shield information the
+    /// window had was correct until this threw it away. So after an
+    /// exile, an abdication or a rank change - the three callers - the
+    /// guild's shield went blank and stayed blank for the rest of the
+    /// session, since nothing else in the client ever re-asks.
+    ///
+    /// The reference asks for the shield in the same breath as the
+    /// roster, every time. Exile sends four requests, shield list and
+    /// shield info among them (`UIGuild.cpp:613-619`); abdicate sends
+    /// info and shield info (`:631-634`); set-rank the same two
+    /// (`:726-729`). The shield LIST is what exile asks for on top,
+    /// because a change of membership can change which shields are
+    /// available; it is harmless on the other two paths and asking
+    /// uniformly is better than three near-identical variants of this
+    /// function.
     /// </summary>
     void Reask()
     {
@@ -2289,6 +2379,8 @@ public partial class GameView : Node2D
         _client.Data?.GuildShieldInfo?.Clear(true);
         _client.SendUserCommandGuildInfoReq();
         _client.SendUserCommandGuildGuildListReq();
+        _client.SendUserCommandGuildShieldListReq();
+        _client.SendUserCommandGuildShieldInfoReq();
     }
 
     /// <summary>Takes a guild out of one of the declaration lists.</summary>
@@ -2299,9 +2391,47 @@ public partial class GameView : Node2D
         if (had != null) list.Remove(had);
     }
 
+    /// <summary>
+    /// Sends a UI request, and says so rather than throwing if it fails.
+    ///
+    /// This used to refuse to send anything at all while
+    /// `Data.IsWaiting`, and the guard was an invention: the reference
+    /// puts no such test anywhere near a window. Search the UI sources
+    /// for IsWaiting and there is exactly one hit in the whole set, in
+    /// the splash notifier that DRAWS the wait (`UISplashNotifier.cpp:94`).
+    /// Every sender is unconditional - `UIGuild.cpp` throughout,
+    /// `UIMail.cpp:284`, `UITrade.cpp:492`, `UIOptions.cpp:2728` and
+    /// :2811. IsWaiting gates the WORLD, in the input controller and
+    /// nowhere else: key down (`ControllerInput.cpp:541-550`), key up
+    /// (:582-592, :596-601) and the whole per-frame input tick, which is
+    /// where held action-button keys are read (:736, reading buttons at
+    /// :995-1022). See <see cref="WorldAct"/>, which keeps that half.
+    ///
+    /// The difference is not cosmetic, because a suppressed send is
+    /// invisible: the caller returns as though it had sent. Trade is the
+    /// clear case. Cancel sends SendCancelOffer and then clears the local
+    /// trade either way, which is the reference's own shape
+    /// (`UITrade.cpp:490-495` on close, :507-513 on ESC - cancel if
+    /// IsPending, clear regardless). With the guard in front of it, a
+    /// Cancel during a wait cleared this side and sent nothing: the
+    /// window closed, the client believed the trade was over, and the
+    /// partner sat holding a pending offer against an avatar that would
+    /// never answer it. A wait is a second or two; a stranded offer is
+    /// not.
+    ///
+    /// Honest footnote on the reference, since it is the specification:
+    /// its MOUSE path does drop clicks during a wait, because the
+    /// IsWaiting test at `ControllerInput.cpp:336` (press) and :269
+    /// (release) sits BEFORE the injection into CEGUI. Its keyboard path
+    /// does not - :538-540 injects and only then tests. So the reference
+    /// is not uniformly one thing at the widget level; what it is
+    /// uniformly is this: no window ever asks about IsWaiting before
+    /// sending, and the one thing a wait is there to stop is the avatar
+    /// acting in the world. That is the line drawn here, and it is the
+    /// line that would have kept the trade consistent.
+    /// </summary>
     void Act(Action send)
     {
-        if (_client?.Data != null && _client.Data.IsWaiting) return;
         try { send(); }
         catch (Exception e) { _chat?.Local($"{e.GetType().Name}: {e.Message}"); }
 
@@ -2313,6 +2443,34 @@ public partial class GameView : Node2D
             _client.Data.SelfTarget = false;
             _chat?.Local("Self-target off.");
         }
+    }
+
+    /// <summary>
+    /// Sends an action the AVATAR takes in the world - attack, cast,
+    /// perform, activate, loot, get, buy, trade, use, drop, go, retarget
+    /// - and drops it while the server has you waiting.
+    ///
+    /// This is the half of the old blanket guard that belongs. In the
+    /// reference these are keys and world clicks, not windows: the
+    /// action buttons are read inside the input tick
+    /// (`ControllerInput.cpp:995-1022`) behind its IsWaiting exit
+    /// (:736), ReqGo, target-clear and NextTarget behind the key-down
+    /// exit (`:541-550` then :553-566), and the right-click action
+    /// button behind the mouse-press exit (:336, firing at :322). The
+    /// reason is the same reason the reference has it: these requests
+    /// are ignored by a server that has you waiting while still spending
+    /// the client's local attack and cast throttles, so pressing Attack
+    /// through a teleport buys nothing and costs you the swing on the
+    /// other side.
+    ///
+    /// Everything that merely asks a window's question - a roster, a
+    /// mailbox, a look, a form, a cancel - goes through
+    /// <see cref="Act"/> and is not gated.
+    /// </summary>
+    void WorldAct(Action send)
+    {
+        if (_client?.Data != null && _client.Data.IsWaiting) return;
+        Act(send);
     }
 
     /// <summary>
@@ -2768,7 +2926,7 @@ public partial class GameView : Node2D
         RoomObject box = _client.Data.RoomObjects?.GetItemByID(boxId);
         if (box == null || box.Flags == null || !box.Flags.IsContainer) return;
 
-        Act(() =>
+        WorldAct(() =>
         {
             _client.SendReqPut(new ObjectID(item.ID, item.Count), new ObjectID(box.ID, 0));
             _client.SendSendObjectContents(box.ID);
