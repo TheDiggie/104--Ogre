@@ -769,6 +769,59 @@ public sealed class Renderer
     public RooSector SectorAtPoint(float x, float y) => SectorAt(_roo, x, y);
 
     /// <summary>
+    /// Decodes every texture the room can ask for, ahead of the frame
+    /// that asks for it.
+    ///
+    /// The cache is lazy, which is right for a cache and wrong for a
+    /// room change: the first frame in a new room is the one frame that
+    /// touches every wall, floor and ceiling the player can see, and it
+    /// pays for each of them - decode, palette, mip chain - on the
+    /// render thread. That is the hitch on walking through a door.
+    ///
+    /// Nothing about correctness changes. The cache is keyed and locked
+    /// exactly as before and a frame that beats this to a texture still
+    /// builds it itself; this only moves WHEN the work happens, off the
+    /// first frame and onto a thread the player is not waiting on. The
+    /// lock is taken per texture, so a frame that does arrive first
+    /// waits for one decode rather than for the whole room.
+    ///
+    /// Only what the room file names: sidedef middles, uppers and lowers
+    /// at the still group, and both faces of every sector. Animated
+    /// groups are left alone - a torch's other frames are not needed to
+    /// draw the first one, and warming all of them would be most of the
+    /// work for none of the hitch.
+    /// </summary>
+    public void Warm(System.Threading.CancellationToken stop = default)
+    {
+        if (_roo == null || _tex == null) return;
+        try
+        {
+            if (_roo.SideDefs != null)
+                foreach (RooSideDef side in _roo.SideDefs)
+                {
+                    if (stop.IsCancellationRequested) return;
+                    if (side == null) continue;
+                    _tex.Get(side.MiddleTexture, 1);
+                    _tex.Get(side.UpperTexture, 1);
+                    _tex.Get(side.LowerTexture, 1);
+                    // The see-through walls read a second cache, keyed
+                    // separately, so warming Get does nothing for them.
+                    if (side.Flags != null && side.Flags.IsTransparent)
+                        _tex.GetMasked(side.MiddleTexture, 1);
+                }
+            if (_roo.Sectors != null)
+                foreach (RooSector sec in _roo.Sectors)
+                {
+                    if (stop.IsCancellationRequested) return;
+                    if (sec == null) continue;
+                    _tex.Get(sec.FloorTexture);
+                    _tex.Get(sec.CeilingTexture);
+                }
+        }
+        catch { /* a warm cache is an optimisation; never let it throw into the client */ }
+    }
+
+    /// <summary>
     /// How many leaves of this room anchor their flats away from the
     /// origin, which is how much work the anchor table can cost. Zero -
     /// the common case - means the table is one comparison per pixel and

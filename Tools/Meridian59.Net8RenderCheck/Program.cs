@@ -69,12 +69,94 @@ static class RenderCheck
         return bad;
     }
 
+    /// <summary>
+    /// What the first frame in a new room costs, with the texture cache
+    /// cold and with it warmed ahead of time. The hitch on walking
+    /// through a door is this number, and no other check looks at it:
+    /// every oracle here renders the same room many times and so pays
+    /// the decode once, in a frame it does not time.
+    /// </summary>
+    static void Cold(string dir)
+    {
+        string[] rooms = System.IO.Directory.GetFiles(dir, "*.roo");
+        Array.Sort(rooms);
+        var rm = new ResourceManager(); rm.Init(dir, dir, dir, dir, dir, dir, dir);
+        int W = 1280, H = 432;
+        var px = new uint[W * H];
+        Console.WriteLine($"{"room",-22} {"cold 1st",9} {"warm 1st",9} {"settled",9}");
+        double tc = 0, tw = 0, ts = 0; int n = 0;
+        foreach (string path in rooms)
+        {
+            RooFile roo;
+            try { roo = new RooFile(path); roo.ResolveResources(rm); }
+            catch (Exception e) { Console.WriteLine($"  skip {System.IO.Path.GetFileName(path)}: {e.Message}"); continue; }
+            if (roo.Sectors == null || roo.Sectors.Count == 0) continue;
+            float cx, cy, cz;
+            if (!Spot(roo, out cx, out cy, out cz)) continue;
+
+            // A FRESH ResourceManager for each of the two, because it
+            // caches the BGFs behind the TexCache: measuring the warm
+            // run second against a manager the cold run had already
+            // filled would have credited the warm-up with work the cold
+            // run did. That is the whole measurement, so it is the one
+            // thing here worth being careful about.
+            var rm1 = new ResourceManager(); rm1.Init(dir, dir, dir, dir, dir, dir, dir);
+            var rm2 = new ResourceManager(); rm2.Init(dir, dir, dir, dir, dir, dir, dir);
+            var r1 = new Renderer(roo, new TexCache(rm1));
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            r1.Render(px, W, H, cx, cy, cz, 0f);
+            sw.Stop(); double cold = sw.Elapsed.TotalMilliseconds;
+            for (int k = 0; k < 10; k++) r1.Render(px, W, H, cx, cy, cz, 0f);
+            sw.Restart();
+            for (int k = 0; k < 10; k++) r1.Render(px, W, H, cx, cy, cz, 0f);
+            sw.Stop(); double settled = sw.Elapsed.TotalMilliseconds / 10;
+
+            var r2 = new Renderer(roo, new TexCache(rm2));
+            r2.Warm();
+            sw.Restart();
+            r2.Render(px, W, H, cx, cy, cz, 0f);
+            sw.Stop(); double warm = sw.Elapsed.TotalMilliseconds;
+
+            Console.WriteLine($"{System.IO.Path.GetFileName(path),-22} {cold,9:F1} {warm,9:F1} {settled,9:F1}");
+            tc += cold; tw += warm; ts += settled; n++;
+            if (n >= 24) break;
+        }
+        if (n > 0)
+            Console.WriteLine($"{"mean of " + n,-22} {tc / n,9:F1} {tw / n,9:F1} {ts / n,9:F1}");
+    }
+
+    /// <summary>A point inside the room, with a floor under it.</summary>
+    static bool Spot(RooFile roo, out float cx, out float cy, out float cz)
+    {
+        cx = cy = cz = 0f;
+        float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
+        foreach (var w in roo.Walls)
+        {
+            minX = Math.Min(minX, Math.Min(w.P1.X, w.P2.X));
+            maxX = Math.Max(maxX, Math.Max(w.P1.X, w.P2.X));
+            minY = Math.Min(minY, Math.Min(w.P1.Y, w.P2.Y));
+            maxY = Math.Max(maxY, Math.Max(w.P1.Y, w.P2.Y));
+        }
+        if (minX > maxX) return false;
+        for (int i = 0; i < 48; i++)
+        {
+            float fx = minX + (maxX - minX) * ((i % 8) + 0.5f) / 8f;
+            float fy = minY + (maxY - minY) * ((i / 8) + 0.5f) / 6f;
+            RooSector sec = new Renderer(roo, null).SectorAtPoint(fx, fy);
+            if (sec == null) continue;
+            cx = fx; cy = fy; cz = M59Geo.FloorXY(sec) + Renderer.EyeHeight;
+            return true;
+        }
+        return false;
+    }
+
     static int Main(string[] a)
     {
         string mode = a.Length > 0 ? a[0].ToLowerInvariant() : "all";
         string dir  = a.Length > 1 ? a[1] : "/tmp/res";
         int bad = 0;
         if (mode == "repack"  || mode == "all") bad += RepackCheck();
+        if (mode == "cold") Cold(dir);
         if (mode == "threads" || mode == "all") bad += Threads(dir);
         if (mode == "pick"    || mode == "all") bad += Pick(dir);
         if (mode == "seethrough" || mode == "all") SeeThrough(dir);

@@ -504,3 +504,38 @@ Tags: gotchas, lessons | The string table and the files disagree about case, and
   The fixture only catches it with `M59_LOOPFIRST` -> fake-server.md.
 
 See also: M59Sound.cs | the pack -> "Sound shipped, and did not arrive"
+
+## The first frame in a new room pays for the whole room
+
+The texture cache is lazy, which is right for a cache and wrong for a
+room change. The first frame after walking through a door is the one
+frame that touches every wall, floor and ceiling the player can see,
+and it decoded each of them - palette, pixels, mip chain - on the
+render thread, which is the hitch.
+
+`Renderer.Warm` decodes everything the room file names, and
+`WorldSync.SyncRoom` starts it on a background task the moment the
+renderer is built. Nothing about correctness moves: the cache is
+keyed and locked exactly as before, and a frame that beats the
+warm-up to a texture still builds that one itself, waiting on one
+decode rather than on the room.
+
+Measured, `RenderCheck -- cold`, 24 rooms at 1280x432:
+
+    cold first frame   16.5 ms
+    warm first frame   11.4 ms
+    settled frame      10.9 ms
+
+So a warmed first frame costs about what a settled one does, which
+is the point. The worst room in the set went 51.6 ms to 5.2 ms.
+
+Two things that would have made the measurement a lie, both avoided
+in the tool: ResourceManager caches the BGFs behind the TexCache, so
+the warm run needs its own manager or it is credited with work the
+cold run did; and every other oracle renders a room many times, so
+all of them pay the decode once, in a frame none of them time -
+which is why this number had never been looked at.
+
+The previous room's warm-up is cancelled rather than waited for: its
+textures belong to a cache that went with its renderer, so on a run
+of doorways they would stack up decoding bytes nobody will read.

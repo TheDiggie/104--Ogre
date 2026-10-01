@@ -121,9 +121,34 @@ public sealed class WorldSync
             _grassLooked = true;
         }
         Renderer.Grass = M59Grass.Build(current, _grassDefs, M59Grass.Intensity);
+
+        // Start decoding this room's textures now, on a thread the
+        // player is not waiting on. The first frame in a new room is the
+        // one frame that touches every surface in it, and it used to pay
+        // for all of them itself - which is the hitch on walking through
+        // a door. See Renderer.Warm; a frame that beats it to a texture
+        // still builds that one itself, so this changes when the work
+        // happens and nothing else.
+        //
+        // The previous room's warm-up is cancelled rather than waited
+        // for: its textures belong to a cache that went with its
+        // renderer, so every byte it decodes from here on is thrown
+        // away, and on a run of doorways they would stack up.
+        _warmStop?.Cancel();
+        _warmStop = new System.Threading.CancellationTokenSource();
+        Renderer warming = Renderer;
+        System.Threading.CancellationToken stop = _warmStop.Token;
+        System.Threading.Tasks.Task.Run(() => warming.Warm(stop));
+
         RoomChanges++;
         return true;
     }
+
+    /// <summary>
+    /// Stops the warm-up of the room we just left. Held here rather than
+    /// on the renderer because the point of it is to outlive one.
+    /// </summary>
+    System.Threading.CancellationTokenSource _warmStop;
 
     /// <summary>The grass mappings and art, once they have been looked for.</summary>
     M59Grass.Defs _grassDefs;
