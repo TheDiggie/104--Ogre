@@ -518,6 +518,17 @@ public partial class ActionButtons : Control
             LastBound = -1;
         }
 
+        // WRAPS, and the clamp below is only for a page count that
+        // SHRANK under us - something unbound while you were on the
+        // last page. Incrementing and clamping instead stranded half
+        // the hotbar for the session: one tap of the stepper went to
+        // page 2 and every further tap did nothing, so Rest, Loot,
+        // Activate and Inspect could not be reached again except by
+        // binding something that happened to land on page 1, because
+        // LastBound above turns the page. The eight-slot bar this
+        // replaced showed every slot at once, so it is a regression the
+        // layout introduced and a verification pass caught.
+        _pages = pages;
         if (_page >= pages) _page = pages - 1;
         if (_page < 0) _page = 0;
 
@@ -690,7 +701,14 @@ public partial class ActionButtons : Control
                 _turn.AddThemeFontSizeOverride("font_size", 18);
                 _turn.Name = "hotpage";
                 _turn.TooltipText = "More buttons";
-                _turn.Pressed += () => { _page++; _signature = ""; };
+                _turn.Pressed += () =>
+                {
+                    // Round, not up: the last page's stepper goes back
+                    // to the first. With two pages that is a toggle,
+                    // which is what it looks like.
+                    _page = _pages > 0 ? (_page + 1) % _pages : 0;
+                    _signature = "";
+                };
                 AddChild(_turn);
             }
             _turn.Text = $"{_page + 1}/{pages}";
@@ -1182,6 +1200,12 @@ public partial class ActionButtons : Control
 
     /// <summary>Which page of bindings the row is showing.</summary>
     int _page;
+    /// <summary>
+    /// How many pages the last rebuild found. The stepper is built once
+    /// and its handler outlives any one layout, so it cannot close over
+    /// a local.
+    /// </summary>
+    int _pages = 1;
 
     /// <summary>The page button, when there is more than one page.</summary>
     Button _turn;

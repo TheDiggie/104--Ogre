@@ -189,8 +189,16 @@ public static class Panels
     /// The drawer goes with them - a panel opened from a tile has to
     /// take the grid down behind it, and so does the chat box.
     /// </summary>
+    /// <summary>
+    /// Whether the opener row is currently shown. The minimap's zoom
+    /// and size buttons are not openers - they belong to the dial - but
+    /// they have to come and go with the row, so they ask.
+    /// </summary>
+    public static bool OpenersShown { get; private set; } = true;
+
     public static void ShowOpeners(bool on)
     {
+        OpenersShown = on;
         if (!on && DrawerOpen) Drawer.Close();
         bool drawerUp = DrawerOpen;
 

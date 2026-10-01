@@ -422,7 +422,14 @@ public partial class MiniMap : Control
         _out.Size = _in.Size = new Vector2(w, h);
         _out.Position = new Vector2(left + MapSize * 0.5f - w - 6f, y);
         _in.Position = new Vector2(left + MapSize * 0.5f + 6f, y);
-        _in.Visible = _out.Visible = _shown;
+        // The dial's own controls follow the opener row, not just the
+        // dial: with the Menu drawer open the Map TOGGLE was hidden and
+        // these three were left floating outside the card over the
+        // grid. They were never pressable - the drawer's scrim eats the
+        // tap - so this is a look rather than a dead control, but a
+        // button standing on a modal is a button that looks broken.
+        bool chrome = _shown && Panels.OpenersShown;
+        _in.Visible = _out.Visible = chrome;
 
         // The drawsurface fills the dial's square, as the layout's
         // {{0,0},{0,0},{1,0},{1,0}} does (`Meridian59.layout:1272`).
@@ -435,7 +442,7 @@ public partial class MiniMap : Control
         // a dark wall is not a button.
         _bigger.Size = new Vector2(w, h);
         _bigger.Position = new Vector2(left + MapSize * 0.5f - w * 0.5f, y + h + 4f);
-        _bigger.Visible = _shown;
+        _bigger.Visible = chrome;
     }
 
     const string PrefsPath = "user://view.cfg";

@@ -43,14 +43,14 @@ using Godot;
 /// - Auto, which is movement, so it is on the LEFT edge by the thumb
 ///   that steers rather than anywhere near the right.
 ///
-/// Everything else is a tile. Loot, Go and Next are not openers at all
-/// but they were in the same row and they behave the same way, so they
-/// are tiles too. Next is the one entry whose place here is arguable:
-/// it picks the next target and is pressed in a fight, and a fight is
-/// no time to open a drawer. It belongs in the combat cluster beside
-/// the attack control, which is another agent's file; until it moves
-/// there it is a tile, which at least loses nothing - it was a 76pt
-/// word at the bottom edge before.
+/// Everything else is a tile - eleven of them. Loot and Go are not
+/// openers at all but they were in the same row and behave the same
+/// way, so they are tiles too.
+///
+/// Next is NOT a tile, though it was for about an hour: it picks the
+/// next target and is pressed in a fight, and a fight is no time to
+/// open a drawer. It now sits in the combat cluster beside the attack
+/// control, where it is seat zero of the arc.
 ///
 /// TREE ORDER. The drawer is a child of the view's UI layer, beside the
 /// panels and the ConfirmPopup, and it raises itself with
@@ -61,7 +61,7 @@ using Godot;
 /// </summary>
 public partial class MenuDrawer : Control
 {
-    /// <summary>Four across. Three rows of four holds the twelve tiles.</summary>
+    /// <summary>Four across: three rows, the last one short.</summary>
     const int Columns = 4;
     /// <summary>
     /// A tile. Well over the 44pt minimum in both directions, because
