@@ -1028,6 +1028,57 @@ public partial class GameView : Node2D
             };
             _ui.AddChild(_lost);
         });
+        // Quit (149): the server has ended the session - a logout, a
+        // kick, a shutdown. The reference does two things the library's
+        // own handler does not: it writes the played action button set to
+        // config before the data is reset, and it drops back to the
+        // scene characters are selected from
+        // (`OgreClient.cpp:952-962`; `:946-949` is where that scene's
+        // avatar-selection mode is switched to). Neither happened here,
+        // so a quit left the HUD drawn over an emptied room until the
+        // socket happened to close, and then blamed the connection.
+        //
+        // The panel is a local rather than a field on purpose: nothing
+        // else in this view needs to ask about it, and a Widget block
+        // that owns everything it builds cannot be half-built.
+        Widget("quit", () =>
+        {
+            var left = new LeftWorld();
+            // Back the way this client already goes back after a
+            // connection drops: reconnect, which runs the login
+            // handshake again and puts the character list up.
+            left.Back += () => { _chat?.Local("Logging in again..."); Connect(); };
+            _ui.AddChild(left);
+
+            // Before Data.Reset() empties the button list and the player
+            // name it is filed under - the same order the reference
+            // keeps, writing the set and only then calling the base
+            // handler (`OgreClient.cpp:955-958`). HotbarStore.Save is how
+            // this client already persists the hotbar (ActionButtons.cs:261).
+            _client.Quitting += () => HotbarStore.Save(_client.Data);
+
+            _client.Quitted += () =>
+            {
+                // The world is gone, so the furniture over it goes with
+                // it: inWorld is read from this flag or a live avatar,
+                // and Reset has already taken the avatar.
+                _wasInGame = false;
+                left.Open();
+            };
+        });
+        // InvalidateData (228). The server has thrown away the lists it
+        // sent and will send them again
+        // (`DataController.cs:2947-2951` -> `:1006`), which means an id
+        // captured before the sweep is not about the same thing after
+        // it. The reference overrides Invalidate for exactly this and
+        // tells the confirmation popup (`DataControllerOgre.cpp:61-71`),
+        // which hides itself and drops its handlers and its id when the
+        // caller asked it to (`UIConfirmPopup.cpp:199-214`). There was no
+        // subclass here to hang it on until MobileData; this is the wire.
+        Widget("invalidate", () =>
+        {
+            _client.Data.Invalidated += () => _ask?.DataInvalidated();
+        });
         Widget("statusbar", () =>
         {
             _bar = new StatusBar();
@@ -1105,6 +1156,13 @@ public partial class GameView : Node2D
             // (`UIObjectDetails.cpp:239-266`), which is what the
             // two-argument overload is for.
             _look.Inscribe += (id, text) => Act(() => _client.SendChangeDescription(id, text));
+            // Editing your own player details, which the same window now
+            // shows. Two separate commands, as the reference sends them:
+            // the one-argument ChangeDescription, which the library aims
+            // at your own avatar (`BaseClient.cs:2604-2606`), and a
+            // ChangeURL user command (`UIPlayerDetails.cpp:225`, `:240`).
+            _look.Describe += text => Act(() => _client.SendChangeDescription(text));
+            _look.Homepage += url => Act(() => _client.SendUserCommandChangeURL(url));
             _ui.AddChild(_look);
         });
         Widget("sound", () =>
@@ -1585,6 +1643,13 @@ public partial class GameView : Node2D
         _shieldDesigner?.Sync(_client.Data?.GuildShieldInfo, _client.Data?.GuildInfo);
         _wizard?.Sync(_client.Data?.StatChangeInfo);
         _newChar?.Sync();
+        // The message of the day, on the screen that chooses a
+        // character. The reference sets it while building that window and
+        // again on every change to the model's MOTD
+        // (`UIWelcome.cpp:36-38`, `:55-63`); polling the string here does
+        // both, and the selection screen is reachable more than once in a
+        // session so both are needed.
+        _picker?.Sync(_client.Data?.WelcomeInfo);
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
@@ -2537,6 +2602,17 @@ public partial class GameView : Node2D
             _rgba[i * 4 + 2] = b;
             _rgba[i * 4 + 3] = 255;
         }
+        // Drink swims the edges of your vision: the reference turns on
+        // COMPOSITOR_BLUR for the viewport while the effect lasts
+        // (ControllerEffects.cpp:222-231), which is a ten-tap radial blur
+        // over the finished picture (compositors.hlsl:48-91). This
+        // renderer owns its pixels, so it is done to them, here, after
+        // the invert above and before the buffer is handed to the
+        // texture - which also lands it on the 3D view and not over the
+        // buttons, where the reference's compositor lands. It costs
+        // nothing when the player is sober. See ScreenEffects.Blur.
+        _fx?.Blur(_rgba, _w, _h);
+
         _image.SetData(_w, _h, false, Image.Format.Rgba8, _rgba);
         _texture.Update(_image);
 

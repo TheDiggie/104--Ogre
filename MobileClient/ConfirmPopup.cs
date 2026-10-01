@@ -9,7 +9,7 @@ using Godot;
 /// guild, giving up a hall, renouncing - and by the places that just
 /// have something to say, which use the same window with a single OK.
 ///
-/// Three things in that file decide how it behaves, and all three are
+/// Four things in that file decide how it behaves, and all four are
 /// kept:
 ///
 ///  - it carries an id. The caller puts one in and reads it back when
@@ -20,6 +20,9 @@ using Godot;
 ///    outcome of a stray keystroke is nothing happening. In OK mode
 ///    those same keys press OK, because there is no wrong answer to a
 ///    statement.
+///  - it closes itself when the data behind it is invalidated, if the
+///    caller said it should. See DataInvalidated below; that is the
+///    fourth, and it was the one missing.
 ///  - a handler is used once. `_RaiseConfirm` and `_RaiseCancel` clear
 ///    both handlers and the id afterwards, so a second popup cannot
 ///    fire the first one's action. That matters here for the same
@@ -40,6 +43,23 @@ public partial class ConfirmPopup : Control
     Action<uint> _confirmed;
     Action _cancelled;
     uint _id;
+
+    /// <summary>
+    /// Whether an invalidation of the server's data takes this popup
+    /// down with it. Set per call, exactly as the reference sets it per
+    /// call: `ShowChoice` and `ShowOK` both take a closeOnInvalidate
+    /// argument and store it (`UIConfirmPopup.cpp:52-68`, `:83-99`).
+    ///
+    /// The distinction the reference draws with it is worth keeping. A
+    /// question about something IN the world - exile this member,
+    /// disband this guild, change these stats - passes true, because its
+    /// Yes acts on an id that only means anything while the lists it came
+    /// from are still valid (`UIGuild.cpp:865`, `:878`, `:884`,
+    /// `UIStatChangeWizard.cpp:429`). A popup about the connection or the
+    /// account passes false, because there is no game data behind it to
+    /// go stale (`OgreClient.cpp:653`, `:895`, `:908`).
+    /// </summary>
+    bool _closeOnInvalidate = true;
 
     public bool IsOpen => _panel != null && _panel.Visible;
 
@@ -138,24 +158,30 @@ public partial class ConfirmPopup : Control
     /// A yes/no question. <paramref name="id"/> comes back with the
     /// answer, which is how the caller knows what it asked about.
     /// </summary>
-    public void Choice(string text, uint id, Action<uint> confirmed, Action cancelled = null)
+    public void Choice(string text, uint id, Action<uint> confirmed, Action cancelled = null,
+                       bool closeOnInvalidate = true)
     {
         _text.Text = text;
         _id = id;
         _confirmed = confirmed;
         _cancelled = cancelled;
+        // True by default because every question this client asks is a
+        // question about the world - a guild member, a hall, a stat
+        // change - and those are the ones the reference marks true.
+        _closeOnInvalidate = closeOnInvalidate;
 
         _yes.Visible = true; _no.Visible = true; _ok.Visible = false;
         Show(true);
     }
 
     /// <summary>Something to say, with one way out.</summary>
-    public void Tell(string text, Action<uint> acknowledged = null)
+    public void Tell(string text, Action<uint> acknowledged = null, bool closeOnInvalidate = true)
     {
         _text.Text = text;
         _id = 0;
         _confirmed = acknowledged;
         _cancelled = null;
+        _closeOnInvalidate = closeOnInvalidate;
 
         _yes.Visible = false; _no.Visible = false; _ok.Visible = true;
         Show(true);
@@ -187,6 +213,47 @@ public partial class ConfirmPopup : Control
 
         if (yes) confirmed?.Invoke(id);
         else cancelled?.Invoke();
+    }
+
+    /// <summary>
+    /// The server has invalidated its data, and this popup may be
+    /// asking about something that no longer exists.
+    ///
+    /// InvalidateData (228) means the server has thrown away the lists it
+    /// sent us and will send them again: `HandleInvalidateData` calls
+    /// `Invalidate()` (`Meridian59/Data/DataController.cs:2947-2951`),
+    /// which clears the online players, the room contents, the guild
+    /// roster and the rest (`:1006`). Object ids are handed out per
+    /// session and reused, so an id captured before the sweep is not a
+    /// promise about anything after it.
+    ///
+    /// That is why the reference hangs this off its own Invalidate
+    /// override (`DataControllerOgre.cpp:61-71`) and why the handler it
+    /// calls does three things rather than one
+    /// (`UIConfirmPopup.cpp:199-214`): it hides the window, and it drops
+    /// both handlers and the id. Hiding alone would not be enough - the
+    /// popup would be off screen with a live Yes still bound to a stale
+    /// id - and dropping the id alone would leave a question on screen
+    /// whose buttons do nothing. Both, or neither.
+    ///
+    /// Concretely: "Are you sure you want to exile Bob?" is asked, a
+    /// system save lands, the guild roster is emptied and re-sent, and
+    /// the id that was Bob is now whatever the server next chose to call
+    /// it. Yes would exile that instead. Nothing in this client closed
+    /// that hole, because nothing in this client could hear an
+    /// invalidation at all until `MobileData` existed to raise it.
+    ///
+    /// Silent on purpose. The player pressed nothing, so neither handler
+    /// runs - not Yes, and not the cancel path either, which is the
+    /// reference's choice too: a cancel handler is an action, and this is
+    /// the absence of one.
+    /// </summary>
+    public void DataInvalidated()
+    {
+        if (!_closeOnInvalidate) return;
+
+        _confirmed = null; _cancelled = null; _id = 0;
+        Show(false);
     }
 
     /// <summary>

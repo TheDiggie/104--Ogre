@@ -11,6 +11,12 @@ using Meridian59.Drawing2D;
 /// thing, its name in the colour the server gives it, the description the
 /// server sent, and an inscription underneath when the thing carries one.
 ///
+/// Four kinds of look share this one panel, because they are the same
+/// window with different lines on it: an object, a spell, a skill, and a
+/// PLAYER. The player half was missing entirely - see Player() - which
+/// left the Look button doing nothing at all when it was aimed at
+/// somebody, which is what it is aimed at most.
+///
 /// All four come from the client's own `Data.LookObject`, an `ObjectInfo`
 /// the library fills from the server's reply - the object, the message,
 /// the inscription, the look type and whether the window is up. The view
@@ -37,6 +43,25 @@ public partial class LookPanel : Control
 
     uint _shown;
     string _lastText = "";
+    /// <summary>
+    /// Which of the four things is on screen - "object", "spell",
+    /// "skill", "player". The change test below is an id and a body of
+    /// text, and ids are not unique ACROSS these four: a spell and a
+    /// player can carry the same number, so without this a look at a
+    /// player right after a look at a spell with the same id would be
+    /// taken for "nothing changed" and the window would keep the wrong
+    /// contents.
+    /// </summary>
+    string _kind = "";
+
+    // Player-only rows. See Player() below.
+    Label _titles, _websiteLine;
+    TextEdit _descEdit;
+    LineEdit _urlEdit;
+    Button _save;
+    PlayerInfo _player;
+    bool _playerMode, _playerEditable;
+    string _wasDesc = "", _wasUrl = "";
 
     public bool IsOpen => _panel != null && _panel.Visible;
 
@@ -108,6 +133,67 @@ public partial class LookPanel : Control
         };
         AddChild(_write);
 
+        // Looking at a PLAYER. UserCommand (155) carrying a LookPlayer
+        // fills `Data.LookPlayer` and raises its IsVisible
+        // (`Meridian59/Data/DataController.cs:2774-2777`), and that is
+        // all the client has ever done with it: this panel owned
+        // LookObject, LookSpell and LookSkill and never read LookPlayer
+        // at all, so aiming the Look button at another player sent a
+        // request, got an answer, and showed nothing. The button was
+        // dead for the one target players use it on most.
+        //
+        // The reference's window is `UIPlayerDetails.cpp`. It subscribes
+        // to the model (`:36-37`) and reacts property by property
+        // (`:76-164`): the object gives the picture and the name in the
+        // colour the flags choose (`:82-99`), Titles is its own block
+        // that GROWS the window (`:102-132`), Message is the description
+        // (`:135-142`), Website is a line of its own (`:145-152`),
+        // IsEditable decides whether the description and the website are
+        // writable (`:155-160`), and IsVisible alone decides whether the
+        // window is up (`:163-168`). Each of those has a row here.
+        //
+        // Titles sits under the name rather than in the bottom detail
+        // line, because that is where the reference puts it and because
+        // it is part of how a player is addressed - it reads as part of
+        // the name, not as a footnote.
+        _titles = new Label { Visible = false, MouseFilter = MouseFilterEnum.Ignore,
+                              AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        _titles.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        _titles.AddThemeColorOverride("font_color", new Color(0.88f, 0.84f, 0.62f));
+        AddChild(_titles);
+
+        _websiteLine = new Label { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _websiteLine.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        _websiteLine.AddThemeColorOverride("font_color", new Color(0.66f, 0.78f, 0.95f));
+        AddChild(_websiteLine);
+
+        // The writable pair, which appear in place of the read-only
+        // description and website when the server says this look is
+        // editable - which in practice is when you looked at yourself.
+        // The reference does not hide them and show others; it flips
+        // ReadOnly on the same two boxes (`UIPlayerDetails.cpp:155-160`).
+        // Godot has no read-only RichTextLabel worth the name, so the
+        // same effect is two widgets sharing one rectangle.
+        _descEdit = new TextEdit { Visible = false, WrapMode = TextEdit.LineWrappingMode.Boundary };
+        _descEdit.AddThemeFontSizeOverride("font_size", FontSize);
+        AddChild(_descEdit);
+
+        _urlEdit = new LineEdit { Visible = false, PlaceholderText = "Website" };
+        _urlEdit.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        AddChild(_urlEdit);
+
+        // The reference has no Save button: its OK button both saves and
+        // closes (`UIPlayerDetails.cpp:203-245`). A separate one is kept
+        // here because Close on a phone is also what a back gesture
+        // reaches, and a gesture should not be a way to publish a
+        // half-typed description. Close saves too, for the same reason
+        // the reference's OK does - see Close() - so nothing typed is
+        // lost either way; this is just the explicit half.
+        _save = new Button { Text = "Save", Visible = false };
+        _save.AddThemeFontSizeOverride("font_size", FontSize);
+        _save.Pressed += SaveSelf;
+        AddChild(_save);
+
         _close = new Button { Text = "Close", Visible = false };
         _close.AddThemeFontSizeOverride("font_size", FontSize);
         _close.Pressed += Close;
@@ -173,16 +259,75 @@ public partial class LookPanel : Control
         _detail.Position = new Vector2(side, top + h - FontSize * 6.4f);
         _detail.Size = new Vector2(w - side, FontSize * 1.8f);
 
+        // The player rows reuse the slots the object rows sit in, which
+        // is what keeps the two shapes of this window the same size and
+        // the Close button in the same place under both. Titles takes
+        // the space beside the picture under the name; the website takes
+        // the inscription's line, with Save beside it exactly as Write
+        // sits beside the inscription box.
+        _titles.Position = new Vector2(side + PictureSize + 16f, top + 16f + FontSize + 10f);
+        _titles.Size = new Vector2(w - side - PictureSize - 16f, FontSize * 3.2f);
+
+        _descEdit.Position = _description.Position;
+        _descEdit.Size = _description.Size;
+
+        _websiteLine.Position = _inscription.Position;
+        _websiteLine.Size = _inscription.Size;
+
+        _urlEdit.Position = _inscription.Position;
+        _urlEdit.Size = new Vector2(w - side - writeW - 8f, FontSize * 2.4f);
+        _save.Position = new Vector2(side + (w - side) - writeW, _inscription.Position.Y);
+        _save.Size = new Vector2(writeW, FontSize * 2.4f);
+
         _close.Position = new Vector2(side, top + h - FontSize * 2.4f - 8f);
         _close.Size = new Vector2(w - side, FontSize * 2.4f);
     }
 
     public void Close()
     {
+        // Closing a look at your OWN description is how the reference
+        // saves it: its OK button sends the description and the website
+        // if either differs from what arrived, and only then clears
+        // IsVisible (`UIPlayerDetails.cpp:203-245`). Not doing that here
+        // would make the panel's edit boxes decorative.
+        if (_playerMode && _playerEditable) SaveSelf();
+
         Show(false);
         // The server's own flag, so the client and the view agree on
-        // whether the window is up.
+        // whether the window is up. LookPlayer carries its own
+        // (`Meridian59/Data/Models/PlayerInfo.cs:251-266`) and it is the
+        // one the reference clears (`UIPlayerDetails.cpp:243`).
         if (_info != null) _info.IsVisible = false;
+        if (_player != null) _player.IsVisible = false;
+    }
+
+    /// <summary>
+    /// Sends a changed description and a changed website, and only if
+    /// they changed.
+    ///
+    /// Both conditions are the reference's. It sends nothing unless the
+    /// object looked at is your own avatar - `lookObj->ID ==
+    /// Data->AvatarID` (`UIPlayerDetails.cpp:207-208`) - and it compares
+    /// each field against what arrived before sending it (`:223-224`,
+    /// `:238-239`). IsEditable is the same test arriving from the other
+    /// direction: the server sets it on a look at yourself, and it is
+    /// what the reference already trusts to decide whether the boxes are
+    /// writable at all (`:155-160`).
+    ///
+    /// The comparison is not politeness. These are two separate server
+    /// commands - ChangeDescription and a ChangeURL user command - and
+    /// sending them on every close would spend the client's rate limiter
+    /// on nothing and rewrite a profile the player only looked at.
+    /// </summary>
+    void SaveSelf()
+    {
+        if (!_playerMode || !_playerEditable) return;
+
+        string desc = _descEdit.Text ?? "";
+        if (desc != _wasDesc) { _wasDesc = desc; Describe?.Invoke(desc); }
+
+        string url = _urlEdit.Text ?? "";
+        if (url != _wasUrl) { _wasUrl = url; Homepage?.Invoke(url); }
     }
 
     void Show(bool on)
@@ -195,15 +340,34 @@ public partial class LookPanel : Control
         // without this it opens behind them.
         if (on) GetParent()?.MoveChild(this, -1);
 
+        // Object, spell and skill rows on one side; the player rows on
+        // the other. They share the panel and the slots, so exactly one
+        // set is up at a time - a player's website in the inscription's
+        // line while an inscription is also drawn there would be two
+        // strings on top of each other.
+        bool thing = on && !_playerMode;
+        bool who = on && _playerMode;
+
         _shade.Visible = on;
         _panel.Visible = on;
         _picture.Visible = on && _picture.Texture != null;
         _name.Visible = on;
-        _description.Visible = on;
-        _inscription.Visible = on && !_editable && !string.IsNullOrWhiteSpace(_inscription.Text);
-        _writing.Visible = on && _editable;
-        _write.Visible = on && _editable;
-        _detail.Visible = on && !string.IsNullOrWhiteSpace(_detail.Text);
+        // In player mode the read-only description gives way to the
+        // writable one when the server says this look is editable, which
+        // is the reference's ReadOnly flip (`UIPlayerDetails.cpp:155-160`)
+        // expressed as two widgets in one rectangle.
+        _description.Visible = on && !(who && _playerEditable);
+        _inscription.Visible = thing && !_editable && !string.IsNullOrWhiteSpace(_inscription.Text);
+        _writing.Visible = thing && _editable;
+        _write.Visible = thing && _editable;
+        _detail.Visible = thing && !string.IsNullOrWhiteSpace(_detail.Text);
+
+        _titles.Visible = who && !string.IsNullOrWhiteSpace(_titles.Text);
+        _descEdit.Visible = who && _playerEditable;
+        _websiteLine.Visible = who && !_playerEditable && !string.IsNullOrWhiteSpace(_websiteLine.Text);
+        _urlEdit.Visible = who && _playerEditable;
+        _save.Visible = who && _playerEditable;
+
         _close.Visible = on;
         // The window is as tall as its text, so it has to be laid out
         // again every time the text changes - which is every time it
@@ -218,6 +382,24 @@ public partial class LookPanel : Control
     /// text. Raised by the Write button.
     /// </summary>
     public event System.Action<uint, string> Inscribe;
+
+    /// <summary>
+    /// A new description for your OWN avatar, from the player-details
+    /// half of this window. Separate from <see cref="Inscribe"/> because
+    /// the server commands are separate: the reference sends the
+    /// one-argument ChangeDescription for yourself
+    /// (`UIPlayerDetails.cpp:225`) and the two-argument one, carrying an
+    /// object id, for a thing you are carrying
+    /// (`UIObjectDetails.cpp:239-266`).
+    /// </summary>
+    public event System.Action<string> Describe;
+
+    /// <summary>
+    /// A new homepage for your own avatar. Its own server command
+    /// entirely - a ChangeURL user command, not a description
+    /// (`UIPlayerDetails.cpp:240`).
+    /// </summary>
+    public event System.Action<string> Homepage;
 
     TextEdit _writing;
     Button _write;
@@ -236,8 +418,9 @@ public partial class LookPanel : Control
         // UISkillDetails.cpp). They are the same window with different
         // lines on it, so this one does all three, and the extra lines
         // come from the same places the game reads them.
-        if (Spell(data) || Skill(data)) return;
+        if (Spell(data) || Skill(data) || Player(data)) return;
 
+        _playerMode = false;
         _info = data?.LookObject;
         if (_info == null) { if (IsOpen) Show(false); return; }
 
@@ -249,10 +432,11 @@ public partial class LookPanel : Control
         _detail.Text = "";
 
         uint id = o?.ID ?? 0;
-        if (id != _shown || text != _lastText)
+        if (id != _shown || text != _lastText || _kind != "object")
         {
             _shown = id;
             _lastText = text;
+            _kind = "object";
 
             _name.Text = o?.Name ?? "";
             if (o?.Flags != null)
@@ -296,6 +480,7 @@ public partial class LookPanel : Control
     {
         SpellInfo info = data?.LookSpell;
         if (info == null || !info.IsVisible) return false;
+        _playerMode = false;
 
         ObjectBase o = info.ObjectBase;
         string text = info.Message?.FullString ?? "";
@@ -303,7 +488,7 @@ public partial class LookPanel : Control
 
         if (id != _shown || text != _lastText)
         {
-            _shown = id; _lastText = text;
+            _shown = id; _lastText = text; _kind = "spell";
             _name.Text = o?.Name ?? "";
             Tint(o);
             _description.Text = Safe(text);
@@ -328,6 +513,7 @@ public partial class LookPanel : Control
     {
         SkillInfo info = data?.LookSkill;
         if (info == null || !info.IsVisible) return false;
+        _playerMode = false;
 
         ObjectBase o = info.ObjectBase;
         string text = info.Message?.FullString ?? "";
@@ -335,12 +521,95 @@ public partial class LookPanel : Control
 
         if (id != _shown || text != _lastText)
         {
-            _shown = id; _lastText = text;
+            _shown = id; _lastText = text; _kind = "skill";
             _name.Text = o?.Name ?? "";
             Tint(o);
             _description.Text = Safe(text);
             _inscription.Text = "";
             _detail.Text = Join(info.SchoolName?.FullString, info.SkillLevel?.FullString);
+            Picture(o);
+        }
+
+        if (!IsOpen) Show(true);
+        return true;
+    }
+
+    /// <summary>
+    /// A look at another player - or at yourself.
+    ///
+    /// `Data.LookPlayer` is a `PlayerInfo`, filled and raised by the data
+    /// layer when UserCommand (155) arrives carrying a LookPlayer
+    /// (`Meridian59/Data/DataController.cs:2774-2777`). Everything on
+    /// screen here is one of its properties, and the reference reacts to
+    /// each of them by name (`UIPlayerDetails.cpp:76-164`):
+    ///
+    ///   ObjectBase  the picture and the name, coloured by the flags
+    ///               (`:82-99`) - the same NameColors the object branch
+    ///               uses, so a guildmate reads as a guildmate here too.
+    ///   Titles      its own block under the name (`:102-132`). A
+    ///               ServerString on this build, a plain string on
+    ///               VANILLA (`PlayerInfo.cs:203-232`).
+    ///   Message     the description (`:135-142`).
+    ///   Website     a line of its own (`:145-152`).
+    ///   IsEditable  whether the description and website are writable
+    ///               (`:155-160`).
+    ///   IsVisible   whether the window is up at all (`:163-168`).
+    ///
+    /// IsVisible is the server's flag and the only thing consulted about
+    /// whether to appear - this view does not decide that, exactly as the
+    /// object, spell and skill branches above do not.
+    ///
+    /// Returning true claims the window, so this is checked in the same
+    /// chain as the spell and skill branches rather than in place of the
+    /// object one: four kinds of look, one panel, whichever kind the
+    /// server has most recently declared visible.
+    /// </summary>
+    bool Player(DataController data)
+    {
+        PlayerInfo info = data?.LookPlayer;
+        if (info == null || !info.IsVisible) { if (_playerMode && IsOpen) Show(false); return false; }
+
+        _player = info;
+        _playerMode = true;
+
+        ObjectBase o = info.ObjectBase;
+        string text = info.Message?.FullString ?? "";
+        uint id = o?.ID ?? 0;
+
+        // Editability arrives from the server, and it is what the
+        // reference trusts rather than comparing ids itself when it
+        // decides whether the boxes are writable (`:155-160`).
+        _playerEditable = info.IsEditable;
+
+        if (id != _shown || text != _lastText || _kind != "player")
+        {
+            _shown = id; _lastText = text; _kind = "player";
+
+            _name.Text = o?.Name ?? "";
+            Tint(o);
+
+            // Titles is a ServerString on this build - the library's
+            // non-VANILLA branch (`PlayerInfo.cs:203-217`) - and the
+            // reference reads FullString off it for exactly this
+            // (`UIPlayerDetails.cpp:106`).
+            _titles.Text = info.Titles?.FullString ?? "";
+
+            _description.Text = Safe(text);
+            _inscription.Text = "";
+            _detail.Text = "";
+
+            string url = info.Website ?? "";
+            _websiteLine.Text = string.IsNullOrWhiteSpace(url) ? "" : url;
+
+            // The originals, kept so a close can tell a changed field
+            // from an untouched one - which is the comparison the
+            // reference makes before it sends anything (`:223-224`,
+            // `:238-239`).
+            _wasDesc = text;
+            _wasUrl = url;
+            _descEdit.Text = text;
+            _urlEdit.Text = url;
+
             Picture(o);
         }
 

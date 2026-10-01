@@ -15,6 +15,64 @@ using Meridian59.Protocol.Enums;
 using Meridian59.Protocol.GameMessages;
 
 /// <summary>
+/// The data layer, with one hook the library does not offer.
+///
+/// InvalidateData (228) reaches `DataController.HandleInvalidateData`
+/// (`Meridian59/Data/DataController.cs:2947-2951`), which throws away
+/// every list whose contents the server has just declared stale by
+/// calling `Invalidate()` (`:1006`). The library raises no event for
+/// that, so nothing outside the data layer can hear it happen - and the
+/// reference does not try to: it SUBCLASSES the controller and overrides
+/// the method (`Meridian59.Ogre.Client/DataControllerOgre.cpp:61-71`),
+/// calling the base and then telling the confirmation popup that its
+/// world has been swept out from under it.
+///
+/// This client had no subclass at all, which is why there was nowhere to
+/// put that call. The override is the whole of what this class is for -
+/// base first, so that anything listening sees the data already cleared
+/// rather than half-cleared, exactly as the reference orders it.
+///
+/// It lives in this file rather than its own because the offline tools
+/// link `M59Client.cs` in by path and nothing else, and the client's
+/// type parameter names this class; a separate file would break their
+/// build without their csproj being touched.
+/// </summary>
+public class MobileData : DataController
+{
+    /// <summary>
+    /// The server has invalidated its own data and the lists are now
+    /// empty. Raised after the sweep, not before.
+    /// </summary>
+    public event Action Invalidated;
+
+    public override void Invalidate()
+    {
+        base.Invalidate();
+
+        // A listener that throws must not stop the message pump: an
+        // invalidation arrives in the middle of a system save, and
+        // losing the connection over a UI mistake is worse than the
+        // mistake.
+        try { Invalidated?.Invoke(); }
+        catch (Exception e) { Complain($"[MobileData] invalidated: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// Prints where it can be seen - the engine's console when there is
+    /// an engine, the terminal when this file is compiled into one of
+    /// the offline tools.
+    /// </summary>
+    static void Complain(string text)
+    {
+#if GODOT
+        GD.PrintErr(text);
+#else
+        Console.Error.WriteLine(text);
+#endif
+    }
+}
+
+/// <summary>
 /// Concrete game client.
 ///
 /// BaseClient already implements the connection, the message dispatch and
@@ -29,7 +87,7 @@ using Meridian59.Protocol.GameMessages;
 ///   server -&gt; Characters      we pick one and send UseCharacter
 ///   then the server starts sending room and object messages.
 /// </summary>
-public class M59Client : BaseClient<GameTick, ResourceManager, DataController, Config>
+public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Config>
 {
     /// <summary>
     /// The client version reported at login. If the server wants a
@@ -367,6 +425,73 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
         base.HandleCharInfoOKMessage(Message);
         try { EnteredGame?.Invoke(""); }
         catch (Exception e) { Say($"entering: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// The world is about to be let go of, and anything worth keeping
+    /// per character has to be kept NOW.
+    ///
+    /// Raised before `Data.Reset()` runs, because Reset is what empties
+    /// `Data.ActionButtons` - including the player name the saved set is
+    /// filed under. The reference does exactly this and in exactly this
+    /// order: `OgreClient::HandleQuitMessage` writes the played action
+    /// button set to its config and only then calls the base handler
+    /// (`Meridian59.Ogre.Client/OgreClient.cpp:952-958`), and the base
+    /// handler is the one that resets
+    /// (`Meridian59/Client/BaseClient.cs:648-651`).
+    /// </summary>
+    public event Action Quitting;
+
+    /// <summary>
+    /// The world is gone. Raised after the data has been reset and the
+    /// socket let go of, so the view has nothing left to read and its
+    /// only job is to put the player somewhere they can start again.
+    /// </summary>
+    public event Action Quitted;
+
+    /// <summary>
+    /// Quit (149): the server is ending the session.
+    ///
+    /// It arrives for an ordinary logout, for a kick, and for a server
+    /// shutdown, and the library's own handler does one thing with it -
+    /// `Data.Reset()` (`Meridian59/Client/BaseClient.cs:648-651`). That
+    /// is the data half. The reference adds the other two halves:
+    /// persisting the played action buttons before the reset, and going
+    /// back to the avatar-selection interface afterwards
+    /// (`Meridian59.Ogre.Client/OgreClient.cpp:952-962`, whose
+    /// DemoSceneLoadBrax leaves the client sitting in its login scene,
+    /// the same place `HandleCharactersMessage` at `:946-949` switches to
+    /// `UIMode::AvatarSelection` from).
+    ///
+    /// Nothing here handled it at all, and the consequence was not
+    /// cosmetic: after a quit or a kick the HUD stayed up over a room
+    /// that had just been emptied, every button still looking live,
+    /// until the server got round to closing the socket - at which point
+    /// the player was told they had lost their connection, which is not
+    /// what happened and not something they can fix by reconnecting
+    /// blindly.
+    ///
+    /// The socket goes here rather than being waited on. An explicit
+    /// `Disconnect` is the only thing that marks the connection Offline
+    /// (`Meridian59/Client/ServerConnection.cs:292`) - and, just as
+    /// usefully, it means the close that follows a quit is an expected
+    /// one rather than a read error arriving through
+    /// `OnServerConnectionException` and raising `ConnectionLost` on top
+    /// of a message the view has already shown.
+    /// </summary>
+    protected override void HandleQuitMessage(QuitMessage Message)
+    {
+        // Before the reset: the hotbar is filed under the character's
+        // name and Reset takes the name with it.
+        try { Quitting?.Invoke(); }
+        catch (Exception e) { Complain($"[M59Client] quitting: {e.Message}"); }
+
+        base.HandleQuitMessage(Message);
+
+        try { Disconnect(); } catch { }
+
+        try { Quitted?.Invoke(); }
+        catch (Exception e) { Complain($"[M59Client] quit: {e.Message}"); }
     }
 
     /// <summary>
