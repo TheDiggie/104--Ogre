@@ -1347,6 +1347,50 @@ public partial class GameView : Node2D
     }
 
     /// <summary>
+    /// The screen point where a named object can be tapped, or false if
+    /// nothing by that name is visible from here.
+    ///
+    /// Harness support, and deliberately not a shortcut: it finds the
+    /// point by asking the renderer the same question a finger asks -
+    /// Pick, at a grid of screen points, opaque texels only and never
+    /// through a wall - so a test that taps the answer exercises the
+    /// whole path rather than setting TargetID behind its back. Written
+    /// after a scripted run spent three tries guessing where a duskrat
+    /// was standing.
+    /// </summary>
+    public bool ScreenPointOf(string name, out Vector2 screen)
+    {
+        screen = Vector2.Zero;
+        if (string.IsNullOrWhiteSpace(name) || _world.Renderer == null) return false;
+
+        RoomObject avatar = _client?.Data?.AvatarObject;
+        if (avatar == null) return false;
+
+        Vector2 view = GetViewportRect().Size;
+        if (view.X < 1f || view.Y < 1f) return false;
+
+        WorldSync.Camera(avatar, out float cx, out float cy, out float cz);
+
+        // Coarse: a phone sprite a grid step wide is not worth missing,
+        // and the whole sweep is a few thousand picks on a buffer that
+        // is 480 across.
+        const int step = 4;
+        for (int by = 0; by < _h; by += step)
+            for (int bx = 0; bx < _w; bx += step)
+            {
+                Renderer.Sprite hit = _world.Renderer.Pick(bx, by, _w, _h, cx, cy, cz, avatar.Angle);
+                if (hit?.Tag is not RoomObject o || o.ID == avatar.ID) continue;
+                if (o.Name == null ||
+                    !o.Name.Contains(name, StringComparison.OrdinalIgnoreCase)) continue;
+
+                screen = new Vector2(bx / (float)_w * view.X, by / (float)_h * view.Y);
+                return true;
+            }
+
+        return false;
+    }
+
+    /// <summary>
     /// Plays a sound the server asked for. The object case is resolved
     /// here rather than in the sound player, because this is where the
     /// object list is: a sound with a source id comes from wherever that

@@ -11,7 +11,8 @@ Tags: process | xvfb-run plus M59USER/M59PASS; --press is a comma list of steps,
 Godot lives at
 `/tmp/Godot_v4.7.2-stable_mono_linux_x86_64/Godot_v4.7.2-stable_mono_linux.x86_64`.
 Steps in `--press`: a bare node name, `@tap:XxY`, `@hold:<Node>`,
-`@type`, `@submit`, `@name:<Node>`, `@slot`.
+`@type`, `@submit`, `@name:<Node>`, `@slot`, `@drag:<from>><to>@<frames>`,
+`@obj:<name>`.
 
 Fixture switches on the fake server: `M59_STATCHANGE=1`, `M59_NEWS=1`,
 `M59_CHATFLOOD=1`, `M59_PARALYZE=1`, `M59_WAIT=1`.
@@ -61,6 +62,9 @@ Tags: process | Kept so the next session tests something new rather than re-prov
 - Chat flood: 205 lines, the full log scrolls and closes.
 - Resting: Rest raises the RESTING banner, Stand clears it. PARALYZED
   and SAVING photographed too, through the two new fixture switches.
+- NPC quests: `@obj:Alice` then Quest lists her three, with description
+  and instructions, and Continue sends `ReqTriggerQuest`.
+- Skills: the Skills tab, row tapped twice, `ReqPerform` on the wire.
 - Casting: target something, open Spells, tap the row TWICE - the first
   tap describes, the second casts - and `ReqCast` with the spell's id
   reaches the wire. Rows are named `row<id>`, so `@name:row5002` gets
@@ -113,6 +117,22 @@ draw. 454 on the map and nothing on the dial is a window problem;
 0 on the map would have been a filter problem.
 
 See also: MiniMap.cs
+
+## Tap a thing by name, not by guessing where it is
+Tags: process, lessons | @obj:duskrat asks the renderer's own picker where the thing is and taps there - three runs were lost to taps that hit the floor
+
+`GameView.ScreenPointOf` sweeps screen points through `Renderer.Pick`,
+the same call a finger goes through: opaque texels only, never through
+a wall, and the avatar skipped. So a test that taps the answer still
+exercises the whole path; it is not a shortcut into `TargetID`.
+
+The guesswork it replaces looked like this: a tap aimed at a player
+sprite hit the floor, so no target was set, so the action row stayed
+hidden, so the button under test did not exist and the run reported "no
+button called Quest" - which reads as a missing button rather than a
+missed tap.
+
+See also: SceneShot.cs | the client -> ../GameView.cs
 
 ## A run inherits the last run's hotbar
 Tags: gotchas, process | HotbarStore saves to user://hotbar.cfg per character, so every scripted bind is still there next run - the slots accumulate across a testing session

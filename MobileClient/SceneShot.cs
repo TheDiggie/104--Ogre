@@ -531,6 +531,31 @@ public partial class SceneShot : Node
                     GD.Print($"[SceneShot] held {want}");
                 }
             }
+            else if (step.StartsWith("@obj:"))
+            {
+                // Tap a thing by NAME rather than by guessing where it
+                // is. "@obj:duskrat" asks the view for a screen point
+                // the renderer's own picker answers with that object,
+                // then taps it - the same touch a finger sends, not a
+                // shortcut into TargetID.
+                //
+                // Guessing cost three runs in one session: a tap meant
+                // for a player sprite hit the floor twice and the panel
+                // under test never opened, which looks exactly like a
+                // panel that does not open.
+                string want = step.Substring(5);
+                GameView view = FindView(GetTree().Root);
+                if (view == null) GD.Print("[SceneShot] @obj needs the live view (--host)");
+                else if (!view.ScreenPointOf(want, out Vector2 at))
+                    GD.Print($"[SceneShot] nothing called \"{want}\" is visible from here");
+                else
+                {
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = at, Pressed = true });
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = at, Pressed = false });
+                    GD.Print($"[SceneShot] tapped {want} at {at}");
+                }
+            }
             else if (step.StartsWith("@name:"))
             {
                 string want = step.Substring(6);
@@ -706,5 +731,17 @@ public partial class SceneShot : Node
         for (int i = 0; i < a.Length - 1; i++)
             if (a[i] == name) return a[i + 1];
         return fallback;
+    }
+
+    /// <summary>The live view, when there is one (--host).</summary>
+    static GameView FindView(Node n)
+    {
+        if (n is GameView v) return v;
+        foreach (Node c in n.GetChildren())
+        {
+            GameView found = FindView(c);
+            if (found != null) return found;
+        }
+        return null;
     }
 }
