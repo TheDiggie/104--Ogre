@@ -1725,6 +1725,20 @@ static class FakeServer
             Obj(4002, RID_PLAYERBGF, RID_BORIS, 800, 640, 3f,
                 OF_PLAYER | OF_DISPLAY_NAME, MM_ENEMY, NC_OUTLAW),
         };
+
+        // M59_QUEST=1 hands out one of each quest flag, so the three
+        // colours of marker can be seen at once: Alice has quests going
+        // spare (yellow), the globe is an active quest's destination
+        // (green) and Boris is a kill target (purple). The colours and
+        // their priority are QuestMarkerColors.GetColorFor's, not this
+        // server's.
+        if (Environment.GetEnvironmentVariable("M59_QUEST") == "1")
+            foreach (RoomObject qo in objects)
+            {
+                if (qo.ID == 3103) qo.Flags.IsNPCHasQuests = true;
+                if (qo.ID == 3104) qo.Flags.IsNPCActiveQuest = true;
+                if (qo.ID == 4002) qo.Flags.IsMobKillQuest = true;
+            }
         Send(ns, ctrl, new RoomContentsMessage(new ObjectID(1, 0), objects));
         Console.WriteLine($"  -> room {room} with {objects.Length} objects");
 
@@ -1859,6 +1873,11 @@ static class FakeServer
     const uint OF_GETTABLE = 0x00000010;
     const uint OF_CONTAINER = 0x00000020;
     const uint OF_BUYABLE = 0x00000400;
+    // The three quest flags, from the library's non-vanilla block
+    // (ObjectFlags.cs:70-72). They are what puts the "!" over a head.
+    // OF_NPCHASQUESTS 0x00100000, OF_NPCACTIVEQUEST 0x00200000,
+    // OF_MOBKILLQUEST 0x00400000 - set through the library's own
+    // properties below rather than as raw bits.
 
     const uint MM_PLAYER = 0x00000001;
     const uint MM_ENEMY = 0x00000002;

@@ -136,6 +136,7 @@ public partial class GameView : Node2D
     RichTextLabel _crash;
     string _resDir = "";
     NameTags _names;
+    QuestMarkers _questMarks;
     ActionButtons _hotbar;
     LookPanel _look;
     SpellsPanel _book;
@@ -806,6 +807,7 @@ public partial class GameView : Node2D
             _ui.AddChild(_roomBuffs);
         });
         Widget("names", () => { _names = new NameTags(); _ui.AddChild(_names); });
+        Widget("questmarks", () => { _questMarks = new QuestMarkers(); _ui.AddChild(_questMarks); });
         Widget("look", () => { _look = new LookPanel(); _ui.AddChild(_look); });
         Widget("sound", () =>
         {
@@ -1252,7 +1254,7 @@ public partial class GameView : Node2D
         // with no bars, no hotbar and no menu, which is a far worse
         // failure than the cosmetic one the gate was added for.
         bool inWorld = _wasInGame || _client.Data?.AvatarObject != null;
-        foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _face, _vitals, _chat })
+        foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _questMarks, _face, _vitals, _chat })
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;
         if (_go != null) _go.Visible = inWorld;
@@ -1335,6 +1337,8 @@ public partial class GameView : Node2D
             Vector2 v = GetViewportRect().Size;
             _names.Sync(_world.Renderer, _client.Data?.RoomObjects,
                         new Vector2(v.X / _w, v.Y / _h));
+            _questMarks?.Sync(_world.Renderer, _client.Data?.RoomObjects,
+                              new Vector2(v.X / _w, v.Y / _h));
         }
 
         RoomObject me = _client.Data?.AvatarObject;
