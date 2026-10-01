@@ -261,7 +261,15 @@ public partial class NpcQuestsPanel : Control
     {
         if (_rows == null) return;
 
-        if (info == null || !info.IsVisible || info.QuestList == null || info.QuestList.Count == 0)
+        // An empty list is NOT "no window". The reference shows the window
+        // on IsVisible alone (`UINPCQuestList.cpp:107-112`), the data layer
+        // sets IsVisible after the sort with no count test
+        // (`DataController.cs:3034-3056`), and the wire admits a zero-length
+        // list (`QuestUIListMessage.cs:71-79`). So an NPC with nothing to
+        // offer opens an empty window with his picture and name - and
+        // hiding it here instead left IsVisible true in the data layer
+        // (only Dismissed clears it) while the Quest button did nothing.
+        if (info == null || !info.IsVisible || info.QuestList == null)
         {
             if (IsOpen) { Show(false); _signature = ""; _picked = -1; _pickedId = -1; }
             return;
@@ -319,6 +327,11 @@ public partial class NpcQuestsPanel : Control
         for (int i = 0; i < _quests.Count; i++)
             if (_quests[i].ObjectBase.ID == _pickedId) { keep = i; break; }
         Pick(_quests.Count > 0 ? keep : -1);
+        // Nothing selected, nothing to read: say so, rather than leave two
+        // blank boxes that look like a window that failed to load. (The
+        // reference leaves the boxes as they were; this wording is the
+        // client's own.)
+        if (_quests.Count == 0) _desc.Text = "This person has no quests to offer right now.";
     }
 
     Button Row(QuestObjectInfo q, int index)

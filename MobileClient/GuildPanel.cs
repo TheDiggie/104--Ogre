@@ -127,6 +127,13 @@ public partial class GuildPanel : Control
     /// </summary>
     bool _suspended;
 
+    /// <summary>The Guild button was pressed and nothing has answered yet.</summary>
+    bool _asking;
+    ulong _askedAt;
+    /// <summary>The "you do not belong to a guild" window is what is on screen.</summary>
+    bool _noticeUp;
+    Label _none;
+
     public bool IsOpen => _panel != null && _panel.Visible;
 
     [Export] public float ButtonRight = 12f;
@@ -139,7 +146,14 @@ public partial class GuildPanel : Control
 
         _open = new Button { Text = "Guild" };
         _open.AddThemeFontSizeOverride("font_size", FontSize);
-        _open.Pressed += () => Opened?.Invoke();
+        _open.Pressed += () =>
+        {
+            // Remember that the player asked: the server answers a guildless
+            // player with a chat line and no GuildInfo, so silence after a
+            // short wait is the answer (see ShowNotice).
+            _askedAt = Time.GetTicksMsec(); _asking = true;
+            Opened?.Invoke();
+        };
         AddChild(_open);
         Panels.Opener(_open);
 
@@ -148,6 +162,11 @@ public partial class GuildPanel : Control
 
         _title = Heading("Guild", FontSize + 4, new Color(1, 0.92f, 0.6f));
         _hall = Heading("", FontSize, new Color(0.75f, 0.78f, 0.84f));
+
+        _none = new Label { Visible = false, AutowrapMode = TextServer.AutowrapMode.WordSmart, Name = "noGuild" };
+        _none.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        _none.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
+        AddChild(_none);
 
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 2);
@@ -235,6 +254,8 @@ public partial class GuildPanel : Control
         _scroll.Position = new Vector2(side, y);
         _scroll.Size = new Vector2(w, top + height - below - 8f - y);
         _rows.CustomMinimumSize = new Vector2(w, 0);
+        _none.Position = new Vector2(side, y);
+        _none.Size = new Vector2(w, FontSize * 8f);
 
         float by = top + height - below;
         _chest.Position = new Vector2(side, by);
@@ -254,6 +275,12 @@ public partial class GuildPanel : Control
         // to Close when it is not - a gap in the middle of the footer
         // would read as a button that had failed to draw.
         by += rowH + 8f;
+        if (_noticeUp)
+        {
+            _close.Position = new Vector2(side, by);
+            _close.Size = new Vector2(w, rowH);
+            return;
+        }
         bool shield = _shield != null && _shield.Visible;
         float tabW = w * (shield ? 0.32f : 0.4f);
         _tab.Position = new Vector2(side, by);
@@ -328,6 +355,8 @@ public partial class GuildPanel : Control
     public void Close()
     {
         _suspended = false;
+        _asking = false;
+        if (_noticeUp) { HideNotice(); return; }
         if (_info != null) _info.IsVisible = false;
         // The reference throws both models away when the window goes
         // (`UIGuild.cpp:948-956`), so the next opening asks the server
@@ -376,6 +405,62 @@ public partial class GuildPanel : Control
         if (parent == null) return;
         foreach (Node n in parent.GetChildren())
             if (n is ConfirmPopup p && p.IsOpen) { parent.MoveChild(p, -1); break; }
+    }
+
+    /// <summary>
+    /// What a player in no guild is shown when they press Guild.
+    ///
+    /// The reference shows nothing: the button sends the four requests
+    /// (`UIMainButtonsRight.cpp:62-75`), the server answers a guildless
+    /// player with the single chat line "You do not belong to a guild."
+    /// and no GuildInfo (`user.kod:2749-2753`, text at `:310`), and the
+    /// window opens only when GuildInfo.IsVisible goes up
+    /// (`UIGuild.cpp:141-148`). On a phone the chat line scrolls away
+    /// under the world and the button looks dead, so a small window says
+    /// the same thing and where a guild comes from: the only way to be
+    /// offered one is Frular, the guild hall executor, who sends GuildAsk
+    /// to a guildless player (`gcreator.kod:332`).
+    ///
+    /// It is shown only after the server has stayed silent for a moment,
+    /// so a guilded player's roster is never preceded by it, and it goes
+    /// away on its own the moment either answer arrives - GuildInfo, or
+    /// the founding window that GuildAsk opens - so it can never sit
+    /// between a guildless player and the offer.
+    /// </summary>
+    void ShowNotice()
+    {
+        if (_noticeUp || CreateOpen()) return;
+        _noticeUp = true;
+        _none.Text = "You do not belong to a guild.\n\n"
+                   + "A guild is founded through Frular, the guild hall executor. "
+                   + "Speak to him and the founding window opens by itself.";
+        Panels.ToFront(this);
+        _panel.Visible = true; _title.Text = "Guild"; _title.Visible = true;
+        _none.Visible = true; _close.Visible = true; _open.Visible = false;
+        _scroll.Visible = false; _tab.Visible = false; _renounce.Visible = false;
+        _shield.Visible = false; _hall.Visible = false;
+        _chest.Visible = false; _setPassword.Visible = false; _abandon.Visible = false;
+        GetParent()?.MoveChild(this, -1); KeepPopupOnTop();
+        Layout();
+    }
+
+    void HideNotice()
+    {
+        if (!_noticeUp) return;
+        _noticeUp = false;
+        _none.Visible = false; _close.Visible = false; _title.Visible = false;
+        _panel.Visible = false; _open.Visible = true;
+        Layout();
+    }
+
+    /// <summary>Is the founding window up? Found beside this one, as the designer is.</summary>
+    bool CreateOpen()
+    {
+        Node parent = GetParent();
+        if (parent == null) return false;
+        foreach (Node n in parent.GetChildren())
+            if (n is GuildCreatePanel c && c.IsOpen) return true;
+        return false;
     }
 
     void Show(bool on)
@@ -438,9 +523,22 @@ public partial class GuildPanel : Control
             // there is nothing left to come back to: drop the flag here
             // rather than leaving Resume to re-open a dead window.
             _suspended = false;
+            if (_noticeUp)
+            {
+                // The founding window has taken over: the notice is stale.
+                if (CreateOpen()) { _asking = false; HideNotice(); }
+                return;
+            }
             if (IsOpen) { _info = info; Show(false); _signature = ""; }
+            else if (_asking && Time.GetTicksMsec() - _askedAt > 2000)
+            {
+                _asking = false;
+                ShowNotice();
+            }
             return;
         }
+        _asking = false;
+        if (_noticeUp) HideNotice();
 
         _info = info;
         _avatar = avatarID;
@@ -463,7 +561,7 @@ public partial class GuildPanel : Control
           .Append(info.Flags != null ? info.Flags.Flags : 0u).Append('|');
         if (info.GuildMembers != null)
             foreach (GuildMemberEntry m in info.GuildMembers)
-                sb.Append(m?.ID).Append(':').Append(m?.Rank).Append(';');
+                sb.Append(m?.ID).Append(':').Append(m?.Rank).Append(':').Append(m?.Name).Append(':').Append(m?.Gender).Append(';');
         string now = sb.ToString();
         if (now == _signature) return;
         _signature = now;
@@ -521,6 +619,34 @@ public partial class GuildPanel : Control
         if (ally != null && ally.GetItemByID(guildID) != null) return 0;
         if (enemy != null && enemy.GetItemByID(guildID) != null) return 2;
         return 1;
+    }
+
+    // The rights tests, in one place so the control's Disabled flag and the
+    // handler behind it can never disagree. The reference enables a control
+    // by these (`UIGuild.cpp:419-433` vote, :436-447 exile, :449 rank) and
+    // its click handlers re-test the flag (`:339` exile, :159/:174 rank).
+    // A disabled Godot button still answers a programmatic Pressed, and a
+    // scripted run emits exactly that, so the handlers test again.
+    static bool CanVote(GuildFlags f, bool supported) => f != null && f.IsVote && !supported;
+    static bool CanExile(GuildFlags f, bool isMe, byte rank)
+        => f != null && f.IsExile && !(isMe || rank == 5 || (rank == 4 && !f.IsDisband));
+    static bool CanSetRank(GuildFlags f, bool isMe) => f != null && f.IsSetRank && !isMe;
+
+    /// <summary>
+    /// Whether a change of standing is one the rights allow - the table of
+    /// `UIGuild.cpp:762-847`, which GameView sends from. A change that is
+    /// not in it sends nothing at all.
+    /// </summary>
+    static bool CanMove(GuildFlags f, int was, int now)
+    {
+        if (f == null || was == now) return false;
+        if (was == 1 && now == 2) return f.IsDeclareEnemy;
+        if (was == 0 && now == 2) return f.IsEndAlliance && f.IsDeclareEnemy;
+        if (was == 1 && now == 0) return f.IsMakeAlliance;
+        if (was == 2 && now == 0) return f.IsEndEnemy && f.IsMakeAlliance;
+        if (was == 2 && now == 1) return f.IsEndEnemy;
+        if (was == 0 && now == 1) return f.IsEndAlliance;
+        return false;
     }
 
     static string StandingName(int s) => s == 0 ? "Ally" : (s == 2 ? "Enemy" : "Neutral");
@@ -581,7 +707,20 @@ public partial class GuildPanel : Control
         pick.Disabled = !any || (info.GuildID != null && info.GuildID.ID == id);
 
         int was = ours;
-        pick.ItemSelected += now => Diplomacy?.Invoke(id, was, (int)now);
+        pick.ItemSelected += now =>
+        {
+            // A change the rights do not cover sends nothing
+            // (`UIGuild.cpp:281-284`), but the reference then leaves the
+            // box showing the choice that did not happen, which is a row
+            // that disagrees with the server until the next rebuild. Put
+            // it back.
+            if (pick.Disabled || !CanMove(info.Flags, was, (int)now))
+            {
+                pick.Selected = was;
+                return;
+            }
+            Diplomacy?.Invoke(id, was, (int)now);
+        };
         line.AddChild(pick);
 
         return line;
@@ -617,7 +756,7 @@ public partial class GuildPanel : Control
         rank.AddThemeFontSizeOverride("font_size", FontSize - 2);
         for (byte r = 1; r <= 5; r++) rank.AddItem(RankName(info, m.Gender, r), r);
         rank.Selected = Mathf.Clamp(m.Rank - 1, 0, 4);
-        rank.Disabled = f == null || !f.IsSetRank || isMe;
+        rank.Disabled = !CanSetRank(f, isMe);
         rank.ItemSelected += which =>
         {
             byte want = (byte)(which + 1);
@@ -653,10 +792,11 @@ public partial class GuildPanel : Control
         };
         vote.AddThemeFontSizeOverride("font_size", FontSize - 2);
         TickStyle.Apply(vote);
-        vote.Disabled = f == null || !f.IsVote || supported;
+        vote.Disabled = !CanVote(f, supported);
         vote.Toggled += on =>
         {
-            if (!on || info.SupportedMember == null || info.SupportedMember.ID == id) return;
+            if (!on || vote.Disabled || !CanVote(info.Flags, supported)
+                || info.SupportedMember == null || info.SupportedMember.ID == id) return;
             info.SupportedMember.ID = id;
             Support?.Invoke(id);
             _signature = "";
@@ -665,9 +805,12 @@ public partial class GuildPanel : Control
 
         var kick = new Button { Text = "Exile", Name = $"exile{index}" };
         kick.AddThemeFontSizeOverride("font_size", FontSize - 2);
-        kick.Disabled = f == null || !f.IsExile
-                        || isMe || m.Rank == 5 || (m.Rank == 4 && !f.IsDisband);
-        kick.Pressed += () => Exile?.Invoke(id, m.Name ?? "");
+        kick.Disabled = !CanExile(f, isMe, m.Rank);
+        kick.Pressed += () =>
+        {
+            if (kick.Disabled || !CanExile(info.Flags, isMe, m.Rank)) return;
+            Exile?.Invoke(id, m.Name ?? "");
+        };
         line.AddChild(kick);
 
         return line;

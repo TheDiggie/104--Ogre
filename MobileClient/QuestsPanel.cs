@@ -154,7 +154,7 @@ public partial class QuestsPanel : Control
 
         var sb = new System.Text.StringBuilder();
         foreach (StatList q in quests)
-            sb.Append(q?.ResourceName).Append(':').Append(q?.SkillPoints).Append(':')
+            sb.Append(q?.ObjectID).Append(':').Append(q?.ResourceName).Append(':').Append(q?.SkillPoints).Append(':')
               .Append(q?.Resource?.Filename).Append(';');
         string now = sb.ToString();
         if (now == _signature) return;
@@ -167,7 +167,7 @@ public partial class QuestsPanel : Control
         {
             if (q == null) continue;
             if (q.SkillPoints == 0) _rows.AddChild(Heading(q));
-            else { _rows.AddChild(Row(q)); real++; }
+            else { _rows.AddChild(Row(q, real)); real++; }
         }
 
         _title.Text = $"Quests ({real})";
@@ -188,7 +188,7 @@ public partial class QuestsPanel : Control
         return l;
     }
 
-    Control Row(StatList q)
+    Control Row(StatList q, int index)
     {
         uint id = q.ObjectID;
         var b = new Button
@@ -196,6 +196,11 @@ public partial class QuestsPanel : Control
             Alignment = HorizontalAlignment.Left,
             CustomMinimumSize = new Vector2(0, RowHeight),
             Flat = true,
+            // Named by position among the quests (headings not counted), as
+            // NpcQuestsPanel names its rows: with an icon the text lives in
+            // a child Label and Button.Text is empty, so neither the
+            // harness's text match nor anything else can find a row.
+            Name = $"row{index}",
         };
         b.AddThemeFontSizeOverride("font_size", FontSize);
         b.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
