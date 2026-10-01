@@ -1328,6 +1328,7 @@ public partial class GameView : Node2D
         _news?.Sync(_client.Data?.NewsGroup);
         _options?.Follow(_client.Data?.ClientPreferences);
         _fx?.Sync(_client.Data);
+        Wading();
         _guild?.Sync(_client.Data?.GuildInfo, _client.Data?.DiplomacyInfo,
                      _client.Data != null ? _client.Data.AvatarID : 0u);
         _wizard?.Sync(_client.Data?.StatChangeInfo);
@@ -1765,6 +1766,58 @@ public partial class GameView : Node2D
     /// object list is: a sound with a source id comes from wherever that
     /// object is standing.
     /// </summary>
+    /// <summary>
+    /// The splash you make walking through water, which nothing here
+    /// was playing.
+    ///
+    /// `ControllerSound::UpdateListener` (:155-192) checks it every
+    /// time the listener moves: you are below the sector's own floor
+    /// height - which is what standing in a depth sector means, since
+    /// the depth is subtracted from where your feet go and not from the
+    /// drawn surface - the sector has some depth, and enough time has
+    /// passed since the last splash. That interval is 500ms times the
+    /// depth level, so deeper water splashes less often, which sounds
+    /// backwards until you picture wading rather than paddling.
+    ///
+    /// The sound is the room's, not the sector's: RoomInfo carries the
+    /// file for the whole room.
+    /// </summary>
+    void Wading()
+    {
+        if (_sound == null || _client?.Data == null) return;
+        RoomObject me = _client.Data.AvatarObject;
+        RooSubSector leaf = me?.SubSector;
+        if (leaf?.Sector == null) return;
+
+        var depth = leaf.Sector.Flags.SectorDepth;
+        if (depth == RooSectorFlags.DepthType.Depth0) return;
+
+        // The floor WITHOUT the depth taken off, which is the surface
+        // of the water; the avatar's own height already has it off.
+        float hFloor = leaf.Sector.CalculateFloorHeight(
+            M59Geo.KodToWorld(me.Position3D.X), M59Geo.KodToWorld(me.Position3D.Z), false)
+            * (1f / M59Geo.KodToRoom);   // back to kod, where Position3D lives
+        if (me.Position3D.Y >= hFloor) return;
+
+        double now = Time.GetTicksMsec();
+        if (now - _splashedAt <= 500.0 * (uint)depth) return;
+        _splashedAt = now;
+
+        RoomInfo room = _client.Data.RoomInformation;
+        if (room == null || string.IsNullOrEmpty(room.ResourceWadingSound)) return;
+
+        var splash = new PlaySound
+        {
+            ID = 0, Row = 0, Column = 0,
+            ResourceName = room.WadingSoundFile,
+            Resource = room.ResourceWadingSound,
+        };
+        PlaySound(splash);
+    }
+
+    /// <summary>When the last splash was, so the next one waits its turn.</summary>
+    double _splashedAt;
+
     void PlaySound(PlaySound info)
     {
         if (_sound == null || info == null) return;
