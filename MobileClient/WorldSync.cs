@@ -224,7 +224,11 @@ public sealed class WorldSync
                             IEnumerable<Projectile> projectiles = null)
     {
         if (Renderer == null) return;
-        Renderer.Sprites.Clear();
+        // Empties the list and offers last frame's Sprite objects back,
+        // instead of allocating a fresh one per visible object per frame.
+        // See Renderer.BeginSprites for why recycling here is safe for
+        // Pick and SpriteFor, which hand sprites to callers.
+        Renderer.BeginSprites();
         Renderer.Lights.Clear();
         if (objects == null) return;
 
@@ -248,20 +252,18 @@ public sealed class WorldSync
             AddLight(o, o.Position3D);
             if (avatar != null && ReferenceEquals(o, avatar)) continue;
 
-            var sp = new Renderer.Sprite
-            {
-                X = M59Geo.KodToWorld(o.Position3D.X),
-                Y = M59Geo.KodToWorld(o.Position3D.Z),   // world Y is Position3D.Z
-                BaseZ = M59Geo.KodHeightToXY(o.Position3D.Y),
-                Height = SpriteHeight,
-                // Hanging objects are pinned by their top, not their base.
-                // The flag overlaps some player types in the original
-                // server, which is why the Ogre client excludes players
-                // from it in its vanilla build - so do we, rather than
-                // leave a player dangling.
-                Hanging = o.Flags != null && o.Flags.IsHanging && !o.Flags.IsPlayer,
-                Tag = o,
-            };
+            Renderer.Sprite sp = Renderer.NewSprite();
+            sp.X = M59Geo.KodToWorld(o.Position3D.X);
+            sp.Y = M59Geo.KodToWorld(o.Position3D.Z);     // world Y is Position3D.Z
+            sp.BaseZ = M59Geo.KodHeightToXY(o.Position3D.Y);
+            sp.Height = SpriteHeight;
+            // Hanging objects are pinned by their top, not their base.
+            // The flag overlaps some player types in the original
+            // server, which is why the Ogre client excludes players
+            // from it in its vanilla build - so do we, rather than
+            // leave a player dangling.
+            sp.Hanging = o.Flags != null && o.Flags.IsHanging && !o.Flags.IsPlayer;
+            sp.Tag = o;
 
             // The whole object - body, clothes, weapon, shield - rather
             // than the body's frame alone. Falls back to the plain frame
@@ -348,17 +350,15 @@ public sealed class WorldSync
                 lift = -p.Resource.Frames[fi].YOffset
                      / MathF.Max(1f, p.Resource.ShrinkFactor) * M59Geo.HeightToXY;
 
-            var sp = new Renderer.Sprite
-            {
-                X = M59Geo.KodToWorld(p.Position3D.X),
-                Y = M59Geo.KodToWorld(p.Position3D.Z),
-                BaseZ = M59Geo.KodHeightToXY(p.Position3D.Y) + lift,
-                // From the art, like any other sprite: an arrow is not
-                // a person-sized thing and must not be drawn as one.
-                Height = 0f,
-                Texture = Renderer.SpriteFrames.Get(p.Resource, group, p.ViewerAngle),
-                Tag = p,
-            };
+            Renderer.Sprite sp = Renderer.NewSprite();
+            sp.X = M59Geo.KodToWorld(p.Position3D.X);
+            sp.Y = M59Geo.KodToWorld(p.Position3D.Z);
+            sp.BaseZ = M59Geo.KodHeightToXY(p.Position3D.Y) + lift;
+            // From the art, like any other sprite: an arrow is not
+            // a person-sized thing and must not be drawn as one.
+            sp.Height = 0f;
+            sp.Texture = Renderer.SpriteFrames.Get(p.Resource, group, p.ViewerAngle);
+            sp.Tag = p;
 
             if (sp.Texture != null) Renderer.Sprites.Add(sp);
         }
@@ -1163,19 +1163,18 @@ public sealed class ObjectParticles
             float env = Curve(f, 0f, 0f, 0.3f, 1f, 0.5f, 1f, 1f, 0f);
             if (env <= 0.02f) continue;
 
-            into.Add(new Renderer.Sprite
-            {
-                X = p.X + toX, Y = p.Y + toY,
-                // Centred on the particle: a PU billboard's origin is its
-                // middle, a sprite's is the foot.
-                BaseZ = p.Z - p.H * 0.5f,
-                Width = p.W, Height = p.H,
-                Texture = _fire[p.Frame],
-                Opacity = 0.9f * env,
-                // (1, 0.45098, 0.235294), mp_torch.pu:37.
-                TintR = 1f * comp, TintG = 0.45098f * comp, TintB = 0.235294f * comp,
-                Tag = tag,
-            });
+            Renderer.Sprite sp = _r.NewSprite();
+            sp.X = p.X + toX; sp.Y = p.Y + toY;
+            // Centred on the particle: a PU billboard's origin is its
+            // middle, a sprite's is the foot.
+            sp.BaseZ = p.Z - p.H * 0.5f;
+            sp.Width = p.W; sp.Height = p.H;
+            sp.Texture = _fire[p.Frame];
+            sp.Opacity = 0.9f * env;
+            // (1, 0.45098, 0.235294), mp_torch.pu:37.
+            sp.TintR = 1f * comp; sp.TintG = 0.45098f * comp; sp.TintB = 0.235294f * comp;
+            sp.Tag = tag;
+            into.Add(sp);
             Drawn++; room--;
         }
     }
@@ -1305,15 +1304,14 @@ public sealed class ObjectParticles
             // Additive colour to hue + opacity, divergence 1.
             float peak = MathF.Max(r, MathF.Max(g, b));
             if (peak <= 0.02f) continue;
-            into.Add(new Renderer.Sprite
-            {
-                X = p.X, Y = p.Y, BaseZ = p.Z - p.H * 0.5f,
-                Width = p.W, Height = p.H,
-                Texture = _flare,
-                Opacity = MathF.Min(1f, 0.9f * peak * boost),
-                TintR = r / peak * comp, TintG = g / peak * comp, TintB = b / peak * comp,
-                Tag = tag,
-            });
+            Renderer.Sprite sp = _r.NewSprite();
+            sp.X = p.X; sp.Y = p.Y; sp.BaseZ = p.Z - p.H * 0.5f;
+            sp.Width = p.W; sp.Height = p.H;
+            sp.Texture = _flare;
+            sp.Opacity = MathF.Min(1f, 0.9f * peak * boost);
+            sp.TintR = r / peak * comp; sp.TintG = g / peak * comp; sp.TintB = b / peak * comp;
+            sp.Tag = tag;
+            into.Add(sp);
             Drawn++; room--;
         }
 
@@ -1346,16 +1344,15 @@ public sealed class ObjectParticles
             {
                 float t = ((k + 0.5f) / Dots - 0.5f) * hW;
                 float zc = ray.Z + ray.DZ * t;
-                into.Add(new Renderer.Sprite
-                {
-                    X = ray.X + ray.DX * t, Y = ray.Y + ray.DY * t,
-                    BaseZ = zc - dot * 0.5f,
-                    Width = dot, Height = dot,
-                    Texture = _flare,
-                    Opacity = peak,
-                    TintR = cr / peak * comp, TintG = cg / peak * comp, TintB = cb / peak * comp,
-                    Tag = tag,
-                });
+                Renderer.Sprite sp = _r.NewSprite();
+                sp.X = ray.X + ray.DX * t; sp.Y = ray.Y + ray.DY * t;
+                sp.BaseZ = zc - dot * 0.5f;
+                sp.Width = dot; sp.Height = dot;
+                sp.Texture = _flare;
+                sp.Opacity = peak;
+                sp.TintR = cr / peak * comp; sp.TintG = cg / peak * comp; sp.TintB = cb / peak * comp;
+                sp.Tag = tag;
+                into.Add(sp);
                 Drawn++; room--;
             }
         }

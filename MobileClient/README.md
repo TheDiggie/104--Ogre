@@ -1071,6 +1071,160 @@ over it.
   should be done with a profiler and a phone rather than guessed at on
   two noisy cores.
 
+  **Where the frame actually goes, measured.** Every number below is
+  relative - configurations alternated frame by frame in one process and
+  the MINIMUM of each set scored, because the development box is two
+  shared cores under llvmpipe and an A-then-B comparison minutes apart is
+  worthless there. `DOTNET_TieredCompilation=0`. 480x270, one core unless
+  said otherwise, camera at the centre of the room's largest leaf, the
+  heading named as an eighth of a turn.
+
+  *The flat-anchor table is the single biggest cost in the slowest room.*
+  `FlatAnchors.TryAnchor` is asked once per floor and ceiling PIXEL.
+  Turning it off (`LeafAnchoredFlats = false`) against leaving it on, per
+  heading in `raza`: 54.0, 44.4, 37.9, 27.5, 18.1, 39.4, 56.0, 57.9
+  percent of the whole frame. `raza` is the outlier and it is worth
+  knowing why: it has 437 leaves anchored away from the origin, where
+  `dvalley5` has 309 but costs under 2%, `dvalley3` 154 at under 2%,
+  `guildh19` 6, and `d6e6ulake` none at all. The cost is how much
+  anchored floor is in shot, not how many leaves the room has.
+
+  Two exact things were done about it, and a third was measured and
+  refused.
+
+  - The lookup is now asked only on the branch that READS it. The sloped
+    branch takes its texture frame from the plane (`SlopeUV`) and never
+    touches the anchor, yet the call was made above the branch and thrown
+    away for every pixel of every ramp and hillside in the game. Worth
+    3.0-3.3% in `dvalley5` and nothing distinguishable from noise
+    anywhere else - `raza`'s flats are mostly level, so the dead calls
+    were not where the mass was. Byte-identical by construction.
+    (`Renderer.FlatAnchorHoist`.)
+  - A ONE-ENTRY memo: the leaf that answered the previous pixel is tested
+    first, bounding box then `Inside`, before the grid cell's candidate
+    list is touched. A floor span walks across one leaf at a time, so it
+    hits nearly always. Worth **14.3% of the whole frame in `raza` at
+    heading 0, 19.3% at heading 6, 17.7% at heading 7**; 1.5% in
+    `dvalley5`, nothing elsewhere. (`Renderer.FlatAnchorMemo`.)
+
+    The memo lives in the renderer's per-band `Scratch`, NOT on the
+    `FlatAnchors` instance, and that is the whole difficulty: with
+    `Threaded = true` a shared memo is a data race, and a torn read could
+    pair one leaf's index with another leaf's polygon and hand back a
+    wrong anchor. `Tools/Meridian59.Net8RenderCheck threads` is the guard
+    for exactly that.
+  - **Refused:** dropping from the table every leaf whose `Left` and
+    `Top` are whole multiples of 1024. One su unit is one texture repeat
+    and `Sample` takes `u - floor(u)`, so in exact arithmetic a whole-tile
+    shift is no shift - but it is a different float, and a texel can flip
+    at an edge. It is not worth the risk because it is not where the
+    work is: of the 8573 anchored leaves in the game 3169 (37.0%) are
+    whole-tile, but in `raza` - the one room where the table costs
+    anything at all - only **4 of 437** are. It would remove under 1% of
+    that room's table work.
+
+    The other way to the same end, taking the anchor from the leaf the
+    walk already knows, is not available either: the column walk tracks
+    SECTORS through portals, not BSP leaves, and a leaf per pixel means
+    either a BSP descent per pixel or the flats-as-spans restructure
+    above.
+
+  *Point lights are linear in the light count, with no knee, and were
+  tested per pixel.* `AddLights` walked the whole list for every wall,
+  floor, ceiling and sprite pixel. In `barinn` at heading 0, unculled:
+  3.87 ms at one light, 4.56 at four, 5.75 at eight, 8.30 at sixteen,
+  16.52 at forty-eight - about 0.27 ms per light per frame at this size,
+  perfectly straight. Forty-eight lights was four times the frame.
+
+  Two conservative culls now run before the pixel loop
+  (`Renderer.CullLights`). Neither can change a pixel: the shader's term
+  is `k = 1 - d^2/R^2` taken only when `d < R`, so a light a conservative
+  test drops contributes exactly zero.
+
+  - Per frame, a light's sphere against the three half-planes bounding the
+    view's horizontal wedge. Every wall, floor and ceiling point the room
+    pass draws lies on a ray from the eye inside that wedge.
+  - Per column, against the distance from the light to that column's own
+    ray - every point the column draws sits on it - and then per wall
+    part against the horizontal distance to the column's hit point, which
+    is fixed while only the height varies down the part.
+
+  Worth 24.3% at forty-eight lights in `barinn`, 12.4% at sixteen, 6.0%
+  at eight, and 13.5% / 10.9% at forty-eight / sixteen in `guildh19`.
+  That is a LOWER bound: the lights in this measurement are scattered
+  within 4000 units of the camera with ranges up to 7000, which is about
+  the worst case for a distance cull.
+
+  Sprites are still placed from the whole list. A billboard can hang a
+  little outside the wedge its centre sits in, and there are too few of
+  them per frame for the test to pay. What is NOT done is the reference's
+  48-and-8 cap: Ogre keeps the nearest 47 lights for a wall and 7 for a
+  sprite, this renderer deliberately keeps them all (see
+  `Renderer.Lights`), and dropping the furthest to match would change
+  pixels in the one case where the two are meant to disagree.
+
+  *All of it together*, the three knobs off against on, minimum of
+  alternated frames:
+
+  | room | heading | lights | before | after | gain |
+  |---|---|---|---|---|---|
+  | raza | 0 | 0 | 8.44 ms | 7.16 ms | 15.2% |
+  | raza | 6 | 0 | 7.24 ms | 6.03 ms | 16.7% |
+  | raza | 0 | 8 | 9.89 ms | 8.18 ms | 17.3% |
+  | raza (2 cores) | 0 | 0 | 4.32 ms | 3.73 ms | 13.8% |
+  | dvalley5 | 1 | 0 | 1.83 ms | 1.74 ms | 4.8% |
+  | dvalley5 | 6 | 0 | 10.63 ms | 10.13 ms | 4.7% |
+  | guildh19 | 0 | 8 | 6.66 ms | 6.33 ms | 5.1% |
+  | barinn | 0 | 8 | 5.55 ms | 5.21 ms | 6.1% |
+  | barinn | 0 | 48 | 16.58 ms | 12.85 ms | 22.5% |
+  | barinn (2 cores) | 0 | 48 | 8.48 ms | 6.67 ms | 21.3% |
+  | guildh19 | 0 | 0 | 4.17 ms | 4.18 ms | -0.2% |
+  | d6e6ulake | 0 | 8 | 6.04 ms | 5.99 ms | 0.8% |
+
+  An unlit room with no anchored leaves gains nothing, which is the
+  honest shape of this: the work removed is work that was only ever being
+  done in the rooms that were slow.
+
+  *Garbage.* The renderer allocated 1706 B a frame on the calling thread
+  and collected gen0 **zero** times in two hundred frames, so this was
+  never a stutter - but nearly all of it was `Parallel.For` machinery for
+  a closure that could be a field. Hoisting the band's arguments into
+  fields and caching one `Action<int>` takes it to 1551 B. The remaining
+  1551 B is inside `Parallel.For` itself and a cached delegate cannot
+  reach it; removing that means owning the worker threads, which is not
+  worth it at this size.
+
+  What DID allocate was the sync, not the renderer: `WorldSync` built a
+  fresh `Renderer.Sprite` per visible object, per projectile and per
+  particle every frame. Measured at **88 B each** - 8.8 KB a frame at a
+  hundred objects, 35.2 KB at four hundred, which at 60 Hz is half a
+  megabyte and two megabytes a second. They are pooled now
+  (`Renderer.BeginSprites` / `NewSprite`), recycled at the start of the
+  next sync and not before, because `Pick`, `PickAll` and `SpriteFor`
+  hand sprites to callers and every caller in the client reads what it
+  wants off the sprite inside the frame it asked in. `Sprite.Reset` names
+  every field for that reason; a field added to `Sprite` and forgotten
+  there is last frame's value leaking into an unrelated object.
+
+  *`SpriteFor` was a linear scan* called once per named object from
+  `NameTags` and again from `QuestMarkers`, which made the pair O(objects
+  squared) twice a frame. It is indexed now, rebuilt at most once per
+  frame on the first ask after a `Render`: a pass over 400 objects goes
+  from 0.356 ms to 0.006 ms, and over 100 from 0.024 ms to 0.001 ms -
+  0.7 ms a frame at four hundred objects, since two overlays ask. First
+  entry wins, as the scan did, because a particle carries the same `Tag`
+  as the object it burns on and the answer must stay the object's own
+  sprite.
+
+  *A room change is the real stutter, and it is still there.* The first
+  frame in a room builds every texture that frame touches, inside
+  `Render`: `raza` 104.0 ms against 7.1 ms settled, 15x. Elsewhere it is
+  2 ms or less over the settled frame, because a single heading touches
+  few textures. Pre-touching a room's textures off the render thread is
+  the fix and it was deliberately NOT done here: it is new concurrency
+  around `TexCache`'s build lock from a Godot thread and it wants its own
+  pass.
+
 - **Texture aliasing** is handled with mipmaps. Point-sampling a 128x128
   stone texture across a ceiling at a grazing angle produced heavy radial
   streaking; each texture now carries a box-filtered mip chain and the
@@ -1194,8 +1348,15 @@ over it.
 
   `FlatAnchors.cs` stores only the leaves that differ, in a grid over
   their own bounding box, so a room entirely in positive coordinates costs
-  one comparison per pixel and nothing else. Even at the worst view in the
-  worst room the cost is inside the noise - 3.91 ms against 3.84.
+  one comparison per pixel and nothing else.
+
+  The claim that used to stand here - that even at the worst view in the
+  worst room the cost is inside the noise, 3.91 ms against 3.84 - is
+  wrong, and that was not the worst room. In `raza`, where 437 leaves are
+  anchored away from the origin, the table is 18-58% of the frame
+  depending on the heading. See the anchor-table paragraphs under
+  **Speed** for the measurements and for the two exact things done about
+  it.
 
   Verified against the library's own numbers: 604,901 flat vertices in
   154,001 unsloped leaves, all agreeing, 28,981 of them on leaves anchored

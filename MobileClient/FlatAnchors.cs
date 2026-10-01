@@ -121,9 +121,45 @@ public sealed class FlatAnchors
     /// </summary>
     public bool TryAnchor(float x, float y, out float left, out float top)
     {
+        int ignored = -1;
+        return TryAnchor(x, y, ref ignored, out left, out top);
+    }
+
+    /// <summary>
+    /// The same, remembering which leaf answered last.
+    ///
+    /// The caller asks once per PIXEL and a floor span walks across one
+    /// leaf at a time, so the leaf that answered the previous pixel
+    /// answers this one nearly always. Testing it first - its bounding
+    /// box, then <see cref="Inside"/> - skips the grid lookup and the
+    /// cell's whole candidate list. In the worst room in the game this
+    /// table is 60% of the frame and the memo takes a tenth off the
+    /// whole render.
+    ///
+    /// It is a HINT and nothing more: a miss falls through to the same
+    /// search, and the answer is the same leaf either way because the
+    /// BSP's leaves partition the room and no point lies in two of them.
+    /// Checked rather than argued - 362 rooms x 8 headings byte-identical,
+    /// single-threaded and threaded.
+    ///
+    /// <paramref name="memo"/> therefore belongs to the CALLER, not to
+    /// this object: the renderer splits its columns across cores and a
+    /// memo shared between them is a torn read away from pairing one
+    /// leaf's index with another's polygon. It lives in the renderer's
+    /// per-band scratch for that reason.
+    /// </summary>
+    public bool TryAnchor(float x, float y, ref int memo, out float left, out float top)
+    {
         left = top = 0f;
         if (_leaves.Length == 0) return false;
         if (x < _minX || x > _maxX || y < _minY || y > _maxY) return false;
+
+        if ((uint)memo < (uint)_leaves.Length)
+        {
+            Leaf m = _leaves[memo];
+            if (x >= m.MinX && x <= m.MaxX && y >= m.MinY && y <= m.MaxY && Inside(m, x, y))
+            { left = m.Left; top = m.Top; return true; }
+        }
 
         List<int> here = _cells[Row(y) * _cols + Col(x)];
         if (here == null) return false;
@@ -134,6 +170,7 @@ public sealed class FlatAnchors
             if (x < l.MinX || x > l.MaxX || y < l.MinY || y > l.MaxY) continue;
             if (!Inside(l, x, y)) continue;
             left = l.Left; top = l.Top;
+            memo = i;
             return true;
         }
         return false;

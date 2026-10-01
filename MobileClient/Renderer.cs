@@ -380,6 +380,24 @@ public sealed class Renderer
         /// it would mean a new composed copy for each.
         /// </summary>
         public float TintR = 1f, TintG = 1f, TintB = 1f, Opacity = 1f;
+
+        /// <summary>
+        /// Back to how a fresh one starts, for the pool below. Every field
+        /// is named here on purpose: a recycled sprite that kept the last
+        /// frame's Tint, Hanging or Bgf would be a stale value leaking into
+        /// an unrelated object, and the compiler cannot notice a field left
+        /// out. Add a field to Sprite and add it here.
+        /// </summary>
+        public void Reset()
+        {
+            X = Y = BaseZ = 0f;
+            Height = 0f; Width = 0f;
+            Bgf = null; AngleUnits = 0; Group = 1;
+            Texture = null;
+            Hanging = false;
+            Tag = null;
+            TintR = TintG = TintB = 1f; Opacity = 1f;
+        }
     }
 
     /// <summary>A sprite worked out in screen space: where it lands and how big.</summary>
@@ -394,6 +412,58 @@ public sealed class Renderer
 
     /// <summary>Objects drawn after the walls, occluded by them.</summary>
     public readonly List<Sprite> Sprites = new List<Sprite>();
+
+    /// <summary>
+    /// Last frame's sprite objects, kept to be filled in again.
+    ///
+    /// The list is cleared and rebuilt from the server every frame, and a
+    /// fresh Sprite per visible object per frame is 88 bytes each - a
+    /// quarter of a megabyte a second at a hundred objects and a megabyte
+    /// at four hundred, which on a phone is gen0 collections for nothing.
+    /// The renderer's own per-frame garbage is already down at a kilobyte
+    /// and a half, so this was the whole of it.
+    ///
+    /// Recycling is safe HERE and only here. <see cref="Pick"/> and
+    /// <see cref="PickAll"/> hand a Sprite back to the caller, and
+    /// <see cref="SpriteFor"/> does too, so an entry must stay valid for
+    /// as long as a caller might still be holding it: it is reused at the
+    /// NEXT <see cref="BeginSprites"/>, which is the start of the next
+    /// frame's sync, and every caller in the client reads what it wants
+    /// off the sprite - a Tag, a height - inside the frame it asked in.
+    /// </summary>
+    readonly List<Sprite> _pool = new List<Sprite>(256);
+    int _pooled;
+
+    /// <summary>
+    /// Starts a frame's sprite list: empties it and offers last frame's
+    /// entries back through <see cref="NewSprite"/>. A caller that builds
+    /// the list with `new` instead can clear it itself and never touch
+    /// either of these.
+    /// </summary>
+    public void BeginSprites()
+    {
+        Sprites.Clear();
+        _pooled = 0;
+    }
+
+    /// <summary>
+    /// A Sprite with every field back at its default, from the pool when
+    /// there is one. Not added to <see cref="Sprites"/> - the caller does
+    /// that, because some of them decide not to.
+    /// </summary>
+    public Sprite NewSprite()
+    {
+        if (_pooled < _pool.Count)
+        {
+            Sprite s = _pool[_pooled++];
+            s.Reset();
+            return s;
+        }
+        var fresh = new Sprite();
+        _pool.Add(fresh);
+        _pooled++;
+        return fresh;
+    }
 
     /// <summary>
     /// The room's grass, or null for a room with none.
@@ -526,6 +596,54 @@ public sealed class Renderer
     public bool NoSample { get; set; } = false;
 
     /// <summary>
+    /// Asks <see cref="FlatAnchors"/> only on the branch that reads the
+    /// answer. On; off restores the call above the slope branch, which is
+    /// where it used to sit, so the two can be timed against each other.
+    /// It cannot change a pixel - the sloped branch does not read
+    /// anchorX or anchorY - and the anchor table is 60% of the frame in
+    /// the worst room, so the dead calls were worth counting. See the
+    /// README.
+    /// </summary>
+    public static bool FlatAnchorHoist = true;
+
+    /// <summary>
+    /// Remembers the leaf the anchor table answered with last, per band,
+    /// and tests it before searching. On; off is the plain search, so the
+    /// two can be timed against each other. See
+    /// <see cref="FlatAnchors.TryAnchor(float,float,ref int,out float,out float)"/>
+    /// for why the memo belongs to the caller and not to the table.
+    /// </summary>
+    public static bool FlatAnchorMemo = true;
+
+    /// <summary>
+    /// Drops point lights that cannot reach what is being drawn, before
+    /// the per-pixel loop rather than inside it. On; off tests the whole
+    /// list per pixel, which is what this did and is how the two get
+    /// timed.
+    ///
+    /// Both culls are CONSERVATIVE, so neither can change a pixel: the
+    /// shader's term is `k = 1 - d^2/R^2` taken only when d &lt; R, so a
+    /// light the test drops contributes exactly zero. Per frame, a
+    /// light's sphere is tested against the three half-planes bounding
+    /// the view's horizontal wedge - every wall, floor and ceiling point
+    /// drawn lies on a ray from the eye inside that wedge. Per column,
+    /// against the distance from the light to that column's own ray,
+    /// which every point the column draws sits on; and per wall part,
+    /// against the horizontal distance to the column's hit point, which
+    /// is fixed while only the height varies.
+    ///
+    /// What is NOT done here is the reference's 48-and-8 cap. Ogre keeps
+    /// the nearest 47 lights for a wall and 7 for a sprite and this
+    /// renderer deliberately keeps them all - see <see cref="Lights"/> -
+    /// and dropping the furthest to match would change pixels in the one
+    /// case where the two are meant to disagree.
+    /// </summary>
+    public static bool CullLights = true;
+
+    /// <summary>The lights that can reach anything in view this frame.</summary>
+    readonly List<Light> _frameLights = new List<Light>(64);
+
+    /// <summary>
     /// Draw a wall's transparency: a grate, railing or doorway whose
     /// texture has holes in it is seen past. Off treats every one of
     /// them as solid, which is what this renderer did before, and is how
@@ -603,6 +721,15 @@ public sealed class Renderer
         public int Tick;
         public int SolidCols;
         public readonly List<Masked> Masked = new List<Masked>(8);
+        /// <summary>
+        /// The leaf the flat-anchor table answered with last. Here rather
+        /// than on the table because the bands run concurrently - see
+        /// FlatAnchors.TryAnchor.
+        /// </summary>
+        public int AnchorMemo = -1;
+        /// <summary>The lights that can reach this column, and this wall part.</summary>
+        public readonly List<Light> ColLights = new List<Light>(16);
+        public readonly List<Light> PartLights = new List<Light>(16);
     }
 
     /// <summary>
@@ -642,6 +769,14 @@ public sealed class Renderer
     public RooSector SectorAtPoint(float x, float y) => SectorAt(_roo, x, y);
 
     /// <summary>
+    /// How many leaves of this room anchor their flats away from the
+    /// origin, which is how much work the anchor table can cost. Zero -
+    /// the common case - means the table is one comparison per pixel and
+    /// nothing else. Exposed for measurement; see the README.
+    /// </summary>
+    public int AnchorLeaves => _anchors == null ? 0 : _anchors.Count;
+
+    /// <summary>
     /// The room and the eye of the last frame drawn, and the sector over
     /// a point in it. The weather overlay is screen-space and has no
     /// scene graph, but the reference's weather cull is a question about
@@ -665,6 +800,7 @@ public sealed class Renderer
         // over a player's head, say - without repeating the projection or
         // guessing at the camera.
         _lastW = W; _lastH = H;
+        _frame++;
         _lastCamX = camX; _lastCamY = camY; _lastCamZ = camZ;
         _lastAngle = angle; _lastProj = proj; _lastHorizon = horizon;
         // Published for the weather, which has to ask the room whether
@@ -691,6 +827,44 @@ public sealed class Renderer
         // One band of columns per core, each with its own scratch. Bands are
         // contiguous so each thread touches a stride of the pixel buffer
         // rather than interleaving cache lines with its neighbours.
+        // Which point lights can reach anything the room pass will draw.
+        // Every wall, floor and ceiling point it touches is on a ray from
+        // the eye lying inside the view's horizontal wedge, so a light
+        // whose sphere misses that wedge contributes nothing to any of
+        // them. Sprites are placed from the whole list, not this one -
+        // their billboards can hang a little outside the wedge their
+        // centre sits in, and there are too few of them to be worth a
+        // test.
+        List<Light> frameLights = Lights;
+        if (CullLights && Lights.Count > 0)
+        {
+            _frameLights.Clear();
+            float fx = MathF.Cos(angle), fy = MathF.Sin(angle);
+            // The widest column's own offset, so the wedge cannot be
+            // narrower than what the loop below actually casts.
+            float tan = (W * 0.5f) / proj;
+            float inv = 1f / MathF.Sqrt(1f + tan * tan);
+            for (int i = 0; i < Lights.Count; i++)
+            {
+                Light L = Lights[i];
+                float dx = L.X - camX, dy = L.Y - camY;
+                float fwd = dx * fx + dy * fy;
+                if (fwd < -L.Range) continue;                       // behind the eye
+                float side = dx * -fy + dy * fx;
+                if (( side - fwd * tan) * inv > L.Range) continue;  // off one edge
+                if ((-side - fwd * tan) * inv > L.Range) continue;  // off the other
+                _frameLights.Add(L);
+            }
+            frameLights = _frameLights;
+        }
+        // The branch the per-pixel code takes must not depend on the
+        // cull: a floor texel carrying the transparent key keeps its
+        // alpha down the plain path and is forced opaque down the lit
+        // one, so a column the cull emptied has to stay on the lit path
+        // to come out the same. Culling only ever shortens AddLights'
+        // loop, never changes which arithmetic runs.
+        bool anyLights = Lights.Count > 0;
+
         int bands = Threaded ? Math.Min(System.Environment.ProcessorCount, Math.Max(1, W / 48)) : 1;
         EnsureScratch(bands);
 
@@ -719,24 +893,48 @@ public sealed class Renderer
         if (bands <= 1)
         {
             RenderBand(_scratch[0], px, W, H, 0, W, camX, camY, camZ, angle,
-                       proj, horizon, camSector);
+                       proj, horizon, camSector, frameLights, anyLights);
         }
         else
         {
-            int per = (W + bands - 1) / bands;
-            Parallel.For(0, bands, b =>
-            {
-                int x0 = b * per, x1 = Math.Min(W, x0 + per);
-                if (x0 < x1)
-                    RenderBand(_scratch[b], px, W, H, x0, x1, camX, camY, camZ,
-                               angle, proj, horizon, camSector);
-            });
+            // The band's arguments go into fields and the delegate is
+            // built once, rather than a fresh closure object and a fresh
+            // Action every frame. Those were 1950 of the renderer's 2031
+            // bytes a frame - not a stutter, there were no gen0
+            // collections in two hundred frames, but it is the whole of
+            // what the renderer allocates and it costs nothing to not do
+            // it. Safe because Render is not reentrant - it already
+            // writes _depth, _clipN and the scratch array - and
+            // Parallel.For is a full barrier at both ends.
+            _bPx = px; _bW = W; _bH = H;
+            _bCamX = camX; _bCamY = camY; _bCamZ = camZ;
+            _bAngle = angle; _bProj = proj; _bHorizon = horizon;
+            _bSector = camSector; _bLights = frameLights; _bAnyLights = anyLights;
+            _bPer = (W + bands - 1) / bands;
+            Parallel.For(0, bands, _bBand ??= RenderOneBand);
         }
         for (int b = 0; b < bands; b++) solidCols += _scratch[b].SolidCols;
 
         DrawSprites(px, W, H, camX, camY, camZ, angle, proj, horizon);
         DrawMasked(px, W, H, bands);
         return solidCols;
+    }
+
+    uint[] _bPx;
+    int _bW, _bH, _bPer;
+    float _bCamX, _bCamY, _bCamZ, _bAngle, _bProj, _bHorizon;
+    RooSector _bSector;
+    List<Light> _bLights;
+    bool _bAnyLights;
+    Action<int> _bBand;
+
+    /// <summary>One band of the threaded path. See where _bBand is set.</summary>
+    void RenderOneBand(int b)
+    {
+        int x0 = b * _bPer, x1 = Math.Min(_bW, x0 + _bPer);
+        if (x0 < x1)
+            RenderBand(_scratch[b], _bPx, _bW, _bH, x0, x1, _bCamX, _bCamY, _bCamZ,
+                       _bAngle, _bProj, _bHorizon, _bSector, _bLights, _bAnyLights);
     }
 
     void EnsureScratch(int bands)
@@ -755,7 +953,8 @@ public sealed class Renderer
     /// <summary>Renders columns [x0, x1) - the body of the old single loop.</summary>
     void RenderBand(Scratch sc, uint[] px, int W, int H, int x0, int x1,
                     float camX, float camY, float camZ, float angle,
-                    float proj, float horizon, RooSector camSector)
+                    float proj, float horizon, RooSector camSector,
+                    List<Light> frameLights, bool anyLights)
     {
         for (int sx = x0; sx < x1; sx++)
         {
@@ -765,6 +964,30 @@ public sealed class Renderer
             float rdx = MathF.Cos(rayA), rdy = MathF.Sin(rayA);
 
             CollectHits(_roo, camX, camY, rdx, rdy, sc);
+
+            // Which of them can reach THIS column. Everything the column
+            // draws - every wall part it meets and every floor and
+            // ceiling pixel between them - sits on the ray from the eye
+            // along (rdx, rdy), so a light further from that ray than its
+            // own range reaches none of it. Once a column instead of once
+            // a pixel, and exact: a dropped light's k would have been
+            // taken as zero.
+            List<Light> colLights = frameLights;
+            if (CullLights && frameLights.Count > 0)
+            {
+                List<Light> keep = sc.ColLights;
+                keep.Clear();
+                for (int i = 0; i < frameLights.Count; i++)
+                {
+                    Light L = frameLights[i];
+                    float lx = L.X - camX, ly = L.Y - camY;
+                    float t = lx * rdx + ly * rdy;
+                    float d2 = lx * lx + ly * ly;
+                    if (t > 0f) d2 -= t * t;          // off the ray, not off the eye
+                    if (d2 < L.R2) keep.Add(L);
+                }
+                colLights = keep;
+            }
 
             int yTop = 0, yBot = H - 1;
             RooSector cur = camSector;
@@ -795,6 +1018,23 @@ public sealed class Renderer
                 // they actually do. A column renderer gets this almost free:
                 // every column already has its own hit point.
                 float hx = camX + rdx * h.Dist, hy = camY + rdy * h.Dist;
+                // And which can reach this wall part. The column's hit
+                // point is fixed for the whole part - only the height
+                // varies down it - so a light whose HORIZONTAL distance
+                // alone already exceeds its range reaches no pixel of it.
+                List<Light> wallLights = colLights;
+                if (CullLights && colLights.Count > 0)
+                {
+                    List<Light> keep = sc.PartLights;
+                    keep.Clear();
+                    for (int i = 0; i < colLights.Count; i++)
+                    {
+                        Light L = colLights[i];
+                        float lx = L.X - hx, ly = L.Y - hy;
+                        if (lx * lx + ly * ly < L.R2) keep.Add(L);
+                    }
+                    wallLights = keep;
+                }
                 float nf = M59Geo.FloorXY(near, hx, hy), nc = M59Geo.CeilingXY(near, hx, hy);
                 // The same heights at the wall's own two endpoints, which
                 // is where the texture's vertical origin comes from - the
@@ -809,11 +1049,11 @@ public sealed class Renderer
                 FillFlat(px, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
-                         LitFlat(near, true), Brightness, Sky, Lights);
+                         LitFlat(near, true), Brightness, Sky, colLights, anyLights, sc);
                 FillFlat(px, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
-                         LitFlat(near, false), Brightness, Sky, Lights);
+                         LitFlat(near, false), Brightness, Sky, colLights, anyLights, sc);
 
                 yTop = Math.Max(yTop, ceilY);
                 yBot = Math.Min(yBot, floorY);
@@ -904,7 +1144,7 @@ public sealed class Renderer
                              oneWet ? TextureScrollSpeed.NONE
                                     : side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
+                             Time, Sky, rayA, cosFix, horizon, proj, wallLights, hx, hy,
                              VOrigin(side != null && side.Flags.IsNormalTopDown,
                                      side != null && side.Flags.IsNormalTopDown ? ncA : nfA,
                                      side != null && side.Flags.IsNormalTopDown ? ncB : nfB),
@@ -940,7 +1180,7 @@ public sealed class Renderer
                              upWet ? TextureScrollSpeed.NONE
                                    : side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
+                             Time, Sky, rayA, cosFix, horizon, proj, wallLights, hx, hy,
                              UpTop ? VOrigin(true, ncA, ncB) : VOrigin(false, fcA, fcB),
                              upWet ? new LiquidWall(wnx, wny, camX, camY, camZ,
                                                     WallWave(side.Flags.ScrollSpeed,
@@ -975,7 +1215,7 @@ public sealed class Renderer
                              lowWet ? TextureScrollSpeed.NONE
                                     : side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
+                             Time, Sky, rayA, cosFix, horizon, proj, wallLights, hx, hy,
                              LowTop ? VOrigin(true, ffA, ffB) : VOrigin(false, nfA, nfB),
                              lowWet ? new LiquidWall(wnx, wny, camX, camY, camZ,
                                                      WallWave(side.Flags.ScrollSpeed,
@@ -1071,7 +1311,7 @@ public sealed class Renderer
                                      HonourNoVTile && side.Flags.IsNoVTile,
                                      midWet ? TextureScrollSpeed.NONE : side.Flags.ScrollSpeed,
                                      side.Flags.ScrollDirection, Time,
-                                     Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
+                                     Sky, rayA, cosFix, horizon, proj, wallLights, hx, hy,
                                      midOrigin,
                                      midWet ? new LiquidWall(wnx, wny, camX, camY, camZ,
                                                              WallWave(side.Flags.ScrollSpeed,
@@ -1256,13 +1496,46 @@ public sealed class Renderer
         return t == null ? 0f : t.H / (float)Math.Max(1, t.Shrink) * M59Geo.HeightToXY;
     }
 
-    /// <summary>The sprite drawn for an object, or null.</summary>
+    /// <summary>
+    /// The sprite drawn for an object, or null.
+    ///
+    /// Indexed rather than scanned. The name tags ask once per named
+    /// object and the quest markers ask again, so a linear scan made the
+    /// pair O(objects squared) twice a frame - twenty thousand reference
+    /// compares at a hundred objects and three hundred thousand at four
+    /// hundred.
+    ///
+    /// The index is built at most once per frame, on the first ask after
+    /// a <see cref="Render"/>, and FIRST ENTRY WINS as the scan did: a
+    /// particle carries the same Tag as the object it burns on (see
+    /// ObjectParticles) and is added after it, and the answer has to go
+    /// on being the object's own sprite rather than one of its sparks.
+    /// Reference identity, not Equals, for the same reason the scan used
+    /// ReferenceEquals.
+    ///
+    /// It follows that Sprites must not change between Render and the
+    /// asking, which is already true of <see cref="Project"/> and
+    /// <see cref="Pick"/> - they read the depth buffers that frame left.
+    /// </summary>
     public Sprite SpriteFor(object tag)
     {
         if (tag == null) return null;
-        foreach (Sprite sp in Sprites) if (ReferenceEquals(sp.Tag, tag)) return sp;
-        return null;
+        if (_byTagFrame != _frame)
+        {
+            _byTag.Clear();
+            for (int i = 0; i < Sprites.Count; i++)
+            {
+                Sprite sp = Sprites[i];
+                if (sp.Tag != null && !_byTag.ContainsKey(sp.Tag)) _byTag.Add(sp.Tag, sp);
+            }
+            _byTagFrame = _frame;
+        }
+        return _byTag.TryGetValue(tag, out Sprite found) ? found : null;
     }
+
+    readonly Dictionary<object, Sprite> _byTag =
+        new Dictionary<object, Sprite>(ReferenceEqualityComparer.Instance);
+    int _byTagFrame = -1, _frame;
 
     /// <summary>
     /// Where a wall part's texture starts up the wall.
@@ -1918,7 +2191,8 @@ public sealed class Renderer
                          RooSector sec, float camX, float camY, float camZ,
                          float horizon, float proj, float angle, float rayA, TexCache tc,
                          bool skip, bool noSample, float time, FlatAnchors anchors,
-                         float bright, float ambient, M59Sky sky, List<Light> lights)
+                         float bright, float ambient, M59Sky sky, List<Light> lights,
+                         bool anyLights, Scratch sc)
     {
         if (sec == null || skip) return;
         if (y0 < 0) y0 = 0;
@@ -1967,6 +2241,14 @@ public sealed class Renderer
         // (camX + rdx*d, camY + rdy*d, camZ - s*cosFix*d). Substituting and
         // solving for d costs one division, the same as the flat case.
         float cosFixMax = MathF.Max(0.2f, cosFix);
+
+        // Whether this span needs the anchor table at all, and on which
+        // side of the slope branch it is asked. Hoisted out of the row
+        // loop: both are the same for every pixel of the span.
+        bool useAnchors = anchors != null && !anchors.Empty;
+        bool anchorEarly = useAnchors && !FlatAnchorHoist;
+        bool anchorLate  = useAnchors && FlatAnchorHoist;
+        bool anchorMemo  = useAnchors && FlatAnchorMemo && sc != null;
 
         for (int y = y0; y <= y1; y++)
         {
@@ -2034,13 +2316,12 @@ public sealed class Renderer
             // The per-sector offset comes from there too, and was ignored:
             // 1420 of the 30806 sectors carry one, and their floors and
             // ceilings were sliding by up to a texture's width.
-            // The leaf's own corner, when it has one. See FlatAnchors:
-            // the library measures from there, not from the origin, and
-            // for a leaf sitting in positive coordinates the two are the
-            // same thing.
             float anchorX = 0f, anchorY = 0f;
-            if (anchors != null && !anchors.Empty)
-                anchors.TryAnchor(wx, wy, out anchorX, out anchorY);
+            if (anchorEarly)
+            {
+                if (anchorMemo) anchors.TryAnchor(wx, wy, ref sc.AnchorMemo, out anchorX, out anchorY);
+                else            anchors.TryAnchor(wx, wy, out anchorX, out anchorY);
+            }
 
             float su, sv;
             if (slope != null)
@@ -2063,20 +2344,38 @@ public sealed class Renderer
             }
             else
             {
+                // The leaf's own corner, when it has one. See FlatAnchors:
+                // the library measures from there, not from the origin, and
+                // for a leaf sitting in positive coordinates the two are the
+                // same thing.
+                //
+                // Asked for HERE and not above the branch, which is where it
+                // used to be: the sloped branch never reads either of these
+                // - SlopeUV measures from the plane's own texture frame -
+                // and the lookup was being made and thrown away for every
+                // pixel of every ramp, hillside and sloping roof in the
+                // game. Byte-identical by construction; measured over 362
+                // rooms x 8 headings as well. See the README.
+                if (anchorLate)
+                {
+                    if (anchorMemo) anchors.TryAnchor(wx, wy, ref sc.AnchorMemo, out anchorX, out anchorY);
+                    else            anchors.TryAnchor(wx, wy, out anchorX, out anchorY);
+                }
                 su = (wy - anchorY - texOffY) / M59Geo.Fineness;
                 sv = (wx - anchorX - texOffX) / M59Geo.Fineness;
             }
 
             uint texel = noSample ? t.P[0]
                                   : t.Sample(su + scrollU, sv + scrollV, texelsPerPixel);
-            if (lights == null || lights.Count == 0) px[y * W + sx] = Shade(texel, fog);
+            if (!anyLights) px[y * W + sx] = Shade(texel, fog);
             else
             {
                 // The surface's own height at the sampled point, which
                 // a slope has already been solved for.
                 float surfaceZ = slope != null ? M59Geo.Plane(slope, wx, wy) : planeH;
                 float lr = fog, lg = fog, lb = fog;
-                AddLights(lights, wx, wy, surfaceZ, ref lr, ref lg, ref lb);
+                if (lights != null && lights.Count > 0)
+                    AddLights(lights, wx, wy, surfaceZ, ref lr, ref lg, ref lb);
                 px[y * W + sx] = Shade(texel, lr, lg, lb);
             }
         }
