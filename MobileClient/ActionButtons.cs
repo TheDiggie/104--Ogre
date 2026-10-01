@@ -221,6 +221,19 @@ public partial class ActionButtons : Control
         switch (what)
         {
             case SpellObject spell:    slot.SetToSpell(spell); break;
+            // A passive skill cannot go on a button. The reference does
+            // not offer the drag in the first place - a non-active skill's
+            // row is built from the non-draggable window type, with no
+            // CEGUI::DragContainer around its icon
+            // (`Meridian59.Ogre.Client/UISkills.cpp:67-86`) - and the
+            // library refuses to perform one even if it somehow got there
+            // (`Meridian59/Client/BaseClient.cs:1841-1853`). SpellsPanel
+            // already withholds the row's bind button for these, so this is
+            // the same refusal said once more at the place that actually
+            // writes the slot: every other caller of Bind hands it a spell,
+            // an item or an action, and a bound passive skill would be a
+            // button that silently does nothing forever.
+            case SkillObject skill when !skill.IsActiveSkill: return false;
             case SkillObject skill:    slot.SetToSkill(skill); break;
             case InventoryObject item: slot.SetToItem(item);   break;
             // The actions window binds these. SetToAction, not the

@@ -96,10 +96,22 @@ public partial class Vitals : Control
         _data = data;
         if (data?.AvatarCondition == null) return;
 
+        // Every field _Draw actually reads has to be in here, or the bar
+        // keeps the picture it drew before. ValueRenderMin is the fill's
+        // floor - the library raises PropertyChanged for it in its own
+        // right (`Meridian59/Data/Models/StatNumeric.cs:203-215`) and the
+        // server does move it, so a vital whose floor shifts while its
+        // current and maximum stay put changes fill without changing this
+        // signature. ResourceName is the same story one level up: it is
+        // resolved later than the numbers arrive, in Stat's ResolveStrings
+        // (`Meridian59/Data/Models/Stat.cs:176-187`, set at
+        // `Stat.cs:259-264`), so a bar that arrived nameless and was named
+        // afterwards stayed nameless on screen.
         var sb = new System.Text.StringBuilder();
         foreach (StatNumeric s in data.AvatarCondition)
             sb.Append(s.Num).Append(':').Append(s.ValueCurrent).Append('/')
-              .Append(s.ValueMaximum).Append('/').Append(s.ValueRenderMax).Append(';');
+              .Append(s.ValueMaximum).Append('/').Append(s.ValueRenderMax).Append('/')
+              .Append(s.ValueRenderMin).Append('/').Append(s.ResourceName).Append(';');
 
         string now = sb.ToString();
         if (now == _signature) return;

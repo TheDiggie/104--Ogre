@@ -60,6 +60,17 @@ public partial class SpellsPanel : Control
     string _signature = "";
     DataController _data;
 
+    /// <summary>
+    /// Row icons, by resource file. Both windows build the icon from the
+    /// row's own resource - `UISpells.cpp:131-148` and
+    /// `UISkills.cpp:151-183` - and both cache it under the resource's
+    /// name, because the same spell scrolls past again and again and the
+    /// picture does not change. The dictionary is this client's version of
+    /// the reference asking CEGUI's ImageManager whether the image is
+    /// already defined (`UISkills.cpp:157`).
+    /// </summary>
+    readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
+
     public bool IsOpen => _panel != null && _panel.Visible;
 
     public override void _Ready()
@@ -244,6 +255,34 @@ public partial class SpellsPanel : Control
         line.OffsetLeft = 8; line.OffsetTop = 4; line.OffsetRight = -8; line.OffsetBottom = -4;
         button.AddChild(line);
 
+        // The row's own icon, which both reference windows draw as the
+        // first frame of the row's resource - resolved from
+        // ResourceIconName (`Meridian59/Data/Models/StatList.cs:280-296`)
+        // and then taken as `obj->Resource->Frames[0]`
+        // (`UISkills.cpp:159-164`, `UISpells.cpp:139-144`). Not composed as
+        // an object the way an inventory item is: a spell is not a thing
+        // standing in a room, so there is no pose to compose, and this is
+        // the same treatment QuestsPanel gives its rows. Rows had no icon
+        // at all before, so a list of thirty spells was thirty identical
+        // lines of text.
+        ImageTexture icon = Icon(s);
+        if (icon != null)
+            line.AddChild(new TextureRect
+            {
+                Texture = icon,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                // IgnoreSize and ShrinkCenter, for the reason QuestsPanel
+                // gives: the frame comes at the art's own size, not
+                // something scaled to fit, so without both the row grows
+                // as tall as the picture and the picture spills over its
+                // neighbours.
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                CustomMinimumSize = new Vector2(IconSize, IconSize),
+                SizeFlagsVertical = SizeFlags.ShrinkCenter,
+                SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+                MouseFilter = MouseFilterEnum.Ignore,
+            });
+
         var name = new Label
         {
             Text = string.IsNullOrWhiteSpace(s.ResourceName) ? "(unnamed)" : s.ResourceName,
@@ -265,6 +304,22 @@ public partial class SpellsPanel : Control
         percent.AddThemeColorOverride("font_color", new Color(0.8f, 0.85f, 0.95f));
         line.AddChild(percent);
 
+        // A passive skill gets no bind button at all. The reference
+        // decides this when it builds the row: an active skill is made
+        // from UI_WINDOWTYPE_AVATARSPELLITEM, whose icon sits in a
+        // CEGUI::DragContainer with drag events subscribed, and a
+        // non-active one from UI_WINDOWTYPE_AVATARSKILLITEM, which has no
+        // drag container - so there is nothing to drag onto an action
+        // button (`UISkills.cpp:63-85`, and the matching split when the
+        // row updates at `UISkills.cpp:125-137`). The flag is
+        // SkillObject.IsActiveSkill
+        // (`Meridian59/Data/Models/SkillObject.cs:149-161`, read off the
+        // wire at `SkillObject.cs:57`), and the library refuses to perform
+        // one anyway (`Meridian59/Client/BaseClient.cs:1841-1853`). This
+        // row's "+" is the phone's stand-in for that drag, so a passive
+        // skill simply does not get one. Spells are never passive.
+        if (!spell && IsPassive(id)) return button;
+
         // Sits inside the row but takes its own presses, so tapping it
         // binds without also describing or casting.
         var bind = new Button
@@ -279,5 +334,34 @@ public partial class SpellsPanel : Control
         line.AddChild(bind);
 
         return button;
+    }
+
+    /// <summary>
+    /// Whether this skill is one the reference makes undraggable - see the
+    /// comment on the bind button. The stat rows this panel lists carry no
+    /// such flag, so the SkillObject behind the row is the one that knows
+    /// (`UISkills.cpp:60-68` looks it up the same way, by ObjectID).
+    /// An unknown skill is treated as bindable: the reference's lookup can
+    /// return null too, and it takes the draggable branch only when the
+    /// object is there AND active, but refusing on a missing object would
+    /// hide the button for a list that simply has not been detailed yet.
+    /// </summary>
+    bool IsPassive(uint id)
+    {
+        SkillObject skill = _data?.SkillObjects?.GetItemByID(id);
+        return skill != null && !skill.IsActiveSkill;
+    }
+
+    ImageTexture Icon(StatList s)
+    {
+        if (s?.Resource == null) return null;
+        string key = $"{s.Resource.Filename}:{IconSize}";
+        if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
+
+        ImageTexture tex = null;
+        try { tex = M59Assets.FromBgf(s.Resource, 0); }
+        catch (Exception e) { GD.PrintErr($"[SpellsPanel] icon: {e.Message}"); }
+        _icons[key] = tex;
+        return tex;
     }
 }
