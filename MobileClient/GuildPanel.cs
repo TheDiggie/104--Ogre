@@ -161,8 +161,17 @@ public partial class GuildPanel : Control
 
         _setPassword = Push("Set password", () => Password?.Invoke(_chest.Text ?? ""));
         _abandon = Push("Abandon hall", () => AbandonHall?.Invoke());
+        // IsRenounce first, then IsDisband, and nothing at all when neither
+        // is set: `UIGuild.cpp:870-888` has no final else, so a window with
+        // neither right has nothing to ask and sends nothing. The button is
+        // not even shown then (see Show), this is the second line of defence.
         _renounce = Push("Renounce", () =>
-            Renounce?.Invoke(_info != null && _info.Flags != null && _info.Flags.IsDisband));
+        {
+            GuildFlags f = _info?.Flags;
+            if (f == null) return;
+            if (f.IsRenounce) Renounce?.Invoke(false);
+            else if (f.IsDisband) Renounce?.Invoke(true);
+        });
         _tab = Push("Diplomacy", () =>
         {
             _showingDiplomacy = !_showingDiplomacy;
@@ -212,7 +221,8 @@ public partial class GuildPanel : Control
 
         float y = top;
         _title.Position = new Vector2(side, y); y += FontSize * 1.8f;
-        _hall.Position = new Vector2(side, y); y += FontSize * 1.8f;
+        _hall.Position = new Vector2(side, y);
+        if (_hall.Visible) y += FontSize * 1.8f;
 
         // Three rows below the roster: the password line, the two
         // guildmaster buttons, and Close - plus the gap under the last
@@ -324,15 +334,59 @@ public partial class GuildPanel : Control
         // rather than showing what it remembered.
         _info?.Clear(true);
         _diplo?.Clear(true);
+        // And the shield model, which the reference clears on the same
+        // line (`UIGuild.cpp:951`). Without it the designer, opened again,
+        // shows the last guild's colours and name until the reply lands.
+        (ShieldInfo ?? FindShieldModel())?.Clear(true);
         _signature = "";
         Show(false);
     }
 
+    /// <summary>
+    /// The shield model, if the owner has handed it over. GameView does
+    /// not (yet), so <see cref="FindShieldModel"/> finds it the only way
+    /// this file can: through the designer panel beside it, which is given
+    /// `Data.GuildShieldInfo` every frame.
+    /// </summary>
+    public GuildShieldInfo ShieldInfo;
+
+    GuildShieldInfo FindShieldModel()
+    {
+        Node parent = GetParent();
+        if (parent == null) return null;
+        foreach (Node n in parent.GetChildren())
+            if (n is GuildShieldPanel)
+                return typeof(GuildShieldPanel)
+                    .GetField("_shield", System.Reflection.BindingFlags.NonPublic
+                                       | System.Reflection.BindingFlags.Instance)
+                    ?.GetValue(n) as GuildShieldInfo;
+        return null;
+    }
+
+    /// <summary>
+    /// Puts an open ConfirmPopup back above everything. The reference's
+    /// popup is AlwaysOnTop (`Meridian59.layout:2859,2873`), so a window
+    /// that is shown and moved to front never ends up over a question
+    /// that is waiting for an answer; in this tree "on top" is just the
+    /// last child, so whoever moves itself last has to put the popup back.
+    /// </summary>
+    void KeepPopupOnTop()
+    {
+        Node parent = GetParent();
+        if (parent == null) return;
+        foreach (Node n in parent.GetChildren())
+            if (n is ConfirmPopup p && p.IsOpen) { parent.MoveChild(p, -1); break; }
+    }
+
     void Show(bool on)
     {
-        // Above whatever else is open - see Panels.ToFront.
-        if (on) Panels.ToFront(this);
-        _panel.Visible = on; _title.Visible = on; _hall.Visible = on;
+        // Above whatever else is open - see Panels.ToFront. Only when the
+        // window OPENS: the reference moves to front on the IsVisible edge
+        // and not on every rebuild, so a roster that refreshes behind a
+        // waiting "Are you sure you want to exile...?" stays behind it.
+        bool opening = on && !_panel.Visible;
+        if (opening) Panels.ToFront(this);
+        _panel.Visible = on; _title.Visible = on;
         _scroll.Visible = on; _close.Visible = on; _open.Visible = !on;
         _tab.Visible = on;
 
@@ -344,10 +398,24 @@ public partial class GuildPanel : Control
         // flag (:164-173). Without the first half, any member of a
         // guild with a hall was offered 'Abandon hall'. The server
         // refuses it, but the button should not be there to press.
-        bool master = _info != null && _info.Flags.IsDisband;
+        GuildFlags fl = _info?.Flags;
+        bool master = fl != null && !fl.IsRenounce && fl.IsDisband;
         bool hall = on && master && _info.PasswordSetFlag != 0;
         _chest.Visible = hall; _setPassword.Visible = hall; _abandon.Visible = hall;
-        _renounce.Visible = on;
+
+        // "No guild hall." lives in the same tab as the password box
+        // (`UIGuild.cpp:26`, `:164-173`), so it is the guildmaster's and
+        // nobody else ever sees it. It cannot be shown to a member at all:
+        // the server sends the password flag only to the MASTER of a guild
+        // with a hall (`user.kod` UserGuildSendInfo, `lHall <> $ AND
+        // GetRank = RANK_MASTER`), so every other rank reads 0 whether or
+        // not the guild has one.
+        _hall.Visible = on && master;
+
+        // Renounce and Disband are one button: it is there when the flags
+        // name one of the two, and the reference does nothing with neither
+        // (`UIGuild.cpp:870-888`).
+        _renounce.Visible = on && fl != null && (fl.IsRenounce || fl.IsDisband);
 
         // The shield tab is a guildmaster's, and unlike the password and
         // the hall buttons it does not also depend on owning a hall -
@@ -355,7 +423,7 @@ public partial class GuildPanel : Control
         // the renounce/disband flag.
         _shield.Visible = on && master;
 
-        if (on) GetParent()?.MoveChild(this, -1);
+        if (opening) { GetParent()?.MoveChild(this, -1); KeepPopupOnTop(); }
         Layout();
     }
 
@@ -407,7 +475,10 @@ public partial class GuildPanel : Control
 
         // Renounce and Disband are the same button with two names, and
         // which one it is comes off the flags rather than off your rank.
-        _renounce.Text = info.Flags != null && info.Flags.IsDisband ? "Disband" : "Renounce";
+        // IsRenounce is tested first, as the reference does
+        // (`UIGuild.cpp:176-199`, `:870-888`).
+        _renounce.Text = info.Flags != null && !info.Flags.IsRenounce && info.Flags.IsDisband
+            ? "Disband" : "Renounce";
         _tab.Text = _showingDiplomacy ? "Members" : "Diplomacy";
 
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
@@ -573,7 +644,13 @@ public partial class GuildPanel : Control
         // Support: the vote for guildmaster. One at a time, and the
         // client moves it itself because the server does not echo.
         bool supported = info.SupportedMember != null && info.SupportedMember.ID == id;
-        var vote = new CheckBox { ButtonPressed = supported, Name = $"vote{index}" };
+        // The mark is only ever drawn during a vote: `setSelected(IsVote &&
+        // isSupportedMember)` (`UIGuild.cpp:436`).
+        var vote = new CheckBox
+        {
+            ButtonPressed = f != null && f.IsVote && supported,
+            Name = $"vote{index}",
+        };
         vote.AddThemeFontSizeOverride("font_size", FontSize - 2);
         TickStyle.Apply(vote);
         vote.Disabled = f == null || !f.IsVote || supported;

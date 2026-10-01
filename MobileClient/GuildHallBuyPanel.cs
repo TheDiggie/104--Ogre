@@ -110,6 +110,12 @@ public partial class GuildHallBuyPanel : Control
 
     GuildHallsInfo _info;
 
+    /// <summary>
+    /// Rows have been on screen since the window opened, so an empty list
+    /// now means they were removed rather than that none ever arrived.
+    /// </summary>
+    bool _hadRows;
+
     /// <summary>What the rows were last built from.</summary>
     string _signature = "";
 
@@ -321,8 +327,23 @@ public partial class GuildHallBuyPanel : Control
         // walked away from does not come back scolding you.
         if (!on) _invalid.Visible = false;
 
-        if (on) GetParent()?.MoveChild(this, -1);
+        if (on) { GetParent()?.MoveChild(this, -1); KeepPopupOnTop(); }
         Layout();
+    }
+
+    /// <summary>
+    /// Puts an open ConfirmPopup back above everything. The reference's
+    /// popup is AlwaysOnTop (`Meridian59.layout:2859,2873`), so a window
+    /// that is shown and moved to front never ends up over a question
+    /// that is waiting for an answer; in this tree "on top" is just the
+    /// last child, so whoever moves itself last has to put the popup back.
+    /// </summary>
+    void KeepPopupOnTop()
+    {
+        Node parent = GetParent();
+        if (parent == null) return;
+        foreach (Node n in parent.GetChildren())
+            if (n is ConfirmPopup p && p.IsOpen) { parent.MoveChild(p, -1); break; }
     }
 
     /// <summary>
@@ -347,20 +368,44 @@ public partial class GuildHallBuyPanel : Control
 
         if (info == null || !info.IsVisible)
         {
+            _hadRows = false;
             if (IsOpen) { _info = info; Show(false); _signature = ""; _pick = 0; }
             return;
         }
 
         _info = info;
 
-        // Visible, but there is nothing to offer: close it the way the
-        // reference does (`UIGuildHallBuy.cpp:139-144`).
         if (info.GuildHalls == null || info.GuildHalls.Count == 0)
         {
-            if (IsOpen) { Show(false); _signature = ""; _pick = 0; }
-            Cancelled?.Invoke();
+            // The reference closes only when rows LEAVE the list and the
+            // last one goes (`UIGuildHallBuy.cpp:139-144`, reached through
+            // GuildHallRemove alone). A GuildHalls message that arrives with
+            // count 0 - which the server can send (SendBuyGuildHall) - adds
+            // no rows and removes none, so the window simply opens empty.
+            // Closing it here gave the player no sign the registrar had
+            // answered at all.
+            if (_hadRows)
+            {
+                _hadRows = false;
+                if (IsOpen) { Show(false); _signature = ""; _pick = 0; }
+                Cancelled?.Invoke();
+                return;
+            }
+
+            if (!IsOpen) Show(true);
+            if (_signature != "empty")
+            {
+                _signature = "empty";
+                foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
+                _rowFor.Clear();
+                Choose(0);
+                _head.Text = "No guild halls are on offer.";
+            }
             return;
         }
+
+        _hadRows = true;
+        _head.Text = "Select a hall to house your guild:";
 
         if (!IsOpen) Show(true);
 
