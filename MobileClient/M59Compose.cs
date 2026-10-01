@@ -105,37 +105,50 @@ public static class M59Compose
     }
 
     /// <summary>
-    /// The character wizard's face, composed from the HEAD hotspot with
-    /// the front frames.
+    /// The character wizard's face, composed from the HEAD hotspot.
     ///
-    /// <see cref="Icon"/> cannot do this. The library's ObjectBase
-    /// overload hardcodes the viewer frame - the picture of your own
-    /// body seen from inside it - and the wizard's example model has no
-    /// viewer frames at all: it has no body, only five face parts hung
-    /// off hotspots, and its own overlay id is zero. Composing it that
-    /// way finds nothing and draws nothing, which is why the wizard
-    /// showed an empty square where the face goes.
+    /// Neither <see cref="Icon"/> nor the front frames will do, and it
+    /// took getting both wrong to see why.
     ///
-    /// The game composes it with UseViewerFrame false
-    /// (`UIAvatarCreateWizard.cpp:89`), which the library only exposes
-    /// on a protected method - hence the subclass.
+    /// Icon will not, because the ObjectBase constructor composes from
+    /// <c>Data.ViewerFrame</c> (RenderInfo.cs:217) and the wizard's
+    /// example model has none - it is not a body with a head on it, it
+    /// is five face parts hung off hotspots and its own overlay id is
+    /// zero. Composing that way finds nothing and draws nothing, which
+    /// is a blank square where the face goes.
+    ///
+    /// The front frames will not either, which is the subtle half. The
+    /// game asks for them (`UIAvatarCreateWizard.cpp:85-93` sets
+    /// UseViewerFrame false) but the library discards that for an
+    /// ObjectBase (ImageComposer.cs:253) - and it has to, because the
+    /// FRONT hotspot tables are only ever filled for a RoomObject:
+    /// `SubOverlay.UpdateHotspots` has two overloads and the ObjectBase
+    /// one sets the viewer pair alone (SubOverlay.cs:611-639 against
+    /// :647-673), which is the overload ObjectBase.ProcessAppearance
+    /// calls (:1164). Asking for front frames therefore fails every
+    /// part's `subOvHotspot != null` test (RenderInfo.cs:346) and leaves
+    /// the bare skull with no hair, eyes, nose or mouth - which is what
+    /// this drew for as long as it asked for them.
+    ///
+    /// So: a null main frame, which is right rather than a gap - with
+    /// the root hotspot found, Calculate replaces it with that
+    /// sub-overlay's own frame - and the VIEWER tables, which are the
+    /// ones that exist. A fresh ObjectBase has ViewerAngle 0, the
+    /// front, so viewer and front are the same picture here anyway.
+    /// The subclass is only there to reach a protected method.
     /// </summary>
     public static Tex Face(ObjectBase o, int size, byte rootHotspot)
     {
         if (o == null || size < 1) return null;
-        return Raster(new FrontRender(o, rootHotspot, (uint)size, (uint)size));
+        return Raster(new FaceRender(o, rootHotspot, (uint)size, (uint)size));
     }
 
-    sealed class FrontRender : RenderInfo
+    sealed class FaceRender : RenderInfo
     {
-        public FrontRender(ObjectBase o, byte hotspot, uint w, uint h)
+        public FaceRender(ObjectBase o, byte hotspot, uint w, uint h)
         {
             SubBgf = new List<SubOverlay.RenderInfo>();
-            // A null main frame is right, not a gap: with the hotspot
-            // found, Calculate replaces it with that sub-overlay's own
-            // front frame, and there is no whole-body frame here to
-            // fall back to anyway.
-            Calculate(o, null, false, false, hotspot,
+            Calculate(o, null, true, false, hotspot,
                       DEFAULTQUALITY, false, w, h, true, true);
         }
     }
