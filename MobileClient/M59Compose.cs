@@ -197,9 +197,19 @@ public static class M59Compose
 
     /// <summary>Draws a laid-out RenderInfo into a picture.</summary>
     /// <summary>
-    /// The red edge the game puts round whatever you have targeted, in
-    /// place: `ImageComposerGDI.DrawPostEffectTarget`, which is worth
-    /// copying literally because it is stranger than it sounds.
+    /// The red edge round whatever you have targeted. This is ASHTON'S
+    /// STANDING RULING (notes/rulings.md), NOT what the reference does:
+    /// the Ogre client tints a target with `base_material_target`,
+    /// `colormodifier 5 3 3 1` (`RemoteNode2D.cpp:173-215`,
+    /// `general.material:333-346`), its `DrawPostEffects` is empty
+    /// (`ImageComposerOgre.cpp:156-158`), and
+    /// `ImageComposerGDI.DrawPostEffectTarget` (`Drawing2D/
+    /// ImageComposerGDI.cs:186`) - the routine this copies - is never
+    /// called by anything. So the edge is borrowed from a dead routine
+    /// in the reference, to honour the ruling.
+    ///
+    /// The routine is worth copying literally because it is stranger
+    /// than it sounds.
     ///
     /// It walks the pixel buffer as one flat run and turns any opaque
     /// pixel whose **previous or next** pixel is fully transparent pure
@@ -207,7 +217,7 @@ public static class M59Compose
     /// the left and right sides of a shape and leaves the top and
     /// bottom alone, and it wraps across row ends, so the last pixel of
     /// a row is compared with the first of the next. The result is the
-    /// red-sided silhouette the game has always had, and a tidier
+    /// red-sided silhouette of the GDI routine, and a tidier
     /// four-way outline would not look like it.
     ///
     /// The first and last pixel are skipped, as they are there.

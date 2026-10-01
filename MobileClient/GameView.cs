@@ -950,6 +950,11 @@ public partial class GameView : Node2D
             _actions.TradeWith      += () => WorldAct(() => _client.ExecAction(AvatarAction.Trade));
             _actions.LootTarget     += () => WorldAct(() => _client.SendReqGetMessage());
             _actions.AskQuests      += () => WorldAct(() => _client.SendReqNPCQuestsMessage());
+            // The Close key, `ControllerInput.cpp:555-562`: TargetID =
+            // 0xFFFFFFFF, and only while nothing has focus. It sits
+            // behind the same key-down exits as ReqGo (:541-550,
+            // including IsWaiting), hence WorldAct.
+            _actions.Deselect       += () => WorldAct(() => _client.Data.TargetID = 0xFFFFFFFFU);
             _ui.AddChild(_actions);
             if (_chat != null) _actions.BottomReserve = _chat.BlockHeight;
 
@@ -984,6 +989,7 @@ public partial class GameView : Node2D
             _trade.AmountWanted += o =>
             {
                 if (_amount == null || o == null) return;
+                _amountFor = null;
                 _amountForTrade = o;
                 _amount.Ask(o.ID, (int)o.Count, o.Name);
             };
@@ -1097,7 +1103,7 @@ public partial class GameView : Node2D
             _aliases.Assign += a =>
             {
                 if (ActionButtons.Bind(_client.Data, a))
-                    _chat?.Local($"\"{a.Key}\" is on the hotbar. Hold the button to clear it.");
+                    _chat?.Local($"\"{a.Key}\" is on the hotbar. Drag the button off the row to clear it.");
             };
             _ui.AddChild(_aliases);
         });
@@ -1396,6 +1402,11 @@ public partial class GameView : Node2D
                 }
                 _client.SendReqDropMessage(new ObjectID(id, (uint)many));
             });
+            // Backed out of: forget who asked, or the next stack dropped
+            // is answered into that window instead and the drop is never
+            // sent. No message - a cancel that does nothing is a cancel
+            // doing its job.
+            _amount.Cancelled += () => { _amountForTrade = null; _amountFor = null; };
             _ui.AddChild(_amount);
         });
         Widget("sheet", () =>
@@ -1587,7 +1598,7 @@ public partial class GameView : Node2D
                     : _client.Data?.SkillObjects?.GetItemByID(id);
                 if (what == null) { _chat?.Local("Nothing to put on the hotbar yet."); return; }
                 if (ActionButtons.Bind(_client.Data, what))
-                    _chat?.Local($"{(what as Meridian59.Data.Models.ObjectBase)?.Name} is on the hotbar. Hold the button to clear it.");
+                    _chat?.Local($"{(what as Meridian59.Data.Models.ObjectBase)?.Name} is on the hotbar. Drag the button off the row to clear it.");
             });
             _ui.AddChild(_book);
         });
@@ -1604,13 +1615,19 @@ public partial class GameView : Node2D
             _acts.Assign += a => Act(() =>
             {
                 if (ActionButtons.Bind(_client.Data, a))
-                    _chat?.Local($"{a} is on the hotbar. Hold the button to clear it.");
+                    _chat?.Local($"{a} is on the hotbar. Drag the button off the row to clear it.");
             });
             _ui.AddChild(_acts);
         });
         Widget("hotbar", () =>
         {
             _hotbar = new ActionButtons();
+            // The hotbar goes through the same gates as everything else
+            // the avatar does (see HotbarAct), where it used to call
+            // Activate() straight from the button.
+            _hotbar.Run = HotbarAct;
+            _hotbar.SpendLatch = SpendSelfTarget;
+            _hotbar.Cleared += name => _chat?.Local($"{name} cleared from the hotbar.");
             ActionButtons.Seed(_client.Data);
             // Above the target row, which is itself above the chat block:
             // the row is one button tall plus the name label over it.
@@ -1657,24 +1674,54 @@ public partial class GameView : Node2D
         {
             _bag = new InventoryPanel();
             _bag.Opened      += () => Act(() => _client.SendReqInventoryMessage());
-            _bag.UseItem     += item => WorldAct(() => _client.UseUnuseApply(item));
-            // One tap puts it on the trade table, rather than the
-            // select-then-use a tap normally means.
-            _bag.Selected    += item => Act(() =>
+            _bag.UseItem     += item => WorldAct(() =>
             {
-                // The library resolves the id against the room and then
-                // the inventory, so this targets the carried thing -
-                // which is what the game does on a click
-                // (`UIInventory.cpp`).
+                // An Apply is aimed at the world, and the reference never
+                // has to say so: its double click lands inside the
+                // 250ms window, before the single click has written
+                // Data.TargetID (`UIInventory.cpp:294-300`, `:350-352`),
+                // and SendReqApply reads that same TargetID
+                // (`BaseClient.cs:2080-2084`).
                 //
-                // Only when something was actually picked. Setting it to
-                // nothing on a null selection threw away whatever you
-                // had targeted in the world, and the panel clears its
-                // selection when it opens - so opening the bag lost your
-                // target. What you had before is put back when the bag
-                // closes; see the restore in Pump.
-                if (item != null) _client.Data.TargetID = item.ID;
+                // The Use button has no such window - it is pressed long
+                // after the tap that picked the item, by which time the
+                // target IS the item. So when the only thing the apply
+                // could aim at is the item itself, the target from before
+                // the bag was opened is put back first; see the pair of
+                // lines in Pump that save and restore it. A target on
+                // something ELSE is left alone, which is how applying one
+                // carried item to another still works.
+                if (item != null && item.Flags != null && item.Flags.IsApplyable
+                    && _client.Data != null && _client.Data.TargetID == item.ID
+                    && _targetBeforeBag != uint.MaxValue)
+                    _client.Data.TargetID = _targetBeforeBag;
+
+                _client.UseUnuseApply(item);
             });
+            // The tap has settled into a target, a double-tap window
+            // after it - the reference's Inventory::Tick
+            // (`UIInventory.cpp:292-301`). Selected is the same tap
+            // reaching the buttons and the border immediately; only this
+            // one moves the target, and that split is what leaves an
+            // Apply something to aim at.
+            _bag.Targeted    += item => Act(() =>
+            {
+                if (item != null && _client.Data != null) _client.Data.TargetID = item.ID;
+            });
+            // Backed out of "pick an item": forget who had asked. Without
+            // this the next ordinary tap in the bag handed the item to
+            // the trade or the container, with neither window open.
+            _bag.PickCancelled += () => _pickFor = PickFor.Nobody;
+            // Nothing subscribes to Selected here any more, and that is
+            // the point of the split above: the tap's effect on the
+            // target belongs to Targeted, one double-tap window later,
+            // because the reference's single click does not set the
+            // target either - Tick does (`UIInventory.cpp:294-300`). The
+            // library resolves a target id against the room and then the
+            // inventory, so a carried thing is still a legitimate target;
+            // it just is not one the instant you touch it. What you had
+            // targeted before the bag opened is put back when it closes;
+            // see the pair of lines in Pump.
             _bag.Picked      += item =>
             {
                 PickFor who = _pickFor;
@@ -1688,7 +1735,19 @@ public partial class GameView : Node2D
             _bag.DropItem    += item => WorldAct(() =>
             {
                 if (item.IsStackable && _amount != null)
+                {
+                    // Whose question this is, said at every open rather
+                    // than only at the ones that route somewhere. A
+                    // cancelled prompt used to leave the last answer's
+                    // routing standing, so the next drop of a stack was
+                    // filed as a trade amount or a shop amount and never
+                    // left the client. Cancelled clears these too - both
+                    // belts, because this is a drop going missing in
+                    // silence.
+                    _amountForTrade = null;
+                    _amountFor = null;
                     _amount.Ask(item.ID, (int)item.Count, item.Name);
+                }
                 else
                     _client.SendReqDropMessage(new ObjectID(item.ID));
             });
@@ -1696,7 +1755,7 @@ public partial class GameView : Node2D
             _bag.BindItem    += item => Act(() =>
             {
                 if (ActionButtons.Bind(_client.Data, item))
-                    _chat?.Local($"{item.Name} is on the hotbar. Hold the button to clear it.");
+                    _chat?.Local($"{item.Name} is on the hotbar. Drag the button off the row to clear it.");
             });
             _bag.MoveItem    += (from, to) => Act(() => MoveInBag(from, to));
             _ui.AddChild(_bag);
@@ -1817,8 +1876,14 @@ public partial class GameView : Node2D
             _shop.AmountWanted += line =>
             {
                 if (_amount == null || line == null) return;
+                _amountForTrade = null;
                 _amountFor = line;
-                _amount.Ask(line.ID, (int)line.Count, line.Name);
+                // Prefilled with what you chose last time, capped at what
+                // the merchant has. Those stopped being the same number
+                // the moment choosing fewer wrote the choice into the
+                // line (`UIBuy.cpp:255`), and passing the line's count as
+                // both made the amount a ratchet - see BuyPanel.Most.
+                _amount.Ask(line.ID, (int)line.Count, (int)_shop.Most(line), line.Name);
             };
             _shop.Buy += want => Act(() =>
             {
@@ -2476,11 +2541,42 @@ public partial class GameView : Node2D
         // The latch spends itself on whatever was just sent, so you do
         // not heal yourself for the rest of the fight by accident. The
         // reference gets this free by holding a key down.
+        SpendSelfTarget();
+    }
+
+    /// <summary>
+    /// Clears the self-target latch. The reference has no latch: it sets
+    /// `Data->SelfTarget = IsSelfTargetDown` every input tick
+    /// (`ControllerInput.cpp:776-778`), so the aim ends the moment the
+    /// modifier does. This is the phone's version of letting go.
+    /// </summary>
+    void SpendSelfTarget()
+    {
         if (_client?.Data != null && _client.Data.SelfTarget)
         {
             _client.Data.SelfTarget = false;
             _chat?.Local("Self-target off.");
         }
+    }
+
+    /// <summary>
+    /// A hotbar activation. The reference reads the action-button keys
+    /// inside the input tick behind its IsWaiting exit
+    /// (`ControllerInput.cpp:736`, keys at :995-1030), so a press during
+    /// a wait is dropped, and the aim it was fired with is the modifier
+    /// held at that instant (:776-778). This is both: the wait gate, and
+    /// the latch spent by the press. A button being HELD passes
+    /// <paramref name="keepLatch"/> so a repeating self-heal stays aimed
+    /// at you until the finger lifts, which is how a held modifier
+    /// behaves. Returns whether the send went out.
+    /// </summary>
+    bool HotbarAct(Action send, bool keepLatch)
+    {
+        if (_client?.Data != null && _client.Data.IsWaiting) return false;
+        try { send(); }
+        catch (Exception e) { _chat?.Local($"{e.GetType().Name}: {e.Message}"); }
+        if (!keepLatch) SpendSelfTarget();
+        return true;
     }
 
     /// <summary>
@@ -2544,15 +2640,24 @@ public partial class GameView : Node2D
         // `DataController.ClickTarget` takes the first id you have not
         // already picked and starts over when the list runs out
         // (DataController.cs:1403-1441) - and the reference feeds it the
-        // whole distance-sorted ray (`ControllerInput.cpp:153-215`).
-        // Handing it only the nearest made the creature at the back
-        // unselectable.
+        // whole distance-sorted ray (`ControllerInput.cpp:153-215`),
+        // minus the current target (see below), so the cycle is the
+        // exclusion. Handing it only the nearest made the creature at
+        // the back unselectable.
         var ids = new System.Collections.Generic.List<uint>();
         RoomObject obj = null;
         foreach (Renderer.Sprite sp in
                  _world.Renderer.PickAll(bx, by, _w, _h, cx, cy, cz, avatar.Angle))
         {
             if (!(sp.Tag is RoomObject ro) || ro.IsAvatar) continue;
+            // "don't select own avatar or already selected target": the
+            // reference leaves the current target out of the list
+            // (`ControllerInput.cpp:205-206`, `!obj->IsAvatar &&
+            // !obj->IsTarget`). That exclusion IS the cycle: tap where A
+            // and B overlap with A selected and the list is [B]; tap
+            // again and it is [A]. Keeping it in the list, as this did,
+            // made the first tap on a stack re-pick what you already had.
+            if (ro.IsTarget) continue;
             if (obj == null) obj = ro;
             ids.Add(ro.ID);
         }
@@ -2573,7 +2678,16 @@ public partial class GameView : Node2D
         // the row hears about the targets the library sets by itself:
         // the thing you killed leaving the room, a room change, a
         // tab-target, a click-target.
-        _client.Data.ClickTarget(ids);
+        // UseFirst = true, as the reference passes it
+        // (`ControllerInput.cpp:238`, `ClickTarget(objectIDs,
+        // !IsSelfTargetDown)`; a phone has no held modifier here, so it
+        // is always true). With the current target already excluded
+        // above, UseFirst takes the nearest of what is left and RESETS
+        // the cycle memory (`DataController.cs:1409-1418`). With false,
+        // ClickedTargets persisted across different screen positions:
+        // tap A, tap C elsewhere, then tap where A and B overlap and
+        // A was still on the "already picked" list, so B won.
+        _client.Data.ClickTarget(ids, true);
     }
 
     /// <summary>

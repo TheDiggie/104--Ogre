@@ -92,8 +92,8 @@ public partial class SpellsPanel : Control
         _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
         AddChild(_title);
 
-        _tabSpells = Tab("Spells", () => { _showingSpells = true; _signature = ""; });
-        _tabSkills = Tab("Skills", () => { _showingSpells = false; _signature = ""; });
+        _tabSpells = Tab("Spells", () => { _showingSpells = true; _signature = ""; _chosen = 0; });
+        _tabSkills = Tab("Skills", () => { _showingSpells = false; _signature = ""; _chosen = 0; });
         _close = Tab("Close", () => Close());
 
         _rows = new VBoxContainer();
@@ -179,6 +179,7 @@ public partial class SpellsPanel : Control
 
     void Show(bool on)
     {
+        _chosen = 0;
         // Above whatever else is open - see Panels.ToFront.
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
@@ -203,6 +204,7 @@ public partial class SpellsPanel : Control
         string now = sb.ToString();
         if (now == _signature) return;
         _signature = now;
+        _chosen = 0;
 
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
 
@@ -222,6 +224,18 @@ public partial class SpellsPanel : Control
 
     /// <summary>The row tapped once, waiting to see if it is tapped again.</summary>
     uint _chosen;
+    ulong _chosenAt;
+
+    /// <summary>
+    /// How long the first tap stays "half a double-click". The reference
+    /// casts on `EventMouseDoubleClick` (`UISpells.cpp:73-76`, handler
+    /// `:300-309`), and a CEGUI double-click is time-bounded; this used to
+    /// stay armed forever, so reading a spell and tapping it a minute
+    /// later cast it. It is also disarmed by a tab switch, closing the
+    /// panel and a list rebuild, none of which can be part of one
+    /// double-click.
+    /// </summary>
+    [Export] public ulong DoubleTapMs = 600;
 
     Control Row(StatList s)
     {
@@ -236,7 +250,7 @@ public partial class SpellsPanel : Control
         {
             // First tap describes, second casts - the phone's version of
             // the game's click and double click.
-            if (_chosen == id)
+            if (_chosen == id && Time.GetTicksMsec() - _chosenAt <= DoubleTapMs)
             {
                 _chosen = 0;
                 if (spell) Cast?.Invoke(id);
@@ -245,6 +259,7 @@ public partial class SpellsPanel : Control
             else
             {
                 _chosen = id;
+                _chosenAt = Time.GetTicksMsec();
                 Look?.Invoke(id);
             }
         };

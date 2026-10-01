@@ -373,20 +373,28 @@ public sealed class WorldSync
         else if (f.Drawing == ObjectFlags.DrawingType.Black)
             sp.TintR = sp.TintG = sp.TintB = 0f;
 
-        // TARGET is handled in the picture, not here - see below. The
-        // Ogre client's `base_material_target` multiplies the sprite by
-        // (5, 3, 3) (`Resources/shader/general.material:341`), and that
-        // is the right effect for a 3D billboard. Applied here it ran
-        // ON TOP of the red edge the composer had already baked in, and
-        // a target came out flooded pink with a red rim round it -
-        // neither of the two things the game does, and the one thing
-        // Ashton asked for by name was the edge.
+        // TARGET is handled in the picture, not here - see below.
         //
-        // So the edge wins and the modifier goes. This renderer draws
-        // 2D sprites, which is the classic client's family, and the
-        // classic client's effect is `ImageComposerGDI.DrawPostEffectTarget`
-        // - the red-sided silhouette. `_compose.Get(o, eye, o.IsTarget)`
-        // asks for it; M59Compose.Outline does it.
+        // WHAT THE REFERENCE DOES: `RemoteNode2D.cpp:173-215` picks
+        // `base_material_target` for a target, which is `colormodifier 5
+        // 3 3 1` (`Resources/shader/general.material:333-346`) - a
+        // red-biased BRIGHTENING of the whole sprite. There is no edge:
+        // `ImageComposerOgre<T>::DrawPostEffects` is empty
+        // (`ImageComposerOgre.cpp:156-158`), and the red edge that does
+        // exist, `ImageComposerGDI.DrawPostEffectTarget`
+        // (`Drawing2D/ImageComposerGDI.cs:186`), is called by nothing
+        // (`ImageComposerGDI.DrawPostEffects`, :142-149, handles only
+        // DitherInvis and Black).
+        //
+        // WHAT THIS CLIENT DOES, AND WHY: the red outline is ASHTON'S
+        // STANDING RULING (notes/rulings.md: "A target that is clicked to
+        // attack is outlined in red"), not the reference's behaviour. It
+        // stays. Applying the (5,3,3) modifier as well ran on top of the
+        // baked edge and flooded the target pink with a red rim, so the
+        // ruling wins and the modifier is dropped for a target.
+        // `_compose.Get(o, eye, o.IsTarget)` asks for the edge;
+        // M59Compose.Outline draws it, copying the shape of the GDI
+        // routine that the reference itself never runs.
 
         // TARGET, in the reference's place in the chain rather than
         // left out of it. `RemoteNode2D.cpp:173-215` tests Invisible,

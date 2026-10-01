@@ -343,7 +343,16 @@ public sealed class Renderer
         ///                    texcol.a * colormodifier.a);
         ///
         /// so black (shadowform) is rgb 0,0,0; the target is 5,3,3 - a
-        /// red-biased brightening, on top of the red edge; mouseover is
+        /// red-biased brightening and nothing else. The reference draws NO
+        /// red edge for a target: `ImageComposerOgre<T>::DrawPostEffects` is
+        /// empty (`ImageComposerOgre.cpp:156-158`) and the only red edge in
+        /// the tree, `ImageComposerGDI.DrawPostEffectTarget`
+        /// (`Drawing2D/ImageComposerGDI.cs:186`), is never called - even
+        /// `ImageComposerGDI.DrawPostEffects` (:142-149) handles only
+        /// DitherInvis and Black. This client's red outline is Ashton's
+        /// standing ruling (notes/rulings.md: a clicked target is outlined
+        /// in red), not the reference's behaviour; see WorldSync.Material
+        /// and M59Compose.Outline. Mouseover is
         /// 3,5,3; and the three translucent materials are 1,1,1 with
         /// alpha 0.25, 0.5 and 0.75. The comment in ImageComposerOgre is
         /// worth keeping in mind: those numbers are opacity, not

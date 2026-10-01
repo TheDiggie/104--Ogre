@@ -76,7 +76,6 @@ public partial class ActionButtons : Control
     readonly List<int> _nums = new List<int>();
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
     string _signature = "";
-    ulong _downAt;
     Meridian59.Data.Lists.ActionButtonList _list;
 
     /// <summary>
@@ -163,12 +162,6 @@ public partial class ActionButtons : Control
             data.ActionButtons.Add(cfg);
         }
     }
-
-    /// <summary>
-    /// How long a press has to be held before it clears the button
-    /// instead of firing it.
-    /// </summary>
-    [Export] public ulong LongPressMs = 600;
 
     /// <summary>
     /// Binds a spell, a skill or an item to a button - the phone's
@@ -391,13 +384,20 @@ public partial class ActionButtons : Control
             _nums.Add(cfg.Num);
             if (b.HasMeta("wired")) continue;
             b.SetMeta("wired", true);
-            // Held rather than tapped clears the button, which is the
-            // phone's version of dragging one off the grid onto the root
-            // window (`UIActionButtons.cpp:471`). Timed from the press
-            // down rather than handled separately, because a Button
-            // raises Pressed on the release either way - two handlers
-            // would fire the spell as well as forget it.
-            b.ButtonDown += () => _downAt = Time.GetTicksMsec();
+            // A held press REPEATS; it no longer clears. The reference
+            // reads the action-button keys every input tick with
+            // isKeyDown(...)->Activate() (`ControllerInput.cpp:995-1030`),
+            // so holding the key keeps swinging, and the only throttle is
+            // the library's own interval (`GameTick.cs:40-51`, tests at `GameTick.cs:304-313`, enforced in
+            // `BaseClient.cs:1522` for attacks and :1753 for casts). The
+            // old gesture - hold 600 ms to clear - erased the button the
+            // player was leaning on mid-fight, so clearing moved to the
+            // reference's own gesture: drag the button off the row and
+            // let go (`UIActionButtons.cpp:471-473`, dropped on the root
+            // window -> SetToUnset). See OnDown / OnUp / OnGui.
+            b.ButtonDown += () => OnDown(slot);
+            b.ButtonUp += () => OnUp(slot, b);
+            b.GuiInput += ev => OnGui(slot, b, ev);
             b.Pressed += () => Fire(slot);
         }
 
@@ -427,30 +427,156 @@ public partial class ActionButtons : Control
     }
 
     /// <summary>
-    /// Fires the button the way the client does: the screen slot says
-    /// which button number is showing there right now, and that number is
-    /// looked up in the client's own list. The dispatch lives in
-    /// BaseClient, which is subscribed to every button in the list.
+    /// Runs one activation through the GameView's gates. Arguments: the
+    /// send, and whether to keep the self-target latch alive afterwards
+    /// (a held button keeps it until you let go). Returns whether the
+    /// send was let through - false while the server has you waiting
+    /// (`ControllerInput.cpp:736`, which the keyboard path sits behind).
+    /// Null in a bare harness, which then activates directly.
+    /// </summary>
+    public Func<Action, bool, bool> Run;
+
+    /// <summary>Spends the self-target latch. See GameView.SpendSelfTarget.</summary>
+    public Action SpendLatch;
+
+    /// <summary>Told when a drag-off clears a button, for the chat line.</summary>
+    public event Action<string> Cleared;
+
+    /// <summary>
+    /// How long a press must be held before it starts repeating. A tap
+    /// still fires on release, as before; the delay is what tells a tap
+    /// from a hold without firing on the press itself, because a press
+    /// that turns into a drag-off must not have cast the spell it is
+    /// about to clear.
+    /// </summary>
+    [Export] public ulong RepeatDelayMs = 250;
+
+    /// <summary>
+    /// How far outside the button, in pixels, a finger has to be when it
+    /// lifts to clear the button. Big enough that thumb jitter in a
+    /// fight is nowhere near it.
+    /// </summary>
+    [Export] public float PullOffPx = 48f;
+
+    int _heldSlot = -1;
+    int _heldNum;
+    ulong _heldSince;
+    bool _repeating, _outside, _sentInHold;
+
+    void OnDown(int slot)
+    {
+        if (slot < 0 || slot >= _nums.Count) return;
+        _heldSlot = slot;
+        _heldNum = _nums[slot];
+        _heldSince = Time.GetTicksMsec();
+        _repeating = false; _outside = false; _sentInHold = false;
+    }
+
+    void OnGui(int slot, Button b, InputEvent ev)
+    {
+        if (_heldSlot != slot) return;
+        Vector2? at = ev is InputEventMouseMotion m ? m.Position
+                    : ev is InputEventScreenDrag d ? d.Position : (Vector2?)null;
+        if (at == null) return;
+        _outside = !new Rect2(-PullOffPx, -PullOffPx,
+            b.Size.X + 2f * PullOffPx, b.Size.Y + 2f * PullOffPx).HasPoint(at.Value);
+    }
+
+    void OnUp(int slot, Button b)
+    {
+        if (_heldSlot != slot) return;
+        bool pulled = _outside;
+        int num = _heldNum;
+        EndHold();
+        if (pulled)
+        {
+            // The reference's clear: drop the button on the root window
+            // (`UIActionButtons.cpp:471-473`).
+            ActionButtonConfig cfg = _data?.ActionButtons?.GetByNum(num);
+            if (cfg == null) return;
+            string name = cfg.Name;
+            cfg.SetToUnset();
+            HotbarStore.Save(_data);
+            Cleared?.Invoke(name);
+        }
+    }
+
+    /// <summary>
+    /// Ends a hold. The flags Pressed reads (_repeating, _outside) are
+    /// cleared at the end of the frame rather than here, because Godot
+    /// may raise Pressed before or after ButtonUp and either order has to
+    /// see them.
+    /// </summary>
+    void EndHold()
+    {
+        if (_heldSlot < 0) return;
+        _heldSlot = -1;
+        if (_sentInHold) SpendLatch?.Invoke();
+        _sentInHold = false;
+        Callable.From(() => { _repeating = false; _outside = false; }).CallDeferred();
+    }
+
+    /// <summary>
+    /// Only what the reference's server throttles as a swing: melee, a
+    /// cast, a skill. Items, aliases and the toggles (Rest) fire once
+    /// per press - the reference repeats those as well, but on a phone a
+    /// second's hold on Rest would stand you back up.
+    /// </summary>
+    static bool Repeats(ActionButtonConfig cfg) =>
+        cfg.ButtonType == ActionButtonType.Spell ||
+        cfg.ButtonType == ActionButtonType.Skill ||
+        (cfg.ButtonType == ActionButtonType.Action &&
+         cfg.Data is AvatarAction a && a == AvatarAction.Attack);
+
+    /// <summary>
+    /// The input tick, `ControllerInput.cpp:995-1030`: while the press is
+    /// down and past the delay, activate every frame. The library's
+    /// interval (`GameTick.CanReqAttack/CanReqCast`) is the rate limit,
+    /// exactly as it is for the reference.
+    /// </summary>
+    public override void _Process(double delta)
+    {
+        if (_heldSlot < 0 || _outside) return;
+        if (Time.GetTicksMsec() - _heldSince < RepeatDelayMs) return;
+
+        ActionButtonConfig cfg = _data?.ActionButtons?.GetByNum(_heldNum);
+        if (cfg == null || !Repeats(cfg)) return;
+        _repeating = true;
+        if (Send(cfg, true)) _sentInHold = true;
+    }
+
+    bool Send(ActionButtonConfig cfg, bool keepLatch)
+    {
+        bool sent = true;
+        Action go = () =>
+        {
+            try { cfg.Activate(); }
+            catch (Exception e) { GD.PrintErr($"[ActionButtons] {cfg?.Name}: {e.Message}"); }
+        };
+        if (Run != null) sent = Run(go, keepLatch);
+        else go();
+        return sent;
+    }
+
+    /// <summary>
+    /// A tap, or the release of a press that did not repeat. The screen
+    /// slot says which button number is showing there right now, and that
+    /// number is looked up in the client's own list; the dispatch lives
+    /// in BaseClient, which is subscribed to every button in the list.
     /// </summary>
     void Fire(int slot)
     {
+        // A repeat already fired for this press, or it was pulled off:
+        // the release is not another tap. (A scripted press arrives with
+        // no press-down and passes straight through.)
+        bool held = _heldSlot == slot;
+        if (_repeating || _outside) { EndHold(); return; }
+        if (held) EndHold();
+
         if (slot < 0 || slot >= _nums.Count) return;
         ActionButtonConfig cfg = _data?.ActionButtons?.GetByNum(_nums[slot]);
         if (cfg == null) return;
-
-        // Zero means no press-down was seen, which is how a scripted
-        // press arrives: those are taps, never holds.
-        ulong down = _downAt;
-        _downAt = 0;
-        if (down != 0 && Time.GetTicksMsec() - down >= LongPressMs)
-        {
-            cfg.SetToUnset();
-            HotbarStore.Save(_data);
-            return;
-        }
-
-        try { cfg.Activate(); }
-        catch (Exception e) { GD.PrintErr($"[ActionButtons] {cfg?.Name}: {e.Message}"); }
+        Send(cfg, false);
     }
 
     /// <summary>

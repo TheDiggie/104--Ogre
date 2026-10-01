@@ -55,7 +55,7 @@ public partial class ActionBar : Control
     // Named away from Godot's own members: a plain "Get" hides
     // GodotObject.Get, and "Show" would sit alongside CanvasItem.Show.
     public event Action LookAt, AttackTarget, ActivateTarget, BuyFrom,
-                        TradeWith, LootTarget, AskQuests;
+                        TradeWith, LootTarget, AskQuests, Deselect;
 
     /// <summary>
     /// How tall the whole block is - portrait, name and the button row.
@@ -73,6 +73,7 @@ public partial class ActionBar : Control
 
     Label _name;
     TextureRect _face;
+    Button _clear;
     Button _inspect, _attack, _activate, _buy, _trade, _loot, _quest;
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
 
@@ -94,8 +95,17 @@ public partial class ActionBar : Control
         _name.AddThemeConstantOverride("outline_size", 4);
         AddChild(_name);
 
+        // Clears the target: the reference's Close key sets TargetID to
+        // MaxValue (`ControllerInput.cpp:555-562`, line 560). A phone has no key.
+        _clear = Make("X", () => Deselect?.Invoke());
+        _clear.Name = "target_clear";
+        _clear.TooltipText = "Clear target";
+
         _inspect  = Make("Look",   () => LookAt?.Invoke());
-        _attack   = Make("Attack", () => AttackTarget?.Invoke());
+        _attack   = Make("Attack", OnAttackPressed);
+        _attack.Name = "target_attack";
+        _attack.ButtonDown += () => { _attackDown = true; _attackSince = Time.GetTicksMsec(); _attackRepeating = false; };
+        _attack.ButtonUp += EndAttackHold;
         _activate = Make("Open",   () => ActivateTarget?.Invoke());
         _buy      = Make("Buy",    () => BuyFrom?.Invoke());
         _trade    = Make("Trade",  () => TradeWith?.Invoke());
@@ -105,6 +115,42 @@ public partial class ActionBar : Control
         GetViewport().SizeChanged += Layout;
         Layout();
         SetTarget(null, 0);
+    }
+
+    // Hold-to-repeat on Attack. The reference reads the attack key every
+    // input tick with isKeyDown(...)->Activate()
+    // (`ControllerInput.cpp:995-1030`), so holding it keeps swinging, and
+    // the only limiter is the library's interval (`GameTick.cs:304-308`,
+    // INTERVALREQATTACK at :40-51, enforced in `BaseClient.cs:1522`), so
+    // this just asks every frame and lets the library say no. A tap
+    // still fires on release; the delay is what tells a tap from a hold.
+    [Export] public ulong RepeatDelayMs = 250;
+    bool _attackDown, _attackRepeating;
+    ulong _attackSince;
+
+    void OnAttackPressed()
+    {
+        // Pressed is the release. If the hold already swung, that
+        // release is not one more tap. (A scripted press arrives with no
+        // press-down and fires once.)
+        bool repeated = _attackRepeating;
+        EndAttackHold();
+        if (!repeated) AttackTarget?.Invoke();
+    }
+
+    void EndAttackHold()
+    {
+        _attackDown = false;
+        // Deferred: Pressed may come before or after ButtonUp.
+        Callable.From(() => _attackRepeating = false).CallDeferred();
+    }
+
+    public override void _Process(double delta)
+    {
+        if (!_attackDown || !HasTarget || _attack.Disabled) return;
+        if (Time.GetTicksMsec() - _attackSince < RepeatDelayMs) return;
+        _attackRepeating = true;
+        AttackTarget?.Invoke();
     }
 
     Button Make(string text, Action pressed)
@@ -134,7 +180,10 @@ public partial class ActionBar : Control
         _face.Size = new Vector2(PortraitSize, PortraitSize);
 
         _name.Position = new Vector2(pad + PortraitSize + 8f, y - PortraitSize + 6f);
-        _name.Size = new Vector2(block - PortraitSize - 8f, h);
+        _name.Size = new Vector2(block - PortraitSize - 8f - h - 4f, h);
+
+        _clear.Position = new Vector2(pad + block - h, y - PortraitSize - 4f);
+        _clear.Size = new Vector2(h, h);
 
         Button[] row = { _inspect, _attack, _activate, _buy, _trade, _loot, _quest };
         float w = (block - 4f * (row.Length - 1)) / row.Length;
