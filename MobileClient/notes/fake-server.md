@@ -392,7 +392,7 @@ show the result. `M59_GUILD_ASK=n` and `M59_LOOT_AFTER=n` are folded into the
 same plan rather than carrying their own timers.
 
 Commands: `info`, `list`, `halls [n]`, `ask`, `shield`, `shielderr`,
-`samples`, `prefs`, `bag`, `loot [mode]`, `uselist`, `use <id>`,
+`samples`, `prefs`, `bag`, `loot [mode]`, `quests`, `uselist`, `use <id>`,
 `unuse <id>`, `change [mode] [id]`, `say`, `env NAME=VALUE`.
 
 `env` works because the switches in this block are read when they are USED,
@@ -508,6 +508,95 @@ appends it.
 
 See also: the bag -> mobile-client.md | the loot window -> mobile-client.md
 
+## The quest surface: the log could not move and every NPC offered the same three
+Tags: process, lessons | ReqTriggerQuest echoed a say line and nothing ever sent a changed stat group 5, so the whole progress-and-completion half had never been played; and every ReqNPCQuests answered identically, so the empty window and the rebuild-while-open path were both unreachable
+
+Confirmed in Program.cs before building: the trigger case did nothing but
+`Say(RID_ECHO)`, `SendQuests` sent five fixed rows, and `SendNPCQuests`
+returned the same three quests whoever was asked.
+
+- M59_QUESTLOG=1. A ReqTriggerQuest changes the player's quest state and the
+  WHOLE of group 5 goes out again, UNASKED. That is the real shape, and it is
+  worth saying because the obvious reading of kod is the other one: the
+  BP_SEND_STATS reply at `user.kod:1824` is the only place the client's own
+  request is answered, but it is not the only place the group is built.
+  `AddCurrentQuest` ends in `Send(self,@ToCliStats,#group=5)`
+  (`user.kod:10204-10207`) and `RemoveCurrentQuest` Posts the same
+  (`:10236-10241`) - posted, so plQuestHistory has updated first and the
+  quest comes back under the completed header instead of vanishing.
+  The group is built as `ToCliStats` builds it (`user.kod:3663-3703`): TWO
+  header rows ALWAYS, "No Active Quests" / "No Completed Quests" where a half
+  is empty, so a real log is never empty - the five fixed rows happened to
+  satisfy that and no CHANGED log had ever tested it. The four header strings
+  are kod's own (`user.kod:205-208`).
+  The first trigger of a quest starts it; the second finishes it. Nothing here
+  invents a progress bar: an active row carries the quest's name, its object,
+  its TEMPLATE id and its icon (`SendActiveQuestData`, `:3751-3769`), none of
+  which move as a quest runs. What moves is which list the quest is in.
+  The NPC offer hands out 8001-8003 and the log's own objects are 9001-9003,
+  so the switch maps one to the other.
+- M59_NPCQ=empty. A zero-length answer to ReqNPCQuests. The wire admits one
+  (`QuestUIListMessage.cs:71-79`) and the data layer sets IsVisible after the
+  sort with no count test (`DataController.cs:3034-3056`), so this is an NPC
+  with nothing on offer rather than an NPC who will not talk - and the
+  client's window for it was fixed without ever being driven.
+- M59_NPCQ=changing. A different list on every answer: all three, then the
+  middle one gone, then one left with new words (same id, same flags - the
+  case the panel's signature has to notice through the description as well,
+  `NpcQuestsPanel.cs:403`). The fixture used to return a byte-identical list
+  every time, so the signature always compared equal and the rebuild never
+  ran. The client only ASKS once, when Quest is pressed, and the button is
+  behind the window from then on, so the second list goes out on the trigger:
+  `quests` is a trigger command now. A real server pushes QuestUIList when
+  the offer changes and the client never asks twice either, so the unasked
+  re-send is its shape, not a convenience.
+- M59_NEWSROW=1. The news globe (3104) is also a row inside the container on
+  the floor. The news window needs a ReqLook on the board or the globe and
+  both stand at the avatar's feet, where neither a tap nor `@obj:` reaches a
+  pixel of them (harness.md has the measurement); a contents row sends the
+  same ReqLook on a long press (`LootPanel.cs:438`), so that is the route.
+  The reply is untouched - ReqLook 3104 answers LookNewsGroup either way.
+
+Seen, each on a real client. QUESTLOG: the log opens "No Active Quests" /
+"No Completed Quests" (`StatGroup Quests: 0 active, 0 completed, 2 rows`);
+one Continue gives `<- ReqTriggerQuest npc 3103 quest 8001`,
+`quest 1 started (AddCurrentQuest)` and a 3-row group with nothing asking for
+it; a second Continue gives `quest 1 completed`, and the log then reads
+"No Active Quests" over "Completed Quests: / Clear the cellar". NPCQ=empty:
+"Quests (0)", Alice's portrait and name, "Nothing to offer just now." and
+"This person has no quests to offer right now." with Accept greyed - the
+empty window, driven for the first time. NPCQ=changing with
+`watch.sh ... 'pressed Quest' 'quests'`: ask 1 three quests, ask 2 two, and
+the window rebuilds from three rows to two while it stands open, keeping
+"Clear the cellar" selected because it is still offered. NEWSROW: Activate
+then `@hold:loot3104` puts `<- ReqLook 3104` on the wire,
+`LookNewsGroupMessage` comes back and NewsPanel comes up titled "a notice
+board" with its headline and three headers.
+
+Getting to Alice at all is the harness's problem and is written up there:
+she is 48 units from the landscape spawn and nothing nearer than the rat
+has a texel in the pick buffer, so every run above opens with
+`@drag:500x500>500x800@120` and then `@obj:Alice`.
+
+Not closed:
+- Posting. New, Reply and Delete on the news window have still not been
+  pressed; only the open path is covered.
+- A quest that is started and then ABANDONED - RemoveCurrentQuest without a
+  history entry - is not reachable: the client has one button and it triggers.
+  The switch always routes a finished quest into the history.
+- The quest markers switch is still called M59_QUEST and is a different thing
+  (the three marker colours on room objects). M59_QUESTLOG is the log.
+- Adding the four header strings grew the fixture's string table from 90 ids
+  to 94, so the first run after this change rewrites `rsc0000.rsb`. The
+  game-mode traffic is unaffected: the control below is byte-for-byte equal.
+
+Control: scenes entry plus `@name:menuButton`/Bag/Close against the build
+before and after gives an identical server log (41 non-ping lines,
+byte-for-byte) and a frame that differs only inside (60,93)-(387,240), which
+is the debug overlay's clock, fps and frame counter.
+
+See also: the quest panels -> mobile-client.md | harness.md
+
 ## Preferences and passwords: the seven switches were dead every session
 Tags: process, lessons | UC_REQ_PREFERENCES was never answered, so PreferencesFlags.Enabled stayed false and all seven server preferences were disabled all session; BP_CHANGE_PASSWORD stopped at the wire
 
@@ -532,8 +621,13 @@ so the form cannot be filled from a scripted run - and 160/161 came back for
 ok/bad.
 
 Not closed:
-- The password form itself is still undriveable by the harness; only the wire
-  was exercised. A `@name:<LineEdit>=text` step in SceneShot would close it.
+- (CLOSED.) The password form was undriveable and only its wire had been
+  exercised. SceneShot has `@type:<Node>=<text>` now and the whole form runs
+  from a scripted run - see harness.md. One thing driving it found:
+  `OptionsPanel.Rotate` compares the old box against the password the client
+  logged in with and refuses locally, so a run that types a made-up old
+  password gets "Old password incorrect." and nothing on the wire, which
+  reads as a dead button.
 - M59_PREFS_DELAY's race was not photographed inside its own window: the shot
   comes 150 frames in, long after a 4 s delay has passed. The server line
   "(holding the preference word back N ms)" and the disabled/enabled boxes are

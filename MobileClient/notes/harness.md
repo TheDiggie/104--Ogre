@@ -11,11 +11,13 @@ Tags: process | xvfb-run plus M59USER/M59PASS; --press is a comma list of steps,
 Godot lives at
 `/tmp/Godot_v4.7.2-stable_mono_linux_x86_64/Godot_v4.7.2-stable_mono_linux.x86_64`.
 Steps in `--press`: a bare node name, `@tap:XxY`, `@hold:<Node>`,
-`@type`, `@submit`, `@name:<Node>`, `@slot`, `@drag:<from>><to>@<frames>`,
-`@obj:<name>`.
+`@type`, `@type:<Node>=<text>`, `@submit`, `@name:<Node>`, `@slot`,
+`@drag:<from>><to>@<frames>`, `@sweep:<from>><to>@<frames>`,
+`@state[:<Node>]`, `@obj:<name>`.
 
 Fixture switches on the fake server: `M59_STATCHANGE=1`, `M59_NEWS=1`,
-`M59_CHATFLOOD=1`, `M59_PARALYZE=1`, `M59_WAIT=1`.
+`M59_CHATFLOOD=1`, `M59_PARALYZE=1`, `M59_WAIT=1`, `M59_QUESTLOG=1`,
+`M59_NPCQ=empty|changing`, `M59_NEWSROW=1`.
 
 See also: the fixture -> fake-server.md
 
@@ -70,8 +72,28 @@ Tags: process | Kept so the next session tests something new rather than re-prov
   and SAVING photographed too, through the two new fixture switches.
 - Mail: New, a recipient typed in, Send - `ReqLookupNames` validates the
   name first and `SendMail` follows.
-- NPC quests: `@obj:Alice` then Quest lists her three, with description
-  and instructions, and Continue sends `ReqTriggerQuest`.
+- NPC quests: Alice targeted (see `@obj:` below - she is too close to
+  the landscape spawn to be picked until you back away), then Quest
+  lists her three, with description and instructions, and Continue
+  sends `ReqTriggerQuest`. With `M59_NPCQ=empty` the same press opens
+  her window with no rows - "Quests (0)", the portrait, "Nothing to
+  offer just now." - and with `M59_NPCQ=changing` plus a `quests` on
+  the trigger the list rebuilds from three rows to two UNDER the open
+  window, keeping the row that was being read selected.
+- The quest log changing: with `M59_QUESTLOG=1` the log starts "No
+  Active Quests" / "No Completed Quests", one Continue starts a quest
+  and the server pushes the whole group 5 unasked, and a second
+  Continue finishes it - the quest leaves the active half and comes
+  back under "Completed Quests:".
+- The news board: `M59_NEWSROW=1` puts the globe in the container, so
+  Activate then `@hold:loot3104` sends `ReqLook 3104`, the server
+  answers `LookNewsGroup` and NewsPanel comes up with its three
+  headers. It had never been opened by a scripted run before.
+- The password form: `@type:oldPassword=...` and its two fellows, then
+  `@name:changePassword` - `ChangePassword` on the wire,
+  `PasswordOKMessage` back, "Password changed successfully." on screen.
+  Note the client checks the old password against the one it logged in
+  with before sending anything, so it has to be the real one.
 - Skills: the Skills tab, row tapped twice, `ReqPerform` on the wire.
 - Next target: two presses walk Boris the Outlaw then the duskrat,
   guild enemy first, as the library orders them.
@@ -91,9 +113,9 @@ Tags: process | Kept so the next session tests something new rather than re-prov
   Targeting and three hits then kill the rat in the second room too,
   so the hit count really is per object and not per session.
 
-Not yet played: posting to the news board (the book that stands in for
-it sits too close to the avatar for `@obj:` to find a pixel of it), and
-the guild commands beyond reading the roster.
+Not yet played: POSTING to the news board (the window opens now, see
+above; New/Reply/Delete have not been driven), and the guild commands
+beyond reading the roster.
 
 See also: the fixture -> fake-server.md | the panels -> mobile-client.md
 
@@ -125,6 +147,88 @@ portrait numbers - y 250..1150 at 1080x1920 - are history.
 
 See also: the touch layer -> TouchControls.cs | the client -> mobile-client.md
 
+## @sweep: a shot of the camera while it is still moving
+Tags: process, lessons | One InputEventScreenDrag per frame at a constant Relative, a numbered PNG on every one of them and no settle - 1.95M pixels change between consecutive frames where @drag's shots are pixel-identical
+
+`@sweep:<from>><to>@<frames>` presses at the first point, slides to the
+second over ten frames, then holds for `<frames>` frames emitting one
+drag per frame with `Relative` fixed at the slide's own per-frame delta,
+writing `<out>-sweepNN.png` on each. No settle: the shot is of that
+frame, moving.
+
+`Position` is pinned at the far end and `Relative` is kept non-zero on
+purpose, because the two halves of the touch layer read different
+fields - the stick takes its direction from `Position`, the look half
+turns by the DELTA (`TouchControls.cs:150-153`). A sweep that advanced
+`Position` as well would walk the finger off the stick in a few frames.
+
+Measured, `@sweep:1500x540>1700x540@8` in barinn: 1,941,192 to 1,952,888
+pixels differ between each pair of consecutive frames, out of 2,073,600.
+The control is `@drag:1500x540>1700x540@60` with `--shots`, where the
+step's shot and the end-of-run shot differ by 2,396 pixels inside
+(60,93)-(387,244) - the debug overlay's clock and frame counter, and
+nothing else. The world is identical: at every moment `@drag` can
+photograph, the camera is at rest.
+
+Keep `<frames>` small - eight to twenty. Every frame is a PNG write.
+
+See also: the touch layer -> TouchControls.cs | SceneShot.cs
+
+## @state: what a control IS, as against what a press reports
+Tags: process, gotchas | name, class, Visible, IsVisibleInTree, global rect, modulate, mouse filter, Disabled and the caption - two agents built this privately and threw it away
+
+`@state` dumps every Control in the tree, parents before children.
+`@state:<text>` dumps the ones whose NODE NAME contains that text, which
+is what a run chasing one button wants. Hidden nodes are listed too: "my
+press did nothing" is usually answered by a node that is there and not
+visible-in-tree, and a list that left those out could not say so.
+
+A line reads:
+
+    [SceneShot] state @Button@475 (Button) Visible=True InTree=True
+      rect=(1391,593,110,48) modulate=(1, 1, 1, 1) filter=Stop
+      Disabled=False text="Get (1)"
+
+Three things it settles that nothing else could. Whether a press would
+have done anything - `Disabled` is honoured by a finger and not by the
+Pressed signal the harness emits. Which of two same-captioned buttons a
+bare name would take - the dump is in tree order, which is the order
+`FindButton` walks. And whether a caption has moved under a step.
+
+It is also how the auto-generated names are found. Godot names a node
+with no explicit name `@Button@475`, and those numbers shift between
+builds, so read them per run rather than writing one into a scene.
+
+See also: SceneShot.cs
+
+## @type:<Node>=<text>: a form with more than one box
+Tags: process, lessons | Plain @type fills the FIRST visible LineEdit, so the three-box password form could not be driven at all and only its wire had ever been exercised
+
+`@type:oldPassword=rats` names the box and the text; the text may
+contain anything but a comma, which separates the steps. The miss
+report lists the visible boxes by name, as the button steps do.
+`TextChanged` is emitted after the assignment, because setting `Text`
+in code raises nothing and a form that validates as you type would
+never see the characters.
+
+Plain `@type` is unchanged and still fills the first visible box, which
+is what the one-box forms want.
+
+The whole change-password form runs from a scripted run now:
+
+    @name:menuButton,@name:settingsButton,
+    @type:oldPassword=tester,@type:newPassword=lantern,
+    @type:confirmPassword=lantern,@name:changePassword
+
+with `M59_PASSWORD=ok` on the fixture - `ChangePassword` on the wire,
+`PasswordOKMessage` back, "Password changed successfully." on screen.
+One trap, found by driving it: `OptionsPanel.Rotate` compares the old
+box against the password the client logged in with and refuses locally
+before anything goes out, so the old box has to carry the real
+`M59PASS` or the run reports a working form as a dead button.
+
+See also: the options panel -> mobile-client.md | fake-server.md
+
 ## An empty minimap is usually a big room, not a broken map
 Tags: gotchas, lessons | The dial came up blank in the fixture's second room with 454 walls loaded; six presses of "-" and the walls were there
 
@@ -139,7 +243,29 @@ draw. 454 on the map and nothing on the dial is a window problem;
 See also: MiniMap.cs
 
 ## Tap a thing by name, not by guessing where it is
-Tags: process, lessons | @obj:duskrat asks the renderer's own picker where the thing is and taps there - three runs were lost to taps that hit the floor
+Tags: process, lessons | @obj:duskrat asks the renderer's own picker where the thing is and taps there - three runs were lost to taps that hit the floor; and in landscape @obj:Alice needs a step backwards first
+
+An earlier version of this note said `@obj:Alice` reaches her from the
+spawn. It does not, and two more runs went into finding that out. What
+it actually does now, measured: from the landscape spawn
+`@obj:duskrat` finds the rat at (860,630) and `@obj:Alice`,
+`@obj:Boris` and `@obj:a notice board` all print "nothing called ... is
+visible from here". Turning does not help - eight 25-frame look drags
+through a full circle, probed after each, found her at no angle. She is
+48 units from the spawn against the rat's 64, and nothing closer than
+the rat has a texel in the pick buffer; the globe and the board are
+nearer still, which is the same reason the news window needed a fixture
+route rather than a cleverer tap.
+
+A step BACKWARDS fixes it:
+
+    @drag:500x500>500x800@120,@obj:Alice
+
+and she is tapped at (960,690). That is the opening of every NPC-quest
+run in this file now. Next does not substitute: `DataController.
+NextTarget` only considers objects that are attackable or minimap
+enemies (`DataController.cs:1326-1340`), and Alice is neither, so no
+number of Next presses ever reaches her.
 
 `GameView.ScreenPointOf` sweeps screen points through `Renderer.Pick`,
 the same call a finger goes through: opaque texels only, never through
@@ -220,7 +346,7 @@ per case.
 
 See also: the fake server -> ./fake-server.md | delivery -> ./delivery.md
 
-## Seven ways a scripted run lies about a working feature
+## Nine ways a scripted run lies about a working feature
 Tags: gotchas, lessons | Each of these produced a screenshot or a log that looked exactly like a client bug, and each cost an agent a run or more
 
 - `--shots` breaks any gesture with a time window. On top of the 30-frame
@@ -230,11 +356,26 @@ Tags: gotchas, lessons | Each of these produced a screenshot or a log that looke
   read as a first, the row only describes, and it looks like a dead cast
   path. Run timed-gesture tests without `--shots`.
 - A bare-name `--press` step matches a button by its TEXT
-  (`FindButton`, `SceneShot.cs:759`), first in tree order. A caption that
-  exists in two open panels hits the wrong one: "Close" on a look window
-  pressed the spell book's Close behind it, and the shot looked exactly
-  like the bug being chased. Use `@name:<Node>` and name the button
-  (`lookClose`, `LookPanel.cs:235`).
+  (`FindButton`), first in tree order, and that is wrong in two
+  different ways.
+
+  The first is a caption that exists twice. "Close" is on more than
+  twenty buttons in this client - an `@state` dump counts them - and
+  the step takes whichever comes first in tree order, which is not
+  the one on top: a shop opened over the Acts panel is closed by a
+  `Close` step that shuts Acts instead, and the shop then looks like a
+  window that cannot be dismissed. Panels.ToFront decides what is on
+  top and tree order does not follow it. Use `@name:<Node>` and name
+  the button (`lookClose`, `LookPanel.cs:235`).
+
+  The second is a caption that CHANGES. Loot's Get is "Get" until a row
+  is ticked and "Get (1)" from then on, so the obvious sequence -
+  `Loot,@name:loot3102,Get` - reports "no button called Get" and reads
+  exactly like a dead control on a window that is working perfectly.
+  Measured: with the row ticked, `@state` says
+  `@Button@475 (Button) Visible=True InTree=True Disabled=False
+  text="Get (1)"`. Any caption carrying a count or a state does this.
+  Name the node, or read the caption with `@state` first.
 - `@obj:` taps wherever the picker finds the object, and the left half of
   the screen belongs to the movement stick (`TouchControls.cs:8-9`), so a
   touch there can never become a target. It prints "tapped" and sets
@@ -263,20 +404,27 @@ Tags: gotchas, lessons | Each of these produced a screenshot or a log that looke
   bag's double-tap-to-use and the spell book's double-tap-to-cast read
   as dead features. Select, then press the button; for a cast the
   `--shots`-free run above works only on a fast machine.
-- Continuous motion cannot be photographed with the stock steps, and
-  that is a limit of the steps, not of the client. Each step settles 30
-  frames before it shoots, and `@drag` slides for ten frames and then
-  HOLDS STILL (`now = to`, so `Relative` is zero, `SceneShot.cs:490-505`)
-  before it lifts. The only photographable frames are therefore frames
-  on which the camera was not moving - which is exactly when a label
+- `@drag` cannot photograph motion, and for a long time nothing could.
+  Each step settles 30 frames before it shoots, and `@drag` slides for
+  ten frames and then HOLDS STILL (`now = to`, so `Relative` is zero)
+  before it lifts, so the only photographable frames were frames on
+  which the camera was not moving - which is exactly when a label
   placed with the previous frame's camera looks correct
-  (`GameView.cs:2968-2985`). An agent got through it in a scratchpad
-  copy of SceneShot (NOT in the repo) with a step that emits one
-  `InputEventScreenDrag` per frame with a constant `Relative` and shoots
-  mid-hold with no settle; the look half turns by the delta and ignores
-  `Position` (`TouchControls.cs:150-153`). Write that step again when a
-  bug only shows while the camera moves; do not conclude it cannot be
-  done.
+  (`GameView.cs:2968-2985`). Two agents each rebuilt the way round it
+  in a scratch copy and threw it away. It is `@sweep` now, in the
+  repo; see its own section below. Use `@drag` for a hold with a
+  settled shot at the end and `@sweep` when the bug only shows while
+  the camera is turning.
+- A press proves the node was FOUND, not that it could be pressed.
+  Every press goes through `Hit`, which emits `Pressed` (or flips a
+  toggle), and a Godot Button with `Disabled` set honours that signal -
+  so "pressed Get" is printed for a greyed-out control a finger could
+  not touch, and the feature behind it looks broken. Visible is no
+  guard either: the hidden target-row Get reads `Visible=True
+  InTree=False` while the loot window's reads `InTree=True
+  Disabled=True`, both at once, in the same dump. `@state` is the
+  answer and is why it exists - read Disabled and IsVisibleInTree
+  before believing a press.
 - A timed fixture event counts client messages, not milliseconds, and
   pings outpace frames under load, so a `--shots` run needs many dummy
   `--press` steps or the event fires before frame 1. The switches and

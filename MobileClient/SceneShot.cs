@@ -305,6 +305,36 @@ public partial class SceneShot : Node
         GetTree().Quit();
     }
 
+    /// <summary>
+    /// Every Control in the tree, parents before children - which is the
+    /// order they are drawn in, so a @state dump reads top down.
+    /// Everything, not only what is showing: "why did my press do
+    /// nothing" is usually answered by a node that is there and not
+    /// visible-in-tree, and a list that left those out could not say so.
+    /// </summary>
+    static List<Control> Controls(Node from)
+    {
+        var all = new List<Control>();
+        if (from is Control c) all.Add(c);
+        foreach (Node n in from.GetChildren()) all.AddRange(Controls(n));
+        return all;
+    }
+
+    /// <summary>
+    /// Every text box that is on screen, for @type:&lt;name&gt;.
+    ///
+    /// Separate from <c>Boxes</c> on purpose: that one's order IS its
+    /// meaning (the first visible box is what plain @type fills), so it
+    /// stays exactly as it was.
+    /// </summary>
+    static List<LineEdit> TypedBoxes(Node from)
+    {
+        var all = new List<LineEdit>();
+        if (from is LineEdit e && Showing(e)) all.Add(e);
+        foreach (Node n in from.GetChildren()) all.AddRange(TypedBoxes(n));
+        return all;
+    }
+
     static void Boxes(Node from, List<LineEdit> into)
     {
         // IsVisibleInTree, not Visible - see Showing. A box inside a
@@ -506,6 +536,155 @@ public partial class SceneShot : Node
                     GD.Print($"[SceneShot] dragged {from} -> {to} held {frames}");
                 }
                 else GD.Print($"[SceneShot] bad drag step: {step}");
+            }
+            else if (step.StartsWith("@sweep:"))
+            {
+                // Continuous motion, photographed WHILE it is happening.
+                //
+                // `@drag` cannot do this and never could: it slides for
+                // ten frames and then holds still (`now = to`, so
+                // `Relative` is zero), and every step settles 30 frames
+                // before it shoots. So the only frames a run could ever
+                // photograph were frames on which the camera was not
+                // moving - which is exactly when a label placed with the
+                // previous frame's camera looks correct. A whole class of
+                // bug was invisible to the harness rather than absent
+                // from the client, and two agents rebuilt this step in
+                // scratch copies and threw it away.
+                //
+                // "@sweep:900x540>1500x540@12" presses at the first
+                // point, slides to the second over ten frames, then holds
+                // for twelve frames emitting ONE drag per frame at a
+                // CONSTANT Relative - the slide's own per-frame delta -
+                // and writes a numbered PNG on each of them with no
+                // settle in between.
+                //
+                // Position is pinned at the far end and Relative is kept
+                // non-zero on purpose, because the two halves of the
+                // touch layer read different fields: the movement stick
+                // takes its direction from Position and the look half
+                // turns by the DELTA (`TouchControls.cs:150-153`). A
+                // sweep that moved Position as well would walk the finger
+                // off the stick within a few frames.
+                string body = step.Substring(7);
+                int at = body.IndexOf('@');
+                int frames = 12;
+                if (at >= 0 && int.TryParse(body.Substring(at + 1), out int f)) { frames = f; body = body.Substring(0, at); }
+                string[] ends = body.Split('>');
+                if (ends.Length == 2 && Point(ends[0], out Vector2 from) && Point(ends[1], out Vector2 to))
+                {
+                    Control eater = Swallower(GetTree().Root, from);
+                    if (eater != null)
+                        GD.Print($"[SceneShot] WARNING sweep starts on '{eater.Name}' ({eater.GetType().Name}), which will take the touch instead of the world");
+
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = from, Pressed = true });
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+                    const int slide = 10;
+                    Vector2 last = from;
+                    for (int i = 1; i <= slide; i++)
+                    {
+                        Vector2 now = from.Lerp(to, (float)i / slide);
+                        Input.ParseInputEvent(new InputEventScreenDrag
+                        { Index = 0, Position = now, Relative = now - last });
+                        last = now;
+                        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    }
+
+                    // The constant Relative: the step the slide was
+                    // taking, kept up for the whole hold.
+                    Vector2 step1 = (to - from) / slide;
+                    for (int i = 1; i <= Math.Max(1, frames); i++)
+                    {
+                        Input.ParseInputEvent(new InputEventScreenDrag
+                        { Index = 0, Position = to, Relative = step1 });
+                        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                        // No settle: the shot is of this frame, moving.
+                        await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+                        string each = System.IO.Path.ChangeExtension(path, null) + $"-sweep{i:D2}.png";
+                        GetViewport().GetTexture().GetImage().SavePng(each);
+                        GD.Print($"[SceneShot] wrote {each} mid-sweep (Relative {step1})");
+                    }
+
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = to, Pressed = false });
+                    GD.Print($"[SceneShot] swept {from} -> {to}, {frames} moving frames photographed");
+                }
+                else GD.Print($"[SceneShot] bad sweep step: {step}");
+            }
+            else if (step == "@state" || step.StartsWith("@state:"))
+            {
+                // What a control actually IS, which no step could ask.
+                //
+                // `--press` emits Pressed directly and a DISABLED Godot
+                // Button honours it, so "pressed Get" proves the node was
+                // found and nothing whatever about whether a finger could
+                // have pressed it. Agents keep rediscovering that, and
+                // two of them built this step privately and threw it
+                // away; it is in the harness now so nobody writes a
+                // third.
+                //
+                // "@state" dumps every Control; "@state:lootGet" dumps
+                // the ones whose node name contains that text, which is
+                // what a run chasing one button wants. Every field a
+                // press depends on is here: IsVisibleInTree as well as
+                // Visible (see Showing), the global rect, the modulate
+                // that greys a control out without disabling it, the
+                // mouse filter that decides whether a touch even arrives,
+                // and Disabled.
+                string want = step.StartsWith("@state:") ? step.Substring(7) : null;
+                int shown = 0;
+                foreach (Control c in Controls(GetTree().Root))
+                {
+                    if (want != null && !c.Name.ToString().Contains(want)) continue;
+                    Rect2 r = c.GetGlobalRect();
+                    string disabled = c is BaseButton bb ? bb.Disabled.ToString() : "-";
+                    string text = c is Button tb ? $" text=\"{tb.Text}\"" : "";
+                    GD.Print($"[SceneShot] state {c.Name} ({c.GetType().Name}) Visible={c.Visible} InTree={c.IsVisibleInTree()} " +
+                             $"rect=({r.Position.X},{r.Position.Y},{r.Size.X},{r.Size.Y}) " +
+                             $"modulate={c.Modulate} filter={c.MouseFilter} Disabled={disabled}{text}");
+                    shown++;
+                }
+                if (shown == 0) GD.Print($"[SceneShot] @state matched no control for \"{want}\"");
+                else GD.Print($"[SceneShot] @state listed {shown} control(s)");
+            }
+            else if (step.StartsWith("@type:"))
+            {
+                // Types into a NAMED box. `@type` fills the first visible
+                // LineEdit, which is no use at all on a form with three
+                // of them: the change-password form is the live example,
+                // and because it could not be filled only its wire was
+                // ever exercised (fake-server.md, M59_PASSWORD).
+                //
+                // "@type:oldPass=rats" - the node name, an equals sign,
+                // and the text. The text may contain anything but a
+                // comma, which separates the steps.
+                string spec = step.Substring(6);
+                int eq = spec.IndexOf('=');
+                string boxName = eq >= 0 ? spec.Substring(0, eq) : spec;
+                string words = eq >= 0 ? spec.Substring(eq + 1) : "";
+                LineEdit box = null;
+                foreach (LineEdit e in TypedBoxes(GetTree().Root))
+                    if (e.Name == boxName) { box = e; break; }
+                if (box == null)
+                {
+                    // Say what IS there, as the button steps do: the node
+                    // names are a scripted run's only handle, and a bare
+                    // miss sends the next agent reading client code.
+                    var boxNames = new List<string>();
+                    foreach (LineEdit e in TypedBoxes(GetTree().Root)) boxNames.Add(e.Name);
+                    boxNames.Sort();
+                    GD.Print($"[SceneShot] no text box called {boxName}; visible boxes: " +
+                             (boxNames.Count == 0 ? "(none)" : string.Join(", ", boxNames)));
+                }
+                else
+                {
+                    box.Text = words;
+                    // Changing Text in code raises nothing, and a form
+                    // that validates as you type - the password pair does -
+                    // would never see the characters.
+                    box.EmitSignal(LineEdit.SignalName.TextChanged, words);
+                    GD.Print($"[SceneShot] typed \"{words}\" into {boxName}");
+                }
             }
             else if (step == "@type")
             {

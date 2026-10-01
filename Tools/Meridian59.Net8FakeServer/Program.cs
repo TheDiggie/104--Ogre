@@ -438,6 +438,15 @@ static class FakeServer
     const uint RID_QREQ2 = 60123;
     const uint RID_QDESC3 = 60124;
     const uint RID_QREQ3 = 60125;
+    // The four quest-log headers, in Server-104's own words
+    // (`user.kod:205-208`). M59_QUESTLOG builds the group with these
+    // rather than with the two above, because the shape under test is
+    // kod's: a header for each half whether or not that half has
+    // anything in it.
+    const uint RID_QACTIVE = 60126;
+    const uint RID_QNOACTIVE = 60127;
+    const uint RID_QDONE = 60128;
+    const uint RID_QNODONE = 60129;
     const uint RID_RATSOUND = 60080;
     const uint RID_MUSIC = 60081;
     // The audible test surface (see "Sound" in the switch block). The FX*
@@ -581,6 +590,42 @@ static class FakeServer
     //   or BP_PASSWORD_NOT_OK; the real server compares the old hash and
     //   sends one or the other and nothing else (`blakserv/game.c:536-566`).
     //
+    // QUESTS. ReqTriggerQuest only echoed a say line and nothing ever sent a
+    // CHANGED quest log, so the whole progress-and-completion half of the
+    // quest UI had never been played: the log was five rows that could not
+    // move, and ReqNPCQuests answered with the same three quests whatever it
+    // was asked about, so the empty-NPC window and the rebuild-while-open
+    // path were both unreachable.
+    // M59_QUESTLOG=1  a ReqTriggerQuest changes the player's quest state and
+    //   the WHOLE group 5 goes out again, unasked. That is the real shape:
+    //   AddCurrentQuest ends in Send(self,@ToCliStats,#group=5)
+    //   (`user.kod:10204-10207`) and RemoveCurrentQuest Posts the same
+    //   (`:10236-10241`, posted so plQuestHistory updates first), which are
+    //   the only senders besides the BP_SEND_STATS reply at `:1824`. The
+    //   first trigger of a quest advances it to its next node; the second
+    //   finishes it, and it reappears under the completed header. The group
+    //   is built as ToCliStats group 5 builds it (`user.kod:3663-3703`):
+    //   TWO header rows always, "No Active Quests"/"No Completed Quests"
+    //   where a list is empty, so the log is never actually empty. An active
+    //   row's fourth field is the quest TEMPLATE id, not a score
+    //   (`SendActiveQuestData`, `:3765-3767`), which is what moves when a
+    //   quest advances.
+    // M59_NPCQ=empty|changing  what ReqNPCQuests answers with.
+    //   empty is a zero-length list - a legitimate answer the wire admits
+    //   (`QuestUIListMessage.cs:71-79`) and the state an NPC with nothing on
+    //   offer is in; the client's empty-NPC window was fixed without ever
+    //   being driven. changing hands out a different list on every request,
+    //   so the panel's rebuild-while-open path runs instead of its signature
+    //   comparing equal every time (`NpcQuestsPanel.cs:403`).
+    // M59_NEWSROW=1  the news globe (3104) is also a row inside the
+    //   container on the floor, so a held row press sends ReqLook on it
+    //   (`LootPanel.cs:438`) and the news window can be opened by a scripted
+    //   run at all. A real server's board is an object you look at where it
+    //   stands; both the board and the globe sit at the avatar's feet here,
+    //   where no tap and no @obj: reaches them, so the contents list - whose
+    //   rows send the same ReqLook - is the route. The reply is unchanged:
+    //   ReqLook 3104 answers LookNewsGroup either way.
+    //
     // THE TRIGGER. Several of these have to happen at a MOMENT - while a
     // panel is open, while a popup is armed, between two messages - and two
     // audits each built their own timing hack. There is one mechanism now:
@@ -595,7 +640,7 @@ static class FakeServer
     //   pattern appears in the client's log - so "when the panel is open" is
     //   expressed once, in one place, for every switch.
     // The commands: info, list, halls [n], ask, shield, shielderr [text],
-    //   prefs, bag, loot [mode], use <id>, unuse <id>, uselist [ids|none],
+    //   prefs, bag, loot [mode], quests, use <id>, unuse <id>, uselist [ids|none],
     //   change [mode] [id], say, env NAME=VALUE.
     static string GuildMode => EnvStr("M59_GUILD") ?? "both";
     static readonly string guildFire = EnvStr("M59_FIRE");
@@ -609,6 +654,9 @@ static class FakeServer
     static readonly string passwordMode = EnvStr("M59_PASSWORD");
     static readonly int guildAskAfter = EnvInt("M59_GUILD_ASK", 0);
     static readonly int lootAfter = EnvInt("M59_LOOT_AFTER", 0);
+    static readonly bool wantQuestLog = EnvOn("M59_QUESTLOG");
+    static readonly string npcQuestMode = EnvStr("M59_NPCQ");
+    static readonly bool wantNewsRow = EnvOn("M59_NEWSROW");
     /// <summary>The preference word the server is holding for this player.</summary>
     static uint prefsWord = ParseWord(EnvStr("M59_PREFS_WORD"), 0x7E);
     /// <summary>Set once the shield reply has gone out, so the second ask is met with silence.</summary>
@@ -732,6 +780,10 @@ static class FakeServer
             new RsbResourceID(RID_COND2,      "mana",             4),
             new RsbResourceID(RID_COND3,      "vigor",            4),
             new RsbResourceID(RID_COND4,      "toughness",        4),
+            new RsbResourceID(RID_QACTIVE,    "Active Quests: ",  4),
+            new RsbResourceID(RID_QNOACTIVE,  "No Active Quests", 4),
+            new RsbResourceID(RID_QDONE,      "Completed Quests: ", 4),
+            new RsbResourceID(RID_QNODONE,    "No Completed Quests", 4),
             new RsbResourceID(RID_GLOBE,      "a notice board",   4),
             new RsbResourceID(RID_HEADLINE,   "Nothing here is true, and this is the board that says so.", 4),
             new RsbResourceID(RID_HEADBGF,    "bri.bgf",          4),
@@ -1330,12 +1382,29 @@ static class FakeServer
                     break;
 
                 case MessageTypeGameMode.ReqTriggerQuest:
-                    // A real server starts the quest and says so. This
-                    // just answers, so the accept is visible from the
-                    // client's side.
-                    Console.WriteLine("  <- ReqTriggerQuest");
+                {
+                    // The body is the PI, the NPC's ObjectID and then the
+                    // quest's - both through ObjectID rather than a raw
+                    // uint read, because the top four bits are a flag
+                    // saying a count follows (`ReqTriggerQuestMessage.cs:
+                    // 50-57`).
+                    uint npc = 0, quest = 0;
+                    if (body.Length >= 5)
+                    {
+                        var who = new ObjectID(body, 1);
+                        npc = who.ID;
+                        if (body.Length >= 1 + who.ByteLength + 4)
+                            quest = new ObjectID(body, 1 + who.ByteLength).ID;
+                    }
+                    Console.WriteLine($"  <- ReqTriggerQuest npc {npc} quest {quest}");
+                    // A real server starts or finishes the quest and the
+                    // quest log follows, unasked. Without M59_QUESTLOG it
+                    // still only answers, so the accept is visible from
+                    // the client's side and nothing else moves.
+                    if (wantQuestLog) TriggerQuest(ns, ctrl, quest);
                     Say(ns, ctrl, RID_ECHO);
                     break;
+                }
 
                 case MessageTypeGameMode.ReqBuy:
                     Console.WriteLine("  <- ReqBuy");
@@ -1593,6 +1662,8 @@ static class FakeServer
     /// </summary>
     static void SendQuests(NetworkStream ns, MessageControllerClient ctrl)
     {
+        if (wantQuestLog) { SendQuestLog(ns, ctrl); return; }
+
         var quests = new Stat[]
         {
             Quest(1, RID_QHEAD1, 0,    0),
@@ -1614,6 +1685,126 @@ static class FakeServer
     /// </summary>
     static StatList Quest(byte num, uint nameRid, uint objectId, uint points, uint iconRid = 0)
         => new StatList(num, nameRid, objectId, points, iconRid);
+
+    /// <summary>
+    /// M59_QUESTLOG: the three quests this fixture offers, as a quest
+    /// TEMPLATE id (what an active row's fourth field carries,
+    /// `user.kod:3765-3767`), the quest object the row points at, its
+    /// name and its icon. The NPC offer hands out 8001-8003 for the same
+    /// three, so a trigger names one of those; the log's own object ids
+    /// are the 9001-9003 the stock log already used.
+    /// </summary>
+    static readonly (uint Offer, uint Template, uint Obj, uint Name, uint Icon)[] questBook =
+    {
+        (8001, 1, 9001, RID_QUEST1, RID_BOOKBGF),
+        (8002, 2, 9002, RID_QUEST2, RID_AXEBGF),
+        (8003, 3, 9003, RID_QUEST3, RID_COINBGF),
+    };
+
+    /// <summary>plActiveQuests and plQuestHistory, in template order.</summary>
+    static readonly List<uint> questsActive = new List<uint>();
+    static readonly List<uint> questsDone = new List<uint>();
+
+    /// <summary>
+    /// The quest log as ToCliStats builds group 5 (`user.kod:3663-3703`).
+    ///
+    /// Two header rows ALWAYS: the active header or "No Active Quests",
+    /// then the completed header or "No Completed Quests". A real log is
+    /// therefore never empty, which the stock fixture's five fixed rows
+    /// happened to satisfy and no changed log had ever tested. A header
+    /// is a StatList with no object and no points, which is what the
+    /// quest window draws in bold and refuses to open
+    /// (`UIQuests.cpp:37-53`).
+    ///
+    /// The index byte is kod's: 0 for the active header, then 1.. over
+    /// the active quests, then the running count for the completed
+    /// header and the ones after it.
+    /// </summary>
+    static void SendQuestLog(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var rows = new List<Stat>();
+        byte at = 0;
+
+        rows.Add(Quest(0, questsActive.Count > 0 ? RID_QACTIVE : RID_QNOACTIVE, 0, 0));
+        at = 1;
+        foreach (uint t in questsActive)
+        {
+            var q = Find(t);
+            rows.Add(Quest(at, q.Name, q.Obj, q.Template, q.Icon));
+            at++;
+        }
+
+        rows.Add(Quest(at, questsDone.Count > 0 ? RID_QDONE : RID_QNODONE, 0, 0));
+        at++;
+        foreach (uint t in questsDone)
+        {
+            var q = Find(t);
+            rows.Add(Quest(at, q.Name, q.Obj, q.Template, q.Icon));
+            at++;
+        }
+
+        Console.WriteLine($"  -> StatGroup Quests: {questsActive.Count} active, " +
+                          $"{questsDone.Count} completed, {rows.Count} rows");
+        Send(ns, ctrl, new StatGroupMessage(StatGroup.Quests, rows.ToArray()));
+    }
+
+    static (uint Offer, uint Template, uint Obj, uint Name, uint Icon) Find(uint template)
+    {
+        foreach (var q in questBook) if (q.Template == template) return q;
+        return questBook[0];
+    }
+
+    /// <summary>
+    /// M59_QUESTLOG: what a ReqTriggerQuest does to the quest state, and
+    /// the unasked group 5 that follows it.
+    ///
+    /// A quest the player does not have starts: AddCurrentQuest appends
+    /// it and ends in Send(self,@ToCliStats,#group=5)
+    /// (`user.kod:10204-10207`). Triggering the same quest again finishes
+    /// it: RemoveCurrentQuest takes it off the active list and Posts the
+    /// same group - posted, so plQuestHistory has updated first and the
+    /// quest comes back under the completed header rather than vanishing
+    /// (`:10236-10241`). Those two and the BP_SEND_STATS reply at `:1824`
+    /// are the only places group 5 is built, which is why a log that
+    /// could only ever be asked for had no way to show a change.
+    ///
+    /// Nothing here invents a progress BAR: an active row's four fields
+    /// are the quest's name, its object, its template id and its icon
+    /// (`SendActiveQuestData`), none of which move as a quest runs. What
+    /// moves is which list the quest is in.
+    /// </summary>
+    static void TriggerQuest(NetworkStream ns, MessageControllerClient ctrl, uint offerId)
+    {
+        uint template = 0;
+        foreach (var q in questBook) if (q.Offer == offerId) template = q.Template;
+        if (template == 0)
+        {
+            Console.WriteLine($"  (no quest {offerId} to trigger)");
+            return;
+        }
+
+        if (!questsActive.Contains(template) && !questsDone.Contains(template))
+        {
+            questsActive.Add(template);
+            Console.WriteLine($"  -> quest {template} started (AddCurrentQuest)");
+        }
+        else if (questsActive.Contains(template))
+        {
+            questsActive.Remove(template);
+            questsDone.Add(template);
+            Console.WriteLine($"  -> quest {template} completed (RemoveCurrentQuest + history)");
+        }
+        else
+        {
+            // Already in the history. The real server will not re-run a
+            // finished quest template for the same player, and the log
+            // does not change, so neither does this.
+            Console.WriteLine($"  (quest {template} is already completed)");
+            return;
+        }
+
+        SendQuestLog(ns, ctrl);
+    }
 
     /// <summary>
     /// Who is online. The window draws each name in
@@ -1887,6 +2078,15 @@ static class FakeServer
 
         var left = new List<ObjectBase>();
         for (int i = 0; i < Math.Clamp(count, 0, all.Length); i++) left.Add(all[i]);
+
+        // M59_NEWSROW: the news globe is in the box as well as on the
+        // floor, which is the only route a scripted run has to a ReqLook
+        // on it - a held row press sends one (`LootPanel.cs:438`), while
+        // the globe and the board themselves stand at the avatar's feet
+        // where neither a tap nor @obj: reaches a pixel of them. The
+        // answer is the same LookNewsGroup either way; nothing about the
+        // news path itself is faked.
+        if (wantNewsRow) left.Add(Item(3104, RID_BOOKBGF, RID_GLOBE, 0));
 
         // The id has to be the container's, not any old object: putting
         // something in looks that id up among the room objects and
@@ -2669,6 +2869,15 @@ static class FakeServer
             case "prefs": SendPrefs(ns, ctrl); break;
             case "bag": SendBag(ns, ctrl); break;
             case "loot": LootChange(ns, ctrl, arg ?? EnvStr("M59_LOOT")); break;
+            // The NPC's offer, sent again. With M59_NPCQ=changing that is
+            // a DIFFERENT list each time, which is the only way to reach
+            // the panel's rebuild while it is open: the client asks once,
+            // when the Quest button is pressed, and the button is behind
+            // the window from then on. A real server pushes QuestUIList
+            // whenever the offer changes - the client never asks twice
+            // either - so the unasked re-send is its shape, not a
+            // convenience.
+            case "quests": SendNPCQuests(ns, ctrl); break;
             case "uselist": SendUseList(ns, ctrl); break;
             case "use":
                 if (uint.TryParse(arg, out uint uid)) UseItem(ns, ctrl, uid, true);
@@ -2841,14 +3050,62 @@ static class FakeServer
         }
     }
 
+    /// <summary>How many times ReqNPCQuests has been answered, for M59_NPCQ=changing.</summary>
+    static int npcQuestAsks;
+
     static void SendNPCQuests(NetworkStream ns, MessageControllerClient ctrl)
     {
-        var quests = new[]
+        var all = new[]
         {
             Quest(8002, RID_QUEST2, ObjectFlags.PlayerType.QuestValid,   RID_QDESC2, RID_QREQ2),
             Quest(8003, RID_QUEST3, ObjectFlags.PlayerType.QuestInvalid, RID_QDESC3, RID_QREQ3),
             Quest(8001, RID_QUEST1, ObjectFlags.PlayerType.QuestActive,  RID_QDESC1, RID_QREQ1),
         };
+
+        QuestObjectInfo[] quests = all;
+        npcQuestAsks++;
+        switch (npcQuestMode)
+        {
+            case "empty":
+                // A zero-length list. The wire admits one
+                // (`QuestUIListMessage.cs:71-79`) and the data layer sets
+                // IsVisible after the sort with no count test
+                // (`DataController.cs:3034-3056`), so this is an NPC with
+                // nothing on offer, not an NPC who refuses to talk - and
+                // the client's window for it had never been driven,
+                // because every answer carried the same three quests
+                // whoever was asked.
+                quests = Array.Empty<QuestObjectInfo>();
+                break;
+
+            case "changing":
+                // A DIFFERENT list every time, so the panel rebuilds
+                // instead of its signature comparing equal and the whole
+                // path short-circuiting (`NpcQuestsPanel.cs:403`). The
+                // three answers in turn: all three, the middle one gone,
+                // then one left with new words - which is what an NPC
+                // whose offer moved while you were reading it sends.
+                switch ((npcQuestAsks - 1) % 3)
+                {
+                    case 1:
+                        quests = new[] { all[0], all[2] };
+                        break;
+                    case 2:
+                        quests = new[]
+                        {
+                            // Same id, same flags, different text: the
+                            // case the signature has to notice through
+                            // the description as well as the id.
+                            new QuestObjectInfo(all[2].ObjectBase,
+                                                Line(RID_QDESC2), Line(RID_QREQ3)),
+                        };
+                        break;
+                }
+                break;
+        }
+
+        if (npcQuestMode != null)
+            Console.WriteLine($"  -> QuestUIList ({npcQuestMode}, ask {npcQuestAsks}): {quests.Length} quests");
 
         Send(ns, ctrl, new QuestUIListMessage(
             Item(3103, RID_PLAYERBGF, RID_ALICE, 0), quests, strings));
