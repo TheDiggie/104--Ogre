@@ -1144,8 +1144,18 @@ static class FakeServer
             ChatMessageType.SystemMessage, strings, RID_RATLOOK,
             new List<InlineVariable>(), new List<ChatStyle>());
 
-        var info = new ObjectInfo(rat, new LookTypeFlags(0), description,
-                                  new ServerString(ChatMessageType.SystemMessage));
+        // M59_INSCRIBE=1 makes it a thing you can write on: DF_EDITABLE
+        // and DF_INSCRIBED together (LookTypeFlags.cs:29-30), which is
+        // what the reference tests before offering a writable box and an
+        // OK (`UIObjectDetails.cpp:188-201`).
+        byte look = Environment.GetEnvironmentVariable("M59_INSCRIBE") == "1" ? (byte)0x3 : (byte)0;
+        var inscription = new ServerString(
+            ChatMessageType.SystemMessage, strings, RID_RATLOOK,
+            new List<InlineVariable>(), new List<ChatStyle>());
+
+        var info = new ObjectInfo(rat, new LookTypeFlags(look), description,
+                                  look != 0 ? inscription
+                                            : new ServerString(ChatMessageType.SystemMessage));
         Send(ns, ctrl, new LookMessage(info, strings));
     }
 

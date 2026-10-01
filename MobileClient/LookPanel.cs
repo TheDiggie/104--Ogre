@@ -78,6 +78,25 @@ public partial class LookPanel : Control
         _detail.AddThemeColorOverride("font_color", new Color(0.72f, 0.78f, 0.9f));
         AddChild(_detail);
 
+        // Signing a book, a tombstone or a deed. The reference makes
+        // the inscription box writable and puts an OK beside it when
+        // the object says it is both inscribed and editable
+        // (`UIObjectDetails.cpp:188-201`), and OK sends
+        // ChangeDescription with the object's id (:239-266). This
+        // client showed the inscription as a plain label and had no way
+        // to send one at all, so writing on anything was unreachable.
+        _writing = new TextEdit { Visible = false };
+        _writing.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        AddChild(_writing);
+
+        _write = new Button { Text = "Write", Visible = false };
+        _write.AddThemeFontSizeOverride("font_size", FontSize);
+        _write.Pressed += () =>
+        {
+            if (_shown != 0) Inscribe?.Invoke(_shown, _writing.Text ?? "");
+        };
+        AddChild(_write);
+
         _close = new Button { Text = "Close", Visible = false };
         _close.AddThemeFontSizeOverride("font_size", FontSize);
         _close.Pressed += Close;
@@ -112,6 +131,14 @@ public partial class LookPanel : Control
         _inscription.Position = new Vector2(side, top + h - FontSize * 4.4f);
         _inscription.Size = new Vector2(w - side, FontSize * 2f);
 
+        // The writable version takes the label's place, with the button
+        // beside it rather than under, so the Close row does not move.
+        float writeW = FontSize * 5f;
+        _writing.Position = _inscription.Position;
+        _writing.Size = new Vector2(w - side - writeW - 8f, FontSize * 2.4f);
+        _write.Position = new Vector2(side + (w - side) - writeW, _inscription.Position.Y);
+        _write.Size = new Vector2(writeW, FontSize * 2.4f);
+
         _detail.Position = new Vector2(side, top + h - FontSize * 6.4f);
         _detail.Size = new Vector2(w - side, FontSize * 1.8f);
 
@@ -141,12 +168,24 @@ public partial class LookPanel : Control
         _picture.Visible = on && _picture.Texture != null;
         _name.Visible = on;
         _description.Visible = on;
-        _inscription.Visible = on && !string.IsNullOrWhiteSpace(_inscription.Text);
+        _inscription.Visible = on && !_editable && !string.IsNullOrWhiteSpace(_inscription.Text);
+        _writing.Visible = on && _editable;
+        _write.Visible = on && _editable;
         _detail.Visible = on && !string.IsNullOrWhiteSpace(_detail.Text);
         _close.Visible = on;
     }
 
     ObjectInfo _info;
+
+    /// <summary>
+    /// A new inscription for the object being looked at: its id and the
+    /// text. Raised by the Write button.
+    /// </summary>
+    public event System.Action<uint, string> Inscribe;
+
+    TextEdit _writing;
+    Button _write;
+    bool _editable;
 
     /// <summary>
     /// Follows the client's look object. Everything here - whether the
@@ -191,6 +230,13 @@ public partial class LookPanel : Control
 
             _description.Text = Safe(text);
             _inscription.Text = Safe(ins);
+
+            // Both flags, as the reference tests both: inscribed says
+            // there is an inscription, editable says you may change it
+            // (LookTypeFlags.cs:64, :73).
+            _editable = _info.LookType != null
+                     && _info.LookType.IsInscribed && _info.LookType.IsEditable;
+            _writing.Text = ins;
 
             try
             {

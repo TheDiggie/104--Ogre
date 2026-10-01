@@ -819,7 +819,16 @@ public partial class GameView : Node2D
         // the buttons - the reference's compositors run on the 3D
         // viewport, and CEGUI is drawn over the top of them.
         Widget("effects", () => { _fx = new ScreenEffects(); _ui.AddChild(_fx); });
-        Widget("look", () => { _look = new LookPanel(); _ui.AddChild(_look); });
+        Widget("look", () =>
+        {
+            _look = new LookPanel();
+            // Writing on a book, a tombstone or a deed. The reference
+            // sends the object's own id rather than the avatar's
+            // (`UIObjectDetails.cpp:239-266`), which is what the
+            // two-argument overload is for.
+            _look.Inscribe += (id, text) => Act(() => _client.SendChangeDescription(id, text));
+            _ui.AddChild(_look);
+        });
         Widget("sound", () =>
         {
             _sound = new M59Sound { Verbose = System.Environment.GetEnvironmentVariable("M59SOUNDLOG") == "1" };
