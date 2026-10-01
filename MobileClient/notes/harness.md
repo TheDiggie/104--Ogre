@@ -179,3 +179,33 @@ one slot per bind, and `hot{N}` names shift with them. Delete
 `user://hotbar.cfg` (under the Godot user data folder) for a clean start.
 
 See also: HotbarStore.cs
+
+## Running it headless in the container
+Tags: process, gotchas | Godot 4.7.2 mono under xvfb-run works; two environment traps and one fake-server rule cost a run each before they are known
+
+A mono build of Godot 4.7.2 unzips from `/tmp/godot472.zip` and
+`xvfb-run` drives it (it falls back to OpenGL on llvmpipe). With
+`Tools/Meridian59.Net8FakeServer` on a port and `SceneShot.tscn --host
+127.0.0.1 --char Tester` the client reaches the world reliably, and
+`UiShot.tscn`, `WeatherShot.tscn` and `Tools/Meridian59.Net8Fpv` all run
+the same way.
+
+`Directory.GetCurrentDirectory()` inside Godot is NOT the shell's
+working directory, so the last-resort lookups that find
+`Resources/roomtextures` and `Resources/sky` relative to the repo find
+nothing. Set `M59ROOMTEX` and `M59SKY` explicitly or the replacement
+textures and the sky silently do not appear - identical frames with and
+without, which reads as "the feature does not work".
+
+The resource folder must be `/tmp/res`. `M59Paths.HasContent` wants
+`.roo` or `.bgf` at the TOP level, so a dump whose files sit in
+subfolders is rejected and the client lands on the "no resource folder
+found" screen.
+
+The fake server accepts ONE client per process, and its session extras -
+the trade offer, paralyze, blind, pain, whiteout, invert - are gated on
+a static set that fills on the first connection. A second run against
+the same process looks like half the fixtures are broken. Restart it
+per case.
+
+See also: the fake server -> ./fake-server.md | delivery -> ./delivery.md
