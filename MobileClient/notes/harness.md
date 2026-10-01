@@ -63,7 +63,9 @@ Tags: process | Kept so the next session tests something new rather than re-prov
   wall stops you instead of letting you through.
 - Go: puts `ReqGo` on the wire, and with the fixture's second room the
   whole change happens - new walls, a new object list, a rebuilt map,
-  the room id and name in the status line.
+  the room id and name in the status line, and the target cleared.
+  Targeting and three hits then kill the rat in the second room too,
+  so the hit count really is per object and not per session.
 
 See also: the fixture -> fake-server.md | the panels -> mobile-client.md
 
