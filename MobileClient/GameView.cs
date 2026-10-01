@@ -1450,6 +1450,7 @@ public partial class GameView : Node2D
         _news?.Sync(_client.Data?.NewsGroup);
         _options?.Follow(_client.Data?.ClientPreferences);
         _fx?.Sync(_client.Data);
+        TradeOffered();
         ShieldError();
         Wading();
         FollowSounds();
@@ -1955,6 +1956,35 @@ public partial class GameView : Node2D
         };
         PlaySound(splash);
     }
+
+    /// <summary>
+    /// Somebody has offered you a trade.
+    ///
+    /// Neither client opens the window for this - the reference waits
+    /// for you to press Trade, and `HandleOffer` deliberately leaves
+    /// IsVisible false (DataController.cs:3007). On a desktop that is
+    /// fine: the offer arrives with a line of server text and the
+    /// window is one of a handful. On a phone the Trade button is one
+    /// of thirteen along the bottom edge and the only way to find out
+    /// was to guess. So a line in the chat, once, when the offer
+    /// arrives. A departure, and a small one.
+    /// </summary>
+    void TradeOffered()
+    {
+        TradeInfo t = _client?.Data?.Trade;
+        bool offered = t != null && t.IsBackgroundOffer && t.IsPending;
+        if (offered && !_wasOffered)
+        {
+            string who = t.TradePartner?.Name;
+            _chat?.Local(string.IsNullOrWhiteSpace(who)
+                ? "Someone offers you a trade. Press Trade to see it."
+                : $"{who} offers you a trade. Press Trade to see it.");
+        }
+        _wasOffered = offered;
+    }
+
+    /// <summary>Whether an offer was already waiting last frame.</summary>
+    bool _wasOffered;
 
     /// <summary>
     /// The server's answer when a shield claim goes wrong.
