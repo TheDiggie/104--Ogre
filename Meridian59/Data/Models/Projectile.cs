@@ -488,6 +488,13 @@ namespace Meridian59.Data.Models
             this.source = Source;
             this.target = Target;
 
+            // The parameter was taken and then dropped on the floor, so
+            // every projectile built this way came out at speed zero -
+            // which is MovementSpeed.Teleport, and UpdatePosition puts a
+            // teleporting projectile on its target in one tick. An arrow
+            // that exists for a single frame is an arrow nobody sees.
+            this.speed = Speed;
+
             this.flags = Flags;
             this.lightingInfo = LightingInfo;
         }

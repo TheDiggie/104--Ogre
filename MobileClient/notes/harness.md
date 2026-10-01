@@ -158,6 +158,18 @@ is the expensive kind.
 
 See also: SceneShot.cs
 
+## A build that failed still prints "Time Elapsed"
+Tags: gotchas, lessons | `dotnet build | tail -1` hides the errors above it, and Godot then runs the last assembly that DID compile
+
+The symptom is the worst kind: new code that never runs, with no
+error anywhere, on a client that otherwise works perfectly - because
+it IS the previous build. Two hours went into "the projectile is not
+drawn" before `strings` on the DLL showed the new method was not in
+it. Grep the build output for `error CS`, or read the count line, and
+never trust the last line alone.
+
+See also: fake-server.md
+
 ## A run inherits the last run's hotbar
 Tags: gotchas, process | HotbarStore saves to user://hotbar.cfg per character, so every scripted bind is still there next run - the slots accumulate across a testing session
 

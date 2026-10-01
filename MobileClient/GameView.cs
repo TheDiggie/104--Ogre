@@ -1678,7 +1678,8 @@ public partial class GameView : Node2D
         // The flashing material runs off the clock, so the clock has to
         // reach it; everything else here is a constant.
         _world.Seconds = Time.GetTicksMsec() / 1000.0;
-        _world.SyncSprites(_client.Data?.RoomObjects, _client.Data?.AvatarObject);
+        _world.SyncSprites(_client.Data?.RoomObjects, _client.Data?.AvatarObject,
+                           _client.Data?.Projectiles);
     }
 
     void Resize()

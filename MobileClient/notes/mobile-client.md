@@ -165,3 +165,32 @@ second takes the duskrat - which is the library's order, guild enemies
 before the rest.
 
 See also: godot-ui.md
+
+## Arrows and fireballs are drawn now
+Tags: design, lessons | The library was already tracking and moving projectiles; nothing drew them, so combat happened with nothing in the air
+
+`HandleShoot` resolves the source and the target, refuses a projectile
+missing either, and `DataController.Tick` walks it toward the target
+every frame (`:1078`). All that was missing was the sprite.
+
+The frame is the library's own choice: `UpdateViewerAngle` says which
+way the thing is presented from here, and the sprite cache is asked
+for exactly that frame. Letting the renderer pick from an angle, as it
+does for a creature, would subtract the viewer's angle a second time.
+
+Two things had to be fixed before it could be seen at all:
+
+- `Projectile`'s constructor takes a Speed and never assigns it, so
+  every projectile built that way came out at speed zero - which is
+  `MovementSpeed.Teleport`, and a teleporting projectile is on its
+  target in one tick. One frame of arrow is no arrow. Fixed in the
+  library.
+- The harness had been reporting success while the build failed:
+  `dotnet build | tail -1` prints "Time Elapsed" whether or not three
+  errors came out above it. Two hours of "my code is not running"
+  because it was not compiled. Grep the output for `error CS`.
+
+Photographed at last: a silver arrow a few frames from the camera,
+with the fixture firing every twelve messages under M59_SHOOT=1.
+
+See also: WorldSync.cs | the fixture -> fake-server.md

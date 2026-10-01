@@ -47,6 +47,7 @@ static class FakeServer
     // number that proves a room CHANGE rather than a room.
     const uint RID_ROOMFILE2 = 60005;
     const uint RID_ROOMNAME2 = 60006;
+    const uint RID_ARROWBGF = 60007;
     const uint RID_PLAYERNAME = 60003;
     const uint RID_RATNAME = 60004;
     const uint RID_PLAYERBGF = 60010;
@@ -89,6 +90,8 @@ static class FakeServer
     // M59_PARALYZE=1 / M59_WAIT=1: the other two states that stop you
     // moving, so the notifier's other two words can be photographed.
     static int paralyzeAfter, releaseAfter, waitAfter, unwaitAfter;
+    // M59_SHOOT=1: an arrow from the rat to you, over and over.
+    static int shootAfter;
     const uint RID_SPELLDESC = 60110;
     const uint RID_SCHOOL = 60111;
     const uint RID_LEVEL = 60112;
@@ -165,6 +168,7 @@ static class FakeServer
             new RsbResourceID(RID_ROOMNAME,   "Somewhere",   4),
             new RsbResourceID(RID_ROOMFILE2,  room2,         4),
             new RsbResourceID(RID_ROOMNAME2,  "Elsewhere",   4),
+            new RsbResourceID(RID_ARROWBGF,   "arrowsil.bgf", 4),
             new RsbResourceID(RID_PLAYERNAME, "Tester",      4),
             new RsbResourceID(RID_RATNAME,    "a duskrat",   4),
             new RsbResourceID(RID_PLAYERBGF,  "bri.bgf",     4),
@@ -380,6 +384,20 @@ static class FakeServer
             {
                 Console.WriteLine("  -> Unwait");
                 Send(ns, ctrl, new UnwaitMessage());
+            }
+
+            // An arrow in flight. The library resolves the source and
+            // the target against the room, refuses the projectile if
+            // either is missing, then moves it itself every tick - so
+            // one message is the whole feature from here, and whether
+            // anything appears is entirely the client's half.
+            if (shootAfter > 0 && --shootAfter == 0)
+            {
+                Console.WriteLine("  -> Shoot 2003 -> avatar");
+                Send(ns, ctrl, new ShootMessage(new Projectile(
+                    RID_ARROWBGF, AnimationType.NONE, 0, 0, new AnimationNone(),
+                    new ObjectID(2003), new ObjectID(1001), 8, 0, new LightingInfo())));
+                shootAfter = 12;  // and again, so a shot is easy to catch
             }
 
             // The stat change wizard has no request behind it - the
@@ -1767,6 +1785,8 @@ static class FakeServer
             { paralyzeAfter = 6; releaseAfter = 30; }
             if (Environment.GetEnvironmentVariable("M59_WAIT") == "1")
             { waitAfter = 6; unwaitAfter = 30; }
+            if (Environment.GetEnvironmentVariable("M59_SHOOT") == "1")
+                shootAfter = 6;
 
             // Somebody offering you a trade. OfferMessage carries the
             // partner and what they are putting up, and the client's

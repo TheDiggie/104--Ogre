@@ -80,7 +80,8 @@ public sealed class WorldSync
     /// </summary>
     public double Seconds;
 
-    public void SyncSprites(IEnumerable<RoomObject> objects, RoomObject avatar)
+    public void SyncSprites(IEnumerable<RoomObject> objects, RoomObject avatar,
+                            IEnumerable<Projectile> projectiles = null)
     {
         if (Renderer == null) return;
         Renderer.Sprites.Clear();
@@ -135,6 +136,53 @@ public sealed class WorldSync
             Material(o, ref sp);
 
             Renderer.Sprites.Add(sp);
+        }
+
+        AddProjectiles(projectiles, eye);
+    }
+
+    /// <summary>
+    /// The arrows and fireballs in flight.
+    ///
+    /// The library owns them entirely: `HandleShoot` resolves the source
+    /// and the target, refuses a projectile missing either, and
+    /// `DataController.Tick` moves it every frame
+    /// (`DataController.cs:1078`). All that was missing was drawing
+    /// them, so combat happened with nothing visible between the bow
+    /// and the body.
+    ///
+    /// The frame is the library's choice, not ours: `UpdateViewerAngle`
+    /// works out which way the thing is presented from here, and the
+    /// sprite cache is asked for exactly that frame. Letting the
+    /// renderer pick from an angle, as it does for a creature, would
+    /// subtract the viewer's angle a second time.
+    /// </summary>
+    void AddProjectiles(IEnumerable<Projectile> projectiles, V2 eye)
+    {
+        if (projectiles == null) return;
+
+        foreach (Projectile p in projectiles)
+        {
+            if (p?.Resource == null) continue;
+
+            p.UpdateViewerAngle(eye);
+
+            int group = p.Animation != null && p.Animation.CurrentGroup > 0
+                ? p.Animation.CurrentGroup : 1;
+
+            var sp = new Renderer.Sprite
+            {
+                X = M59Geo.KodToWorld(p.Position3D.X),
+                Y = M59Geo.KodToWorld(p.Position3D.Z),
+                BaseZ = M59Geo.KodHeightToXY(p.Position3D.Y),
+                // From the art, like any other sprite: an arrow is not
+                // a person-sized thing and must not be drawn as one.
+                Height = 0f,
+                Texture = Renderer.SpriteFrames.Get(p.Resource, group, p.ViewerAngle),
+                Tag = p,
+            };
+
+            if (sp.Texture != null) Renderer.Sprites.Add(sp);
         }
     }
 

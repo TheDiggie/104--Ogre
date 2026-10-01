@@ -134,3 +134,13 @@ of their own for the same reason - whether the message reached the wire
 is the first question every spell bug asks.
 
 See also: harness.md
+
+## M59_SHOOT
+Tags: process | An arrow from the far rat to you every twelve messages - the only way to see the projectile path, since nothing the client sends causes one
+
+Speed matters: the library's `Projectile` constructor used to drop the
+Speed parameter, leaving zero, which is Teleport - the projectile
+arrives in one tick and exists for a single frame. With speed 8 the
+flight is about a dozen frames, which is long enough to photograph.
+
+See also: the client -> mobile-client.md
