@@ -46,9 +46,19 @@ namespace Meridian59.Common
         /// </summary>
         public static void ForceMaximumGC()
         {
-            // compact large object heap next run
-            GCSettings.LargeObjectHeapCompactionMode =
-                GCLargeObjectHeapCompactionMode.CompactOnce;
+            // Compact the large object heap next run - where the runtime
+            // has one to compact. Mono, which is what runs on Android,
+            // throws PlatformNotSupportedException out of this setter, and
+            // it threw from inside ResourceManager.Init: the whole client
+            // died on startup with "Operation is not supported on this
+            // platform." and nothing to say where. Same shape as the
+            // codepage fallback above - ask, and settle for less.
+            try
+            {
+                GCSettings.LargeObjectHeapCompactionMode =
+                    GCLargeObjectHeapCompactionMode.CompactOnce;
+            }
+            catch (PlatformNotSupportedException) { }
 
             // maximum GC
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
