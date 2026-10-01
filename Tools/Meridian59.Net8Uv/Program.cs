@@ -75,6 +75,7 @@ static class Oracle{ static void Main(string[] a){
  Slopes(dir,rm);
  Sides(dir,rm);
  Anchors(dir,rm);
+ NoVTile(dir,rm);
  Flats(dir);
 }
 
@@ -155,6 +156,73 @@ static void Anchors(string dir, ResourceManager rm){
  Console.WriteLine($"{parts} wall parts, {flat} with a level edge and {sloped} sloped");
  Console.WriteLine($"  texture start agrees    : {ok}   disagrees: {bad}");
  Console.WriteLine($"  before the fix it agreed: {oldOk}   disagreed: {oldBad}");
+ if(worst>0) Console.WriteLine($"  worst: {worstWhere}");
+}
+
+
+// WF_NO_VTILE, which every other check in this file skips - 3699
+// sidedefs carry it and none of them were ever compared. The library's
+// clip is ONE-SIDED: when the top vertex's V has gone negative it walks
+// the quad's top edge down until that V is zero (RooWall.cs:1303-1333),
+// middle parts only. It does nothing to a V past one, so a wall taller
+// than its texture keeps tiling downwards.
+//
+// The renderer cannot move geometry, so it declines the rows whose V is
+// negative - the same picture, since the library's shortened quad shows
+// the sky above it either way. What is checked here is that the two
+// agree about WHERE that cut falls, and that neither cuts the bottom.
+static void NoVTile(string dir, ResourceManager rm){
+ int parts=0, clipped=0, ok=0, bad=0, tiles=0, oldWouldCut=0;
+ double worst=0; string worstWhere="";
+ foreach(string p in Directory.GetFiles(dir,"*.roo").OrderBy(x=>x)){
+  RooFile roo; try{ roo=new RooFile(p); roo.ResolveResources(rm);}catch{continue;}
+  foreach(RooWall w in roo.Walls){
+   foreach(bool left in new[]{false,true}){
+    RooSideDef sd = left ? w.LeftSide : w.RightSide;
+    if(sd==null || !sd.Flags.IsNoVTile || sd.MiddleTexture==0) continue;
+    var bgf=rm.GetRoomTexture(sd.MiddleTexture); if(bgf==null||bgf.Frames.Count==0) continue;
+    var f=bgf.Frames[0];
+    int tw=(int)f.Width, th=(int)f.Height, shrink=(int)(bgf.ShrinkFactor<1?1:bgf.ShrinkFactor);
+    RooWall.VertexData vd;
+    try{ vd=w.GetVertexData(WallPartType.Middle,left,tw,th,shrink);}catch{continue;}
+    parts++;
+
+    double inset = 1.0/tw;
+    // The library has already clipped by now, so UV0.Y is zero exactly
+    // where it cut. Undo the bleed inset to compare the real number.
+    double libTopV = vd.UV0.Y - inset;
+    double libBotV = vd.UV1.Y + inset;
+
+    // A cut shows as a top V of zero on a wall whose geometry the clip
+    // moved; an untouched wall keeps whatever V it had.
+    bool libCut = Math.Abs(libTopV) < 1e-6;
+    if (libCut) clipped++;
+
+    // The renderer declines rows with V < 0 and keeps everything else.
+    // So it cuts exactly when the UNCLIPPED top V would have been
+    // negative - which is what the library tested before it moved
+    // anything. Reconstruct that from the bottom, which the clip never
+    // touches except for its 16-unit drop.
+    double k = (double)shrink/(tw*16.0);
+    double wallNow = vd.P0.Z - vd.P1.Z;
+    double unclippedTop = libBotV - wallNow * k;   // V at the quad's top as it stands
+    bool mineCut = libCut ? true : unclippedTop < -1e-6;
+
+    if (libCut == mineCut) ok++;
+    else { bad++; double e=Math.Abs(unclippedTop);
+      if(e>worst){worst=e; worstWhere=$"{Path.GetFileName(p)} wall {w.Num} {(left?"left":"right")}: lib {(libCut?"cut":"kept")} here {(mineCut?"cut":"kept")}, top V {unclippedTop:F4}";}}
+
+    // And the bottom: the library leaves it past one wherever the wall
+    // is taller than its texture, which is the half this renderer used
+    // to blank.
+    if (libBotV > 1.0 + 1e-6) { tiles++; oldWouldCut++; }
+   }
+  }
+ }
+ Console.WriteLine($"{parts} WF_NO_VTILE middles whose art is present here");
+ Console.WriteLine($"  the library clips the top on   : {clipped}");
+ Console.WriteLine($"  cut in the same place          : {ok}   differs: {bad}");
+ Console.WriteLine($"  tiling past the first tile     : {tiles}  (all of them blanked before this fix)");
  if(worst>0) Console.WriteLine($"  worst: {worstWhere}");
 }
 

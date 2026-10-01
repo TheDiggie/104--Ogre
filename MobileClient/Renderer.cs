@@ -495,9 +495,11 @@ public sealed class Renderer
     public static bool HonourSides = true;
 
     /// <summary>
-    /// WF_NO_VTILE: the texture is drawn once and does not repeat up
-    /// the wall. Off, every wall tiles, which is what this renderer
-    /// did for solid walls and what Ashton spotted from the game.
+    /// WF_NO_VTILE: the texture does not repeat ABOVE its first tile.
+    /// Off, every wall tiles both ways. See where this is read - the
+    /// library's clip is one-sided, and reading it as "one tile and
+    /// nothing else" is what put the sky through the bottom half of
+    /// grates.
     /// </summary>
     public bool HonourNoVTile { get; set; } = true;
 
@@ -1526,19 +1528,29 @@ public sealed class Renderer
                 // clipping a solid wall would leave a hole you can see the
                 // void through. A tiled texture is the better of the two
                 // wrongs.
-                if (noVTile && (v < 0f || v >= 1f))
+                if (noVTile && v < 0f)
                 {
-                    // One tile, and nothing above or below it. The
-                    // library gets there by clipping the quad so the UV
-                    // never leaves [0,1] (`RooWall.cs:1304`); a column
-                    // renderer just declines the texels outside it.
+                    // WF_NO_VTILE stops the texture repeating ABOVE its
+                    // first tile, and only that. The library's clip is
+                    // one-sided: when the TOP vertex's V has gone
+                    // negative it walks the quad's top edge down until
+                    // that V is exactly zero and sets it there
+                    // (RooWall.cs:1303-1333, middle parts only - "for
+                    // bottom it creates strange holes" is its own
+                    // comment). It never touches a V past one, so a wall
+                    // taller than its texture goes on tiling downwards,
+                    // and the flag does nothing at all on the common wall
+                    // whose V starts at zero anyway.
                     //
-                    // A see-through wall lets the column carry on and
-                    // shows whatever is behind. A solid one has nothing
-                    // behind it: the library's shortened quad ends, and
-                    // what the reference shows past the end of the
-                    // geometry is the skybox - so that, rather than the
-                    // previous frame's pixels.
+                    // This declined BOTH ends, which blanked the lower
+                    // part of every flagged wall taller than one tile -
+                    // 3699 sidedefs carry the flag - and put the sky
+                    // through the bottom half of grates and hangings the
+                    // game draws whole.
+                    //
+                    // Declining the rows above is the same picture as the
+                    // library's shortened quad: what shows past the end
+                    // of geometry is the sky.
                     if (!masked) px[y * W + sx] = SkyAt(sky, 0xFF000000u, rayA, cosFix, y, horizon, proj);
                     continue;
                 }
