@@ -208,6 +208,22 @@ public sealed class Tex
 
     public int LevelCount => _levels?.Length ?? 1;
 
+    /// <summary>
+    /// The mip level to sample at, and its size. For a blit that walks
+    /// texels itself rather than calling Sample - a sprite - so it can
+    /// read the same reduced copy a wall would.
+    /// </summary>
+    public uint[] Level(float texelsPerPixel, out int lw, out int lh)
+    {
+        lw = W; lh = H;
+        if (_levels == null || texelsPerPixel <= 1f) return P;
+        int lod = 0;
+        float t = texelsPerPixel;
+        while (t >= 2f && lod < _levels.Length - 1) { t *= 0.5f; lod++; }
+        lw = _lw[lod]; lh = _lh[lod];
+        return _levels[lod];
+    }
+
     public uint Sample(float u, float v)
     {
         int x = (int)((u - MathF.Floor(u)) * W);
@@ -238,7 +254,13 @@ public sealed class Tex
         return lp[y * lw + x];
     }
 
-    internal void BuildMipsPublic() => BuildMips();
+    /// <summary>
+    /// Rebuilds the reduced copies. For a caller that has written over
+    /// P after the fact - the render check paints a frame's silhouette
+    /// in a colour the room cannot produce, and the copies have to say
+    /// the same thing or the two passes disagree about what is there.
+    /// </summary>
+    public void RebuildMips() => BuildMips();
 
     void BuildMips()
     {
@@ -258,10 +280,26 @@ public sealed class Tex
                     uint b = cur[(y * 2) * cw + x * 2 + 1];
                     uint c = cur[(y * 2 + 1) * cw + x * 2];
                     uint d = cur[(y * 2 + 1) * cw + x * 2 + 1];
-                    uint r = ((a >> 16 & 0xFF) + (b >> 16 & 0xFF) + (c >> 16 & 0xFF) + (d >> 16 & 0xFF)) >> 2;
-                    uint g = ((a >> 8 & 0xFF) + (b >> 8 & 0xFF) + (c >> 8 & 0xFF) + (d >> 8 & 0xFF)) >> 2;
-                    uint bl = ((a & 0xFF) + (b & 0xFF) + (c & 0xFF) + (d & 0xFF)) >> 2;
-                    next[y * nw + x] = 0xFF000000u | (r << 16) | (g << 8) | bl;
+                    // Weighted by alpha, and alpha averaged on its own.
+                    // A flat average pulls the transparent key's colour
+                    // into every edge texel, which is how a sprite gets
+                    // a halo of whatever the key happens to be; the
+                    // reference's own mip chain is built by Ogre from
+                    // premultiplied data and does not.
+                    uint aa = a >> 24, ab = b >> 24, ac = c >> 24, ad = d >> 24;
+                    uint wsum = aa + ab + ac + ad;
+                    uint r, g, bl;
+                    if (wsum == 0) { r = g = bl = 0; }
+                    else
+                    {
+                        r = ((a >> 16 & 0xFF) * aa + (b >> 16 & 0xFF) * ab
+                           + (c >> 16 & 0xFF) * ac + (d >> 16 & 0xFF) * ad) / wsum;
+                        g = ((a >> 8 & 0xFF) * aa + (b >> 8 & 0xFF) * ab
+                           + (c >> 8 & 0xFF) * ac + (d >> 8 & 0xFF) * ad) / wsum;
+                        bl = ((a & 0xFF) * aa + (b & 0xFF) * ab
+                            + (c & 0xFF) * ac + (d & 0xFF) * ad) / wsum;
+                    }
+                    next[y * nw + x] = ((wsum >> 2) << 24) | (r << 16) | (g << 8) | bl;
                 }
             lv.Add(next); lw.Add(nw); lh.Add(nh);
             cur = next; cw = nw; ch = nh;
@@ -314,8 +352,16 @@ public sealed class Tex
     /// Like <see cref="From"/> but keeps transparency. Palette index 254 is
     /// Meridian's transparent colour and already carries alpha 0, so object
     /// sprites must not have alpha forced opaque the way wall and floor
-    /// textures are. No mip chain: averaging across transparent texels
-    /// bleeds the cyan key into the edges.
+    /// textures are.
+    ///
+    /// These carry a mip chain like everything else. They used not to,
+    /// on the grounds that averaging across transparent texels bleeds
+    /// the key colour into the edges - which is true of a flat average
+    /// and is why the average here is weighted by alpha. Without one, a
+    /// distant grate or creature was point-sampled from full resolution
+    /// and crawled as you moved; the reference filters everything
+    /// trilinearly with sixteen-times anisotropy
+    /// (OgreClient.cpp:181, :198-200).
     /// </summary>
     public static Tex FromSprite(BgfFile bgf, int frame = 0)
     {
@@ -330,7 +376,9 @@ public sealed class Tex
         uint[] pal = ColorTransformation.DefaultPalette;
         var p = new uint[w * h];
         for (int i = 0; i < w * h; i++) p[i] = pal[idx[i]];   // alpha preserved
-        return new Tex { W = w, H = h, P = p, Shrink = Math.Max(1, (int)bgf.ShrinkFactor) };
+        var sprite = new Tex { W = w, H = h, P = p, Shrink = Math.Max(1, (int)bgf.ShrinkFactor) };
+        sprite.BuildMips();
+        return sprite;
     }
 }
 
@@ -484,7 +532,7 @@ public sealed class TexCache
             var t = new Tex { W = w, H = h, P = px, HasHoles = holes,
                               UvW = (int)f.Width, UvH = (int)f.Height,
                               Shrink = Math.Max(1, (int)bgf.ShrinkFactor) };
-            t.BuildMipsPublic();
+            t.RebuildMips();
             return t;
         }
         catch { return null; }

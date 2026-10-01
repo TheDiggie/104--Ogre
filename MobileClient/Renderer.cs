@@ -1032,7 +1032,8 @@ public sealed class Renderer
             for (int sx = Math.Max(0, x0); sx <= Math.Min(W - 1, x1); sx++)
             {
                 if (depth >= _depth[sx]) continue;           // behind a wall
-                int tx = TexelX(p, sx);
+                uint[] lp = p.T.Level(SpriteTpp(p), out int lw, out int lh);
+                int tx = TexelX(p, sx, lw);
                 if (tx < 0) continue;
 
                 // And behind the upper and lower parts the walk passed
@@ -1045,9 +1046,9 @@ public sealed class Renderer
                 int yB = Math.Min(Math.Min(H - 1, wBot), (int)MathF.Ceiling(p.YBot));
                 for (int y = yA; y <= yB; y++)
                 {
-                    int ty = TexelY(p, y);
+                    int ty = TexelY(p, y, lh);
                     if (ty < 0) continue;
-                    uint c = p.T.P[ty * p.T.W + tx];
+                    uint c = lp[ty * lw + tx];
                     if ((c >> 24) == 0) continue;            // transparent texel
                     uint lit = Material(Shade(c | 0xFF000000u, p.LitR, p.LitG, p.LitB), sp);
                     // Opacity one is the ordinary case and must cost
@@ -1234,22 +1235,36 @@ public sealed class Renderer
     }
 
     /// <summary>Texture column under a screen column, or -1 if outside.</summary>
-    static int TexelX(in Placed p, int sx)
+    static int TexelX(in Placed p, int sx) => TexelX(p, sx, p.T.W);
+
+    static int TexelX(in Placed p, int sx, int w)
     {
         float u = (sx + 0.5f - p.Left) / MathF.Max(1f, p.WPx);
         if (u < 0f || u >= 1f) return -1;
-        int tx = (int)(u * p.T.W);
-        return tx < 0 ? 0 : (tx >= p.T.W ? p.T.W - 1 : tx);
+        int tx = (int)(u * w);
+        return tx < 0 ? 0 : (tx >= w ? w - 1 : tx);
     }
 
     /// <summary>Texture row under a screen row, or -1 if outside.</summary>
-    static int TexelY(in Placed p, int y)
+    static int TexelY(in Placed p, int y) => TexelY(p, y, p.T.H);
+
+    static int TexelY(in Placed p, int y, int h)
     {
         float v = (y + 0.5f - p.YTop) / MathF.Max(1f, p.HPx);
         if (v < 0f || v >= 1f) return -1;
-        int ty = (int)(v * p.T.H);
-        return ty < 0 ? 0 : (ty >= p.T.H ? p.T.H - 1 : ty);
+        int ty = (int)(v * h);
+        return ty < 0 ? 0 : (ty >= h ? h - 1 : ty);
     }
+
+    /// <summary>
+    /// How many texels of a sprite one screen pixel spans. A creature
+    /// far enough away to be a dozen pixels wide was reading its full
+    /// resolution one texel in forty, which crawls as you move; the
+    /// reference filters every object texture trilinearly with
+    /// sixteen-times anisotropy (OgreClient.cpp:181, :198-200).
+    /// </summary>
+    static float SpriteTpp(in Placed p)
+        => p.T.W / MathF.Max(1f, p.WPx);
 
     /// <summary>
     /// The sprite under a screen pixel, nearest first, or null. Only counts
@@ -1312,11 +1327,14 @@ public sealed class Renderer
             Window(px_, depth, out int wTop, out int wBot);
             if (py_ < wTop || py_ > wBot) continue;
 
-            int tx = TexelX(p, px_);
+            // The same level the paint used, or the two disagree about
+            // where a sprite's edge is.
+            uint[] lp = p.T.Level(SpriteTpp(p), out int lw, out int lh);
+            int tx = TexelX(p, px_, lw);
             if (tx < 0) continue;
-            int ty = TexelY(p, py_);
+            int ty = TexelY(p, py_, lh);
             if (ty < 0) continue;
-            if ((p.T.P[ty * p.T.W + tx] >> 24) == 0) continue;   // saw straight through
+            if ((lp[ty * lw + tx] >> 24) == 0) continue;         // saw straight through
 
             hits.Add(sp);
             depths.Add(depth);
@@ -1476,7 +1494,12 @@ public sealed class Renderer
                     if (!masked) px[y * W + sx] = SkyAt(sky, 0xFF000000u, rayA, cosFix, y, horizon, proj);
                     continue;
                 }
-                uint texel = masked ? t.Sample(v, u) : t.Sample(v, u, tpp);
+                // A see-through wall reads the same reduced copy a
+                // solid one does. It used to take level 0 always, on
+                // the grounds that its mip chain would bleed the key
+                // colour - which the alpha-weighted average it now has
+                // does not - and a distant grate crawled as you moved.
+                uint texel = t.Sample(v, u, tpp);
                 // A see-through wall keeps the palette's transparent index,
                 // which carries alpha 0; those texels are skipped, not
                 // blended, the same as sprites.

@@ -21,6 +21,11 @@ static class RenderCheck
         if (t == null) return null;
         for (int i=0;i<t.P.Length;i++)
             if ((t.P[i] >> 24) != 0) t.P[i] = 0xFFFF00FFu;
+        // The reduced copies were built from the real art, and a sprite
+        // far enough away reads one of those - so they have to be told
+        // about the tag too, or the frame is painted in its own colours
+        // and the mask finds nothing.
+        t.RebuildMips();
         return t;
     }
 
