@@ -145,6 +145,35 @@ flight is about a dozen frames, which is long enough to photograph.
 
 See also: the client -> mobile-client.md
 
+## M59_WEATHER
+Tags: process, lessons | rain|snow|clear, one EffectMessage at M59_WEATHER_AFTER client messages (default 6) - the fixture emitted six of the seven effects and never a weather one, so the live weather path had never been played by anybody
+
+`Program.cs` sent Paralyze, Release, Blind, Pain, WhiteOut and Invert and
+stopped there. Raining (EffectType 9), Snowing (10) and ClearWeather (11)
+go through the same `EffectMessage`, and `Effects.HandleEffect` turns
+them into two booleans that STAY SET until something clears them
+(`Effects.cs:324-334`) - weather is a server-wide flag, not a property of
+a room. Without the switch the only way to see the overlay at all was
+`WeatherShot.tscn`, which hands it a PNG and a bare `DataController`: no
+room, no camera, no renderer. So the half of the feature that asks the
+room a question could not be reached, and for a long time it was not
+there to reach: rain and snow fell inside every inn, dungeon and sewer in
+the game.
+
+    M59_WEATHER=rain M59_SPAWN=645,1286 \
+      <port> <resdir> banditcamp.roo
+
+Verified, counting pixels brighter than the same frame with the switch
+unset: barinn (roofed) 3,624 rain and 2,857 snow before the handler was
+ported and 0 and 0 after; banditcamp, which has no ceiling texture
+anywhere, 7,003 and 6,495 from the build that draws nothing in barinn.
+Note `--wait` has to be long enough for the message to arrive AND for the
+overlay to fill - 240 frames at the 8-11 fps llvmpipe manages is ample,
+and the count is in client messages, so a run with no `--press` steps
+still gets there on pings.
+
+See also: the overlay -> ../WeatherOverlay.cs | harness.md
+
 ## The test surface: switches for what the client could not reach
 Tags: process | Door and lift geometry, a server move refusal, a room-change gap, a missing room, stat icons, skill look, room buffs, a shrinking stack - each an off-by-default env var; unset, the fixture behaves exactly as before
 

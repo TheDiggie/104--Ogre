@@ -100,6 +100,18 @@ static class FakeServer
     static int blindAfter, painAfter, whiteAfter, invertAfter;
     // M59_SHOOT=1: an arrow from the rat to you, over and over.
     static int shootAfter;
+    // M59_WEATHER=rain|snow|clear: the one message the whole weather
+    // path hangs off. The server sends effect 70 with an EffectType of
+    // 9 Raining, 10 Snowing or 11 ClearWeather, and `Effects.
+    // HandleEffect` turns it into two booleans that stay set until it is
+    // told otherwise (Effects.cs:324-334) - weather is a server-wide
+    // flag, not a property of the room. The fixture sent the other six
+    // effects and never one of these, so the live path - a real room, a
+    // real camera, the overlay reading the data layer - had never been
+    // played by anybody. Counted in client messages like M59_SHOOT, so
+    // M59_WEATHER_AFTER picks the message it goes out on (default 6).
+    static int weatherAfter;
+    static string weatherKind;
 
     // ===================================================================
     // THE TEST SURFACE. Everything from here to the end of this block is
@@ -942,6 +954,18 @@ static class FakeServer
             {
                 Console.WriteLine("  -> Invert");
                 Send(ns, ctrl, new EffectMessage(new EffectInvert()));
+            }
+            // Rain, snow or a clear sky. One message each and nothing
+            // else: the flag it sets stays set, and the client is
+            // expected to keep drawing weather until a ClearWeather
+            // turns it off or the connection goes.
+            if (weatherAfter > 0 && --weatherAfter == 0)
+            {
+                Console.WriteLine($"  -> Weather {weatherKind}");
+                Send(ns, ctrl, new EffectMessage(
+                    weatherKind == "rain" ? (Effect)new EffectRaining() :
+                    weatherKind == "snow" ? new EffectSnowing() :
+                                            new EffectClearWeather()));
             }
             if (unwaitAfter > 0 && --unwaitAfter == 0)
             {
@@ -3501,6 +3525,9 @@ static class FakeServer
             if (Environment.GetEnvironmentVariable("M59_PAIN") == "1") painAfter = 6;
             if (Environment.GetEnvironmentVariable("M59_WHITEOUT") == "1") whiteAfter = 6;
             if (Environment.GetEnvironmentVariable("M59_INVERT") == "1") invertAfter = 6;
+            weatherKind = Environment.GetEnvironmentVariable("M59_WEATHER");
+            if (weatherKind == "rain" || weatherKind == "snow" || weatherKind == "clear")
+                weatherAfter = EnvInt("M59_WEATHER_AFTER", 6);
 
             // Somebody offering you a trade. OfferMessage carries the
             // partner and what they are putting up, and the client's

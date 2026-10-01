@@ -54,13 +54,59 @@ public static class M59Water
     /// (ControllerRoom.cpp:827), and the shader's axes are Ogre's: x is
     /// the room's x, y is height, z is the room's y.
     ///
+    /// FLOORS, CEILINGS AND WALLS. `water_vs` has two branches and they
+    /// are chosen by the normal: `if (normal.y != 0)` is the floor and
+    /// ceiling case and the `else // wall water` at general.hlsl:277-282
+    /// is a vertical one. Walls reach it because
+    /// `CreateTextureAndMaterial` is the ONE entry point for every
+    /// textured part of a room - the sidedef parts at
+    /// ControllerRoom.cpp:694 and the sector parts at :795 both call it -
+    /// and it picks `base_material_water` purely by whether the texture
+    /// is named in water.xml (:1013-1021). So a sidedef whose upper,
+    /// middle or lower texture is grd01802 is water, drawn by the same
+    /// shader as the pool it runs into. 203 wall parts across 42 rooms
+    /// are, with 22 or 23 in each of barlsew, dbarlsew and jassew2.
+    ///
+    /// The wall branch reads, with waveSpeed truncated to its x by the
+    /// assignment into a scalar:
+    ///
+    ///     uvw.y  += -waveSpeed * time_0_X;
+    ///     uvw.xz += uvw.z + NOISESPEED * time_0_X;
+    ///
+    /// where uvw.z is still the unadvected z, so u gains the z term and
+    /// the clock while v runs with HEIGHT and drifts against the scroll.
+    /// On a floor it is the other way about: the wave drifts u and v
+    /// takes the already-advected z (general.hlsl:270-274).
+    ///
+    /// <paramref name="nx"/>, <paramref name="ny"/> and <paramref
+    /// name="nz"/> are the surface normal in this renderer's own axes -
+    /// x and y across the map, z up - so a floor is (0,0,1), a ceiling
+    /// (0,0,-1) and a wall its own horizontal perpendicular. Which
+    /// branch runs is the shader's own test on the Ogre y, which is this
+    /// z.
+    ///
     /// <paramref name="t"/> is the seconds clock wrapped at 100, which
     /// is what `time_0_x 100.0` gives the shader (general.material:96).
+    ///
+    /// <paramref name="ambient"/> is the room's PLAIN ambient and
+    /// nothing else: `pixel = float4(ambient, 0) * reflcol` with
+    /// `param_named_auto ambient ambient_light_colour`
+    /// (general.material:160-170), in a material that is one
+    /// `illumination_stage ambient` pass (:414-445). No 0.6 room weight,
+    /// no N.L sun term, no point lights. The caller used to hand over
+    /// the weighted room light instead, which drew every liquid surface
+    /// in the game 40% too dark wherever the sun was off - which is
+    /// every indoor room, and nearly all the game's water.
+    ///
+    /// <paramref name="worldPerPixel"/> is how many room units one
+    /// screen pixel spans here, which is what the noise's filter needs
+    /// to pick a level. See <see cref="WaterNoise.Sample"/>.
     /// </summary>
     public static uint Shade(Tex tex, float wx, float wy, float wz,
                              float ex, float ey, float ez,
+                             float nx, float ny, float nz,
                              float waveX, float waveY, float t, float ambient,
-                             bool ceiling = false)
+                             float worldPerPixel)
     {
         if (tex == null) return 0xFF000000u;
 
@@ -70,28 +116,54 @@ public static class M59Water
         // Ogre object space: (roomX, height, roomY) * 0.0625.
         float px = wx * 0.0625f, py = wz * 0.0625f, pz = wy * 0.0625f;
 
-        float u = px * ScaleX + waveX * t;
-        float w = pz * ScaleZ + waveY * t;
-        // The already-advected z term feeds the v coordinate, which is
-        // what makes floor water flow diagonally. It reads like a typo
-        // and is not one: general.hlsl:274.
-        float v = py * ScaleY + w + NoiseSpeed * t;
+        // The normal, in the shader's axes. Its y is this renderer's z,
+        // and the shader's branch is exactly `normal.y != 0`.
+        float onx = nx, ony = nz, onz = ny;
+        bool wall = ony == 0f;
 
-        WaterNoise.Sample(u, v, out float nr, out float ng, out float nb);
+        float u, v;
+        if (!wall)
+        {
+            u = px * ScaleX + waveX * t;
+            float w = pz * ScaleZ + waveY * t;
+            // The already-advected z term feeds the v coordinate, which is
+            // what makes floor water flow diagonally. It reads like a typo
+            // and is not one: general.hlsl:274.
+            v = py * ScaleY + w + NoiseSpeed * t;
+        }
+        else
+        {
+            // general.hlsl:277-282. uvw.z has not been touched yet, so
+            // the term u picks up is the plain pz * ScaleZ.
+            u = px * ScaleX + pz * ScaleZ + NoiseSpeed * t;
+            v = py * ScaleY - waveX * t;
+        }
+
+        // How fast the noise coordinate moves per screen pixel, which is
+        // what sets the filter level. A floor's pixel step is horizontal,
+        // so u moves with ScaleX and v with ScaleZ; a wall's can be
+        // either along the wall, where u takes both horizontal scales, or
+        // up it, where v takes the much smaller ScaleY. The larger of the
+        // two is the bound in both cases.
+        float noiseScale = wall ? ScaleX + ScaleZ : ScaleZ;
+        float noiseTexels = WaterNoise.Tiles * noiseScale * 0.0625f * worldPerPixel;
+
+        WaterNoise.Sample(u, v, noiseTexels, out float nr, out float ng, out float nb);
 
         float bx = (2f * nr - 1f) * 0.15f;
         float by = 0.8f * MathF.Abs(2f * ng - 1f) + 0.2f;
         float bz = (2f * nb - 1f) * 0.15f;
 
-        // The face normal, which the shader takes as an interpolated
-        // vertex attribute and this renderer knows outright: straight up
-        // in Ogre's axes for a floor, straight down for a ceiling
-        // (RooSubSector.cs:519, :536 give the same two).
-        float face = ceiling ? -1f : 1f;
-        float nx = bx, ny = face + by, nz = bz;
-        float len = MathF.Sqrt(nx * nx + ny * ny + nz * nz);
+        // `bump = normalize(normal + bump)` - the face normal the shader
+        // takes as an interpolated vertex attribute, which this renderer
+        // knows outright. Straight up in Ogre's axes for a floor,
+        // straight down for a ceiling (RooSubSector.cs:519, :536 give the
+        // same two); for a wall it is horizontal, which is what puts the
+        // zero in normal.y that the vertex shader branches on.
+        float bnx = onx + bx, bny = ony + by, bnz = onz + bz;
+        float len = MathF.Sqrt(bnx * bnx + bny * bny + bnz * bnz);
         if (len < 1e-6f) len = 1f;
-        nx /= len; ny /= len; nz /= len;
+        bnx /= len; bny /= len; bnz /= len;
 
         // View direction, camera to surface, in the same axes.
         float vx = px - ex * 0.0625f, vy = py - ez * 0.0625f, vz = pz - ey * 0.0625f;
@@ -99,8 +171,8 @@ public static class M59Water
         if (vlen < 1e-6f) vlen = 1f;
         vx /= vlen; vy /= vlen; vz /= vlen;
 
-        float d = 2f * (vx * nx + vy * ny + vz * nz);
-        float rx = vx - d * nx, ry = vy - d * ny;
+        float d = 2f * (vx * bnx + vy * bny + vz * bnz);
+        float rx = vx - d * bnx, ry = vy - d * bny;
 
         // The bitmap is indexed by the reflection vector's x and y, with
         // clamped addressing - the material's texunit1 says

@@ -23,6 +23,9 @@ public static class WaterNoise
 {
     const int Size = 128;
 
+    /// <summary>The noise's side, in texels - what one tile of u or v spans.</summary>
+    public const int Tiles = Size;
+
     /// <summary>Raw 128x128 RGB, deflated.</summary>
     const string Packed =
         "FLxncxxZlqb5l/bTzPS2VXWXyGJSEzqgAqG11lprrSW0BgiQIJnMTJJVlVW1O90zPbY2/2Gnp7OSJIAQ7n79Ksc4zMLiQxjg4X7P" +
@@ -586,6 +589,14 @@ public static class WaterNoise
     static byte[] _rgb;
     static bool _tried;
 
+    /// <summary>
+    /// The reduced copies. Level 0 is <see cref="_rgb"/> itself, each
+    /// one after it half the size, down to 1x1 - eight levels at 128,
+    /// a third again as much memory as the base.
+    /// </summary>
+    static byte[][] _mips;
+    static int[] _mipSize;
+
     /// <summary>Decodes once. False means the caller draws flat water.</summary>
     public static bool Ready()
     {
@@ -608,21 +619,148 @@ public static class WaterNoise
                 if (got != outBuf.Length) return false;
             }
             _rgb = outBuf;
+            BuildMips();
         }
-        catch { _rgb = null; }
+        catch { _rgb = null; _mips = null; }
         return _rgb != null;
     }
 
     /// <summary>
-    /// A wrapping nearest sample, as the material's default addressing
-    /// is wrap and this renderer does not filter.
+    /// Box-filters the chain down to 1x1, once, when the noise decodes.
+    /// Eagerly, for the same reason <c>M59Compose</c> builds its mips
+    /// eagerly: a lazy chain is state that two threads can race on, and
+    /// the renderer walks columns on every core it has.
     /// </summary>
-    public static void Sample(float u, float v, out float r, out float g, out float b)
+    static void BuildMips()
+    {
+        int levels = 1;
+        for (int n = Size; n > 1; n >>= 1) levels++;
+        _mips = new byte[levels][];
+        _mipSize = new int[levels];
+        _mips[0] = _rgb; _mipSize[0] = Size;
+        for (int l = 1; l < levels; l++)
+        {
+            int ps = _mipSize[l - 1], ns = ps >> 1;
+            byte[] prev = _mips[l - 1], next = new byte[ns * ns * 3];
+            for (int y = 0; y < ns; y++)
+                for (int x = 0; x < ns; x++)
+                    for (int c = 0; c < 3; c++)
+                        next[(y * ns + x) * 3 + c] = (byte)((
+                            prev[((2 * y) * ps + 2 * x) * 3 + c] +
+                            prev[((2 * y) * ps + 2 * x + 1) * 3 + c] +
+                            prev[((2 * y + 1) * ps + 2 * x) * 3 + c] +
+                            prev[((2 * y + 1) * ps + 2 * x + 1) * 3 + c] + 2) >> 2);
+            _mips[l] = next; _mipSize[l] = ns;
+        }
+    }
+
+    /// <summary>
+    /// A WRAPPING, BILINEAR, MIPPED sample - which is `filtering
+    /// bilinear`, Ogre's default, and that is what this unit asks for.
+    ///
+    /// Addressing first, because that part has not changed: the water
+    /// material names no `tex_address_mode` for its noise unit
+    /// (general.material:434-438), so it is Ogre's default WRAP, and
+    /// the noise is read over tens of tiles - the u coordinate alone
+    /// advances 0.012 per Ogre unit, a tile every 83. Clamping it would
+    /// make one enormous smear. Its neighbour, the diffuse unit, is
+    /// `tex_address_mode clamp` on purpose, being indexed by a
+    /// reflection vector; the two are not the same question.
+    ///
+    /// FILTERING, which this used not to do. The unit names no
+    /// `filtering` either, so it takes Ogre's default - linear min,
+    /// linear mag, point mip - and that is deliberate in this file
+    /// rather than an oversight: `base_material_invisible` DOES write a
+    /// line for its own copy of noise.dds, `filtering linear linear
+    /// none` (general.material:400-403), which is the same bilinear
+    /// with the mip chain switched off. So the water's noise is
+    /// bilinear AND mipped, and the only sampler in the shipped
+    /// materials that is point-sampled is none of them.
+    ///
+    /// It was fair to ask whether this renderer should follow, since it
+    /// point-samples the room's own art (`Tex.Sample`) and the comment
+    /// here used to say so. The answer is that the art and the noise are
+    /// different kinds of texture. Room art is palette-indexed with a
+    /// key colour: index 254 reaches the renderer as alpha 0, and
+    /// blending it with its neighbours bleeds the key into the picture -
+    /// which is why `Tex` keys every reduced copy rather than averaging
+    /// through it. The noise is not art and has no key: it is a vector
+    /// field, three channels of a bump that the shader normalizes, and
+    /// averaging two of its texels is exactly what the hardware does.
+    /// It is also one sample per liquid pixel, not one per pixel of the
+    /// room, so the cost lands only where liquid is drawn.
+    ///
+    /// What it was doing instead was reading one texel of a 128-wide
+    /// noise at whatever rate the surface happened to be advancing,
+    /// which on a floor seen at a distance is several texels per screen
+    /// pixel: adjacent pixels got uncorrelated bumps, so the reflection
+    /// jumped, and the surface read as salt and pepper rather than as
+    /// ripple.
+    ///
+    /// MEASURED, on swamp1 from the room's largest leaf facing 45
+    /// degrees, as the share of horizontally adjacent liquid pixels
+    /// differing by more than 32/255 in green, with the liquid held at
+    /// the same brightness either side so the ambient fix does not move
+    /// the figure:
+    ///
+    ///     point-sampled, no mips   18.4%
+    ///     bilinear + mips          15.7%
+    ///     no bump at all            8.5%   <- the floor of this metric
+    ///     plain tiled texture       5.0%
+    ///
+    /// So the noise's own contribution fell by a bit over a quarter, from
+    /// 9.9 points of contrast to 7.2. The 8.5% that is left when the bump
+    /// is removed entirely is NOT the noise: it is the diffuse unit,
+    /// which `Tex.Sample` reads nearest at level 0 the way this renderer
+    /// reads all room art. base_material_water names no `filtering` for
+    /// that unit either, so the reference bilinear-filters it too; that
+    /// is the renderer's standing art-sampling divergence rather than
+    /// this one, and it is left alone here.
+    ///
+    /// <paramref name="texelsPerPixel"/> is how many noise texels one
+    /// screen pixel spans; the level is picked from it the way
+    /// <c>Tex.Sample</c> picks one, so the two samplers do not disagree
+    /// about what "a pixel wide" means.
+    /// </summary>
+    public static void Sample(float u, float v, float texelsPerPixel,
+                              out float r, out float g, out float b)
     {
         if (_rgb == null) { r = g = 0.5f; b = 1f; return; }
-        int x = (int)(u * Size) % Size; if (x < 0) x += Size;
-        int y = (int)(v * Size) % Size; if (y < 0) y += Size;
-        int i = (y * Size + x) * 3;
-        r = _rgb[i] / 255f; g = _rgb[i + 1] / 255f; b = _rgb[i + 2] / 255f;
+
+        byte[] p = _rgb;
+        int n = Size;
+        if (_mips != null && texelsPerPixel > 1f)
+        {
+            int lod = 0;
+            float t = texelsPerPixel;
+            while (t >= 2f && lod < _mips.Length - 1) { t *= 0.5f; lod++; }
+            p = _mips[lod]; n = _mipSize[lod];
+        }
+        if (n == 1) { r = p[0] / 255f; g = p[1] / 255f; b = p[2] / 255f; return; }
+
+        // Bilinear, at texel centres, wrapping on both axes. The half
+        // texel is what makes it a filter of the four texels AROUND the
+        // sample point rather than of the four down and to the right of
+        // it, which would shift the whole field by half a texel.
+        float fx = u * n - 0.5f, fy = v * n - 0.5f;
+        int x0 = (int)MathF.Floor(fx), y0 = (int)MathF.Floor(fy);
+        float ax = fx - x0, ay = fy - y0;
+        int x1 = Wrap(x0 + 1, n), y1 = Wrap(y0 + 1, n);
+        x0 = Wrap(x0, n); y0 = Wrap(y0, n);
+
+        int i00 = (y0 * n + x0) * 3, i10 = (y0 * n + x1) * 3;
+        int i01 = (y1 * n + x0) * 3, i11 = (y1 * n + x1) * 3;
+        float w00 = (1f - ax) * (1f - ay), w10 = ax * (1f - ay);
+        float w01 = (1f - ax) * ay,        w11 = ax * ay;
+
+        r = (p[i00] * w00 + p[i10] * w10 + p[i01] * w01 + p[i11] * w11) / 255f;
+        g = (p[i00 + 1] * w00 + p[i10 + 1] * w10 + p[i01 + 1] * w01 + p[i11 + 1] * w11) / 255f;
+        b = (p[i00 + 2] * w00 + p[i10 + 2] * w10 + p[i01 + 2] * w01 + p[i11 + 2] * w11) / 255f;
+    }
+
+    static int Wrap(int i, int n)
+    {
+        i %= n;
+        return i < 0 ? i + n : i;
     }
 }

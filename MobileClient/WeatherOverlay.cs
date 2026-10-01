@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using Meridian59.Files.ROO;
 
 /// <summary>
 /// Rain and snow.
@@ -32,8 +33,8 @@ using Godot;
 ///
 /// So in the reference the emitter box already travels with the eye and
 /// is always centred on it: the weather is a box of falling particles
-/// bolted to the camera, and the only thing the room contributes is the
-/// height at which a particle is destroyed. That is what makes a
+/// bolted to the camera, and what the room contributes is where a
+/// particle is destroyed - see "INDOORS". That is what makes a
 /// screen-space overlay an honest port rather than a cheat - the thing
 /// being mirrored is camera-attached to begin with.
 ///
@@ -62,10 +63,15 @@ using Godot;
 ///         Ogre::Vector3 max = Util::ToOgreYZFlipped(bBox->Max) * SCALE;
 ///         observer->setPositionYThreshold(max.y + 5.0f);
 ///
-///     which is what keeps a drop from being culled before it has come
-///     down through the room. In screen space the equivalent statement
-///     is "a particle lives until it leaves the bottom of the view", and
-///     that is what happens here.
+///     which only says WHEN the observer starts watching a particle. In
+///     screen space the equivalent statement is "a particle lives until
+///     it leaves the bottom of the view", and that is what happens here.
+///
+///     What the observer then runs is a different matter, and it is
+///     ported: the handler attached to it is what stops the weather
+///     indoors, and for a long time this overlay argued the threshold
+///     away and never mentioned the handler at all - so it rained inside
+///     every inn in the game. See "INDOORS", below the constants.
 ///   * Weather is not itself blurred by <see cref="ScreenEffects.Blur"/>.
 ///     In the reference the particles are scene objects, so a drunk
 ///     player sees the rain through the same COMPOSITOR_BLUR as the
@@ -254,6 +260,8 @@ public partial class WeatherOverlay : Control
         public float Size;        // snow: diameter as a view fraction
         public float WindTimer;   // snow: seconds until the next roll
         public float WindSign;    // snow: which way the wind blows
+        public float OX, OY;      // where it is in the ROOM, as an offset
+                                  // from the eye in room units - see Roofed
     }
 
     Drop[] _rain = Array.Empty<Drop>();
@@ -271,12 +279,136 @@ public partial class WeatherOverlay : Control
     float _rainOwed, _snowOwed;
 
     readonly RandomNumberGenerator _rng = new RandomNumberGenerator();
+    // The view's aspect, read once a frame in Step. Every horizontal
+    // velocity in this file is a fraction of the view's WIDTH while the
+    // constants it comes from are physical, so each one divides by this.
+    float _aspect = 1f;
     Texture2D _flake;
     uint _room;
     bool _hadRoom;
 
     /// <summary>True while anything is on screen or being emitted.</summary>
     public bool Active => _rainEmitting || _snowEmitting || _rainLive > 0 || _snowLive > 0;
+
+    // -------------------------------------------------------------------
+    // INDOORS
+    // -------------------------------------------------------------------
+    //
+    // Weather in this game is a server-wide flag, not a per-room one:
+    // `EffectRaining.IsActive` is set by one message and stays set
+    // (Effects.cs:324-334). What keeps the rain off your head inside an
+    // inn is not the message, and it is not the OnPosition observer's
+    // threshold either - that only decides when the observer starts
+    // running. It is the handler bolted onto the observer:
+    // `WeatherParticleEventHandler::_handle`
+    // (Meridian59.Ogre.Client/ParticleUniverseEventHandlers.cpp:10-55),
+    // attached to observer 0 of BOTH systems when they are created
+    // (ControllerRoom.cpp:218-222 for snow, :258-262 for rain). It kills
+    // a particle outright - `particle->timeToLive = 0.0f` - in four
+    // cases: no room (:21-25), no subsector or sector under the point
+    // (:35-39), a ceiling above it
+    //
+    //     subSector->Sector->CeilingTexture > 0 &&
+    //     (float)subSector->Sector->CeilingHeight >= particle->position.y - 6.0f
+    //                                                            (:42-47)
+    //
+    // and the floor above it (:50-54). This overlay had none of it, so
+    // it rained indoors. 66,345 of the 362 rooms' 162,787 BSP leaves are
+    // under a ceiling texture and 144 rooms are roofed throughout, so
+    // that is most of the game's interiors during any storm.
+    //
+    // THE UNITS LINE UP, which is the part worth writing down. The
+    // handler converts the particle's x and z back to room coordinates
+    // itself - `(position.x - 64.0f) * 16.0f`, the 64 being where
+    // `roomNode` sits (ControllerRoom.cpp:59) and the 16 being 1/SCALE
+    // (ControllerRoom.h:73) - but it compares `CeilingHeight` raw
+    // against a scene-space y. That is not a bug: a sector height is in
+    // KOD fineness, a room unit is KOD times 16
+    // (GeometryConstants.cs:43-55) and a scene unit is a room unit times
+    // SCALE 0.0625, so KOD and scene units are the same number. The
+    // 6.0f tolerance is 6 scene units, which is 96 room units here.
+    //
+    // WHAT A SCREEN-SPACE OVERLAY CAN AND CANNOT PORT. The test is a
+    // question about a point of the ROOM, so it needs the room and the
+    // eye, which `Renderer` publishes (Renderer.EyeRoom, EyeX/Y/Z). Two
+    // of its four cases port exactly and two do not:
+    //
+    //  * The ceiling case ports, and it is the one that matters. Each
+    //    particle is given a horizontal place in the room when it is
+    //    born - a uniform point of the emitter's own footprint, 256
+    //    scene units on a side for rain and 3072 for snow, centred on
+    //    the eye as `weatherNode` is (ControllerRoom.cpp:65-67) - and it
+    //    keeps it, so a drop over a roof dies rather than flickering.
+    //  * The HEIGHT in that test does not port, because a 2D overlay has
+    //    no depth and so cannot say how high up a particle on screen is.
+    //    It is taken to be at EYE level, which is where a visible
+    //    particle is to within the error the overlay already carries,
+    //    and which is the height at which "is there a roof over me"
+    //    is the question being asked. The test therefore reads: there is
+    //    a ceiling over that point AND it is above the eye. A roof BELOW
+    //    you - a hut seen from a hill - does not cull, which is the
+    //    reference's own answer in that case.
+    //  * The no-room and no-sector cases do NOT cull here. In the
+    //    reference they kill the particles emitted outside the room
+    //    altogether, which is a density effect the 2D density constants
+    //    above already account for (they are calibrated to what a
+    //    forward frustum holds, not to what the emitter box holds), and
+    //    applying it twice would thin the weather in every small room.
+    //    No room at all means no world is being drawn either.
+    //
+    // A particle that fails the test is REMOVED, not recycled: the
+    // handler zeroes its time to live and the emitter goes on emitting
+    // at its own rate, so the population falls to nothing under a roof
+    // and comes back by itself when you step outside.
+    //
+    // The test is applied at the EYE's own point as well, and that is
+    // what carries the indoor case - the reasoning is at the call in
+    // Step. Measured in barinn with the fixture's new M59_WEATHER
+    // switch, counting pixels brighter than the same frame with no
+    // weather: 3,624 rain and 2,857 snow before, 0 and 0 after, with
+    // 7,003 and 6,495 in banditcamp, which has no ceiling texture
+    // anywhere, from the same build.
+
+    /// <summary>The emitter footprint's half-width, in room units.</summary>
+    const float RainBoxHalf = 128f * 16f;     // box 256 wide, scene units
+    const float SnowBoxHalf = 1536f * 16f;    // box 3072 wide
+
+    /// <summary>The handler's 6.0f, in room units (6 scene units).</summary>
+    const float CeilingSlack = 6f * 16f;
+
+    RooFile _cullRoom;
+    bool _cullRoomHasCeilings;
+
+    /// <summary>
+    /// The handler's ceiling test at one point of the room, in room
+    /// units, with the particle taken to be at the eye's height.
+    /// </summary>
+    bool Roofed(RooFile roo, float x, float y, float eyeZ)
+    {
+        RooSector sec = Renderer.SectorIn(roo, x, y);
+        if (sec == null) return false;             // see above: not a cull here
+        if (sec.CeilingTexture == 0) return false;
+        return M59Geo.CeilingXY(sec) >= eyeZ - CeilingSlack;
+    }
+
+    /// <summary>
+    /// Whether this room has any ceiling texture at all. 128 of the 362
+    /// rooms have none, and for those the per-particle test can be
+    /// skipped outright rather than descending the BSP once per particle
+    /// per frame.
+    /// </summary>
+    bool RoomHasCeilings(RooFile roo)
+    {
+        if (!ReferenceEquals(roo, _cullRoom))
+        {
+            _cullRoom = roo;
+            _cullRoomHasCeilings = false;
+            if (roo?.Sectors != null)
+                foreach (RooSector sec in roo.Sectors)
+                    if (sec.CeilingTexture > 0) { _cullRoomHasCeilings = true; break; }
+        }
+        return _cullRoomHasCeilings;
+    }
 
     public override void _Ready()
     {
@@ -446,6 +578,26 @@ public partial class WeatherOverlay : Control
         if (delta > 1f / 6f) delta = 1f / 6f;
         if (delta <= 0f) return;
 
+        _aspect = view.Y > 0f ? view.X / view.Y : 1f;
+        // The room the handler asks about, and where the eye is in it.
+        RooFile roo = Renderer.EyeRoom;
+        float eyeX = Renderer.EyeX, eyeY = Renderer.EyeY, eyeZ = Renderer.EyeZ;
+        bool cull = roo != null && RoomHasCeilings(roo);
+        // The eye's OWN point, which is the whole of the indoor case.
+        // Standing under a ceiling, every direction you can look is
+        // bounded by it, so every particle the reference has not already
+        // killed by the test below is behind geometry the renderer has
+        // painted - and this overlay draws over the finished picture with
+        // no depth to sort against, which is the divergence the class
+        // comment states for walls and pillars. The reference's rain
+        // agrees outright: its emitter box is 256 scene units on a side,
+        // so under any roof wider than that every drop is over the roof
+        // and culled one by one. Its snow mostly agrees - the flakes its
+        // box puts outside the room die on the handler's no-subsector
+        // test, and what survives is a speck a thousand units off.
+        bool indoors = cull && Roofed(roo, eyeX, eyeY, eyeZ);
+        if (indoors) { _rainLive = 0; _snowLive = 0; _rainOwed = _snowOwed = 0f; }
+
         float megapixels = view.X * view.Y / 1_000_000f;
         int rainCap = Mathf.Max(1, Mathf.RoundToInt(RainDropsPerMegapixel * megapixels));
         int snowCap = Mathf.Max(1, Mathf.RoundToInt(SnowFlakesPerMegapixel * megapixels));
@@ -460,7 +612,7 @@ public partial class WeatherOverlay : Control
         // holds the population there is cap / crossing-time. Working it
         // out rather than writing it down keeps the two numbers from
         // drifting apart if either is retuned.
-        if (_rainEmitting)
+        if (_rainEmitting && !indoors)
         {
             float life = 1f / RainFallPerSecond;          // seconds to cross
             _rainOwed += rainCap / life * delta;
@@ -491,10 +643,15 @@ public partial class WeatherOverlay : Control
                 if (_rainEmitting) d = SpawnRain(false);
                 else _rain[i--] = _rain[--_rainLive];
             }
+            // Under a roof. The handler's answer is to end the particle,
+            // not to move it, so the slot is freed and the emitter has to
+            // pay for the next one.
+            else if (cull && Roofed(roo, eyeX + d.OX, eyeY + d.OY, eyeZ))
+                _rain[i--] = _rain[--_rainLive];
         }
 
         // ---- snow -------------------------------------------------
-        if (_snowEmitting)
+        if (_snowEmitting && !indoors)
         {
             float life = 1f / ((SnowFallPerSecondMin + SnowFallPerSecondMax) * 0.5f);
             _snowOwed += snowCap / life * delta;
@@ -523,7 +680,13 @@ public partial class WeatherOverlay : Control
                 d.WindTimer += SnowWindInterval;
                 d.WindSign = _rng.Randf() < SnowWindLeftChance ? -1f : 1f;
             }
-            d.VX += d.WindSign * SnowWindAccel * d.Near * delta;
+            // Divided by the aspect for the same reason the two spawns
+            // are (:620, :664): VX is in fractions of the view's WIDTH
+            // and the constants are physical, so a wide screen has to
+            // take proportionally less of it to lean by the same angle.
+            // Without it the drift over a four-second fall came to about
+            // 58px at 2340x1080 where the mirrored value is 27.
+            d.VX += d.WindSign * SnowWindAccel * d.Near * delta / _aspect;
 
             d.X += d.VX * delta;
             d.Y += d.VY * delta;
@@ -533,6 +696,8 @@ public partial class WeatherOverlay : Control
                 if (_snowEmitting) d = SpawnSnow(false);
                 else _snow[i--] = _snow[--_snowLive];
             }
+            else if (cull && Roofed(roo, eyeX + d.OX, eyeY + d.OY, eyeZ))
+                _snow[i--] = _snow[--_snowLive];
         }
     }
 
@@ -559,9 +724,7 @@ public partial class WeatherOverlay : Control
         // is wider than it is tall, so a fraction-of-view horizontal
         // speed has to be divided by the aspect to come out as the same
         // physical angle.
-        Vector2 view = GetViewportRect().Size;
-        float aspect = view.Y > 0f ? view.X / view.Y : 1f;
-        float drift = (RainLean + Mathf.Tan(spread)) * fall / Mathf.Max(0.001f, aspect);
+        float drift = (RainLean + Mathf.Tan(spread)) * fall / Mathf.Max(0.001f, _aspect);
 
         return new Drop
         {
@@ -574,6 +737,10 @@ public partial class WeatherOverlay : Control
             VX = drift,
             VY = fall,
             Near = near,
+            // Where in the room it is, for the ceiling test. Uniform over
+            // the emitter's own box, which travels with the eye.
+            OX = _rng.RandfRange(-RainBoxHalf, RainBoxHalf),
+            OY = _rng.RandfRange(-RainBoxHalf, RainBoxHalf),
         };
     }
 
@@ -593,15 +760,13 @@ public partial class WeatherOverlay : Control
         // the script's range and the side is a coin flip.
         float spread = Mathf.DegToRad(_rng.RandfRange(SnowSpreadMinDegrees, SnowSpreadMaxDegrees))
                        * (_rng.Randf() < 0.5f ? -1f : 1f);
-        Vector2 view = GetViewportRect().Size;
-        float aspect = view.Y > 0f ? view.X / view.Y : 1f;
         float size = _rng.RandfRange(SnowSizeMin, SnowSizeMax) * near;
 
         return new Drop
         {
             X = _rng.RandfRange(-0.3f, 1.3f),
             Y = seeded ? _rng.RandfRange(-size, 1f) : -size - _rng.Randf() * 0.2f,
-            VX = Mathf.Tan(spread) * fall / Mathf.Max(0.001f, aspect),
+            VX = Mathf.Tan(spread) * fall / Mathf.Max(0.001f, _aspect),
             VY = fall,
             Near = near,
             Size = size,
@@ -610,6 +775,8 @@ public partial class WeatherOverlay : Control
             // were not born together.
             WindTimer = _rng.Randf() * SnowWindInterval,
             WindSign = _rng.Randf() < SnowWindLeftChance ? -1f : 1f,
+            OX = _rng.RandfRange(-SnowBoxHalf, SnowBoxHalf),
+            OY = _rng.RandfRange(-SnowBoxHalf, SnowBoxHalf),
         };
     }
 

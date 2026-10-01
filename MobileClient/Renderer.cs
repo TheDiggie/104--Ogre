@@ -226,18 +226,34 @@ public sealed class Renderer
     float LitFlat(RooSector sec, bool ceiling)
     {
         if (sec == null) return RoomAmbientWeight * Brightness;
-        RooSectorSlopeInfo slope = ceiling ? sec.SlopeInfoCeiling : sec.SlopeInfoFloor;
-        float nx = 0f, ny = 0f, nz = ceiling ? -1f : 1f;
-        if (slope != null)
-        {
-            nx = slope.A; ny = slope.B; nz = slope.C;
-            float l = MathF.Sqrt(nx * nx + ny * ny + nz * nz);
-            if (l > 0f) { nx /= l; ny /= l; nz /= l; }
-            // The plane's normal has no preferred side; a ceiling looks
-            // down and a floor looks up.
-            if ((ceiling && nz > 0f) || (!ceiling && nz < 0f)) { nx = -nx; ny = -ny; nz = -nz; }
-        }
+        FlatNormal(sec, ceiling, out float nx, out float ny, out float nz);
         return Lit(nx, ny, nz, RoomAmbientWeight, RoomSunWeight);
+    }
+
+    /// <summary>
+    /// A floor's or ceiling's own normal, in this renderer's axes - x and
+    /// y across the map, z up. Flat ones face straight up or straight
+    /// down; a sloped one carries its plane's normal, which is what the
+    /// library hands the geometry (RooSubSector.FloorNormal /
+    /// CeilingNormal, used at ControllerRoom.cpp:809-829).
+    ///
+    /// Shared by the lighting and by the liquid shader, which needs the
+    /// vector itself rather than the lit fraction of it: `water_vs`
+    /// branches on the normal and `water_ps` bends it (general.hlsl:
+    /// 270-282, :298-302).
+    /// </summary>
+    static void FlatNormal(RooSector sec, bool ceiling,
+                           out float nx, out float ny, out float nz)
+    {
+        nx = 0f; ny = 0f; nz = ceiling ? -1f : 1f;
+        RooSectorSlopeInfo slope = ceiling ? sec?.SlopeInfoCeiling : sec?.SlopeInfoFloor;
+        if (slope == null) return;
+        nx = (float)slope.A; ny = (float)slope.B; nz = (float)slope.C;
+        float l = MathF.Sqrt(nx * nx + ny * ny + nz * nz);
+        if (l > 0f) { nx /= l; ny /= l; nz /= l; }
+        // The plane's normal has no preferred side; a ceiling looks
+        // down and a floor looks up.
+        if ((ceiling && nz > 0f) || (!ceiling && nz < 0f)) { nx = -nx; ny = -ny; nz = -nz; }
     }
 
     /// <summary>
@@ -625,6 +641,20 @@ public sealed class Renderer
 
     public RooSector SectorAtPoint(float x, float y) => SectorAt(_roo, x, y);
 
+    /// <summary>
+    /// The room and the eye of the last frame drawn, and the sector over
+    /// a point in it. The weather overlay is screen-space and has no
+    /// scene graph, but the reference's weather cull is a question about
+    /// the ROOM - see WeatherOverlay - so it needs these three.
+    /// </summary>
+    public static RooFile EyeRoom;
+    /// <summary>Where that frame was drawn from, in room units.</summary>
+    public static float EyeX, EyeY, EyeZ;
+
+    /// <summary>The sector at a point of <see cref="EyeRoom"/>, or null.</summary>
+    public static RooSector SectorIn(RooFile roo, float x, float y)
+        => roo == null ? null : SectorAt(roo, x, y);
+
     /// <summary>Renders one frame into <paramref name="px"/> (length W*H, ARGB).</summary>
     public int Render(uint[] px, int W, int H, float camX, float camY, float camZ, float angle)
     {
@@ -637,6 +667,13 @@ public sealed class Renderer
         _lastW = W; _lastH = H;
         _lastCamX = camX; _lastCamY = camY; _lastCamZ = camZ;
         _lastAngle = angle; _lastProj = proj; _lastHorizon = horizon;
+        // Published for the weather, which has to ask the room whether
+        // there is a roof over a point and has no other way to reach
+        // either the room or the eye - see WeatherOverlay. Written here
+        // for the same reason _lastCam* is: Render is the one place that
+        // knows both, and a Renderer is built per room so this cannot
+        // outlive the room it belongs to by more than a frame.
+        EyeRoom = _roo; EyeX = camX; EyeY = camY; EyeZ = camZ;
         RooSector camSector = SectorAt(_roo, camX, camY);
         int solidCols = 0;
 
@@ -772,11 +809,11 @@ public sealed class Renderer
                 FillFlat(px, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
-                         LitFlat(near, true), Sky, Lights);
+                         LitFlat(near, true), Brightness, Sky, Lights);
                 FillFlat(px, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
-                         LitFlat(near, false), Sky, Lights);
+                         LitFlat(near, false), Brightness, Sky, Lights);
 
                 yTop = Math.Max(yTop, ceilY);
                 yBot = Math.Min(yBot, floorY);
@@ -842,6 +879,10 @@ public sealed class Renderer
                 if (wnl > 0f) { wnx /= wnl; wny /= wnl; }
                 if (wnx * rdx + wny * rdy > 0f) { wnx = -wnx; wny = -wny; }
                 float fog = Falloff(perp) * Lit(wnx, wny, 0f, RoomAmbientWeight, RoomSunWeight);
+                // The clock the water shader runs on, a sawtooth of period
+                // 100 (general.material:96) - the same one the flats use.
+                float wallWaterTime = Time - 100f * MathF.Floor(Time / 100f);
+                bool wallWater = Water && WaterNoise.Ready();
                 // World units one screen pixel spans on this wall. Turning
                 // that into texels needs the texture's shrink, so DrawWall
                 // finishes it - the old constant here quietly assumed
@@ -850,17 +891,28 @@ public sealed class Renderer
 
                 if (far == null)
                 {
+                    Tex oneMid = side != null ? _tex.Get(side.MiddleTexture, texGroup) : null;
+                    bool oneWet = wallWater && side != null && M59Water.Is(side.MiddleTexture);
                     DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc,
-                             side != null ? _tex.Get(side.MiddleTexture, texGroup) : null,
+                             oneMid,
                              along, xOff, yOff, side != null && side.Flags.IsNormalTopDown,
                              fog, tpp, false, null, 0f, 0,
                              HonourNoVTile && side != null && side.Flags.IsNoVTile,
-                             side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
+                             // A liquid part's scroll becomes the wave, so
+                             // the texture itself is held still. See
+                             // WallWave.
+                             oneWet ? TextureScrollSpeed.NONE
+                                    : side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
                              Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
                              VOrigin(side != null && side.Flags.IsNormalTopDown,
                                      side != null && side.Flags.IsNormalTopDown ? ncA : nfA,
-                                     side != null && side.Flags.IsNormalTopDown ? ncB : nfB));
+                                     side != null && side.Flags.IsNormalTopDown ? ncB : nfB),
+                             oneWet ? new LiquidWall(wnx, wny, camX, camY, camZ,
+                                                     WallWave(side.Flags.ScrollSpeed,
+                                                              side.Flags.ScrollDirection, oneMid),
+                                                     wallWaterTime, Brightness)
+                                    : LiquidWall.None);
                     _depth[sx] = perp;
                     closed = true;
                     break;
@@ -879,15 +931,22 @@ public sealed class Renderer
                     // band over the view through a doorway.
                     Tex upper = side != null ? _tex.Get(side.UpperTexture, EdgeGroup) : null;
                     bool UpTop = side == null || !side.Flags.IsAboveBottomUp;
+                    bool upWet = wallWater && side != null && M59Water.Is(side.UpperTexture);
                     if (upper != null)
                     DrawWall(px, W, H, sx, yTop, Math.Min(yBot, farCeilY - 1), ceilY, farCeilY, fc, nc,
                              upper,
                              along, xOff, yOff, side == null || !side.Flags.IsAboveBottomUp,
                              fog, tpp, false, null, 0f, 0, false,
-                             side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
+                             upWet ? TextureScrollSpeed.NONE
+                                   : side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
                              Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
-                             UpTop ? VOrigin(true, ncA, ncB) : VOrigin(false, fcA, fcB));
+                             UpTop ? VOrigin(true, ncA, ncB) : VOrigin(false, fcA, fcB),
+                             upWet ? new LiquidWall(wnx, wny, camX, camY, camZ,
+                                                    WallWave(side.Flags.ScrollSpeed,
+                                                             side.Flags.ScrollDirection, upper),
+                                                    wallWaterTime, Brightness)
+                                   : LiquidWall.None);
                     // Nobody draws the band when there is no texture for
                     // it, and yTop moves past it either way - so those
                     // rows kept whatever the last frame left there and
@@ -907,15 +966,22 @@ public sealed class Renderer
                     int farFloorY = ScreenY(ff, camZ, horizon, proj, perp);
                     Tex lower = side != null ? _tex.Get(side.LowerTexture, EdgeGroup) : null;
                     bool LowTop = side != null && side.Flags.IsBelowTopDown;
+                    bool lowWet = wallWater && side != null && M59Water.Is(side.LowerTexture);
                     if (lower != null)
                     DrawWall(px, W, H, sx, Math.Max(yTop, farFloorY), yBot, farFloorY, floorY, nf, ff,
                              lower,
                              along, xOff, yOff, side != null && side.Flags.IsBelowTopDown,
                              fog, tpp, false, null, 0f, 0, false,
-                             side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
+                             lowWet ? TextureScrollSpeed.NONE
+                                    : side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
                              Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
-                             LowTop ? VOrigin(true, ffA, ffB) : VOrigin(false, nfA, nfB));
+                             LowTop ? VOrigin(true, ffA, ffB) : VOrigin(false, nfA, nfB),
+                             lowWet ? new LiquidWall(wnx, wny, camX, camY, camZ,
+                                                     WallWave(side.Flags.ScrollSpeed,
+                                                              side.Flags.ScrollDirection, lower),
+                                                     wallWaterTime, Brightness)
+                                    : LiquidWall.None);
                     else for (int y = Math.Max(0, Math.Max(yTop, farFloorY));
                               y < Math.Min(H, yBot + 1); y++)
                         px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
@@ -981,7 +1047,16 @@ public sealed class Renderer
                     // and 23 of them were being sent down the masked path
                     // for a texture with nothing to see through.
                     Tex solid = _tex.Get(side.MiddleTexture, texGroup);
-                    bool seeThrough = SeeThroughWalls && solid != null && solid.HasHoles;
+                    // A LIQUID middle is never see-through, whatever its
+                    // art has in it. The masked path exists because
+                    // base_material_room rejects alpha under 64
+                    // (general.material:263); base_material_water, which
+                    // is the material a water-named texture gets
+                    // (ControllerRoom.cpp:1014-1021), has no
+                    // alpha_rejection line at all and does not sample the
+                    // bitmap by the wall's own UVs in the first place.
+                    bool midWet = wallWater && M59Water.Is(side.MiddleTexture);
+                    bool seeThrough = SeeThroughWalls && solid != null && solid.HasHoles && !midWet;
 
                     if (!seeThrough)
                     {
@@ -994,9 +1069,15 @@ public sealed class Renderer
                                      along, xOff, yOff, side.Flags.IsNormalTopDown, fog, tpp,
                                      false, null, 0f, 0,
                                      HonourNoVTile && side.Flags.IsNoVTile,
-                                     side.Flags.ScrollSpeed, side.Flags.ScrollDirection, Time,
+                                     midWet ? TextureScrollSpeed.NONE : side.Flags.ScrollSpeed,
+                                     side.Flags.ScrollDirection, Time,
                                      Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
-                                     midOrigin);
+                                     midOrigin,
+                                     midWet ? new LiquidWall(wnx, wny, camX, camY, camZ,
+                                                             WallWave(side.Flags.ScrollSpeed,
+                                                                      side.Flags.ScrollDirection, mid),
+                                                             wallWaterTime, Brightness)
+                                            : LiquidWall.None);
                             _depth[sx] = perp;
                             closed = true;
                             break;
@@ -1533,6 +1614,69 @@ public sealed class Renderer
     static int ScreenY(float worldH, float camZ, float horizon, float proj, float perp)
         => (int)MathF.Round(horizon - (worldH - camZ) * proj / perp);
 
+    /// <summary>
+    /// What a liquid WALL part needs, which a dry one does not: the eye,
+    /// the wall's own normal, the wave speed and the plain ambient.
+    ///
+    /// Wall parts are liquid for the same reason sectors are - the
+    /// texture's name is in water.xml - because
+    /// `CreateTextureAndMaterial` is one entry point for both: the
+    /// sidedef parts come through it at ControllerRoom.cpp:694 and the
+    /// sector parts at :795, and the choice between
+    /// `base_material_water` and `base_material_room` is made at
+    /// :1014-1021 with nothing but the name. `water_vs` has a branch for
+    /// it, `else // wall water` at general.hlsl:277-282, taken when the
+    /// normal's y is zero. 203 wall parts across 42 rooms are liquid.
+    ///
+    /// A struct rather than a class because DrawWall is called once per
+    /// screen column and a class here would be an allocation per column
+    /// per part.
+    /// </summary>
+    readonly struct LiquidWall
+    {
+        public readonly bool On;
+        public readonly float Nx, Ny;          // the wall's horizontal normal
+        public readonly float CamX, CamY, CamZ;
+        public readonly float WaveX;           // waveSpeed.x; the wall branch uses only this
+        public readonly float Time, Ambient;
+
+        public LiquidWall(float nx, float ny, float camX, float camY, float camZ,
+                          float waveX, float time, float ambient)
+        {
+            On = true;
+            Nx = nx; Ny = ny;
+            CamX = camX; CamY = camY; CamZ = camZ;
+            WaveX = waveX; Time = time; Ambient = ambient;
+        }
+
+        public static readonly LiquidWall None = default;
+    }
+
+    /// <summary>
+    /// The wave speed a liquid wall part drifts its noise at, and the
+    /// reason its texture does NOT scroll.
+    ///
+    /// `CreateMaterialWater` never calls `setScrollAnimation` - the one
+    /// thing it does with the sidedef's scroll speed is
+    /// `setNamedConstant("waveSpeed", 0.3f * -(*ScrollSpeed))`
+    /// (Util.h:765-767) - so a scrolling liquid holds its bitmap still
+    /// and moves the wave instead. `CreateMaterialRoom` is the one that
+    /// animates the texture coordinates.
+    ///
+    /// The vertex shader truncates `waveSpeed` to its x on the way into
+    /// the scalar `uvw.y`, and the reference's ScrollSpeed is the V2
+    /// `RooSideDef.GetWallScrollSpeed` builds, whose X is what
+    /// <c>M59Geo.WallScroll</c> returns as its SECOND out parameter -
+    /// the two tables are each other with the components exchanged, which
+    /// WallScroll's own comment explains.
+    /// </summary>
+    static float WallWave(TextureScrollSpeed speed, TextureScrollDirection dir, Tex t)
+    {
+        if (t == null || speed == TextureScrollSpeed.NONE) return 0f;
+        M59Geo.WallScroll(speed, dir, t.UvW, t.UvH, out float _, out float spX);
+        return -0.3f * spX;
+    }
+
     static void DrawWall(uint[] px, int W, int H, int sx, int y0, int y1,
                          int spanTopY, int spanBotY, float spanBotH, float spanTopH,
                          Tex t, float along, int xOffset, int yOffset, bool topDown,
@@ -1546,11 +1690,16 @@ public sealed class Renderer
                          M59Sky sky = null, float rayA = 0f, float cosFix = 1f,
                          float horizon = 0f, float proj = 1f,
                          List<Light> lights = null, float hx = 0f, float hy = 0f,
-                         float vOrigin = float.NaN)
+                         float vOrigin = float.NaN,
+                         LiquidWall liquid = default)
     {
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
         float span = Math.Max(1f, spanBotY - spanTopY);
+        // What the caller handed over as texels per pixel is world units
+        // per pixel until the texture's shrink is known - see below. The
+        // liquid shader wants it in world units, for the noise's filter.
+        float worldPerPixel = texelsPerPixel;
 
         // Meridian stores room textures with the axes swapped relative to
         // how they decode as an image: the texture's X axis runs UP the
@@ -1675,7 +1824,24 @@ public sealed class Renderer
                     float sd = spriteDepth[y * stride + sx];
                     if (sd > 0f && sd < depth) continue;
                 }
-                if (lights == null || lights.Count == 0) c = Shade(texel | 0xFF000000u, fog);
+                if (liquid.On)
+                {
+                    // A liquid wall part reads none of the UVs above: the
+                    // shader indexes the bitmap by a reflection vector,
+                    // not by the wall's own mapping. What the mapping is
+                    // still for is WF_NO_VTILE, which shortens the
+                    // GEOMETRY and so applies whatever material is on it.
+                    //
+                    // No fog and no lights either: the water pass is one
+                    // `illumination_stage ambient` with `ambient` its only
+                    // uniform (general.material:414-445).
+                    c = M59Water.Shade(t, hx, hy, worldH,
+                                       liquid.CamX, liquid.CamY, liquid.CamZ,
+                                       liquid.Nx, liquid.Ny, 0f,
+                                       liquid.WaveX, 0f, liquid.Time, liquid.Ambient,
+                                       worldPerPixel);
+                }
+                else if (lights == null || lights.Count == 0) c = Shade(texel | 0xFF000000u, fog);
                 else
                 {
                     // Every point light reaching this pixel's own place
@@ -1752,7 +1918,7 @@ public sealed class Renderer
                          RooSector sec, float camX, float camY, float camZ,
                          float horizon, float proj, float angle, float rayA, TexCache tc,
                          bool skip, bool noSample, float time, FlatAnchors anchors,
-                         float bright, M59Sky sky, List<Light> lights)
+                         float bright, float ambient, M59Sky sky, List<Light> lights)
     {
         if (sec == null || skip) return;
         if (y0 < 0) y0 = 0;
@@ -1771,6 +1937,9 @@ public sealed class Renderer
         // 0.3 * -scroll (Util.h:766-767), and the sector bitmap's UVs
         // never move at all.
         bool liquid = Water && WaterNoise.Ready() && M59Water.Is(texNum);
+        // The surface's own normal, which the liquid shader needs as a
+        // vector and which does not vary across the plane.
+        FlatNormal(sec, ceiling, out float fnx, out float fny, out float fnz);
         float waveX = 0f, waveY = 0f;
         uint flat = ceiling ? 0xFF0B0B10u : 0xFF141418u;
         float texOffX = sec.TextureX * M59Geo.HeightToXY;
@@ -1825,20 +1994,38 @@ public sealed class Renderer
             }
             float wx = camX + rdx * d, wy = camY + rdy * d;
 
+            // How much world space one screen pixel covers here. Rows near
+            // the horizon cover enormous distances, which is what made
+            // ceilings streak before mipmapping - and what makes the
+            // liquid's noise alias if it is read unfiltered.
+            float worldPerPixel = straight / MathF.Max(1f, MathF.Abs(dy));
+            // The DOWN-the-column rate is the one a floor's texture needs,
+            // because that is the axis along which a plane runs away from
+            // the eye. The liquid's noise is filtered against the larger of
+            // the two screen axes, which is what hardware does with a pair
+            // of derivatives: one pixel sideways moves the point by about
+            // straight/proj, and far from the horizon that is the bigger
+            // step of the two. Taking only the column rate left the near
+            // rows at level 0 where they span several noise texels.
+            float noisePerPixel = MathF.Max(worldPerPixel, straight / proj);
+
             if (liquid)
             {
                 float surfaceZ = slope != null ? M59Geo.Plane(slope, wx, wy) : planeH;
+                // The PLAIN ambient, not `bright`: the water pass is one
+                // `illumination_stage ambient` and its only uniform is
+                // `ambient_light_colour` (general.material:160-170,
+                // :414-445). See M59Water.Shade.
                 px[y * W + sx] = M59Water.Shade(t, wx, wy, surfaceZ,
                                                 camX, camY, camZ,
-                                                waveX, waveY, waterTime, bright, ceiling);
+                                                fnx, fny, fnz,
+                                                waveX, waveY, waterTime, ambient,
+                                                noisePerPixel);
                 continue;
             }
 
             float fog = Falloff(straight) * bright;
-            // How much world space one screen pixel covers here, in texels.
-            // Rows near the horizon cover enormous distances, which is what
-            // made ceilings streak before mipmapping.
-            float texelsPerPixel = (straight / MathF.Max(1f, MathF.Abs(dy))) * t.UvW / M59Geo.Fineness;
+            float texelsPerPixel = worldPerPixel * t.UvW / M59Geo.Fineness;
             // Same axis swap as walls - grd02011 is a floor of tall stone
             // slabs and rendered as wide ones until y,x were used. The
             // library says the same thing: RooSubSector.UpdateVertexUV
