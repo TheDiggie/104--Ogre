@@ -389,6 +389,24 @@ public partial class CharacterPicker : Control
             make.Pressed += () => { Visible = false; NewWanted?.Invoke(); };
             _rows.AddChild(make);
         }
+        else
+        {
+            // Said, not merely absent. The row for making a character is
+            // the only way to reach the wizard, so an account with no
+            // empty slot simply has no such row - and a screen that is
+            // missing a thing looks the same as a screen that forgot it.
+            // The reference never has to say this because its grid draws
+            // every slot the account owns, full or not
+            // (`UIWelcome.cpp:96-130`), so the absence is self-evident
+            // there; here the list is only the characters, so the reason
+            // has to be written down.
+            Label full = M59Skin.Caption(
+                "This account has no free character slot, so there is nothing to make.");
+            full.HorizontalAlignment = HorizontalAlignment.Center;
+            full.CustomMinimumSize = new Vector2(0, M59Skin.RowH);
+            full.VerticalAlignment = VerticalAlignment.Center;
+            _rows.AddChild(full);
+        }
 
         Visible = true;
         Layout();

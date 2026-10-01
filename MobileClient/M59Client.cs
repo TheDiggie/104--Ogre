@@ -401,13 +401,24 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
                 return;
             }
 
-            // One character is not a choice; several is, and picking the
-            // first silently would log you in as the wrong one. An empty
-            // slot is a choice too, because it is the only way to reach
-            // the creation wizard.
-            if ((real.Count > 1 || room) && ChooseCharacter != null)
+            // The selection screen, always. It used to be skipped when
+            // there was exactly one character and the server reported no
+            // empty slot, on the reasoning that one character is not a
+            // choice - and that is wrong twice. The reference has no such
+            // shortcut at all: `UIWelcome` goes up on every
+            // CharactersMessage however many characters came with it
+            // (`UIWelcome.cpp:80-130`). And the screen is not only a
+            // chooser - it carries the message of the day, which a player
+            // who owns one character would then never see, and it is the
+            // one place an account's shape is visible, so "why can I not
+            // make another?" had no screen that could answer it.
+            //
+            // PreferredCharacter above is still a bypass, because that is
+            // the harness asking for a named character on purpose.
+            if (ChooseCharacter != null)
             {
-                Diag($"{real.Count} character{(real.Count == 1 ? "" : "s")} on this account.");
+                Diag($"{real.Count} character{(real.Count == 1 ? "" : "s")} on this account" +
+                     $"{(room ? "" : ", no free slot")}.");
                 ChooseCharacter(real);
                 return;
             }

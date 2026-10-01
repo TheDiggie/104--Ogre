@@ -3140,8 +3140,17 @@ static class FakeServer
         var chars = new List<CharSelectItem>
         {
             new CharSelectItem(1001, 1, "Tester", 0),
-            new CharSelectItem(0, 0, "", 1),
         };
+        // M59_NOSLOT=1 reports an account with no room left, which is
+        // the shape that used to skip the selection screen entirely:
+        // one character and nowhere to put another. Reproduced here
+        // because it is a real server's answer and was not testable.
+        if (Environment.GetEnvironmentVariable("M59_NOSLOT") != "1")
+            chars.Add(new CharSelectItem(0, 0, "", 1));
+        // M59_CHARS=n puts n characters on the account.
+        if (int.TryParse(Environment.GetEnvironmentVariable("M59_CHARS"), out int many) && many > 1)
+            for (int i = 2; i <= many; i++)
+                chars.Insert(i - 1, new CharSelectItem((uint)(1000 + i), 1, "Tester" + i, 0));
         var welcome = new WelcomeInfo(chars, new List<CharSelectAd>(), "A fake server. Nothing here is real.");
         Send(ns, ctrl, new CharactersMessage(welcome));
     }
