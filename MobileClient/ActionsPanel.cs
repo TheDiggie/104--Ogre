@@ -3,7 +3,7 @@ using Godot;
 using Meridian59.Common.Enums;
 
 /// <summary>
-/// The eleven things you can do.
+/// The eleven things you can do, and Go.
 ///
 /// This is the game's `UIActions.cpp`: a list built once, in that
 /// file's own order (`:16-26`), of every `AvatarAction` the client
@@ -19,6 +19,22 @@ using Meridian59.Common.Enums;
 /// A tap performs, as a double click does there. The "+" puts the
 /// action on the hotbar, which is what dragging does there and which a
 /// phone cannot do while this panel covers the hotbar.
+///
+/// TWELVE ROWS, not eleven. The last is Go, and it is the one row with
+/// no `AvatarAction` behind it: Go is `BaseClient.SendReqGo`
+/// (`Meridian59/Client/BaseClient.cs:1546-1562`), reached in the
+/// reference from one key (`ControllerInput.cpp:552-553`) and from no
+/// window at all - `UIActions.cpp:16-26` lists eleven and the twelfth
+/// does not exist there, because a desktop has a space bar.
+///
+/// It is here because this is the panel that assigns, and the owner
+/// asked for Go to be assignable after a build put it two taps inside
+/// the menu drawer. The alternative - a bind control on the drawer tile
+/// - would have put the one thing you press while moving behind the one
+/// window that stops the world, which is the complaint. So the row sits
+/// under the eleven rather than inside them: the game's list is still
+/// the game's list, in its own order, and the twelfth is marked out as
+/// this client's by being last.
 /// </summary>
 public partial class ActionsPanel : Control
 {
@@ -34,6 +50,10 @@ public partial class ActionsPanel : Control
     public event Action<AvatarAction> Perform;
     /// <summary>Put it on the hotbar.</summary>
     public event Action<AvatarAction> Assign;
+    /// <summary>Go, now. The one row that is not an AvatarAction.</summary>
+    public event Action PerformGo;
+    /// <summary>Put Go on the hotbar.</summary>
+    public event Action AssignGo;
 
     // The game's own order, from UIActions::Initialize.
     static readonly AvatarAction[] All =
@@ -130,8 +150,8 @@ public partial class ActionsPanel : Control
     }
 
     /// <summary>
-    /// Built once. The list is eleven constants - it has no server
-    /// behind it and nothing to keep in step with.
+    /// Built once. The list is eleven constants and the Go row - it has
+    /// no server behind it and nothing to keep in step with.
     /// </summary>
     void Build()
     {
@@ -139,6 +159,61 @@ public partial class ActionsPanel : Control
         _built = true;
         int i = 0;
         foreach (AvatarAction a in All) _rows.AddChild(Row(a, i++));
+        _rows.AddChild(GoRow(i));
+    }
+
+    /// <summary>
+    /// The Go row. Same dress, same striping, same "+", so it reads as
+    /// one more of the list and not as a bolted-on control; the handlers
+    /// are the two that take no argument.
+    ///
+    /// Its nodes are named `actGo` and `bindGo`, which is the pattern
+    /// Row uses for the eleven ($"act{a}") and is what lets a scripted
+    /// run reach them by name rather than by caption - see
+    /// notes/harness.md on captions that exist twice.
+    /// </summary>
+    Control GoRow(int index)
+    {
+        var button = new Button
+        {
+            CustomMinimumSize = new Vector2(0, Mathf.Max(RowHeight, M59Skin.RowH)),
+            Name = "actGo",
+        };
+        M59Skin.Dress(button, index % 2 == 0 ? M59Skin.Kind.Row : M59Skin.Kind.RowAlt);
+        button.Pressed += () => PerformGo?.Invoke();
+
+        var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+        line.SetAnchorsPreset(LayoutPreset.FullRect);
+        line.AddThemeConstantOverride("separation", 10);
+        line.OffsetLeft = 8; line.OffsetTop = 4; line.OffsetRight = -8; line.OffsetBottom = -4;
+        button.AddChild(line);
+
+        // "Go" alone is two letters that say nothing; the words are the
+        // drawer tile's own caption for the same send.
+        var name = new Label
+        {
+            Text = "Go (through the door)",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            VerticalAlignment = VerticalAlignment.Center,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        name.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        name.AddThemeColorOverride("font_color", M59Skin.Text);
+        line.AddChild(name);
+
+        var bind = new Button
+        {
+            Text = "+",
+            TooltipText = "Put on the hotbar",
+            Name = "bindGo",
+        };
+        M59Skin.Dress(bind, M59Skin.Kind.Step);
+        bind.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        bind.CustomMinimumSize = new Vector2(M59Skin.RowH - 12f, M59Skin.RowH - 16f);
+        bind.Pressed += () => AssignGo?.Invoke();
+        line.AddChild(bind);
+
+        return button;
     }
 
     static string Label(AvatarAction a) =>
@@ -205,10 +280,12 @@ public partial class ActionsPanel : Control
         _panel.Position = Vector2.Zero;
         _panel.Size = v;
 
-        // Sized to the eleven rows it holds, so the window is eleven
-        // rows tall instead of a fixed box with three hundred pixels of
+        // Sized to the rows it holds, so the window is that many rows
+        // tall instead of a fixed box with three hundred pixels of
         // nothing under the last one. Frame caps it against the screen.
-        float want = All.Length * (Mathf.Max(RowHeight, M59Skin.RowH) + 4f);
+        // Twelve, not All.Length: the Go row is the twelfth and a card
+        // sized for eleven would scroll by one row for no reason.
+        float want = (All.Length + 1) * (Mathf.Max(RowHeight, M59Skin.RowH) + 4f);
         Rect2 card = M59Skin.Frame(v, want);
         Rect2 body = M59Skin.Body(card);
         Rect2 foot = M59Skin.Foot(card);

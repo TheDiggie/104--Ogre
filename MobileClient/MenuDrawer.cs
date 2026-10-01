@@ -47,6 +47,16 @@ using Godot;
 /// openers at all but they were in the same row and behave the same
 /// way, so they are tiles too.
 ///
+/// Go is the one tile that is ALSO somewhere else, and that is the
+/// correction to this change. Walking through a door is done constantly
+/// while moving, and a drawer is modal - a scrim that eats the world
+/// behind it - so Go two taps inside here was a regression the owner
+/// found by playing. It is bindable to the combat arc now
+/// (`ActionButtons.Extra`) and seeded there for a new character. The
+/// tile stays as the floor: a player who dragged the slot off, or whose
+/// saved hotbar predates the seed, still has to be able to leave the
+/// room. Both doors make the same send.
+///
 /// Next is NOT a tile, though it was for about an hour: it picks the
 /// next target and is pressed in a fight, and a fight is no time to
 /// open a drawer. It now sits in the combat cluster beside the attack

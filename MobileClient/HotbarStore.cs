@@ -33,6 +33,13 @@ using Meridian59.Data.Models;
 ///
 /// An item is matched by name **and** NumOfSameName, because names are
 /// not unique in this game and the library says so in its own comment.
+///
+/// One row is this client's and not the game's: Go, which the library
+/// has no button type for and which the phone binds anyway - see
+/// `ActionButtons.Extra`. It needs no fifth field. It writes as the
+/// Action row it is, with Go for a name, and the loader rebuilds it
+/// rather than letting the constructor read that name; the long note at
+/// the rebuild says why.
 /// </summary>
 public static class HotbarStore
 {
@@ -131,6 +138,40 @@ public static class HotbarStore
                 // this loader's existing habit two lines up, and comes to
                 // the same place: Save writes no Unset buttons, and
                 // Bind reuses or appends a slot regardless.
+                // Go, which is an Action-typed row whose data is
+                // AvatarAction.None (`ActionButtons.Extra`). It has to
+                // be rebuilt rather than constructed, because the
+                // constructor resolves an Action's data from its NAME,
+                // and `GetAction` does not know "Go": its chain of
+                // name tests ends in an else that answers **Wave**
+                // (`Meridian59/Data/Models/ActionButtonConfig.cs:344-346`),
+                // so the constructor would restore a saved Go as a Wave
+                // button, captioned Wave (`:157`). Measured, not
+                // reasoned: a row written as `Action 0 Bogus` comes back
+                // on screen as "Wave".
+                //
+                // That same default is what makes None a safe marker in
+                // the first place. GetAction can never RETURN None - the
+                // unknown case is Wave - and `SetToAction` is only ever
+                // called with a real action, so no library path builds
+                // an Action button with None for data. The only thing
+                // that does is `ActionButtons.SetToGo`, which is why a
+                // slot carrying None is unambiguously the Go slot.
+                //
+                // Everything else keeps the library's own behaviour,
+                // Wave for a name it does not know included: that is
+                // what the game's loader does with the same row, and a
+                // loader that second-guessed it here would differ from
+                // the client this one is a port of.
+                if (type == ActionButtonType.Action)
+                {
+                    var action = new ActionButtonConfig(num, ActionButtonType.Unset, "");
+                    if (f[3] == ActionButtons.GoName) ActionButtons.SetToGo(action);
+                    else action.SetToAction(ActionButtonConfig.GetAction(f[3]));
+                    restored.Add(action);
+                    continue;
+                }
+
                 object bound = null;
                 if (type == ActionButtonType.Alias)
                 {

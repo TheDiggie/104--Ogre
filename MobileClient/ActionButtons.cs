@@ -298,6 +298,94 @@ public partial class ActionButtons : Control
     }
 
     /// <summary>
+    /// A kind the hotbar holds that the library has no
+    /// <see cref="ActionButtonType"/> for. One member, so far.
+    ///
+    /// GO IS NOT ONE OF THE FIVE KINDS, and that was worth establishing
+    /// before writing a line: it is not an `AvatarAction` - the enum is
+    /// eleven members and Go is not among them
+    /// (`Meridian59/Common/Enums/AvatarAction.cs:24`), so
+    /// `BaseClient.ExecAction` cannot reach it - it is not a user
+    /// command, and it is not a chat command either. The one thing in
+    /// the library called Go that IS a chat command is the DM teleport,
+    /// `ChatCommandType.Go` -> `SendReqDM(DMCommandType.GoRoom, ...)`
+    /// (`Meridian59/Client/BaseClient.cs:3116-3118`), which is an
+    /// administrator moving himself to a room by number and not a player
+    /// walking through a door. Binding Go as an ALIAS would send that.
+    ///
+    /// What Go actually is: `BaseClient.SendReqGo`
+    /// (`Meridian59/Client/BaseClient.cs:1546-1562`), a bare
+    /// `ReqGoMessage` with the turn and the move forced out ahead of it,
+    /// reached in the reference from one key and nothing else
+    /// (`Meridian59.Ogre.Client/ControllerInput.cpp:552-553`). So this
+    /// is the second of the two jobs the owner's request could have
+    /// been: the hotbar has to learn a new kind.
+    ///
+    /// It learns it as cheaply as it can. A slot still has to be an
+    /// `ActionButtonConfig` in the client's own list, because that list
+    /// is what Sync draws, what the pager pages, what the drag-off
+    /// clears and what <see cref="HotbarStore"/> writes - a parallel
+    /// pseudo-slot would be a second copy of all four. There is no
+    /// spare `ActionButtonType`, so a Go slot is the one shape the
+    /// library already ignores: type Action with
+    /// <c>AvatarAction.None</c> for data. `ExecAction` has no case for
+    /// None and falls out of its switch doing nothing
+    /// (`BaseClient.cs:3208-3212` and the switch through `:3290`), so
+    /// the library's dispatch cannot double-send and
+    /// <see cref="Send"/> below is the only thing that fires it.
+    ///
+    /// None is free, and not merely unused. No library path builds an
+    /// Action button holding it: `SetToAction` is only ever called with
+    /// a real action, and the one place a name becomes an action -
+    /// `ActionButtonConfig.GetAction` - cannot return None, because its
+    /// chain of name tests ends in an else that answers Wave
+    /// (`ActionButtonConfig.cs:344-346`). So a slot carrying None is
+    /// this client's Go and can be nothing else.
+    /// </summary>
+    public enum Extra
+    {
+        /// <summary>Through the door. See <see cref="SetToGo"/>.</summary>
+        Go,
+    }
+
+    /// <summary>The Go slot's caption, and its name on disk.</summary>
+    public const string GoName = "Go";
+
+    /// <summary>
+    /// Whether a slot is the Go binding.
+    ///
+    /// On the DATA, not on the name: `Name` is a caption a player never
+    /// sets here but which the library would overwrite given the chance
+    /// (`ActionButtonConfig.cs:156-157` renames an Action button from
+    /// whatever `GetAction` resolved), so the boxed `AvatarAction.None`
+    /// is the identity and the name is the label.
+    /// </summary>
+    public static bool IsGo(ActionButtonConfig cfg) =>
+        cfg != null && cfg.ButtonType == ActionButtonType.Action
+        && cfg.Data is AvatarAction a && a == AvatarAction.None;
+
+    /// <summary>
+    /// Writes the Go marker into a slot.
+    ///
+    /// Not a library setter, because there is no `SetToGo` to call and
+    /// `SetToAction(AvatarAction.None)` would caption the slot "None"
+    /// (`ActionButtonConfig.cs:208-215`). `SetToUnset` first for the one
+    /// thing only the library can do: drop the PropertyChanged listener
+    /// a previously bound item or spell left on the slot
+    /// (`ActionButtonConfig.cs:186-199`, called from `:201`). The three
+    /// fields after it are the library's own public setters, so the list
+    /// still raises ItemChanged and the row still redraws.
+    /// </summary>
+    public static void SetToGo(ActionButtonConfig slot)
+    {
+        if (slot == null) return;
+        slot.SetToUnset();
+        slot.Data = AvatarAction.None;
+        slot.ButtonType = ActionButtonType.Action;
+        slot.Name = GoName;
+    }
+
+    /// <summary>
     /// Puts a starting set of buttons in the client's list if it is empty.
     ///
     /// This part is **not** mirrored, because there is nothing to mirror:
@@ -321,10 +409,31 @@ public partial class ActionButtons : Control
         // a default set when there are none.
         if (HotbarStore.Load(data)) return;
 
-        AvatarAction[] starting =
+        object[] starting =
         {
             AvatarAction.Rest,
             AvatarAction.Attack,
+            // GO IS SEEDED, and it goes here - directly after Attack,
+            // which puts it on seat 2 of the first page.
+            //
+            // The argument for seeding it at all is the one the owner
+            // made by playing: it is how you leave a room, so it is
+            // pressed more often than six of the eight that were
+            // already seeded, and a starting set that holds Wave but
+            // not Go is a set that cannot get out of the inn without
+            // opening a menu. The argument for the POSITION is the
+            // pager: four bindings fit a page (HotSeats), the arc is
+            // Attack-less and in list order, so this seed fills page
+            // one with Rest, Go, Loot, Activate and pushes Inspect to
+            // page two. Inspect is the right thing to push - it reads
+            // a description off something already tapped, and nothing
+            // in a fight or a corridor waits on it.
+            //
+            // A character who has played before does NOT gain it: Load
+            // above returns first and that character's arrangement is
+            // his own. The drawer tile and the Acts panel's "+" are how
+            // he gets it, which is the other half of why both stay.
+            Extra.Go,
             AvatarAction.Loot,
             AvatarAction.Activate,
             AvatarAction.Inspect,
@@ -334,14 +443,15 @@ public partial class ActionButtons : Control
         };
 
         int num = 0;
-        foreach (AvatarAction a in starting)
+        foreach (object a in starting)
         {
-            // SetToAction, not the constructor: the constructor leaves
+            // The setters, not the constructor: the constructor leaves
             // Data null, and BaseClient.OnActionButtonActivated does
             // nothing at all for a button whose Data is null - the name
             // is a label, the Data is what the press dispatches on.
-            var cfg = new ActionButtonConfig(num++, ActionButtonType.Action, a.ToString());
-            cfg.SetToAction(a);
+            var cfg = new ActionButtonConfig(num++, ActionButtonType.Unset, "");
+            if (a is AvatarAction act) cfg.SetToAction(act);
+            else SetToGo(cfg);
             data.ActionButtons.Add(cfg);
         }
     }
@@ -416,6 +526,14 @@ public partial class ActionButtons : Control
             // constructor - see Seed: a config with a null Data is a
             // button BaseClient's dispatch does nothing for.
             case AvatarAction act:     slot.SetToAction(act);   break;
+            // Go, which the library has no type for - see Extra. It
+            // comes through Bind rather than having a BindGo of its own
+            // so that one function stays the only thing that chooses a
+            // slot, appends when the page is full and sets LastBound;
+            // a second writer would be a second copy of that, and the
+            // last time two places wrote the row it shipped a button
+            // that fired a different button's action.
+            case Extra.Go:             SetToGo(slot);           break;
             // An alias, dragged out of the alias page in the reference:
             // the row carries a CEGUI::DragContainer
             // (`Meridian59.Ogre.Client/UIOptions.cpp:1070`, its icon set
@@ -605,8 +723,12 @@ public partial class ActionButtons : Control
             // the player actually wants confirmed - what the alias
             // expands to, which is the Value that `BaseClient.cs:292-296`
             // will send.
+            // Go's name is two letters and says nothing about what it
+            // does; the drawer tile it duplicates carries "Through the
+            // door" as its caption, so the slot carries the same words.
             b.TooltipText = isAlias && cfg.Data is KeyValuePairString kv
                 ? cfg.Name + "\n" + kv.Value
+                : IsGo(cfg) ? GoName + "\nThrough the door"
                 : cfg.Name;
             b.Position = cell.Position;
             b.Size = cell.Size;
@@ -873,6 +995,41 @@ public partial class ActionButtons : Control
                 return true;
             case ActionButtonType.Item:
                 return cfg.Data is InventoryObject o && o.IsInUse == _heldInUse && InPack(o);
+            // Attack and nothing else, which now has a second reason
+            // beyond the action gate: Go is an Action-typed slot (see
+            // Extra) and GO MUST NOT REPEAT.
+            //
+            // The reference settles it. Every action-button key is read
+            // by the per-frame input tick with isKeyDown and no edge
+            // test (`ControllerInput.cpp:995-1044`), which is why a held
+            // slot re-fires here at all - but ReqGo is not read there.
+            // It is dispatched from OISKeyboard_KeyPressed
+            // (`ControllerInput.cpp:535`, firing at :552-553), the
+            // KEY-DOWN EVENT, which OIS raises once per physical press.
+            // Leaning on the Open key in the reference sends one ReqGo,
+            // so a Go slot that repeated would be a behaviour the game
+            // does not have.
+            //
+            // And the library has no throttle to lean on. Every other
+            // repeating kind is gated - attack and cast by
+            // `GameTick.cs:300-315` (`BaseClient.cs:1522`, `:1753`), use
+            // and apply by INTERVALINTERACT (`GameTick.cs:30,349`), an
+            // alias by INTERVALALIAS (`:35,376`) - but there is no
+            // CanReqGo anywhere in `GameTick.cs`: SendReqGo records
+            // DidReqGo and tests nothing (`BaseClient.cs:1546-1562`,
+            // `GameTick.cs:408-411`). A held Go would put one ReqGo per
+            // frame on the wire, ungated.
+            //
+            // Worse than the flood, it would stop the player walking.
+            // The one reader of GameTick.ReqGo is SendReqMoveMessage,
+            // which refuses to send a move for up to 500 ms after a go
+            // so the server does not read the move as a rubber-band
+            // (`BaseClient.cs:1627-1634`). A thumb resting on Go would
+            // hold that window open for as long as it rested there.
+            //
+            // Nor is a repeat wanted on its own terms: a door is walked
+            // through once, and walking through it twice is walking
+            // back out.
             case ActionButtonType.Action:
                 return cfg.Data is AvatarAction a && a == AvatarAction.Attack;
         }
@@ -904,12 +1061,33 @@ public partial class ActionButtons : Control
         if (Send(cfg, true)) _sentInHold = true;
     }
 
+    /// <summary>
+    /// What a Go slot sends - the view's `SendReqGo(true)`, which is the
+    /// same call its drawer tile makes.
+    ///
+    /// Supplied rather than called, for the reason the whole file is
+    /// built this way: the client lives in <see cref="GameView"/> and
+    /// this control does not hold one. The press still goes through
+    /// <see cref="Run"/>, so a Go in the arc is gated and latched
+    /// exactly as the tile is - HotbarAct with keepLatch false is
+    /// WorldAct exactly. Null in a bare harness, where the slot then
+    /// draws and does nothing, as an unwired Attack would.
+    /// </summary>
+    public Action GoSend;
+
     bool Send(ActionButtonConfig cfg, bool keepLatch)
     {
         bool sent = true;
+        // The one slot whose press is not the library's dispatch. The
+        // config is in the client's list and BaseClient IS subscribed to
+        // it, so Activate would be raised and handled - ExecAction with
+        // AvatarAction.None, which does nothing (see Extra). Calling the
+        // view's send instead of Activate is what makes it do something,
+        // and is also why there is no double-send to worry about.
+        bool isGo = IsGo(cfg);
         Action go = () =>
         {
-            try { cfg.Activate(); }
+            try { if (isGo) GoSend?.Invoke(); else cfg.Activate(); }
             catch (Exception e) { GD.PrintErr($"[ActionButtons] {cfg?.Name}: {e.Message}"); }
         };
         if (Run != null) sent = Run(go, keepLatch);

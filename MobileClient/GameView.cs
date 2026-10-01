@@ -2219,6 +2219,15 @@ public partial class GameView : Node2D
                 if (ActionButtons.Bind(_client.Data, a))
                     _chat?.Local($"{a} is on the hotbar. Drag the button off the row to clear it.");
             });
+            // The twelfth row. Not ExecAction - there is no AvatarAction
+            // for Go (see the Go tile below) - but the same send the
+            // tile and the bound slot make, through the same gate.
+            _acts.PerformGo += () => WorldAct(() => _client.SendReqGo(true));
+            _acts.AssignGo += () => Act(() =>
+            {
+                if (ActionButtons.Bind(_client.Data, ActionButtons.Extra.Go))
+                    _chat?.Local("Go is on the hotbar. Drag the button off the row to clear it.");
+            });
             _ui.AddChild(_acts);
         });
         Widget("hotbar", () =>
@@ -2229,6 +2238,11 @@ public partial class GameView : Node2D
             // Activate() straight from the button.
             _hotbar.Run = HotbarAct;
             _hotbar.SpendLatch = SpendSelfTarget;
+            // The one slot the library cannot dispatch for itself, so
+            // the view hands the hotbar the send. The same call the Go
+            // tile makes, through the same gate: the hotbar wraps this
+            // in Run, which is HotbarAct, which is WorldAct for a tap.
+            _hotbar.GoSend = () => _client.SendReqGo(true);
             _hotbar.Cleared += name => _chat?.Local($"{name} cleared from the hotbar.");
             ActionButtons.Seed(_client.Data);
             // Above the target row, which is itself above the chat block:
@@ -2392,14 +2406,38 @@ public partial class GameView : Node2D
             // It is not AvatarAction.Activate and not the target row's
             // Open: those act on a thing you have tapped. ReqGo takes no
             // argument at all - it is "take me through", the doors and
-            // the passages between rooms - and there is no AvatarAction
-            // for it, so it cannot be a hotbar button and has to be its
-            // own control.
+            // the passages between rooms.
             //
             // Without it this client could walk around one room and
             // never leave it. A phone has no space bar; the reference
             // never had to think about that.
-            _go = new Button { Text = "Go" };
+            //
+            // IT IS A HOTBAR BINDING AS WELL, now, which this comment
+            // used to say was impossible - "there is no AvatarAction for
+            // it, so it cannot be a hotbar button and has to be its own
+            // control". The first half is true and the second did not
+            // follow: the hotbar learned the kind instead
+            // (`ActionButtons.Extra`), so Go can sit in the combat arc
+            // beside Attack, where it belongs - it is pressed while
+            // moving, and the drawer that now holds this tile is modal
+            // and stops the world.
+            //
+            // THE TILE STAYS ANYWAY, and deliberately. A tile costs one
+            // cell of a grid that is only opened a few times an hour,
+            // and it is the only Go a player has if he cleared the slot
+            // by dragging it off, or if he is a character who played
+            // before this change and whose saved hotbar the seed does
+            // not touch (`HotbarStore.Load` wins over `Seed`). Taking
+            // it away would be the same class of mistake as putting Go
+            // in here in the first place: removing the last way to
+            // reach something. It is the same send either way -
+            // HotbarAct with keepLatch false is WorldAct exactly - so
+            // there is one behaviour and two doors to it.
+            // Named, because the caption is no longer unique: a bound Go
+            // slot in the arc says "Go" too, and a bare-name press takes
+            // whichever comes first in tree order - the trap
+            // notes/harness.md calls a caption that exists twice.
+            _go = new Button { Text = "Go", Name = "goButton" };
             // true, so the server is told where we are standing and
             // which way we face before it is asked to move us - the
             // reference passes the same, and SendReqGo forces both the
