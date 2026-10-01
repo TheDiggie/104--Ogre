@@ -461,7 +461,7 @@ public partial class ActionButtons : Control
     int _heldSlot = -1;
     int _heldNum;
     ulong _heldSince;
-    bool _repeating, _outside, _sentInHold;
+    bool _repeating, _outside, _sentInHold, _heldInUse;
 
     void OnDown(int slot)
     {
@@ -470,6 +470,7 @@ public partial class ActionButtons : Control
         _heldNum = _nums[slot];
         _heldSince = Time.GetTicksMsec();
         _repeating = false; _outside = false; _sentInHold = false;
+        _heldInUse = _data?.ActionButtons?.GetByNum(_heldNum)?.Data is InventoryObject io && io.IsInUse;
     }
 
     void OnGui(int slot, Button b, InputEvent ev)
@@ -517,16 +518,50 @@ public partial class ActionButtons : Control
     }
 
     /// <summary>
-    /// Only what the reference's server throttles as a swing: melee, a
-    /// cast, a skill. Items, aliases and the toggles (Rest) fire once
-    /// per press - the reference repeats those as well, but on a phone a
-    /// second's hold on Rest would stand you back up.
+    /// What a held press repeats. The reference polls every action-button
+    /// key with isKeyDown(...)->Activate() and no edge test
+    /// (`ControllerInput.cpp:997-1044`), so a held key re-activates
+    /// whatever the slot holds, of any type, and the library throttles
+    /// each: attack and cast `GameTick.cs:40-51` (`BaseClient.cs:1522`,
+    /// `:1753`), a use or apply once per object per 500 ms
+    /// (`BaseClient.cs:2041`, `GameTick.cs:349`, INTERVALINTERACT :30),
+    /// an alias once per 500 ms (`BaseClient.cs:292`, INTERVALALIAS :35).
+    /// Those all repeat here, and the library's gate is the cadence.
+    ///
+    /// Two deliberate departures, both toggles. Rest: the reference's
+    /// held key would alternate Rest and Stand every 500 ms
+    /// (`BaseClient.cs:3218-3230`), which no player wants from a thumb
+    /// left on the button. An item that is used or unused
+    /// (`BaseClient.cs:3018-3024`) - worn gear - would flap the same way,
+    /// so an item repeats only while its in-use state is what it was when
+    /// the press went down, and only while it is still in the pack (a
+    /// drunk potion's config keeps the dead object). One-shot actions
+    /// (Dance, Wave...) stay one per press, as the library's 500 ms
+    /// action gate (`BaseClient.cs:1471`) makes repeats pointless.
     /// </summary>
-    static bool Repeats(ActionButtonConfig cfg) =>
-        cfg.ButtonType == ActionButtonType.Spell ||
-        cfg.ButtonType == ActionButtonType.Skill ||
-        (cfg.ButtonType == ActionButtonType.Action &&
-         cfg.Data is AvatarAction a && a == AvatarAction.Attack);
+    bool Repeats(ActionButtonConfig cfg)
+    {
+        switch (cfg.ButtonType)
+        {
+            case ActionButtonType.Spell:
+            case ActionButtonType.Skill:
+            case ActionButtonType.Alias:
+                return true;
+            case ActionButtonType.Item:
+                return cfg.Data is InventoryObject o && o.IsInUse == _heldInUse && InPack(o);
+            case ActionButtonType.Action:
+                return cfg.Data is AvatarAction a && a == AvatarAction.Attack;
+        }
+        return false;
+    }
+
+    bool InPack(InventoryObject o)
+    {
+        var list = _data?.InventoryObjects;
+        if (list == null) return false;
+        foreach (InventoryObject i in list) if (i.ID == o.ID) return true;
+        return false;
+    }
 
     /// <summary>
     /// The input tick, `ControllerInput.cpp:995-1030`: while the press is
