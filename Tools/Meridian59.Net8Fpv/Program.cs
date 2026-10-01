@@ -20,7 +20,8 @@ static class Fpv
         {
             if (a[i].StartsWith("--"))
             {
-                if (a[i] == "--sprite" || a[i] == "--time" || a[i] == "--pitch" || a[i] == "--sky") i++;   // takes a value
+                if (a[i] == "--sprite" || a[i] == "--time" || a[i] == "--pitch" || a[i] == "--sky") i++;
+                if (a[i] == "--torch") i += 5;   // takes a value
                 continue;
             }
             pos.Add(a[i]);
@@ -70,6 +71,22 @@ static class Fpv
             Console.WriteLine(r.Sky != null
                 ? $"sky {r.Sky.Name} from {skyDir}"
                 : $"no sky: {flags[ski + 1]} not found under {skyDir ?? "(nowhere)"}");
+        }
+
+        // --torch <x> <y> <z> <intensity 0-255> <rgb555 hex> puts a point
+        // light in the room, to see the shader's light loop work.
+        int tri = Array.IndexOf(flags, "--torch");
+        if (tri >= 0 && tri + 5 < flags.Length)
+        {
+            float ratio = float.Parse(flags[tri + 4]) / 255f;
+            float range = (120f + 460f * ratio) * 16f;
+            ushort c = Convert.ToUInt16(flags[tri + 5], 16);
+            r.Lights.Add(new Renderer.Light {
+                X = float.Parse(flags[tri + 1]), Y = float.Parse(flags[tri + 2]),
+                Z = float.Parse(flags[tri + 3]),
+                R = ((c >> 10) & 31) / 31f, G = ((c >> 5) & 31) / 31f, B = (c & 31) / 31f,
+                Range = range, R2 = range * range });
+            Console.WriteLine($"torch range {range:F0} world units");
         }
 
         // --time <seconds> advances scrolling floors and walls.

@@ -332,6 +332,8 @@ public sealed class Renderer
         public Sprite S;
         public Tex T;
         public float Depth, Left, WPx, HPx, YTop, YBot, Fog;
+        /// <summary>The same with the point lights added, per channel.</summary>
+        public float LitR, LitG, LitB;
     }
 
     /// <summary>Objects drawn after the walls, occluded by them.</summary>
@@ -604,11 +606,11 @@ public sealed class Renderer
                 FillFlat(px, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
-                         LitFlat(near, true), Sky);
+                         LitFlat(near, true), Sky, Lights);
                 FillFlat(px, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
-                         LitFlat(near, false), Sky);
+                         LitFlat(near, false), Sky, Lights);
 
                 yTop = Math.Max(yTop, ceilY);
                 yBot = Math.Min(yBot, floorY);
@@ -689,7 +691,7 @@ public sealed class Renderer
                              HonourNoVTile && side != null && side.Flags.IsNoVTile,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time, Sky, rayA, cosFix, horizon, proj);
+                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy);
                     _depth[sx] = perp;
                     closed = true;
                     break;
@@ -712,7 +714,7 @@ public sealed class Renderer
                              fog, tpp, false, null, 0f, 0, false,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time);
+                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy);
                     // Nobody draws the band when there is no texture for
                     // it, and yTop moves past it either way - so those
                     // rows kept whatever the last frame left there and
@@ -735,7 +737,7 @@ public sealed class Renderer
                              fog, tpp, false, null, 0f, 0, false,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time);
+                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy);
                     else for (int y = Math.Max(0, Math.Max(yTop, farFloorY));
                               y < Math.Min(H, yBot + 1); y++)
                         px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
@@ -784,7 +786,7 @@ public sealed class Renderer
                                      false, null, 0f, 0,
                                      HonourNoVTile && side.Flags.IsNoVTile,
                                      side.Flags.ScrollSpeed, side.Flags.ScrollDirection, Time,
-                                     Sky, rayA, cosFix, horizon, proj);
+                                     Sky, rayA, cosFix, horizon, proj, Lights, hx, hy);
                             _depth[sx] = perp;
                             closed = true;
                             break;
@@ -911,7 +913,7 @@ public sealed class Renderer
                     if (ty < 0) continue;
                     uint c = p.T.P[ty * p.T.W + tx];
                     if ((c >> 24) == 0) continue;            // transparent texel
-                    uint lit = Material(Shade(c | 0xFF000000u, p.Fog), sp);
+                    uint lit = Material(Shade(c | 0xFF000000u, p.LitR, p.LitG, p.LitB), sp);
                     // Opacity one is the ordinary case and must cost
                     // nothing; anything less is blended over whatever the
                     // walls and floor already put there.
@@ -1008,6 +1010,16 @@ public sealed class Renderer
             // 0.6/0.4 (:172-173).
             Fog = Falloff(depth) * SpriteLit(sp, camX, camY),
         };
+        // Point lights, at the middle of the sprite's own height. The
+        // shader lights a billboard per pixel from the quad's
+        // interpolated world position; one place for the whole sprite
+        // is the divergence a column renderer's per-sprite blit makes,
+        // and the reference puts an object's own light at half its
+        // height for the same reason (RemoteNode2D.cpp:136-143).
+        p.LitR = p.LitG = p.LitB = p.Fog;
+        if (Lights.Count > 0)
+            AddLights(Lights, sp.X, sp.Y, sp.BaseZ + hPx * depth / proj * 0.5f,
+                      ref p.LitR, ref p.LitG, ref p.LitB);
         return true;
     }
 
@@ -1179,7 +1191,8 @@ public sealed class Renderer
                          TextureScrollDirection scrollDir = TextureScrollDirection.N,
                          float time = 0f,
                          M59Sky sky = null, float rayA = 0f, float cosFix = 1f,
-                         float horizon = 0f, float proj = 1f)
+                         float horizon = 0f, float proj = 1f,
+                         List<Light> lights = null, float hx = 0f, float hy = 0f)
     {
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
@@ -1291,7 +1304,16 @@ public sealed class Renderer
                     float sd = spriteDepth[y * stride + sx];
                     if (sd > 0f && sd < depth) continue;
                 }
-                c = Shade(texel | 0xFF000000u, fog);
+                if (lights == null || lights.Count == 0) c = Shade(texel | 0xFF000000u, fog);
+                else
+                {
+                    // Every point light reaching this pixel's own place
+                    // on the wall - the column already knows where that
+                    // is, and worldH is the height it is drawing.
+                    float lr = fog, lg = fog, lb = fog;
+                    AddLights(lights, hx, hy, worldH, ref lr, ref lg, ref lb);
+                    c = Shade(texel | 0xFF000000u, lr, lg, lb);
+                }
             }
             px[y * W + sx] = c;
         }
@@ -1359,7 +1381,7 @@ public sealed class Renderer
                          RooSector sec, float camX, float camY, float camZ,
                          float horizon, float proj, float angle, float rayA, TexCache tc,
                          bool skip, bool noSample, float time, FlatAnchors anchors,
-                         float bright, M59Sky sky)
+                         float bright, M59Sky sky, List<Light> lights)
     {
         if (sec == null || skip) return;
         if (y0 < 0) y0 = 0;
@@ -1487,10 +1509,18 @@ public sealed class Renderer
                 sv = (wx - anchorX - texOffX) / M59Geo.Fineness;
             }
 
-            px[y * W + sx] = Shade(
-                noSample ? t.P[0]
-                         : t.Sample(su + scrollU, sv + scrollV, texelsPerPixel),
-                fog);
+            uint texel = noSample ? t.P[0]
+                                  : t.Sample(su + scrollU, sv + scrollV, texelsPerPixel);
+            if (lights == null || lights.Count == 0) px[y * W + sx] = Shade(texel, fog);
+            else
+            {
+                // The surface's own height at the sampled point, which
+                // a slope has already been solved for.
+                float surfaceZ = slope != null ? M59Geo.Plane(slope, wx, wy) : planeH;
+                float lr = fog, lg = fog, lb = fog;
+                AddLights(lights, wx, wy, surfaceZ, ref lr, ref lg, ref lb);
+                px[y * W + sx] = Shade(texel, lr, lg, lb);
+            }
         }
     }
     /// <summary>
@@ -1517,6 +1547,68 @@ public sealed class Renderer
         uint g = (uint)(((over >> 8) & 0xFF) * a + ((under >> 8) & 0xFF) * b);
         uint bl = (uint)((over & 0xFF) * a + (under & 0xFF) * b);
         return 0xFF000000u | (r << 16) | (g << 8) | bl;
+    }
+
+    /// <summary>
+    /// A point light, as the room and object shaders add them:
+    /// `colour * max(0, 1 - |p - lightPos|^2 / range^2)`
+    /// (general.hlsl:117-123). Only the RANGE is used - the reference
+    /// sets Ogre's constant, linear and quadratic attenuation to zero
+    /// and says so ("only distance value is used in pixelshader",
+    /// Util.h:274-276) - and the colour is not scaled by intensity
+    /// either: intensity sets the radius and nothing else.
+    /// </summary>
+    public struct Light
+    {
+        public float X, Y, Z;
+        public float R, G, B;
+        /// <summary>120 + 460 * intensity/255, times 0.12 if it is a highlight (Util.h:263-272).</summary>
+        public float Range;
+        /// <summary>Range squared, kept so the per-pixel test is a compare.</summary>
+        public float R2;
+    }
+
+    /// <summary>
+    /// The room's lit objects - torches, lamps, spell effects. The
+    /// reference builds one Ogre point light per object whose
+    /// LightingInfo says its light is on (Util.h:260-278) and attaches
+    /// it to that object's node.
+    ///
+    /// The shader sees at most 47 of them on a wall and 7 on a sprite
+    /// (`max_lights 48` and `max_lights 8` in general.material, with
+    /// index 0 the sun). Ogre picks which by distance to the thing being
+    /// drawn; here the whole list is tested per pixel, which gives the
+    /// same answer whenever a room has fewer lights than the cap, and
+    /// every room in this game does.
+    /// </summary>
+    public readonly List<Light> Lights = new List<Light>();
+
+    /// <summary>
+    /// Adds every point light reaching a world point to a colour triple
+    /// that already holds the ambient and sun term. Straight out of the
+    /// shader loop, including that it is additive and unclamped.
+    /// </summary>
+    static void AddLights(List<Light> lights, float x, float y, float z,
+                          ref float lr, ref float lg, ref float lb)
+    {
+        for (int i = 0; i < lights.Count; i++)
+        {
+            Light L = lights[i];
+            float dx = L.X - x, dy = L.Y - y, dz = L.Z - z;
+            float d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 >= L.R2) continue;
+            float k = 1f - d2 / L.R2;
+            lr += L.R * k; lg += L.G * k; lb += L.B * k;
+        }
+    }
+
+    /// <summary>Shade with a colour triple rather than one factor, for lit pixels.</summary>
+    internal static uint Shade(uint c, float fr, float fg, float fb)
+    {
+        uint r = (uint)MathF.Min(255f, MathF.Max(0f, ((c >> 16) & 0xFF) * fr));
+        uint g = (uint)MathF.Min(255f, MathF.Max(0f, ((c >> 8) & 0xFF) * fg));
+        uint b = (uint)MathF.Min(255f, MathF.Max(0f, (c & 0xFF) * fb));
+        return 0xFF000000u | (r << 16) | (g << 8) | b;
     }
 
     internal static uint Shade(uint c, float f)

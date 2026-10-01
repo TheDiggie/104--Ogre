@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Meridian59.Common;
+using Meridian59.Common.Interfaces;
 using Meridian59.Common.Constants;
 using Meridian59.Common.Enums;
 using Meridian59.Data.Models;
@@ -116,11 +117,53 @@ public sealed class WorldSync
     /// </summary>
     public double Seconds;
 
+    /// <summary>
+    /// One point light per object whose light is on, the way
+    /// Util::UpdateFromILightOwner builds them (Util.h:229-278).
+    ///
+    /// The colour is the 5-5-5 packed LightColor (Util.h:203-211) and is
+    /// NOT scaled by intensity - intensity only sets the radius, which
+    /// is 120 + 460 * intensity/255 Ogre units, times 0.12 for a
+    /// highlight light (Util.h:263-272). Ogre units are world units over
+    /// sixteen (V3.ConvertToWorld, V3.cs:346-351), so the radius comes
+    /// back to world units by multiplying by sixteen.
+    ///
+    /// The light sits at half the object's height, which is where the
+    /// reference puts a 2D object's (RemoteNode2D.cpp:136-143); the
+    /// avatar's own is included, unlike its sprite, because a torch in
+    /// your own hand lights the room in front of you.
+    /// </summary>
+    void AddLight(ILightOwner o, V3 position)
+    {
+        LightingInfo li = o?.LightingInfo;
+        if (li == null || !li.IsLightOn || li.LightIntensity == 0) return;
+
+        float ratio = li.LightIntensity / 255f;
+        float range = 120f + 460f * ratio;
+        if (li.IsLightHighlight) range *= 0.12f;
+        range *= 16f;                                   // Ogre units to world units
+        if (range <= 0f) return;
+
+        ushort c = li.LightColor;
+        Renderer.Lights.Add(new Renderer.Light
+        {
+            X = M59Geo.KodToWorld(position.X),
+            Y = M59Geo.KodToWorld(position.Z),
+            Z = M59Geo.KodHeightToXY(position.Y) + 50f * 16f,
+            R = ((c >> 10) & 31) / 31f,
+            G = ((c >> 5) & 31) / 31f,
+            B = (c & 31) / 31f,
+            Range = range,
+            R2 = range * range,
+        });
+    }
+
     public void SyncSprites(IEnumerable<RoomObject> objects, RoomObject avatar,
                             IEnumerable<Projectile> projectiles = null)
     {
         if (Renderer == null) return;
         Renderer.Sprites.Clear();
+        Renderer.Lights.Clear();
         if (objects == null) return;
 
         V2 eye = avatar != null ? avatar.Position2D : new V2(0f, 0f);
@@ -128,6 +171,11 @@ public sealed class WorldSync
         foreach (RoomObject o in objects)
         {
             if (o == null || o.Resource == null) continue;
+            // Before the avatar is skipped: you do not see yourself, but
+            // a torch in your own hand still lights the room in front of
+            // you, and the reference attaches the light to the object
+            // whether or not its sprite is drawn.
+            AddLight(o, o.Position3D);
             if (avatar != null && ReferenceEquals(o, avatar)) continue;
 
             var sp = new Renderer.Sprite
@@ -200,6 +248,10 @@ public sealed class WorldSync
         foreach (Projectile p in projectiles)
         {
             if (p?.Resource == null) continue;
+
+            // A spell effect carries its own light too
+            // (ProjectileNode2D.cpp:48, :132-138).
+            AddLight(p, p.Position3D);
 
             p.UpdateViewerAngle(eye);
 
