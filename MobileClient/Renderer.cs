@@ -129,10 +129,85 @@ public sealed class Renderer
     /// as a plain ratio of 255 - `ControllerRoom::AdjustAmbientLight`
     /// and `Util::LightIntensityToOgreRGB`. It does not use the per-
     /// sector light values at all, even though the library exposes them,
-    /// so neither does this: a room is lit by its ambient and shaded by
-    /// distance, and nothing else.
+    /// so neither does this.
+    ///
+    /// This is only the ambient HALF of the light. The room shader
+    /// weights it: `light = 0.4 * max(dot(sunDir, n), 0) * sunColour +
+    /// 0.6 * ambient` (general.hlsl:114-115), and the object shader
+    /// splits it evenly instead, 0.5 and 0.5 (general.hlsl:172-173). So
+    /// a surface lit by ambient alone gets 0.6 of it, not all of it -
+    /// this renderer was 1.67 times too bright on walls and twice as
+    /// bright as it should be on sprites.
     /// </summary>
     public float Brightness = 1f;
+
+    /// <summary>The ambient's share of a wall, floor or ceiling (general.hlsl:115).</summary>
+    public const float RoomAmbientWeight = 0.6f;
+    /// <summary>The sun's share of the same (general.hlsl:114).</summary>
+    public const float RoomSunWeight = 0.4f;
+    /// <summary>A sprite splits the two evenly instead (general.hlsl:172-173).</summary>
+    public const float ObjectAmbientWeight = 0.5f;
+    /// <summary>The other half (general.hlsl:172).</summary>
+    public const float ObjectSunWeight = 0.5f;
+
+    /// <summary>
+    /// How strong the one directional light is, and which way it points.
+    ///
+    /// The shader's light 0 is a directional light and the only one the
+    /// scene is guaranteed to have - `setEnsureSingleLightSource(true)`,
+    /// ControllerRoom.cpp:141 - and its strength comes from
+    /// LightShading.LightIntensity through AdjustAmbientLight, which
+    /// multiplies it by three and by the player's brightness slider
+    /// (ControllerRoom.cpp:1443-1451).
+    ///
+    /// DIVERGENCE: the DIRECTION is Caelum's. The server sends one -
+    /// LightShading.SpherePosition - and the reference ignores it,
+    /// letting the sky dome's own clock place the sun. Porting an
+    /// astronomical model to get a shading direction is not worth it, so
+    /// the server's own direction is used; with the sun off, which is
+    /// what an indoor room sends, neither matters and the whole term is
+    /// zero.
+    /// </summary>
+    public float SunLight = 0f;
+    /// <summary>Unit vector towards the sun, in world axes: x, y across the map, z up.</summary>
+    public float SunX = 0f, SunY = 0f, SunZ = 1f;
+
+    /// <summary>
+    /// The lit fraction for a surface whose normal is (nx, ny, nz),
+    /// given the ambient and sun weights of whichever shader it belongs
+    /// to. `max(dot(...), 0)` and the two weighted terms, as written.
+    /// </summary>
+    public float Lit(float nx, float ny, float nz, float ambientWeight, float sunWeight)
+    {
+        float d = nx * SunX + ny * SunY + nz * SunZ;
+        if (d < 0f) d = 0f;
+        return ambientWeight * Brightness + sunWeight * d * SunLight;
+    }
+
+    /// <summary>
+    /// The lit fraction of a floor or ceiling. Flat ones face straight
+    /// up or straight down; a sloped one carries its plane's own normal,
+    /// which is what the library hands the geometry
+    /// (RooSubSector.FloorNormal / CeilingNormal, used at
+    /// ControllerRoom.cpp:809-829). It does not vary across the surface,
+    /// so it is worked out once a column rather than once a pixel.
+    /// </summary>
+    float LitFlat(RooSector sec, bool ceiling)
+    {
+        if (sec == null) return RoomAmbientWeight * Brightness;
+        RooSectorSlopeInfo slope = ceiling ? sec.SlopeInfoCeiling : sec.SlopeInfoFloor;
+        float nx = 0f, ny = 0f, nz = ceiling ? -1f : 1f;
+        if (slope != null)
+        {
+            nx = slope.A; ny = slope.B; nz = slope.C;
+            float l = MathF.Sqrt(nx * nx + ny * ny + nz * nz);
+            if (l > 0f) { nx /= l; ny /= l; nz /= l; }
+            // The plane's normal has no preferred side; a ceiling looks
+            // down and a floor looks up.
+            if ((ceiling && nz > 0f) || (!ceiling && nz < 0f)) { nx = -nx; ny = -ny; nz = -nz; }
+        }
+        return Lit(nx, ny, nz, RoomAmbientWeight, RoomSunWeight);
+    }
 
     /// <summary>
     /// The sky behind every hole in the geometry, or null for the void.
@@ -529,11 +604,11 @@ public sealed class Renderer
                 FillFlat(px, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
-                         Brightness, Sky);
+                         LitFlat(near, true), Sky);
                 FillFlat(px, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
-                         Brightness, Sky);
+                         LitFlat(near, false), Sky);
 
                 yTop = Math.Max(yTop, ceilY);
                 yBot = Math.Min(yBot, floorY);
@@ -589,7 +664,16 @@ public sealed class Renderer
                 const ushort EdgeGroup = 1;
                 int xOff = h.Right ? h.Wall.RightXOffset : h.Wall.LeftXOffset;
                 int yOff = h.Right ? h.Wall.RightYOffset : h.Wall.LeftYOffset;
-                float fog = Falloff(perp) * Brightness;
+                // The wall's normal, which the room shader's N.L needs
+                // (general.hlsl:110-115). A wall is vertical, so it is
+                // the 2D perpendicular of its own segment, turned to
+                // face the camera - the geometry only ever shows the
+                // side the ray came at.
+                float wnx = h.Wall.Y2 - h.Wall.Y1, wny = h.Wall.X1 - h.Wall.X2;
+                float wnl = MathF.Sqrt(wnx * wnx + wny * wny);
+                if (wnl > 0f) { wnx /= wnl; wny /= wnl; }
+                if (wnx * rdx + wny * rdy > 0f) { wnx = -wnx; wny = -wny; }
+                float fog = Falloff(perp) * Lit(wnx, wny, 0f, RoomAmbientWeight, RoomSunWeight);
                 // World units one screen pixel spans on this wall. Turning
                 // that into texels needs the texture's shrink, so DrawWall
                 // finishes it - the old constant here quietly assumed
@@ -869,6 +953,21 @@ public sealed class Renderer
         return null;
     }
 
+    /// <summary>
+    /// The lit fraction of a billboard. It has no normal of its own, so
+    /// the object shader builds one out of the view direction
+    /// (general.hlsl:153-160) - which is to say the sprite faces the
+    /// camera - and splits ambient and sun evenly rather than 0.6/0.4
+    /// (:172-173).
+    /// </summary>
+    float SpriteLit(Sprite sp, float camX, float camY)
+    {
+        float nx = camX - sp.X, ny = camY - sp.Y;
+        float l = MathF.Sqrt(nx * nx + ny * ny);
+        if (l > 0f) { nx /= l; ny /= l; }
+        return Lit(nx, ny, 0f, ObjectAmbientWeight, ObjectSunWeight);
+    }
+
     bool Place(Sprite sp, float depth, float lateral, int W,
                float camX, float camY, float camZ, float proj, float horizon,
                out Placed p)
@@ -902,7 +1001,12 @@ public sealed class Renderer
             S = sp, T = t, Depth = depth,
             Left = cxs - wPx * 0.5f, WPx = wPx, HPx = hPx,
             YTop = yTop, YBot = yTop + hPx,
-            Fog = Falloff(depth) * Brightness,
+            // A sprite is a billboard, so it has no normal of its own:
+            // the object shader makes one out of the view direction
+            // (general.hlsl:153-160) - which is to say it faces the
+            // camera - and splits ambient and sun evenly rather than
+            // 0.6/0.4 (:172-173).
+            Fog = Falloff(depth) * SpriteLit(sp, camX, camY),
         };
         return true;
     }
