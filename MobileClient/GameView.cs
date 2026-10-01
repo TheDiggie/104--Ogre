@@ -1518,6 +1518,7 @@ public partial class GameView : Node2D
             _world.Renderer.Time = _clock;     // scrolling water and lava
             _world.Renderer.Pitch = _pitch;
             _world.Renderer.Brightness = Ambient();
+            Sun(_world.Renderer);
         }
 
         _vitals?.Follow(_client.Data);
@@ -2153,6 +2154,42 @@ public partial class GameView : Node2D
     /// a spell wears off. A room that has not said anything yet is left
     /// at full brightness rather than being rendered black.
     /// </summary>
+    /// <summary>
+    /// The one directional light, which the renderer had the arithmetic
+    /// for and nothing to feed it.
+    ///
+    /// Its strength is LightShading.LightIntensity through
+    /// AdjustAmbientLight, which multiplies it by three and by the
+    /// player's brightness slider before handing it to the sun and the
+    /// moon (ControllerRoom.cpp:1434-1446). With no LightShading message
+    /// yet - which is what an indoor room leaves you with - the
+    /// intensity is zero and the term vanishes, leaving 0.6 of the
+    /// ambient, as the shader says (general.hlsl:114-115).
+    ///
+    /// DIVERGENCE: the DIRECTION. The server sends one as a sphere
+    /// position, an angle round the horizon and a height, and the
+    /// reference throws it away and lets Caelum's clock place the sun
+    /// instead. Porting an astronomical model to get a shading direction
+    /// is not worth it, so the server's own direction is used - it is
+    /// the only one anybody sends. Height is the same 0..4095 turn as
+    /// the angle, so it is an elevation above the horizon.
+    /// </summary>
+    void Sun(Renderer r)
+    {
+        LightShading ls = _client?.Data?.LightShading;
+        if (ls == null || ls.LightIntensity == 0) { r.SunLight = 0f; return; }
+
+        float extra = Math.Clamp(1f + _bright, 1f, 1.8f);
+        r.SunLight = extra * 3f * (ls.LightIntensity / 255f);
+
+        float a = ls.SpherePosition.Angle * (2f * MathF.PI / GeometryConstants.MAXANGLE);
+        float h = ls.SpherePosition.Height * (2f * MathF.PI / GeometryConstants.MAXANGLE);
+        float ch = MathF.Cos(h);
+        r.SunX = MathF.Cos(a) * ch;
+        r.SunY = MathF.Sin(a) * ch;
+        r.SunZ = MathF.Sin(h);
+    }
+
     float Ambient()
     {
         RoomInfo room = _client?.Data?.RoomInformation;
