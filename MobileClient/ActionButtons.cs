@@ -26,6 +26,31 @@ using Meridian59.Data.Models;
 /// Twelve by four does not fit a phone, so this shows one row of however
 /// many fit across, the first buttons that are set. The rest are still
 /// there in the configuration.
+///
+/// THE LOOK. This is where a hand lives in a fight, and it was a row of
+/// default Godot buttons - flat grey rectangles that said nothing about
+/// what was in them. They are SLOTS now, in the panels' slot dress: the
+/// same sunken dark cell the inventory grid uses, so a bound button
+/// reads as a thing sitting in a holder rather than as a label. Three
+/// states are worth telling apart and each has its own:
+///
+///  - a slot that holds something has a lit rim and an opaque cell, so
+///    the row reads as bindings in holders rather than as captions;
+///  - a slot the thumb is ON gets a gold rim and a lifted fill, which
+///    matters more here than anywhere else in the client: a held button
+///    is REPEATING, and the player needs to see which one is;
+///  - the page button is dressed as what it is - a stepper, not another
+///    action - so turning the page never looks like casting.
+///
+/// What is deliberately NOT drawn is the empty remainder of the row.
+/// The grid in the reference shows all forty-eight cells, full or not,
+/// and empty cells here would say "slots" more loudly - but they would
+/// also lay chrome across the part of the world a thumb is pointing
+/// at, and the world is the game. Only bound slots are drawn, as
+/// before.
+///
+/// None of that touches what a press DOES: the hold-to-repeat rules
+/// below, the drag-off clear and the dispatch are all unchanged.
 /// </summary>
 public partial class ActionButtons : Control
 {
@@ -359,6 +384,7 @@ public partial class ActionButtons : Control
                 : cfg.Name;
             b.Position = new Vector2(LeftReserve + gap + i * (ButtonSize + gap), y);
             b.Size = new Vector2(ButtonSize, ButtonSize);
+            SlotEdge(b);
             b.Visible = true;
 
             // The slot, not the button number and not the config object.
@@ -410,6 +436,9 @@ public partial class ActionButtons : Control
             if (_turn == null)
             {
                 _turn = new Button();
+                // A stepper, not a slot: it moves the row rather than
+                // doing anything in the world.
+                M59Skin.Dress(_turn, M59Skin.Kind.Step);
                 _turn.AddThemeFontSizeOverride("font_size", 18);
                 _turn.Name = "hotpage";
                 _turn.TooltipText = "More buttons";
@@ -702,11 +731,49 @@ public partial class ActionButtons : Control
         while (_pool.Count <= index)
         {
             var b = new Button { Visible = false, ClipText = true };
+            M59Skin.Dress(b, M59Skin.Kind.Slot);
             b.AddThemeFontSizeOverride("font_size", FontSize);
+            // An alias shows its picture AND its key, and a 24px
+            // sprite with a word beside it does not fit a 72 square.
+            // Godot has no vertical-icon flag on Button, so the gap
+            // between them is pulled to nothing and the caption is
+            // clipped rather than pushing the icon off the cell.
+            b.AddThemeConstantOverride("h_separation", 2);
             AddChild(b);
             _pool.Add(b);
         }
         return _pool[index];
+    }
+
+    /// <summary>
+    /// The slot's own frame, over the skin's Slot dress.
+    ///
+    /// Done here rather than in the skin because the skin's Slot is the
+    /// inventory's, where a cell is pressed to CHOOSE and the pressed
+    /// state is a selection. Here a press is a cast or a swing and a
+    /// held press repeats, so the pressed state has to be the loudest
+    /// thing on the row: gold rim, lifted fill. The cell is near-opaque
+    /// for the same reason the plates above are - this row sits over
+    /// the floor, not over a panel.
+    /// </summary>
+    static void SlotEdge(Button b)
+    {
+        var normal = Cell(M59Skin.Rule, new Color(0.078f, 0.071f, 0.063f, 0.94f), 1);
+        var down = Cell(M59Skin.Gold, M59Skin.RowPick, 2);
+        b.AddThemeStyleboxOverride("normal", normal);
+        b.AddThemeStyleboxOverride("hover", normal);
+        b.AddThemeStyleboxOverride("focus", normal);
+        b.AddThemeStyleboxOverride("pressed", down);
+    }
+
+    static StyleBoxFlat Cell(Color edge, Color fill, int width)
+    {
+        var s = new StyleBoxFlat { BgColor = fill, AntiAliasing = true };
+        s.CornerRadiusTopLeft = s.CornerRadiusTopRight =
+        s.CornerRadiusBottomLeft = s.CornerRadiusBottomRight = 6;
+        s.BorderWidthTop = s.BorderWidthBottom = s.BorderWidthLeft = s.BorderWidthRight = width;
+        s.BorderColor = edge;
+        return s;
     }
 
     /// <summary>Which page of bindings the row is showing.</summary>

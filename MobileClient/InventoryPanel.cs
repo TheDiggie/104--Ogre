@@ -248,7 +248,9 @@ public partial class InventoryPanel : Control
         // slots is the floor (see Across), so the window never shrinks
         // below a usable target either.
         int cols = Across();
-        int rows = Mathf.Max(2, Mathf.CeilToInt(Mathf.Max(30, _grid.GetChildCount()) / (float)cols));
+        // What the grid actually holds, which Fill has already sized to
+        // the pack. The thirty-slot floor is Fill's, not this one's.
+        int rows = Mathf.Max(2, Mathf.CeilToInt(Mathf.Max(cols * 2, _grid.GetChildCount()) / (float)cols));
         // Two passes, because a slot's size depends on the card's width
         // and the card's height depends on the slot's size. The first
         // pass is only ever used for its width.
@@ -467,6 +469,15 @@ public partial class InventoryPanel : Control
 
         SizeCells();
         _title.Text = items.Count == 0 ? "Carrying nothing" : $"Carrying ({items.Count})";
+
+        // The card is sized from the number of rows, and until now
+        // nothing re-laid it out after the rows existed - so the window
+        // kept whatever height it was given while the grid was still
+        // empty, which is the thirty-slot floor: two rows on a wide
+        // screen. A hundred and one items were shown two rows at a time
+        // with the rest of the card empty under them. Photographed on
+        // the owner's phone.
+        Layout();
     }
 
     /// <summary>

@@ -37,8 +37,24 @@ public static class M59Skin
 {
     // ---- palette ---------------------------------------------------
 
-    /// <summary>Behind everything, over the world. Dark enough to read on.</summary>
-    public static readonly Color Scrim = new Color(0.02f, 0.018f, 0.015f, 0.72f);
+    /// <summary>
+    /// Behind everything, over the world - and CLEAR.
+    ///
+    /// It was a 72% black wash, on the usual reasoning that a modal
+    /// should push its surroundings back. Played on a real phone that
+    /// reasoning is wrong: the room is the game, you are standing in it
+    /// while you rummage in your bag, and dimming it to near-black to
+    /// read an opaque card that needed no help is just taking the game
+    /// away. The owner asked for it gone after one look.
+    ///
+    /// The rectangle itself stays, at zero alpha, because it is also
+    /// what stops a tap meant for the panel reaching the world behind
+    /// it. Invisible, still in the way - which is the whole job.
+    ///
+    /// <see cref="ScrimSolid"/> is the other case: a screen with no
+    /// world behind it at all.
+    /// </summary>
+    public static readonly Color Scrim = new Color(0.02f, 0.018f, 0.015f, 0f);
     /// <summary>The card itself.</summary>
     public static readonly Color Card = new Color(0.086f, 0.078f, 0.067f);
     /// <summary>The title bar and footer bands, a shade above the card.</summary>
@@ -487,6 +503,141 @@ public static class M59Skin
             x -= Gap;
         }
         return x;
+    }
+
+    /// <summary>A vertical scrollbar's width. A child sized to the full body runs under it.</summary>
+    public const float ScrollBarW = 16f;
+
+    /// <summary>
+    /// The scrim for a screen with no world behind it - login, the
+    /// character picker, creation. There is nothing to see through to
+    /// except the view's own connection log, which read through the
+    /// translucent one. Three screens built this by hand first.
+    /// </summary>
+    public static readonly Color ScrimSolid = new Color(0.02f, 0.018f, 0.015f, 1f);
+
+    /// <summary>
+    /// How wide a card should be, given what it would LIKE.
+    ///
+    /// The project stretches canvas items with aspect "expand", so a
+    /// portrait window keeps the viewport 1920 wide and grows Y - which
+    /// means a fixed width asked for in landscape comes out as a third
+    /// of the glass when the phone is turned. Upright, the card takes
+    /// nearly all of it. Four screens wrote this rule locally before it
+    /// lived here.
+    /// </summary>
+    public static float CardWidth(Vector2 v, float wide)
+        => v.Y > v.X ? v.X * 0.9f : wide;
+
+    /// <summary>
+    /// How much of the bottom of the glass the on-screen keyboard is
+    /// covering, in VIEWPORT units.
+    ///
+    /// DisplayServer reports it in window pixels, and this project
+    /// stretches canvas items, so the two are not the same number -
+    /// using the raw value lifts a card by the wrong amount on every
+    /// device whose window is not exactly the viewport. Zero when there
+    /// is no keyboard, which is every desktop and every headless run.
+    /// </summary>
+    public static float KeyboardH(Viewport vp)
+    {
+        if (vp == null) return 0f;
+        float px = DisplayServer.VirtualKeyboardGetHeight();
+        if (px <= 0f) return 0f;
+        float win = DisplayServer.WindowGetSize().Y;
+        if (win <= 0f) return 0f;
+        return px * (vp.GetVisibleRect().Size.Y / win);
+    }
+
+    /// <summary>
+    /// Moves a card clear of the keyboard.
+    ///
+    /// A centred card is centred on the whole glass, and the keyboard
+    /// takes the bottom third of it - so on a phone the field you are
+    /// typing into is behind the keys you are typing with. The card
+    /// slides up by exactly the overlap and no further, and never past
+    /// the top edge; with no keyboard this returns the card untouched,
+    /// so a caller can apply it unconditionally.
+    /// </summary>
+    public static Rect2 ClearOfKeyboard(Rect2 card, Vector2 v, float keyboard)
+    {
+        if (keyboard <= 0f) return card;
+        float visible = v.Y - keyboard;
+        float over = card.Position.Y + card.Size.Y - visible;
+        if (over <= 0f) return card;
+        float y = Mathf.Max(8f, card.Position.Y - over);
+        return new Rect2(card.Position.X, y, card.Size.X, card.Size.Y);
+    }
+
+    /// <summary>
+    /// A row that is read rather than pressed: a striped panel at row
+    /// height with the inset already applied, ready for a label on the
+    /// left and a control on the right. Six panels grew their own.
+    /// </summary>
+    public static PanelContainer Plate(bool alt, float height = RowH)
+    {
+        var p = new PanelContainer { CustomMinimumSize = new Vector2(0, height) };
+        var s = Stripe(alt);
+        s.ContentMarginLeft = s.ContentMarginRight = 14;
+        s.ContentMarginTop = s.ContentMarginBottom = 4;
+        p.AddThemeStyleboxOverride("panel", s);
+        return p;
+    }
+
+    /// <summary>
+    /// The card, its title bar, its name and its close - built and
+    /// positioned together, because the same nine lines were copied
+    /// into every converted panel's Layout and every one of them could
+    /// get the close button's inset subtly wrong on its own.
+    ///
+    /// The panel owns the nodes; this only makes them and moves them.
+    /// Add them to the tree yourself, in this order, so the title draws
+    /// over the bar.
+    /// </summary>
+    public sealed class Chrome
+    {
+        public readonly Panel Card = Window();
+        public readonly Panel Bar = TitleBar();
+        public readonly Label Name = Title();
+        public readonly Button X;
+
+        public Chrome(Action close) { X = close == null ? null : CloseX(close); }
+
+        /// <summary>Adds the four nodes to <paramref name="parent"/>, back to front.</summary>
+        public void AddTo(Node parent)
+        {
+            if (parent == null) return;
+            parent.AddChild(Card);
+            parent.AddChild(Bar);
+            parent.AddChild(Name);
+            if (X != null) parent.AddChild(X);
+        }
+
+        /// <summary>Shows or hides all four at once.</summary>
+        public void Show(bool on)
+        {
+            Card.Visible = on; Bar.Visible = on; Name.Visible = on;
+            if (X != null) X.Visible = on;
+        }
+
+        /// <summary>Lays the four out over <paramref name="card"/>. Returns it, for chaining.</summary>
+        public Rect2 Place(Rect2 card)
+        {
+            const float xs = 34f;
+            Card.Position = card.Position;
+            Card.Size = card.Size;
+            Bar.Position = card.Position;
+            Bar.Size = new Vector2(card.Size.X, TitleH);
+            Name.Position = new Vector2(card.Position.X + Pad, card.Position.Y);
+            Name.Size = new Vector2(card.Size.X - Pad * 2f - (X != null ? xs + Gap : 0f), TitleH);
+            if (X != null)
+            {
+                X.Size = new Vector2(xs, xs);
+                X.Position = new Vector2(card.Position.X + card.Size.X - xs - Pad,
+                                         card.Position.Y + (TitleH - xs) * 0.5f);
+            }
+            return card;
+        }
     }
 
     /// <summary>

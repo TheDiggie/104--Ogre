@@ -36,6 +36,27 @@ using Meridian59.Data;
 ///
 /// Left out: the UI lock button, which locks the CEGUI windows in
 /// place so they cannot be dragged. Nothing here is draggable.
+///
+/// THE LOOK. Six things were one undifferentiated line of text, and
+/// four of them were tappable without looking like it: "0 ms 05:12
+/// Somewhere" over "0   safety ...   :)  :|  :(  >:(" read as leftover
+/// printf, which is roughly what it was. Half of that is the player's
+/// business and half is diagnostics, so the two halves are separated
+/// rather than interleaved:
+///
+///  - the player's half comes first, on one line: where you are and
+///    what time it is on a plate of their own, then the controls - who
+///    is on, your safety, your mood - as actual buttons in the panels'
+///    button family, each a thumb's height.
+///  - the diagnostics - tick rate and round trip - drop to a second,
+///    smaller, dimmer line underneath. They keep their colour rules,
+///    which are the library's, and are the first thing you want when
+///    something is wrong and the last thing you want in the way when
+///    it is not.
+///
+/// The plate is the same one the condition bars sit on: this is over
+/// the world, and a room name in white text alone is unreadable the
+/// moment the floor is pale.
 /// </summary>
 public partial class StatusBar : Control
 {
@@ -65,6 +86,18 @@ public partial class StatusBar : Control
     Label _fps, _rtt, _time, _room;
     Button _players, _safety;
     Button[] _moods;
+    /// <summary>What the room name and the clock sit on. See the class note.</summary>
+    Panel _plate;
+
+    /// <summary>
+    /// A control's height here. Well over the 44 points a thumb needs,
+    /// which the old 33 was not - and these four are pressed mid-fight.
+    /// </summary>
+    const float CtrlH = 46f;
+    /// <summary>Inside the plate, left and right of the text.</summary>
+    const float PlatePad = 12f;
+    /// <summary>Between two controls; the moods get half of it, being a set.</summary>
+    const float Gap = 8f;
 
     string _shown = "";
     DataController _data;
@@ -74,41 +107,87 @@ public partial class StatusBar : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _fps = Text("-");
-        _rtt = Text("-");
-        _time = Text("");
-        _room = Text("");
+        // Added before the labels, because Godot draws siblings in tree
+        // order and a plate added after the text it backs covers it.
+        _plate = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _plate.AddThemeStyleboxOverride("panel", PlateBox());
+        AddChild(_plate);
 
-        _players = Small("0", () => Players?.Invoke());
-        _safety = Small("safety", () => Flip(_data));
+        // The room is the one thing on this line you look FOR; the
+        // clock is the one you glance at. Sized and coloured to say so.
+        _room = Text("", FontSize + 4, M59Skin.GoldBright);
+        _time = Text("", FontSize, M59Skin.TextDim);
+        // The diagnostics line. Smaller, and its colours are set by the
+        // library's tables in Sync.
+        _fps = Text("-", FontSize - 2, Plain);
+        _rtt = Text("-", FontSize - 2, Plain);
 
+        _players = Small("0", () => Players?.Invoke(), M59Skin.Kind.Secondary);
+        _safety = Small("safety", () => Flip(_data), M59Skin.Kind.Secondary);
+
+        // The moods are one set of four, so they take one kind of their
+        // own - the small gold square the panels use for steppers - and
+        // sit tighter to each other than to anything else. Four faces in
+        // a row in the SAME dress as the buttons beside them read as
+        // eight unrelated buttons.
         _moods = new[]
         {
-            Small(":)", () => Mood?.Invoke(ActionType.Happy)),
-            Small(":|", () => Mood?.Invoke(ActionType.Neutral)),
-            Small(":(", () => Mood?.Invoke(ActionType.Sad)),
-            Small(">:(", () => Mood?.Invoke(ActionType.Angry)),
+            Small(":)", () => Mood?.Invoke(ActionType.Happy), M59Skin.Kind.Step),
+            Small(":|", () => Mood?.Invoke(ActionType.Neutral), M59Skin.Kind.Step),
+            Small(":(", () => Mood?.Invoke(ActionType.Sad), M59Skin.Kind.Step),
+            Small(">:(", () => Mood?.Invoke(ActionType.Angry), M59Skin.Kind.Step),
         };
 
         GetViewport().SizeChanged += Layout;
         Layout();
     }
 
-    Label Text(string s)
+    /// <summary>
+    /// The plate behind the room and the clock. The panels' card colour
+    /// with their lit inner edge, which is what makes a rectangle read
+    /// as a thing in front of the world; nearly opaque, because a pale
+    /// floor shows through anything less.
+    /// </summary>
+    static StyleBoxFlat PlateBox()
     {
-        var l = new Label { Text = s, MouseFilter = MouseFilterEnum.Ignore };
-        l.AddThemeFontSizeOverride("font_size", FontSize);
-        l.AddThemeColorOverride("font_color", Plain);
+        var s = new StyleBoxFlat
+        {
+            BgColor = new Color(M59Skin.Card.R, M59Skin.Card.G, M59Skin.Card.B, 0.88f),
+            AntiAliasing = true,
+        };
+        s.CornerRadiusTopLeft = s.CornerRadiusTopRight =
+        s.CornerRadiusBottomLeft = s.CornerRadiusBottomRight = (int)M59Skin.Radius;
+        s.BorderWidthTop = s.BorderWidthBottom = s.BorderWidthLeft = s.BorderWidthRight = 1;
+        s.BorderColor = M59Skin.EdgeLit;
+        s.ShadowColor = new Color(0, 0, 0, 0.5f);
+        s.ShadowSize = 8;
+        return s;
+    }
+
+    Label Text(string s, int size, Color colour)
+    {
+        var l = new Label
+        {
+            Text = s,
+            MouseFilter = MouseFilterEnum.Ignore,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        l.AddThemeFontSizeOverride("font_size", size);
+        l.AddThemeColorOverride("font_color", colour);
         l.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
         l.AddThemeConstantOverride("outline_size", 4);
         AddChild(l);
         return l;
     }
 
-    Button Small(string s, Action pressed)
+    Button Small(string s, Action pressed, M59Skin.Kind kind)
     {
-        var b = new Button { Text = s, Flat = true };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        // Not Flat any more. Flat is why these read as text: a control
+        // the player is meant to press has to have an edge, and over a
+        // world rather than a panel it has to have a fill too.
+        var b = new Button { Text = s };
+        M59Skin.Dress(b, kind);
+        b.AddThemeFontSizeOverride("font_size", kind == M59Skin.Kind.Step ? FontSize + 3 : FontSize);
         if (pressed != null) b.Pressed += pressed;
         AddChild(b);
         return b;
@@ -120,32 +199,64 @@ public partial class StatusBar : Control
         float y = TopReserve;
         float x = Margin;
 
-        foreach (Label l in new[] { _fps, _rtt, _time, _room })
-        {
-            l.Position = new Vector2(x, y);
-            x += l.Size.X + 14f;
-        }
+        // ---- the player's line ----------------------------------------
+        // Widths come from the combined minimum, not from Size: Size is
+        // whatever was last assigned and lags a frame behind a text that
+        // has just changed, which would put the clock inside the room
+        // name on the frame you walk through a door.
+        float roomW = string.IsNullOrEmpty(_room.Text) ? 0f : _room.GetCombinedMinimumSize().X;
+        float clockW = string.IsNullOrEmpty(_time.Text) ? 0f : _time.GetCombinedMinimumSize().X;
+        float inner = roomW + clockW + (roomW > 0f && clockW > 0f ? 14f : 0f);
 
-        // The tappable half goes on its own line: a finger needs a
-        // bigger box than a word does.
-        float y2 = y + FontSize * 1.8f;
-        float bx = Margin;
+        _plate.Visible = inner > 0f;
+        _plate.Position = new Vector2(x, y);
+        _plate.Size = new Vector2(inner + PlatePad * 2f, CtrlH);
+
+        _room.Position = new Vector2(x + PlatePad, y);
+        _room.Size = new Vector2(roomW, CtrlH);
+        _time.Position = new Vector2(x + PlatePad + roomW + (roomW > 0f ? 14f : 0f), y);
+        _time.Size = new Vector2(clockW, CtrlH);
+
+        if (inner > 0f) x += _plate.Size.X + Gap + 4f;
+
         foreach (Button b in new[] { _players, _safety })
         {
-            b.Position = new Vector2(bx, y2);
-            b.Size = new Vector2(Mathf.Max(56f, b.Size.X), FontSize * 2.2f);
-            bx += b.Size.X + 6f;
+            float w = Mathf.Max(96f, b.GetCombinedMinimumSize().X + 26f);
+            b.Position = new Vector2(x, y);
+            b.Size = new Vector2(w, CtrlH);
+            x += w + Gap;
         }
+
+        // A set, so a wider gap before it and a narrow one inside it.
+        x += 6f;
         foreach (Button b in _moods)
         {
-            b.Position = new Vector2(bx, y2);
-            b.Size = new Vector2(46f, FontSize * 2.2f);
-            bx += 50f;
+            b.Position = new Vector2(x, y);
+            b.Size = new Vector2(54f, CtrlH);
+            x += 54f + 4f;
+        }
+        _noteX = x + 10f;
+        if (_note != null && _note.Visible) PlaceNote();
+
+        // ---- the diagnostics line, under it ---------------------------
+        float y2 = y + CtrlH + 4f;
+        float dx = Margin + 2f;
+        foreach (Label l in new[] { _fps, _rtt })
+        {
+            l.Position = new Vector2(dx, y2);
+            l.Size = new Vector2(l.GetCombinedMinimumSize().X, DiagH);
+            dx += l.Size.X + 14f;
         }
     }
 
+    /// <summary>The second line's height: the small print.</summary>
+    float DiagH => FontSize * 1.5f;
+
+    /// <summary>Where a note would start, right of the last control.</summary>
+    float _noteX;
+
     /// <summary>How tall this is, so the next thing down can clear it.</summary>
-    public float BlockHeight => FontSize * 1.8f + FontSize * 2.2f + 8f;
+    public float BlockHeight => CtrlH + 4f + DiagH + 8f;
 
     public void Sync(DataController data)
     {
@@ -180,11 +291,19 @@ public partial class StatusBar : Control
         _time.Text = clock;
         _room.Text = string.IsNullOrWhiteSpace(room) ? "" : room;
 
-        _players.Text = online.ToString();
+        // The count alone was a bare number with nothing saying what it
+        // counted or that it could be pressed. The word costs twelve
+        // points and is the whole caption.
+        _players.Text = $"{online} online";
         // Before the server's word arrives every flag reads zero, so
         // "safety on" would be a guess dressed as a fact - say so.
         _safety.Text = !known ? "safety ..." : safetyOff ? "safety off" : "safety on";
-        _safety.AddThemeColorOverride("font_color", !known ? Plain : safetyOff ? DarkRed : PaleGreen);
+        // Dress gave the button the family's text colour; the state is
+        // worth more than that here, so it is re-applied over the top.
+        // DarkRed is unreadable on a dark fill, so the OFF state uses a
+        // lit version of the same hue - the panels' refusal colour.
+        _safety.AddThemeColorOverride("font_color",
+            !known ? M59Skin.TextDim : safetyOff ? new Color(1f, 0.52f, 0.44f) : PaleGreen);
 
         Layout();
     }
@@ -199,6 +318,13 @@ public partial class StatusBar : Control
 
     Label _note;
     int _noteToken;
+
+    void PlaceNote()
+    {
+        if (_note == null) return;
+        _note.Position = new Vector2(_noteX, TopReserve);
+        _note.Size = new Vector2(_note.GetCombinedMinimumSize().X, CtrlH);
+    }
 
     /// <summary>
     /// Flips safety the way the file does: the preference first, then
@@ -231,13 +357,13 @@ public partial class StatusBar : Control
     {
         if (_note == null)
         {
-            _note = Text("");
-            _note.AddThemeColorOverride("font_color", Yellow);
+            _note = Text("", FontSize, Yellow);
         }
         _note.Text = text;
-        // On the first row, past the room name: the line below belongs to
-        // the debug text, and a note drawn over it cannot be read.
-        _note.Position = new Vector2(_room.Position.X + _room.Size.X + 14f, _fps.Position.Y);
+        // On the controls' own row, past the last of them: the line
+        // below belongs to the diagnostics and then to the debug text,
+        // and a note drawn over either cannot be read.
+        PlaceNote();
         _note.Visible = true;
         int token = ++_noteToken;
         GetTree().CreateTimer(6.0).Timeout += () =>

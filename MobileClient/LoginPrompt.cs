@@ -330,6 +330,24 @@ public partial class LoginPrompt : Control
     /// <summary>Caption, then the box it names. Both are a fixed height here.</summary>
     const float CapH = 22f;
 
+    /// <summary>
+    /// How much keyboard was up at the last layout. Polled rather than
+    /// signalled because Godot raises nothing when the on-screen
+    /// keyboard opens or closes; it is two cheap calls a frame and only
+    /// while this screen is up.
+    /// </summary>
+    float _keyboard;
+
+    public override void _Process(double delta)
+    {
+        if (_title == null || !Visible) return;
+        float k = M59Skin.KeyboardH(GetViewport());
+        // A point of jitter is not worth a relayout.
+        if (Mathf.Abs(k - _keyboard) < 1f) return;
+        _keyboard = k;
+        Layout();
+    }
+
     void Layout()
     {
         if (_title == null) return;
@@ -352,6 +370,12 @@ public partial class LoginPrompt : Control
         // A prompt, not a list: 560 points, the width Frame caps at for
         // a card whose longest line is a server name.
         Rect2 card = M59Skin.Frame(v, wantH, true, CardW(v, 560f));
+        // Up out from under the on-screen keyboard. A centred card is
+        // centred on the whole glass and the keyboard takes the bottom
+        // of it, so the box you are typing into sat behind the keys you
+        // were typing with - reported from the phone, and the first
+        // screen in the client is the worst possible place for it.
+        card = M59Skin.ClearOfKeyboard(card, v, _keyboard);
         Rect2 body = M59Skin.Body(card);
         Rect2 foot = M59Skin.Foot(card);
 

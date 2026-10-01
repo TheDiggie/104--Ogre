@@ -34,11 +34,27 @@ using Meridian59.Drawing2D;
 ///
 /// The row hides itself when there is no target, because on a phone
 /// every permanently visible control is screen the game does not get.
+///
+/// THE LOOK is the panels', not Godot's: seven default-grey buttons
+/// over a lit floor are seven grey smudges, and the target's name -
+/// which carries the game's own colour and is the thing you check
+/// before you swing - was white-outlined text sitting straight on the
+/// world. So the portrait and the name share a plate, the portrait
+/// sits in a slot like an inventory item's, and the seven are the
+/// button family, with Attack as the row's one primary. Everything
+/// decided by the flags above is untouched: which buttons are live,
+/// what Activate is called, and the name's colour.
 /// </summary>
 public partial class ActionBar : Control
 {
     [Export] public int FontSize = 16;
     [Export] public int PortraitSize = 44;
+
+    /// <summary>
+    /// A button's height. The old FontSize * 2.6 came to 41.6, which is
+    /// under the 44 points a thumb needs - and Attack is held down.
+    /// </summary>
+    float RowH => Mathf.Max(46f, FontSize * 2.6f);
 
     /// <summary>
     /// Pixels at the bottom of the screen already spoken for - the chat
@@ -62,7 +78,7 @@ public partial class ActionBar : Control
     /// Anything else that wants to sit above it has to know, or it
     /// lands on top of the portrait.
     /// </summary>
-    public float BlockHeight => FontSize * 2.6f + PortraitSize + 14f;
+    public float BlockHeight => RowH + PortraitSize + 14f;
 
     /// <summary>
     /// Whether there is anything to act on. The row hides itself
@@ -73,6 +89,10 @@ public partial class ActionBar : Control
 
     Label _name;
     TextureRect _face;
+    /// <summary>What the portrait and the name sit on. See the class note.</summary>
+    Panel _plate;
+    /// <summary>The portrait's own slot, so a face reads as a held thing.</summary>
+    Panel _slot;
     Button _clear;
     Button _inspect, _attack, _activate, _buy, _trade, _loot, _quest;
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
@@ -82,6 +102,17 @@ public partial class ActionBar : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
+        // Plate, then slot, then face, then name: Godot draws siblings
+        // in tree order, so anything added after a backing panel is
+        // drawn over it and anything added before is covered by it.
+        _plate = new Panel { MouseFilter = MouseFilterEnum.Ignore };
+        _plate.AddThemeStyleboxOverride("panel", Plate());
+        AddChild(_plate);
+
+        _slot = new Panel { MouseFilter = MouseFilterEnum.Ignore };
+        _slot.AddThemeStyleboxOverride("panel", M59Skin.Sunken());
+        AddChild(_slot);
+
         _face = new TextureRect
         {
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
@@ -89,20 +120,35 @@ public partial class ActionBar : Control
         };
         AddChild(_face);
 
-        _name = new Label { MouseFilter = MouseFilterEnum.Ignore };
-        _name.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        // Vertically centred against the portrait rather than dropped
+        // at a hand-picked offset, so a one-line name and a two-word
+        // one sit on the same line.
+        _name = new Label
+        {
+            MouseFilter = MouseFilterEnum.Ignore,
+            VerticalAlignment = VerticalAlignment.Center,
+            ClipText = true,
+            TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
+        };
+        _name.AddThemeFontSizeOverride("font_size", FontSize + 4);
         _name.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
         _name.AddThemeConstantOverride("outline_size", 4);
         AddChild(_name);
 
         // Clears the target: the reference's Close key sets TargetID to
         // MaxValue (`ControllerInput.cpp:555-562`, line 560). A phone has no key.
-        _clear = Make("X", () => Deselect?.Invoke());
+        // The round close of a title bar, because that is what it is:
+        // the one control here that dismisses rather than acts.
+        _clear = Make("✕", () => Deselect?.Invoke(), M59Skin.Kind.Close);
         _clear.Name = "target_clear";
         _clear.TooltipText = "Clear target";
 
         _inspect  = Make("Look",   () => LookAt?.Invoke());
-        _attack   = Make("Attack", OnAttackPressed);
+        // The one thing the row is for, in the family's one primary
+        // dress. Not Danger: the panels spend that on destroying your
+        // own things, and a red button among six grey ones reads as the
+        // one you must not press.
+        _attack   = Make("Attack", OnAttackPressed, M59Skin.Kind.Primary);
         _attack.Name = "target_attack";
         _attack.ButtonDown += () => { _attackDown = true; _attackSince = Time.GetTicksMsec(); _attackRepeating = false; };
         _attack.ButtonUp += EndAttackHold;
@@ -153,13 +199,37 @@ public partial class ActionBar : Control
         AttackTarget?.Invoke();
     }
 
-    Button Make(string text, Action pressed)
+    Button Make(string text, Action pressed, M59Skin.Kind kind = M59Skin.Kind.Secondary)
     {
-        var b = new Button { Text = text };
+        var b = new Button { Text = text, ClipText = true };
+        M59Skin.Dress(b, kind);
         b.AddThemeFontSizeOverride("font_size", FontSize);
         b.Pressed += pressed;
         AddChild(b);
         return b;
+    }
+
+    /// <summary>
+    /// What the portrait and the name sit on: the panels' card with
+    /// their lit inner edge, nearly opaque. This row sits over the
+    /// floor, and the floor in this game is as often pale stone as it
+    /// is a dark cellar - a name in the server's own colour has to be
+    /// readable against both, and several of those colours are light.
+    /// </summary>
+    static StyleBoxFlat Plate()
+    {
+        var s = new StyleBoxFlat
+        {
+            BgColor = new Color(M59Skin.Card.R, M59Skin.Card.G, M59Skin.Card.B, 0.88f),
+            AntiAliasing = true,
+        };
+        s.CornerRadiusTopLeft = s.CornerRadiusTopRight =
+        s.CornerRadiusBottomLeft = s.CornerRadiusBottomRight = (int)M59Skin.Radius;
+        s.BorderWidthTop = s.BorderWidthBottom = s.BorderWidthLeft = s.BorderWidthRight = 1;
+        s.BorderColor = M59Skin.EdgeLit;
+        s.ShadowColor = new Color(0, 0, 0, 0.5f);
+        s.ShadowSize = 8;
+        return s;
     }
 
     void Layout()
@@ -167,7 +237,7 @@ public partial class ActionBar : Control
         if (_name == null) return;
         Vector2 v = GetViewportRect().Size;
         float pad = 10f;
-        float h = FontSize * 2.6f;
+        float h = RowH;
         float y = v.Y - _reserve - pad - h;
 
         // Sideways the row keeps to the left, over the chat, rather
@@ -176,20 +246,34 @@ public partial class ActionBar : Control
         // width the chat block takes, so the two line up.
         float block = v.X > v.Y ? Mathf.Min(v.X - pad * 2f, v.X * 0.52f) : v.X - pad * 2f;
 
-        _face.Position = new Vector2(pad, y - PortraitSize - 4f);
-        _face.Size = new Vector2(PortraitSize, PortraitSize);
+        // The head of the row: portrait and name on one plate, with the
+        // dismiss at its far end.
+        const float inset = 6f, xs = 36f;
+        float plateH = PortraitSize + inset * 2f;
+        float plateY = y - plateH - 6f;
 
-        _name.Position = new Vector2(pad + PortraitSize + 8f, y - PortraitSize + 6f);
-        _name.Size = new Vector2(block - PortraitSize - 8f - h - 4f, h);
+        _plate.Position = new Vector2(pad, plateY);
+        _plate.Size = new Vector2(block, plateH);
 
-        _clear.Position = new Vector2(pad + block - h, y - PortraitSize - 4f);
-        _clear.Size = new Vector2(h, h);
+        _slot.Position = new Vector2(pad + inset, plateY + inset);
+        _slot.Size = new Vector2(PortraitSize, PortraitSize);
+        // Inside the slot's rim, so the picture does not sit on it.
+        _face.Position = _slot.Position + new Vector2(3f, 3f);
+        _face.Size = new Vector2(PortraitSize - 6f, PortraitSize - 6f);
+
+        float nameX = pad + inset + PortraitSize + 10f;
+        _name.Position = new Vector2(nameX, plateY + inset);
+        _name.Size = new Vector2(Mathf.Max(0f, pad + block - inset - xs - 8f - nameX), PortraitSize);
+
+        _clear.Position = new Vector2(pad + block - inset - xs, plateY + (plateH - xs) * 0.5f);
+        _clear.Size = new Vector2(xs, xs);
 
         Button[] row = { _inspect, _attack, _activate, _buy, _trade, _loot, _quest };
-        float w = (block - 4f * (row.Length - 1)) / row.Length;
+        const float gap = 6f;
+        float w = (block - gap * (row.Length - 1)) / row.Length;
         for (int i = 0; i < row.Length; i++)
         {
-            row[i].Position = new Vector2(pad + i * (w + 4f), y);
+            row[i].Position = new Vector2(pad + i * (w + gap), y);
             row[i].Size = new Vector2(w, h);
         }
     }
@@ -253,6 +337,10 @@ public partial class ActionBar : Control
 
         _name.Text = hidden ? "" : (string.IsNullOrWhiteSpace(target.Name) ? "" : target.Name);
         _face.Visible = !hidden;
+        // The empty slot goes with it: an invisible object shows no
+        // picture, and a lit slot with nothing in it reads as a picture
+        // that failed to load.
+        _slot.Visible = !hidden;
         _face.Texture = hidden ? null : Face(target);
 
         uint argb = target.Flags != null ? NameColors.GetColorFor(target.Flags) : NameColors.NORMAL;
