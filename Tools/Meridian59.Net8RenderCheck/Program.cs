@@ -40,6 +40,7 @@ static class RenderCheck
         if (mode == "anchor"  || mode == "all") Anchor(dir);
         if (mode == "sky"     || mode == "all") bad += Sky(dir);
         if (mode == "holes"   || mode == "all") Holes(dir);
+        if (mode == "lintel"  || mode == "all") bad += Lintel(dir);
         return bad == 0 ? 0 : 1;
     }
 
@@ -110,6 +111,13 @@ static class RenderCheck
         return bad;
     }
 
+    /// <summary>A pixel painted by a tagged sprite, after shading.</summary>
+    static bool Tagged(uint c)
+    {
+        uint r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+        return g == 0 && r == b && r > 0;
+    }
+
     static int Diff(uint a, uint b)
     {
         int r = Math.Abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255));
@@ -173,6 +181,97 @@ static class RenderCheck
         Console.WriteLine($"  flagged see-through, art is solid  : {flagOnly}");
         Console.WriteLine($"  art has holes, not flagged         : {holesOnly}");
         foreach (string n in names) Console.WriteLine($"    {n}");
+    }
+
+    /// <summary>
+    /// A sprite must be hidden by every surface in front of it, not only
+    /// by the one that closed its column.
+    ///
+    /// The upper part of a wall above a doorway is nearer than a
+    /// creature beyond it and closes nothing, so a renderer that tests
+    /// against one depth a column paints the creature's head over the
+    /// lintel. The reference cannot do that: every room fragment writes
+    /// depth (general.material:257-285 has no scene_blend and no
+    /// `depth_write off`) and a billboard is depth-tested like anything
+    /// else (RemoteNode2D.cpp:11-39).
+    ///
+    /// This renders each scene twice, once with the column's window
+    /// honoured and once without, and counts what the window takes back.
+    /// </summary>
+    static int Lintel(string dir)
+    {
+        var rm = new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
+        string[] sprites = { "duskrat.bgf", "Knight.bgf", "cyclops.bgf" };
+        const int W=640, H=360;
+        int scenes=0, through=0, total=0;
+        var worst = new List<(double frac,string where)>();
+
+        foreach (string path in Directory.GetFiles(dir, "*.roo").OrderBy(x=>x).Take(60))
+        foreach (string sprName in sprites)
+        {
+            RooFile roo; try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
+            var bgf = rm.GetObject(sprName);
+            if (bgf == null) continue;
+            var r = new Renderer(roo, new TexCache(rm));
+            var big = roo.BSPTreeLeaves.Where(l=>l.Vertices!=null&&l.Vertices.Count>=3)
+                .OrderByDescending(l=>{double s2=0;var v=l.Vertices;
+                    for(int i=0,j=v.Count-1;i<v.Count;j=i++) s2+=(double)v[j].X*v[i].Y-(double)v[i].X*v[j].Y;
+                    return Math.Abs(s2*.5);}).FirstOrDefault();
+            if (big == null) continue;
+            float cx=big.Vertices.Average(v=>(float)v.X), cy=big.Vertices.Average(v=>(float)v.Y);
+            var csec = r.SectorAtPoint(cx,cy); if (csec == null) continue;
+            float cz=M59Geo.FloorXY(csec)+Renderer.EyeHeight;
+
+            for (int k=0;k<4;k++)
+            {
+                float ang = k * MathF.PI / 2f;
+                var rng = new Random(k*97 + path.Length*13 + sprName.Length);
+                r.Sprites.Clear();
+                for (int i=0;i<12;i++)
+                {
+                    float d = 600f + (float)rng.NextDouble()*9000f;
+                    float t = ang + ((float)rng.NextDouble()-0.5f)*1.2f;
+                    float sx2 = cx + MathF.Cos(t)*d, sy2 = cy + MathF.Sin(t)*d;
+                    var sec = r.SectorAtPoint(sx2, sy2);
+                    var tex = Tag(bgf, rng.Next(0, bgf.Frames.Count));
+                    if (tex == null) continue;
+                    r.Sprites.Add(new Renderer.Sprite {
+                        X=sx2, Y=sy2, BaseZ = sec!=null ? M59Geo.FloorXY(sec) : cz-Renderer.EyeHeight,
+                        Height=600f, Texture=tex, Tag = i });
+                }
+                if (r.Sprites.Count == 0) continue;
+
+                Renderer.ClipSprites = false;
+                var loose = new uint[W*H]; r.Render(loose, W,H, cx,cy,cz, ang);
+                Renderer.ClipSprites = true;
+                var tight = new uint[W*H]; r.Render(tight, W,H, cx,cy,cz, ang);
+                scenes++;
+                int here = 0;
+                for (int i=0;i<W*H;i++)
+                {
+                    // The tag survives shading as green 0 with red
+                    // equal to blue, which is what Pick relies on too -
+                    // an exact colour test would find nothing, because
+                    // the ambient weight scales every channel.
+                    bool a = Tagged(loose[i]), b = Tagged(tight[i]);
+                    if (a) total++;
+                    if (a && !b) { through++; here++; }
+                }
+                if (here > 0)
+                    worst.Add(((double)here/Math.Max(1,W*H), $"{Path.GetFileName(path)} {sprName} {k*90}deg"));
+            }
+        }
+        Console.WriteLine($"{scenes} scenes with sprites, {total} sprite pixels");
+        Console.WriteLine($"  drawn through an upper or lower part before: {through}"
+                        + (total>0 ? $"  ({100.0*through/total:F1}% of them)" : ""));
+        foreach (var w in worst.OrderByDescending(x=>x.frac).Take(5))
+            Console.WriteLine($"    {100*w.frac,5:F2}% of the frame  {w.where}");
+        // Nothing to prove if the fixture has no sprite art; a run that
+        // finds sprites and takes none back would mean the clip does
+        // nothing, which is the failure this exists to catch.
+        bool ok = total == 0 || through > 0;
+        Console.WriteLine(ok ? "OK" : "PROBLEM");
+        return ok ? 0 : 1;
     }
 
     /// <summary>

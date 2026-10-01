@@ -359,6 +359,70 @@ public sealed class Renderer
     // Per-column distance to whatever closed that column, for sprite depth.
     float[] _depth = new float[0];
 
+    /// <summary>
+    /// How many steps of the visible window a column may record. A step
+    /// is a portal the walk passed through that narrowed what can be
+    /// seen; sixteen is more than any room in the game puts in one
+    /// column, and the last one absorbs any beyond it.
+    /// </summary>
+    const int ClipSteps = 16;
+
+    /// <summary>
+    /// The staircase of visible windows down each column: at what
+    /// distance the window narrowed, and to what.
+    ///
+    /// Only the surface that CLOSED a column was recorded before, in
+    /// _depth, and a sprite was tested against that one number. So the
+    /// upper part of a wall above a doorway - which is nearer than the
+    /// creature beyond it but does not close the column - did not hide
+    /// anything: a monster past the door had its head and shoulders
+    /// painted over the lintel, its name tag hung there too, and you
+    /// could tap the part of it that should not have been visible. The
+    /// same over a threshold, and over the edge of a balcony.
+    ///
+    /// The reference has no such hole because every room fragment writes
+    /// depth - base_material_room has no scene_blend and no
+    /// `depth_write off`, only the alpha test
+    /// (general.material:257-285) - and a billboard is an ordinary
+    /// depth-tested object (RemoteNode2D.cpp:11-39). Per pixel, against
+    /// all of it.
+    ///
+    /// A column renderer gets the same answer more cheaply: yTop only
+    /// ever rises and yBot only ever falls as the walk goes outward, so
+    /// the window at a given distance is the last step at or before it.
+    /// </summary>
+    float[] _clipD = new float[0];
+    short[] _clipT = new short[0], _clipB = new short[0];
+    int[] _clipN = new int[0];
+
+    /// <summary>
+    /// Whether a sprite is clipped to the window the walk left open, as
+    /// against only to the surface that closed the column. On; here so
+    /// the difference can be photographed and counted.
+    /// </summary>
+    public static bool ClipSprites = true;
+
+    /// <summary>Records that beyond <paramref name="d"/> this column can only show rows t..b.</summary>
+    void Narrow(int sx, float d, int t, int b)
+    {
+        int n = _clipN[sx];
+        int at = sx * ClipSteps + (n < ClipSteps ? n : ClipSteps - 1);
+        // Past the cap the last step keeps tightening rather than being
+        // replaced, so the window is never reported wider than it is.
+        if (n >= ClipSteps) { _clipT[at] = (short)Math.Max(_clipT[at], t); _clipB[at] = (short)Math.Min(_clipB[at], b); return; }
+        _clipD[at] = d; _clipT[at] = (short)t; _clipB[at] = (short)b;
+        _clipN[sx] = n + 1;
+    }
+
+    /// <summary>The rows a column can show at a given distance.</summary>
+    void Window(int sx, float d, out int top, out int bot)
+    {
+        top = 0; bot = short.MaxValue;
+        int n = _clipN[sx], b = sx * ClipSteps;
+        for (int i = 0; i < n && _clipD[b + i] <= d; i++)
+        { top = _clipT[b + i]; bot = _clipB[b + i]; }
+    }
+
     /// <summary>Set false to fall back to testing every wall (reference path).</summary>
     public bool UseGrid { get; set; } = true;
 
@@ -511,6 +575,14 @@ public sealed class Renderer
 
         if (_depth.Length < W) _depth = new float[W];
         for (int i = 0; i < W; i++) _depth[i] = float.MaxValue;
+        if (_clipN.Length < W)
+        {
+            _clipN = new int[W];
+            _clipD = new float[W * ClipSteps];
+            _clipT = new short[W * ClipSteps];
+            _clipB = new short[W * ClipSteps];
+        }
+        for (int i = 0; i < W; i++) _clipN[i] = 0;
 
         // One band of columns per core, each with its own scratch. Bands are
         // contiguous so each thread touches a stride of the pixel buffer
@@ -745,6 +817,9 @@ public sealed class Renderer
                               y < Math.Min(H, Math.Min(yBot + 1, farCeilY)); y++)
                         px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
                     yTop = Math.Max(yTop, farCeilY);
+                    // Past this wall the column can only show what is
+                    // below its upper part. See Narrow.
+                    Narrow(sx, perp, yTop, yBot);
                 }
                 if (ff > nf)
                 {
@@ -764,6 +839,7 @@ public sealed class Renderer
                               y < Math.Min(H, yBot + 1); y++)
                         px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
                     yBot = Math.Min(yBot, farFloorY);
+                    Narrow(sx, perp, yTop, yBot);
                 }
 
                 // The middle span of a two-sided wall is the OPENING, not
@@ -959,8 +1035,14 @@ public sealed class Renderer
                 int tx = TexelX(p, sx);
                 if (tx < 0) continue;
 
-                int yA = Math.Max(0, (int)MathF.Floor(p.YTop));
-                int yB = Math.Min(H - 1, (int)MathF.Ceiling(p.YBot));
+                // And behind the upper and lower parts the walk passed
+                // on the way out, which close no column but hide plenty:
+                // without this a creature beyond a doorway was painted
+                // over the lintel. See Narrow.
+                int wTop = 0, wBot = H - 1;
+                if (ClipSprites) Window(sx, depth, out wTop, out wBot);
+                int yA = Math.Max(Math.Max(0, wTop), (int)MathF.Floor(p.YTop));
+                int yB = Math.Min(Math.Min(H - 1, wBot), (int)MathF.Ceiling(p.YBot));
                 for (int y = yA; y <= yB; y++)
                 {
                     int ty = TexelY(p, y);
@@ -1138,7 +1220,15 @@ public sealed class Renderer
         if (sx < 0f || sx >= _lastW) return false;
 
         int col = (int)sx;
-        if (col >= 0 && col < _depth.Length && depth > _depth[col]) return false;
+        if (col >= 0 && col < _depth.Length)
+        {
+            if (depth > _depth[col]) return false;
+            // And the window the walk left open at that distance - a
+            // name tag over a doorway used to hang on the lintel. See
+            // Narrow.
+            Window(col, depth, out int wTop, out int wBot);
+            if (sy < wTop || sy > wBot) return false;
+        }
 
         return true;
     }
@@ -1216,6 +1306,11 @@ public sealed class Renderer
 
             if (!Place(sp, depth, lateral, W, camX, camY, camZ, proj, horizon, out Placed p))
                 continue;
+
+            // The same window the drawing pass clips to, or you could
+            // tap the head of a creature the lintel was hiding.
+            Window(px_, depth, out int wTop, out int wBot);
+            if (py_ < wTop || py_ > wBot) continue;
 
             int tx = TexelX(p, px_);
             if (tx < 0) continue;
