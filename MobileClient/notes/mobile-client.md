@@ -125,6 +125,54 @@ follow: a message without a stack is a riddle (`M59Assets.cs:66`).
 
 See also: GameView.cs | lessons -> rulings.md
 
+## The look flags are the library's, and a view must write them back
+Tags: gotchas, lessons | Data.LookObject/LookSpell/LookSkill/LookPlayer `.IsVisible` are the source of truth for the look window; Close that does not clear its flag is re-entered next frame and the session is bricked
+
+`DataController.cs:2900-2928` treats the object, spell and skill flags as
+mutually exclusive (each handler raises its own and lowers the other
+two). `LookPlayer` is the odd one: raised at `:2776` and lowered by
+nobody, so a player look and another look can be up together. `LookPanel`
+therefore keeps a table of kinds, each with how to read its flag, how to
+CLEAR it and how to draw (`LookPanel.cs:485-505`), shows the last to
+arrive, and Close is `_showing?.Hide(_data)` (`:361`). A kind cannot be
+built without a `Hide` (`:457-466`), which is the point: Close once wrote
+back only two of four flags, the spell and skill looks came straight
+back, and the shade over the screen ate every touch. There is no back
+or Escape path in the client to get out of it (the wire showed zero
+`ReqMove` from a 150-frame drag).
+
+Any new view that shows one of these must write its flag back on close.
+
+See also: LookPanel.cs | the harness trap -> harness.md
+
+## Never write the avatar's HorizontalSpeed
+Tags: gotchas, lessons | Zero is `MovementSpeed.Teleport` to the library, so zeroing it on stick release turned every mid-air fall into one tick and killed step-up easing
+
+`MovementSpeed.cs:26,38` make `SPEED_NONE`, `Teleport` and 0 the same
+value, and `RoomObject.UpdatePosition` sets `hDiff` to 0 - no gravity, no
+step-up - when `horizontalSpeed == Teleport` (`RoomObject.cs:1102`).
+`Settle` used to write 0 on release, which on a phone is constantly and
+exactly when you go over an edge: off barlmarket's ledge 41 ticks became
+one. Nothing in the reference writes the field (only `StartMoveTo` does,
+25 or 55); the only legitimate writer here is the library's own
+`RoomObject.cs:1265`. `Settle` now only forces a position send, which
+`SendReqMoveMessage` already throttles (`BaseClient.cs:1620-1626`).
+`grep "HorizontalSpeed *="` in `MobileClient/` should stay empty.
+
+See also: GameView.cs | the same trap, for projectiles -> "Arrows and fireballs"
+
+## Two library warts in the wire classes
+Tags: gotchas | A .NET sender of a skill look sends the spell look's message type, and the byte[] ChangeMessage constructor ignores its start index
+
+- `LookSkillMessage`'s constructor passes `MessageTypeGameMode.LookSpell`
+  to its base (`LookSkillMessage.cs:63-64`), so any .NET SENDER of a skill
+  look emits the wrong PI. Not fixed.
+- `ChangeMessage(byte[] Buffer, int StartIndex = 0)` passes
+  `StartIndex = 0` to its base (`ChangeMessage.cs:81-82`) - an assignment,
+  so a nonzero start index is silently dropped. Not fixed.
+
+See also: wire-format.md
+
 ## Known gaps, deliberately left
 Tags: design | Hotbar alias buttons do not exist, because no alias list exists anywhere in the port
 

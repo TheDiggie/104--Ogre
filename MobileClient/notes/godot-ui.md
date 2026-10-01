@@ -31,6 +31,40 @@ as `ListChangedType.ItemChanged`.
 
 See also: ActionButtons.cs
 
+## A polled signature must hold everything the panel draws
+Tags: lessons, gotchas | Where a panel polls instead of subscribing, every drawn field goes in the signature - including whether the name and the sprite have RESOLVED yet - and a failed compose is never cached
+
+The library resolves strings and art after the numbers arrive, and raises
+PropertyChanged for each, which the reference reacts to. A poll that
+hashes only what was there on arrival never notices the later fill-in
+and the row stays as first drawn, for the session. The rule has three
+halves:
+
+- The signature carries the resolution state: name (`ResourceName`),
+  icon name (`ResourceIconName`) and whether the resource is there
+  (`Resource?.Filename`, or `Resource != null`).
+- A compose that comes back null is not cached (`if (tex != null)
+  _icons[key] = tex`, `SpellsPanel.cs:413`, `AvatarPanel.cs:244`,
+  `RoomBuffsPanel.cs:176-182`), or the miss is answered from the cache for
+  ever for everything sharing that art.
+- A sprite that exists but is not yet readable changes nothing in the
+  data, so no signature can see it: retry on a 500ms timer while any
+  compose failed (`SpellsPanel.cs:232-236`, `AvatarPanel.cs:157-161`).
+
+Panels caught by it: `Vitals.cs:99-114` (a bar that arrived nameless
+stayed nameless, and `ValueRenderMin` was missing), `RoomBuffsPanel.cs:78-95`
+(room enchantment invisible for as long as the room held it),
+`AvatarPanel.BuffIcon` (a buff that missed once was missing for the
+session) and `SpellsPanel.cs:200-236` (a row stuck "(unnamed)" with no
+icon). `NpcQuestsPanel.cs:281-282` was the same omission on another axis:
+titles only, so a re-offered list with new text never rebuilt.
+
+A fixture that shows it needs ONE row: with two, the sort order moves when
+the names resolve, the signature changes for the wrong reason, and the
+bug hides.
+
+See also: the fixture -> fake-server.md | ActionButtons.cs
+
 ## Subscriptions attach after Init
 Tags: gotchas | RootClient.Init() creates Data, so anything subscribing to Data must run after _client.Init()
 

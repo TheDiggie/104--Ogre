@@ -176,7 +176,11 @@ Tags: gotchas, process | HotbarStore saves to user://hotbar.cfg per character, s
 Working as designed, and a trap for anyone reading a screenshot: after a
 few runs that bind a spell, the hotbar shows eight seeded actions plus
 one slot per bind, and `hot{N}` names shift with them. Delete
-`user://hotbar.cfg` (under the Godot user data folder) for a clean start.
+`user://hotbar.cfg` (under the Godot user data folder) for a clean start -
+in the container that is
+`/root/.local/share/godot/app_userdata/Meridian 59 Mobile/hotbar.cfg`
+(`HotbarStore.cs:39`) - and do it per run, not per session: the phantom
+buttons are a screenshot that looks like a layout bug.
 
 See also: HotbarStore.cs
 
@@ -209,3 +213,31 @@ the same process looks like half the fixtures are broken. Restart it
 per case.
 
 See also: the fake server -> ./fake-server.md | delivery -> ./delivery.md
+
+## Four ways a scripted run lies about a working feature
+Tags: gotchas, lessons | Each of these produced a screenshot or a log that looked exactly like a client bug, and each cost an agent a run or more
+
+- `--shots` breaks any gesture with a time window. On top of the 30-frame
+  settle every step already pays, it adds a draw wait and a PNG write per
+  step (`SceneShot.cs:626-641`), enough wall-clock to outrun the spell
+  book's 600ms double-tap (`SpellsPanel.cs:268,283`): the second tap is
+  read as a first, the row only describes, and it looks like a dead cast
+  path. Run timed-gesture tests without `--shots`.
+- A bare-name `--press` step matches a button by its TEXT
+  (`FindButton`, `SceneShot.cs:759`), first in tree order. A caption that
+  exists in two open panels hits the wrong one: "Close" on a look window
+  pressed the spell book's Close behind it, and the shot looked exactly
+  like the bug being chased. Use `@name:<Node>` and name the button
+  (`lookClose`, `LookPanel.cs:235`).
+- `@obj:` taps wherever the picker finds the object, and the left half of
+  the screen belongs to the movement stick (`TouchControls.cs:8-9`), so a
+  touch there can never become a target. It prints "tapped" and sets
+  nothing. To acquire a target in a scripted run press Next
+  (`GameView.cs:1926`).
+- Every fake server rewrites `rsc0000.rsb` in its resource dir
+  (`Program.cs:366`), so parallel runs sharing one dir clobber each
+  other. Give each run its own resource dir and its own port: server
+  args are `<port> <dir> <room>`, the client's are `--port` and `--res`
+  (`SceneShot.cs:26,49`). The `/tmp/res` rule above is for a single run.
+
+See also: the fixture -> fake-server.md | SceneShot.cs
