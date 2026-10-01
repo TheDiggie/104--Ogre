@@ -276,7 +276,7 @@ public partial class FirstPersonView : Node2D
         strafe += stick.X;
         fwd -= stick.Y;                       // screen Y grows downward
 
-        _angle += turn * TurnSpeed * (float)delta + _touch.TakeTurn();
+        _angle += turn * TurnSpeed * (float)delta + _touch.TakeTurn(delta);
 
         if (fwd != 0f || strafe != 0f)
         {
@@ -302,7 +302,7 @@ public partial class FirstPersonView : Node2D
         // Scrolling water, lava and moving walls run off this.
         // Looking up and down, clamped: the horizon shear exaggerates the
         // further you push it.
-        _pitch = Math.Clamp(_pitch + _touch.TakePitch(), -Renderer.MaxPitch, Renderer.MaxPitch);
+        _pitch = Math.Clamp(_pitch + _touch.TakePitch(delta), -Renderer.MaxPitch, Renderer.MaxPitch);
 
         _clock += (float)delta;
         _renderer.Time = _clock;

@@ -1889,7 +1889,7 @@ public partial class GameView : Node2D
 
         // Looking up and down, clamped: the horizon shear exaggerates the
         // further you push it.
-        _pitch = Math.Clamp(_pitch + _touch.TakePitch(), -Renderer.MaxPitch, Renderer.MaxPitch);
+        _pitch = Math.Clamp(_pitch + _touch.TakePitch(delta), -Renderer.MaxPitch, Renderer.MaxPitch);
 
         _clock += (float)delta;
         if (_world.Renderer != null)
@@ -2140,7 +2140,7 @@ public partial class GameView : Node2D
         // the visible world, which is what the reference turns on too.
         if ((_chat != null && (_chat.Capturing || _chat.ShowingHistory)) || PanelUp)
         {
-            float look = _touch.TakeTurn();
+            float look = _touch.TakeTurn(delta);
             if (look != 0f) _client.TryYaw(look);
             if (_wasTurning && look == 0f) _client.SendReqTurnMessage(true);
             _wasTurning = look != 0f;
@@ -2200,7 +2200,7 @@ public partial class GameView : Node2D
         // spot.
         bool moving = fwd != 0f || strafe != 0f;
         float rate = TurnSpeed * (Walking() ? 0.5f : 1f);
-        float dAngle = turn * rate * (float)delta + _touch.TakeTurn();
+        float dAngle = turn * rate * (float)delta + _touch.TakeTurn(delta);
         if (dAngle != 0f) _client.TryYaw(dAngle);
 
         // A turn that has just ended has to be sent whether or not the
