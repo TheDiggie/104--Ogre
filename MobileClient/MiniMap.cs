@@ -120,8 +120,8 @@ public partial class MiniMap : Control
     static readonly Color AggroOther  = new Color(1f, 1f, 1f);
     static readonly Color Mercenary   = new Color(1f, 169f / 255f, 27f / 255f);
     static readonly Color MobQuest    = new Color(179f / 255f, 0f, 179f / 255f);
-    // The drawsurface sits at alpha 0.9 over the background image.
-    static readonly Color Ink    = new Color(1f, 1f, 1f, 0.9f);
+    // The 0.9 of the drawsurface is applied once, by the CanvasGroup
+    // (see <see cref="_group"/>), not carried in these colours.
     // Fallback face, for when the dial cannot be loaded.
     static readonly Color Back   = new Color(0.82f, 0.82f, 0.80f, 0.92f);
 
@@ -136,24 +136,87 @@ public partial class MiniMap : Control
     IEnumerable<RoomObject> _objects;
     float _px, _py, _angle;
 
+    /// <summary>
+    /// The clip radius as a fraction of half the dial's width.
+    ///
+    /// The reference does not clip at the window's edge but inside it:
+    /// `UI_MINIMAP_CLIPPADDING = 13.0f/256.0f` (`Constants.h:932`) is
+    /// the inset on every side, and `MiniMapCEGUI.h:173-184` adds a pie
+    /// from (padding * width, padding * height) across
+    /// (width - 2 * padding * width) by the same in height, 0 to 360
+    /// degrees, as the graphics clip. Half of that pie's width over half
+    /// the window's is 1 - 2 * 13/256 = 0.898. This used 0.88, a guess at
+    /// "about the rim", which showed 4% less of the room than the game
+    /// does at the same zoom - the ratio of the areas is (0.88/0.898)^2.
+    /// </summary>
+    const float ClipPadding = 13f / 256f;
+    const float ClipFraction = 1f - 2f * ClipPadding;
+
+    /// <summary>
+    /// Everything the map draws that the reference draws onto its
+    /// drawsurface - walls, dots, the arrow - goes in here, and only here.
+    ///
+    /// The reference's alpha of 0.9 is a property of ONE window: the
+    /// layout gives `MiniMap.DrawSurface` `Alpha 0.9` with
+    /// `InheritsAlpha False` (`Resources/ui/layouts/Meridian59.layout:1270-1277`),
+    /// while the dial behind it stays at 1 (`:1265`). The map is
+    /// painted into a bitmap by GDI+ at full opacity (`MiniMapCEGUI.h`),
+    /// the bitmap is uploaded as one image, and CEGUI fades that image
+    /// as a whole. So where a dot lies over a wall, or two walls cross,
+    /// the picture underneath is one flat colour and the fade is applied
+    /// to it once - the overlap is exactly as dense as a lone stroke.
+    ///
+    /// This client used to give each primitive its own 0.9. Two strokes
+    /// at 0.9 over each other come out at 0.99, so every crossing and
+    /// every dot on a wall was visibly heavier than the game's. A
+    /// CanvasGroup renders its children into an offscreen buffer first
+    /// and applies its own Modulate once to the result, which is the same
+    /// order of operations: opaque strokes, then one fade. The group is
+    /// sized to the dial and not the screen so the offscreen buffer is a
+    /// couple of hundred pixels square.
+    /// </summary>
+    CanvasGroup _group;
+    Control _surface;
+
+    /// <summary>The reference's drawsurface alpha (`Meridian59.layout:1276`).</summary>
+    const float SurfaceAlpha = 0.9f;
+
+    /// <summary>Redraws the dial and the drawsurface together.</summary>
+    void Redraw()
+    {
+        QueueRedraw();
+        _surface?.QueueRedraw();
+    }
+
     public override void _Ready()
     {
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
+        // First child, so it is drawn before - under - the zoom and size
+        // buttons, which sit on the dial's face. A child added after them
+        // would paint the map over its own controls.
+        _group = new CanvasGroup { Modulate = new Color(1f, 1f, 1f, SurfaceAlpha) };
+        _surface = new Control { MouseFilter = MouseFilterEnum.Ignore };
+        _surface.Draw += DrawSurface;
+        _group.AddChild(_surface);
+        AddChild(_group);
+
         _toggle = new Button { Text = "Map" };
-        _toggle.Pressed += () => { _shown = !_shown; Save(); Layout(); QueueRedraw(); };
+        _toggle.Pressed += () => { _shown = !_shown; Save(); Layout(); Redraw(); };
         AddChild(_toggle);
         Panels.Opener(_toggle);
 
         // The game zooms with the mouse wheel, between 1 and 32
-        // (`UIMiniMap.cpp:107-118`). A wheel is desktop input but zoom
+        // (`UIMiniMap.cpp:105-114`). A wheel is desktop input but zoom
         // is not a desktop feature: it is how you get from "where is
         // that door" to "where am I in the level", and without it this
         // map showed one fixed slice of the room for ever. Two buttons
         // and a pinch stand in for the wheel.
-        _in = Step("+", 1f / 1.25f);
-        _out = Step("-", 1.25f);
+        // A tap is a coarse multiplicative step and a hold is the
+        // reference's own fine additive one - see <see cref="Step"/>.
+        _in = Step("+", 1f / 1.25f, -FineStep);
+        _out = Step("-", 1.25f, FineStep);
 
         // The resize control. The reference's gesture for this is the
         // self-target key held down while the wheel turns
@@ -193,11 +256,48 @@ public partial class MiniMap : Control
     }
 
     /// <summary>
-    /// A zoom button. Multiplicative rather than the game's flat 0.2 a
-    /// notch: a notch is cheap on a wheel and a tap is not, so each press
-    /// has to be worth making.
+    /// The reference's zoom step: `zoom += wheelChange * -0.2f`, clamped
+    /// to 1..32 (`UIMiniMap.cpp:105-114`). It is additive, so at the
+    /// default zoom of 8 one notch is 2.5% and every value in between is
+    /// reachable; a player can settle on exactly the view they want.
+    /// Positive here means zoom OUT (a larger number is more room per
+    /// pixel), which is the wheel turned towards you, wheelChange -1.
     /// </summary>
-    Button Step(string text, float factor)
+    const float FineStep = 0.2f;
+
+    /// <summary>How long a button is held before it starts repeating.</summary>
+    const double HoldDelay = 0.35;
+
+    /// <summary>
+    /// Seconds between fine steps while held. The reference's wheel has no
+    /// rate - a notch is whatever the player's finger makes it - so this
+    /// is chosen: 0.04s is 5 units a second, which sweeps the whole 1..32
+    /// band in about six seconds, slow enough to stop on a value and fast
+    /// enough that walking it from one end to the other is not a chore.
+    /// </summary>
+    const double HoldRepeat = 0.04;
+
+    // The button being held, the direction it steps, and its clock.
+    Button _held;
+    float _heldStep;
+    double _heldFor;
+    // A hold that has already repeated must not ALSO fire the coarse tap
+    // when the finger lifts: Button raises Pressed on release, so without
+    // this every long-press ended with one extra x1.25 lurch.
+    bool _heldRepeated;
+
+    /// <summary>
+    /// A zoom button. Two gestures, two granularities.
+    ///
+    /// A tap is multiplicative rather than the game's flat 0.2 a notch: a
+    /// notch is cheap on a wheel and a tap is not, so each press has to be
+    /// worth making - but that gives only ~17 reachable zooms between 1
+    /// and 32, and no way to tune. Holding the button therefore repeats
+    /// the reference's own additive step (<see cref="FineStep"/>) after a
+    /// short delay, which lands on the reference's granularity. The pinch
+    /// stays, and is continuous already.
+    /// </summary>
+    Button Step(string text, float factor, float fine)
     {
         var b = new Button { Text = text, Name = text == "+" ? "mapIn" : "mapOut" };
         b.AddThemeFontSizeOverride("font_size", 24);
@@ -207,14 +307,42 @@ public partial class MiniMap : Control
         b.AddThemeColorOverride("font_hover_color", new Color(0.1f, 0.1f, 0.1f));
         b.AddThemeColorOverride("font_outline_color", new Color(1f, 1f, 1f));
         b.AddThemeConstantOverride("outline_size", 4);
+        b.ButtonDown += () => { _held = b; _heldStep = fine; _heldFor = 0; _heldRepeated = false; };
+        // Saved once on release, not on every repeat: a config write at
+        // 25 Hz for the length of a hold is a lot of disk for one value.
+        b.ButtonUp += () => { if (_held == b) { _held = null; if (_heldRepeated) Save(); } };
         b.Pressed += () =>
         {
+            if (_heldRepeated) { _heldRepeated = false; return; }
             Zoom = Mathf.Clamp(Zoom * factor, MinZoom, MaxZoom);
             Save();
-            QueueRedraw();
+            Redraw();
         };
         AddChild(b);
         return b;
+    }
+
+    /// <summary>
+    /// The clock for a held zoom button. Reads frame time rather than the
+    /// wall clock so it runs at whatever rate the screen does.
+    /// </summary>
+    public override void _Process(double delta)
+    {
+        if (_held == null) return;
+        // A button that lost its press without a release - hidden under a
+        // panel, say - must not keep zooming for ever.
+        if (!_held.IsVisibleInTree()) { _held = null; return; }
+
+        // The first fine step lands when the delay ends, then one per
+        // HoldRepeat; a slow frame catches up instead of making the zoom
+        // rate frame-bound.
+        static int Steps(double t) => t < HoldDelay ? 0 : (int)((t - HoldDelay) / HoldRepeat) + 1;
+        int n = Steps(_heldFor + delta) - Steps(_heldFor);
+        _heldFor += delta;
+        if (n <= 0) return;
+        _heldRepeated = true;
+        Zoom = Mathf.Clamp(Zoom + _heldStep * n, MinZoom, MaxZoom);
+        Redraw();
     }
 
     /// <summary>
@@ -228,7 +356,7 @@ public partial class MiniMap : Control
         if (pinch.Factor <= 0f) return;
         Zoom = Mathf.Clamp(Zoom / pinch.Factor, MinZoom, MaxZoom);
         Save();
-        QueueRedraw();
+        Redraw();
     }
 
     /// <summary>
@@ -273,7 +401,7 @@ public partial class MiniMap : Control
         MapSize = next > max ? MinMapSize : Mathf.Clamp(next, MinMapSize, max);
         Save();
         Layout();
-        QueueRedraw();
+        Redraw();
     }
 
     void Layout()
@@ -299,6 +427,12 @@ public partial class MiniMap : Control
         _in.Position = new Vector2(left + MapSize * 0.5f + 6f, y);
         _in.Visible = _out.Visible = _shown;
 
+        // The drawsurface fills the dial's square, as the layout's
+        // {{0,0},{0,0},{1,0},{1,0}} does (`Meridian59.layout:1272`).
+        _group.Position = new Vector2(left, Margin);
+        _surface.Size = new Vector2(MapSize, MapSize);
+        _group.Visible = _shown;
+
         // The size button sits a row below the zoom pair, still on the
         // dial's pale face for the same reason they are: a dark glyph on
         // a dark wall is not a button.
@@ -310,11 +444,20 @@ public partial class MiniMap : Control
     const string PrefsPath = "user://view.cfg";
 
     /// <summary>
-    /// Keeps the map's zoom and whether it is up at all. The game saves
-    /// both to its own configuration on the way out
-    /// (`ControllerUI.cpp:643`) and restores them on a mode change
-    /// (`:722`). Turning the map off and finding it back next launch is
-    /// not a desktop-only complaint.
+    /// Keeps the map's zoom, its size, and whether it is up at all.
+    ///
+    /// Only the last two are the reference's behaviour. It writes the
+    /// minimap window's position, size and visibility into its
+    /// configuration on the way out (`ControllerUI.cpp:643-645`) and reads
+    /// the visibility back on a mode change (`:722`); the zoom is NOT
+    /// among them. `MiniMap::Zoom` is a plain static initialised to 8
+    /// (`ControllerUI.h:559`) that nothing saves, so in the game every
+    /// launch starts at 8 again and the player winds the wheel from there.
+    ///
+    /// Persisting the zoom is therefore a deliberate improvement on the
+    /// reference, not a mirror of it: re-zooming with a thumb on every
+    /// launch is a much bigger tax than re-zooming with a wheel, and
+    /// nothing in the game depends on the value starting at 8.
     /// </summary>
     void Save()
     {
@@ -379,7 +522,7 @@ public partial class MiniMap : Control
             _walls.Add(new Vector2(w.X1 * 0.0625f + 64f, w.Y1 * 0.0625f + 64f));
             _walls.Add(new Vector2(w.X2 * 0.0625f + 64f, w.Y2 * 0.0625f + 64f));
         }
-        QueueRedraw();
+        Redraw();
     }
 
     /// <summary>
@@ -399,10 +542,26 @@ public partial class MiniMap : Control
     public void SetPlayer(float kodX, float kodY, float angle)
     {
         _px = kodX; _py = kodY; _angle = angle;
-        if (_shown) QueueRedraw();
+        if (_shown) Redraw();
     }
 
     public override void _Draw()
+    {
+        // Only the dial's face lives here; the map is on the drawsurface
+        // (see <see cref="_group"/>), which is what carries the 0.9.
+        if (!_shown) return;
+
+        Vector2 v = GetViewportRect().Size;
+        var origin = new Vector2(v.X - MapSize - Margin, Margin);
+        float half = MapSize * 0.5f;
+
+        if (_dial != null)
+            DrawTextureRect(_dial, new Rect2(origin, new Vector2(MapSize, MapSize)), false);
+        else
+            DrawCircle(origin + new Vector2(half, half), half * ClipFraction, Back);
+    }
+
+    void DrawSurface()
     {
         // Not "and there are walls". A room whose every wall is
         // map-never still has you in it, and the game always draws the
@@ -410,21 +569,17 @@ public partial class MiniMap : Control
         // on an empty wall list turned that into a blank corner.
         if (!_shown) return;
 
-        Vector2 v = GetViewportRect().Size;
-        var origin = new Vector2(v.X - MapSize - Margin, Margin);
+        // Local to the drawsurface: it is positioned at the dial's corner.
+        var origin = Vector2.Zero;
         float half = MapSize * 0.5f;
         Vector2 centre = origin + new Vector2(half, half);
-        // The dial's rim is about a twelfth of its width, so the map is
-        // cut inside it. The game does not bother - its map texture fills
-        // the square window and walls run under the rim - but it hit-tests
-        // the map against a circle, and a map that stops at the frame
-        // looks like a map rather than a leak.
-        float radius = half * 0.88f;
-
-        if (_dial != null)
-            DrawTextureRect(_dial, new Rect2(origin, new Vector2(MapSize, MapSize)), false);
-        else
-            DrawCircle(centre, radius, Back);
+        // Cut to the game's own pie, `UI_MINIMAP_CLIPPADDING` in from the
+        // window edge (`Constants.h:932`, `MiniMapCEGUI.h:173-184`) - see
+        // <see cref="ClipFraction"/>. The game's map texture fills the
+        // square window and the pie is the only thing that stops walls at
+        // the rim; Godot has no clip to hand inside a draw, so the same
+        // cut is done geometrically below.
+        float radius = half * ClipFraction;
 
         // The window onto the room, in server units, centred on you.
         float zoom = Mathf.Clamp(Zoom, MinZoom, MaxZoom);
@@ -449,8 +604,9 @@ public partial class MiniMap : Control
         // Two pixels, as the game's pen is (`MiniMapCEGUI.h:265`). One
         // was a fair reading of a map drawn at desktop scale, but a
         // single black hairline on a phone screen is close to invisible.
+        // Opaque: the 0.9 is the group's, applied once to the lot.
         if (clipped.Count > 0)
-            DrawMultiline(clipped.ToArray(), new Color(Wall, Ink.A), 2f);
+            _surface.DrawMultiline(clipped.ToArray(), Wall, 2f);
 
         if (_objects != null)
         {
@@ -471,8 +627,8 @@ public partial class MiniMap : Control
                 // what this did, let a dot sitting on the rim be drawn
                 // whole: a thing half a room outside the map still showed
                 // as a complete dot hanging off the dial's edge.
-                if (ring != null) Blob(p, 5f, new Color(ring.Value, Ink.A), centre, radius);
-                if (dot != null) Blob(p, 3f, new Color(dot.Value, Ink.A), centre, radius);
+                if (ring != null) Blob(p, 5f, ring.Value, centre, radius);
+                if (dot != null) Blob(p, 3f, dot.Value, centre, radius);
             }
         }
 
@@ -485,9 +641,9 @@ public partial class MiniMap : Control
         Vector2 left = dir.Rotated(MathF.PI - 0.5f);
         Vector2 right = dir.Rotated(-MathF.PI + 0.5f);
         // The game's alpha comes from the surface the whole map is drawn
-        // on, so it covers the dots and the arrow as well as the walls;
-        // ours was applied to the walls alone.
-        DrawColoredPolygon(new[] { me + dir, me + left, me + right }, new Color(Player, Ink.A));
+        // on, so it covers the dots and the arrow as well as the walls -
+        // and here too, through the group, not per primitive.
+        _surface.DrawColoredPolygon(new[] { me + dir, me + left, me + right }, Player);
     }
 
     /// <summary>
@@ -554,13 +710,13 @@ public partial class MiniMap : Control
     void Blob(Vector2 p, float r, Color colour, Vector2 centre, float radius)
     {
         float d = p.DistanceTo(centre);
-        if (d + r <= radius) { DrawCircle(p, r, colour); return; }
+        if (d + r <= radius) { _surface.DrawCircle(p, r, colour); return; }
         if (d - r >= radius) return;
 
         Vector2[] disc = Ring(centre, radius, 64);
         Vector2[] blob = Ring(p, r, 16);
         foreach (Vector2[] piece in Geometry2D.IntersectPolygons(blob, disc))
-            if (piece.Length >= 3) DrawColoredPolygon(piece, colour);
+            if (piece.Length >= 3) _surface.DrawColoredPolygon(piece, colour);
     }
 
     /// <summary>A closed regular polygon approximating a circle.</summary>
