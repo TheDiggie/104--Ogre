@@ -90,6 +90,7 @@ static class FakeServer
     // M59_PARALYZE=1 / M59_WAIT=1: the other two states that stop you
     // moving, so the notifier's other two words can be photographed.
     static int paralyzeAfter, releaseAfter, waitAfter, unwaitAfter;
+    static int blindAfter, painAfter, whiteAfter, invertAfter;
     // M59_SHOOT=1: an arrow from the rat to you, over and over.
     static int shootAfter;
     const uint RID_SPELLDESC = 60110;
@@ -379,6 +380,32 @@ static class FakeServer
             {
                 Console.WriteLine("  -> Wait");
                 Send(ns, ctrl, new WaitMessage());
+            }
+
+            // The things that happen to your eyes. M59_BLIND=1 blinds
+            // you outright, M59_PAIN=1 flashes red and M59_WHITEOUT=1
+            // flashes white, both over three seconds; M59_INVERT=1 is
+            // the bonk on the head. There is nothing to press for any
+            // of them, so they go out on a count like the sound stop.
+            if (blindAfter > 0 && --blindAfter == 0)
+            {
+                Console.WriteLine("  -> Blind");
+                Send(ns, ctrl, new EffectMessage(new EffectBlind()));
+            }
+            if (painAfter > 0 && --painAfter == 0)
+            {
+                Console.WriteLine("  -> Pain");
+                Send(ns, ctrl, new EffectMessage(new EffectPain(3000)));
+            }
+            if (whiteAfter > 0 && --whiteAfter == 0)
+            {
+                Console.WriteLine("  -> Whiteout");
+                Send(ns, ctrl, new EffectMessage(new EffectWhiteOut(3000)));
+            }
+            if (invertAfter > 0 && --invertAfter == 0)
+            {
+                Console.WriteLine("  -> Invert");
+                Send(ns, ctrl, new EffectMessage(new EffectInvert()));
             }
             if (unwaitAfter > 0 && --unwaitAfter == 0)
             {
@@ -1801,6 +1828,10 @@ static class FakeServer
             { waitAfter = 6; unwaitAfter = 30; }
             if (Environment.GetEnvironmentVariable("M59_SHOOT") == "1")
                 shootAfter = 6;
+            if (Environment.GetEnvironmentVariable("M59_BLIND") == "1") blindAfter = 6;
+            if (Environment.GetEnvironmentVariable("M59_PAIN") == "1") painAfter = 6;
+            if (Environment.GetEnvironmentVariable("M59_WHITEOUT") == "1") whiteAfter = 6;
+            if (Environment.GetEnvironmentVariable("M59_INVERT") == "1") invertAfter = 6;
 
             // Somebody offering you a trade. OfferMessage carries the
             // partner and what they are putting up, and the client's

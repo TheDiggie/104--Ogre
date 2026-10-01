@@ -143,6 +143,7 @@ public partial class GameView : Node2D
     string _resDir = "";
     NameTags _names;
     QuestMarkers _questMarks;
+    ScreenEffects _fx;
     ActionButtons _hotbar;
     LookPanel _look;
     SpellsPanel _book;
@@ -814,6 +815,10 @@ public partial class GameView : Node2D
         });
         Widget("names", () => { _names = new NameTags(); _ui.AddChild(_names); });
         Widget("questmarks", () => { _questMarks = new QuestMarkers(); _ui.AddChild(_questMarks); });
+        // Added before the panels so blindness darkens the world and not
+        // the buttons - the reference's compositors run on the 3D
+        // viewport, and CEGUI is drawn over the top of them.
+        Widget("effects", () => { _fx = new ScreenEffects(); _ui.AddChild(_fx); });
         Widget("look", () => { _look = new LookPanel(); _ui.AddChild(_look); });
         Widget("sound", () =>
         {
@@ -1253,6 +1258,7 @@ public partial class GameView : Node2D
         _mail?.Sync(_client.ResourceManager?.Mails);
         _news?.Sync(_client.Data?.NewsGroup);
         _options?.Follow(_client.Data?.ClientPreferences);
+        _fx?.Sync(_client.Data);
         _guild?.Sync(_client.Data?.GuildInfo, _client.Data != null ? _client.Data.AvatarID : 0u);
         _wizard?.Sync(_client.Data?.StatChangeInfo);
         _newChar?.Sync();
@@ -1857,12 +1863,21 @@ public partial class GameView : Node2D
 
         _world.Renderer.Render(_px, _w, _h, cx, cy, cz, ang);
 
+        // A bonk on the head turns the world inside out:
+        // `Invert_ps` is one minus the picture with the alpha left
+        // alone (compositors.hlsl:39-45). It costs one subtraction per
+        // channel here, where the pixels already are, and it lands on
+        // the view rather than over the buttons - which is where the
+        // reference's compositor lands too.
+        bool flip = _fx != null && _fx.Inverted;
         for (int i = 0; i < _px.Length; i++)
         {
             uint c = _px[i];
-            _rgba[i * 4] = (byte)(c >> 16);
-            _rgba[i * 4 + 1] = (byte)(c >> 8);
-            _rgba[i * 4 + 2] = (byte)c;
+            byte r = (byte)(c >> 16), g = (byte)(c >> 8), b = (byte)c;
+            if (flip) { r = (byte)(255 - r); g = (byte)(255 - g); b = (byte)(255 - b); }
+            _rgba[i * 4] = r;
+            _rgba[i * 4 + 1] = g;
+            _rgba[i * 4 + 2] = b;
             _rgba[i * 4 + 3] = 255;
         }
         _image.SetData(_w, _h, false, Image.Format.Rgba8, _rgba);
