@@ -143,10 +143,12 @@ public partial class OptionsPanel : Control
         _title.Position = new Vector2(side, y); y += FontSize * 2f;
 
         _scroll.Position = new Vector2(side, y);
-        _scroll.Size = new Vector2(w, top + height - rowH - 12f - y);
+        _scroll.Size = new Vector2(w, top + height - rowH - 24f - y);
         _rows.CustomMinimumSize = new Vector2(w, 0);
 
-        _close.Position = new Vector2(side, top + height - rowH);
+        // Twelve pixels of air under the last row, so the panel's
+        // own edge and the button's are not the same line.
+        _close.Position = new Vector2(side, top + height - rowH - 12f);
         _close.Size = new Vector2(w, rowH);
     }
 

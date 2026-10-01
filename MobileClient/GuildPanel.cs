@@ -198,8 +198,13 @@ public partial class GuildPanel : Control
         _hall.Position = new Vector2(side, y); y += FontSize * 1.8f;
 
         // Three rows below the roster: the password line, the two
-        // guildmaster buttons, and Close.
-        float below = rowH * 3f + 16f;
+        // guildmaster buttons, and Close - plus the gap under the last
+        // of them. Without that last term the Close row's bottom edge
+        // and the panel's own were the same line, so the only way out
+        // of the window looked cut off, while every row above it had
+        // eight pixels of air.
+        const float foot = 12f;
+        float below = rowH * 3f + 16f + foot;
         _scroll.Position = new Vector2(side, y);
         _scroll.Size = new Vector2(w, top + height - below - 8f - y);
         _rows.CustomMinimumSize = new Vector2(w, 0);

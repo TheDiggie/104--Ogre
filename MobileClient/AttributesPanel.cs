@@ -124,7 +124,9 @@ public partial class AttributesPanel : Control
         _scroll.Size = new Vector2(v.X - side * 2f, height - FontSize * 2.2f - rowH - 16f);
         _rows.CustomMinimumSize = new Vector2(_scroll.Size.X, 0);
 
-        _close.Position = new Vector2(side, top + height - rowH);
+        // Twelve pixels of air under the last row, so the panel's
+        // own edge and the button's are not the same line.
+        _close.Position = new Vector2(side, top + height - rowH - 12f);
         _close.Size = new Vector2(v.X - side * 2f, rowH);
     }
 

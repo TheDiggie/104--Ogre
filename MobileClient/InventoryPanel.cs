@@ -289,7 +289,18 @@ public partial class InventoryPanel : Control
         // one lonely icon. AddInventoryRow/RemoveInventoryRow do the same.
         int cols = Across();
         if (_grid.Columns != cols) _grid.Columns = cols;
-        int rows = Math.Max(MinRows, (items.Count + cols - 1) / cols);
+        // The floor is a number of SLOTS, not a number of rows.
+        //
+        // The game is 5 columns by at least 6 rows (Constants.h:867-878)
+        // - thirty slots. This grows the columns with the screen, which
+        // is right in landscape, and then kept six rows of them: on a
+        // 1920-wide screen that is sixteen columns and ninety-six
+        // cells, so three items were shown in a grid covering the
+        // entire display, ninety-three of it empty. The same thirty
+        // slots, laid out however wide the screen is, is what the game
+        // means.
+        int floorRows = Math.Max(1, (MinRows * Columns + cols - 1) / cols);
+        int rows = Math.Max(floorRows, (items.Count + cols - 1) / cols);
         int slots = rows * cols;
 
         for (int i = 0; i < slots; i++)

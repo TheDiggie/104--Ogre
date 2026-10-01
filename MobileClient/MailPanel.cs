@@ -216,17 +216,25 @@ public partial class MailPanel : Control
         }
 
         // Two rows of buttons: a finger needs six of them somewhere.
-        float buttons = rowH * 2f + 8f;
+        // The last row wants air under it: without it the Close
+        // button's bottom edge and the panel's own are the same line
+        // and the only way out looks cut off.
+        float buttons = rowH * 2f + 8f + 12f;
         float rest = top + height - buttons - 8f - y;
         float listH = rest * 0.45f;
 
         _scroll.Position = new Vector2(side, y);
         _scroll.Size = new Vector2(w, listH);
         _rows.CustomMinimumSize = new Vector2(w, 0);
-        y += listH + 8f;
+        // A real gap between the list and the letter. At 8 pixels the
+        // last row's second line and the first line of the body sat on
+        // the same baseline with no divider, and the letter read as
+        // part of the row above it.
+        const float split = 20f;
+        y += listH + split;
 
         _body.Position = new Vector2(side, y);
-        _body.Size = new Vector2(w, rest - listH - 8f);
+        _body.Size = new Vector2(w, rest - listH - split);
 
         float by = top + height - buttons;
         Row(new[] { _new, _reply, _replyAll }, side, by, w, rowH);
@@ -262,8 +270,20 @@ public partial class MailPanel : Control
             return;
         }
 
+        // Newest first. The reference shows them in whatever order the
+        // resource manager read them off the disk and only turns the
+        // user's own column sorting OFF (`UIMail.cpp:19`), so a
+        // mailbox there is in no order at all - thirty letters listed
+        // 19, 6, 18, 3, 24, and their dates equally shuffled. That is
+        // tolerable beside four sortable columns and useless on a
+        // phone, where the list is the whole window. A deliberate
+        // departure, and the only one this panel makes.
+        _sorted.Clear();
+        foreach (Mail m in mails) if (m != null) _sorted.Add(m);
+        _sorted.Sort((a, b2) => b2.Timestamp.CompareTo(a.Timestamp));
+
         var sb = new System.Text.StringBuilder();
-        foreach (Mail m in mails) sb.Append(m?.Num).Append(';');
+        foreach (Mail m in _sorted) sb.Append(m.Num).Append(';');
         string now = sb.ToString();
         if (now == _signature) return;
         _signature = now;
@@ -271,9 +291,9 @@ public partial class MailPanel : Control
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
         _buttons.Clear();
 
-        for (int i = 0; i < mails.Count; i++)
+        for (int i = 0; i < _sorted.Count; i++)
         {
-            Button b = MailRow(mails[i], i);
+            Button b = MailRow(_sorted[i], i);
             _buttons.Add(b);
             _rows.AddChild(b);
         }
@@ -281,6 +301,9 @@ public partial class MailPanel : Control
         _title.Text = $"Mail ({mails.Count})";
         Pick(_picked >= 0 && _picked < mails.Count ? _picked : 0);
     }
+
+    /// <summary>The mailbox in the order it is shown, newest first.</summary>
+    readonly List<Mail> _sorted = new List<Mail>();
 
     Button MailRow(Mail m, int index)
     {
@@ -303,23 +326,25 @@ public partial class MailPanel : Control
         _picked = index;
         for (int i = 0; i < _buttons.Count; i++) _buttons[i].Flat = i != index;
 
-        if (_mails == null || index < 0 || index >= _mails.Count) { _body.Text = ""; return; }
-        string text = _mails[index].Message != null ? _mails[index].Message.FullString : "";
+        // Indexes are into the SORTED list, which is what the rows were
+        // built from; the model's own order is not the shown order.
+        if (index < 0 || index >= _sorted.Count) { _body.Text = ""; return; }
+        string text = _sorted[index].Message != null ? _sorted[index].Message.FullString : "";
         _body.Text = text != null ? text.Replace("[", "[lb]") : "";
     }
 
     void Remove()
     {
-        if (_mails == null || _picked < 0 || _picked >= _mails.Count) return;
-        _mails.RemoveAt(_picked);
+        if (_mails == null || _picked < 0 || _picked >= _sorted.Count) return;
+        _mails.Remove(_sorted[_picked]);
         _picked = -1;
         _signature = "";
     }
 
     void Reply(bool all)
     {
-        if (_mails == null || _picked < 0 || _picked >= _mails.Count) return;
-        Mail m = _mails[_picked];
+        if (_picked < 0 || _picked >= _sorted.Count) return;
+        Mail m = _sorted[_picked];
 
         string title = m.Title ?? "";
         // Reply keeps an existing Re:/Aw:; reply-all always prefixes.

@@ -35,7 +35,16 @@ public partial class Vitals : Control
 
     DataController _data;
 
-    static readonly Color Back  = new Color(0.05f, 0.05f, 0.07f, 0.75f);
+    /// <summary>
+    /// The empty part of a bar. Opaque, because the fills are the
+    /// game's own and two of them are dark - toughness is 0x444444 and
+    /// the shadow bar under it was 0x141418 at three-quarter alpha, so
+    /// against a bright ceiling the difference between full and empty
+    /// was a guess. The reference does not have this problem: its bars
+    /// sit on a solid CEGUI panel. Changing the fills instead would
+    /// mean inventing colours the game already chose.
+    /// </summary>
+    static readonly Color Back  = new Color(0.05f, 0.05f, 0.07f, 1f);
     static readonly Color Edge  = new Color(0.55f, 0.55f, 0.60f, 0.55f);
 
     // UI_COLOURRECT_BAR_*, as the client defines them.
