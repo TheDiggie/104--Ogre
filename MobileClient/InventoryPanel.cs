@@ -163,7 +163,7 @@ public partial class InventoryPanel : Control
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);
-        Panels.Opener(_open);
+        Panels.Opener(_open, "Your pack", 10);
 
         // The scrim eats the touch that would otherwise reach the world
         // behind, and is what makes the card read as being in front of
@@ -228,7 +228,6 @@ public partial class InventoryPanel : Control
     {
         if (_open == null) return;
         Vector2 v = GetViewportRect().Size;
-        const float pad = 12f;
 
         // Sized here rather than anchored: an anchored child of a
         // Control with no rect of its own comes out zero by zero and
@@ -239,8 +238,6 @@ public partial class InventoryPanel : Control
 
         // Third slot along the bottom right, after the map and the loot
         // button. They agree on the sizes rather than each guessing.
-        _open.Size = new Vector2(76, 40);
-        _open.Position = new Vector2(v.X - 70f - pad - (76f + 8f) * 2f, v.Y - 40f - pad);
 
         // The card is sized to the grid it holds, so a pack with two
         // rows in it is a two-row window and not a tall empty box - the

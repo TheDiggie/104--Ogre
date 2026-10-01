@@ -35,6 +35,11 @@ using Meridian59.Drawing2D;
 /// The row hides itself when there is no target, because on a phone
 /// every permanently visible control is screen the game does not get.
 ///
+/// WHERE IT SITS is no longer the bottom of the glass - that belongs to
+/// the movement stick at one end and the combat cluster at the other, and
+/// to the game in between. It is a column at the right edge standing on
+/// the cluster's ceiling; Layout carries the argument.
+///
 /// THE LOOK is the panels', not Godot's: seven default-grey buttons
 /// over a lit floor are seven grey smudges, and the target's name -
 /// which carries the game's own colour and is the thing you check
@@ -52,14 +57,34 @@ public partial class ActionBar : Control
 
     /// <summary>
     /// A button's height. The old FontSize * 2.6 came to 41.6, which is
-    /// under the 44 points a thumb needs - and Attack is held down.
+    /// under the 44 points a thumb needs - and Attack is held down. 56 is
+    /// the skin's own row height and comfortably over it.
     /// </summary>
-    float RowH => Mathf.Max(46f, FontSize * 2.6f);
+    float RowH => Mathf.Max(56f, FontSize * 2.6f);
+
+    /// <summary>
+    /// Between two of the seven. Twelve rather than the six it was: above
+    /// 40 points the SEPARATION is what decides whether a thumb hits the
+    /// one it meant, and six points between seven buttons of the same
+    /// size and colour is how Attack came to be indistinguishable from
+    /// Trade.
+    /// </summary>
+    const float Gap = 12f;
+
+    /// <summary>A verb's width. Four to a row, so the block is 548 wide.</summary>
+    const float ColW = 128f;
 
     /// <summary>
     /// Pixels at the bottom of the screen already spoken for - the chat
-    /// log and its input line. The row sits above them. Widgets that each
-    /// picked their own corner ended up on top of each other.
+    /// log and its input line. Widgets that each picked their own corner
+    /// ended up on top of each other.
+    ///
+    /// It no longer MOVES this block, which now stands on the combat
+    /// cluster's ceiling at the right edge rather than on the bottom of
+    /// the glass (see Layout). The view still sets it, it is still the
+    /// honest answer to "what is spoken for down there", and the setter
+    /// still relays out - so if this block is ever put back along the
+    /// bottom, the number is there and correct.
     /// </summary>
     public float BottomReserve
     {
@@ -74,11 +99,14 @@ public partial class ActionBar : Control
                         TradeWith, LootTarget, AskQuests, Deselect;
 
     /// <summary>
-    /// How tall the whole block is - portrait, name and the button row.
-    /// Anything else that wants to sit above it has to know, or it
+    /// How tall the whole block is - portrait, name and the two rows of
+    /// verbs. Anything else that wants to sit above it has to know, or it
     /// lands on top of the portrait.
     /// </summary>
-    public float BlockHeight => RowH + PortraitSize + 14f;
+    public float BlockHeight => PlateH + 6f + RowH * 2f + Gap;
+
+    /// <summary>The plate the portrait and the name sit on.</summary>
+    float PlateH => PortraitSize + 12f;
 
     /// <summary>
     /// Whether there is anything to act on. The row hides itself
@@ -193,6 +221,13 @@ public partial class ActionBar : Control
 
     public override void _Process(double delta)
     {
+        // The cluster below moves with the chat block, and this block
+        // stands on its ceiling. One comparison, and it is the difference
+        // between the two laid out together and the verbs drawn through
+        // the arc for as long as the target lives.
+        float ceiling = ActionButtons.Ceiling;
+        if (ceiling > 0f && !Mathf.IsEqualApprox(ceiling, _ceiling)) Layout();
+
         if (!_attackDown || !HasTarget || _attack.Disabled) return;
         if (Time.GetTicksMsec() - _attackSince < RepeatDelayMs) return;
         _attackRepeating = true;
@@ -232,51 +267,110 @@ public partial class ActionBar : Control
         return s;
     }
 
+    /// <summary>
+    /// WHERE THE BLOCK GOES, which is the whole of what changed here.
+    ///
+    /// It used to sit along the bottom, keeping to the left over the
+    /// chat. That is the one place it cannot be: the movement stick is a
+    /// floating one that appears wherever the left thumb lands
+    /// (`TouchControls.cs:8-9`), so the bottom left corner is not spare
+    /// screen, it is the control the client exists for, and a plate
+    /// drawn over it eats the gesture. Below it ran the hotbar, which is
+    /// now a cluster in the bottom right, so the bottom edge has an
+    /// owner at each end and nothing in the middle - which is where the
+    /// creature you are fighting is standing.
+    ///
+    /// So the block is a COLUMN at the right edge, directly above that
+    /// cluster: two rows of verbs with the portrait and the name on a
+    /// plate over them, right-aligned so the hand that reaches the
+    /// cluster reaches these by sliding up rather than across. Its floor
+    /// is the cluster's own published ceiling
+    /// (<see cref="ActionButtons.Ceiling"/>) rather than a fraction
+    /// guessed at here, because that ceiling moves with the chat block.
+    ///
+    /// The top quarter of the glass was the other candidate and is where
+    /// a target frame lives in most games. It loses on reach: six of
+    /// these seven are the only way to buy, trade, loot, inspect or ask
+    /// an NPC for a quest, and a control you need in the world should not
+    /// be a hand movement away. The research's "top 25% for infrequent
+    /// controls only" is the same argument from the other side.
+    ///
+    /// Attack stays in this row, dressed as its one primary, and is no
+    /// longer the loudest Attack on the glass - the cluster's is. That is
+    /// deliberate: this row appears only while something is targeted, and
+    /// a control that comes and goes cannot be the one a thumb rests on.
+    /// Same signal, same hold-to-swing, same enablement.
+    /// </summary>
     void Layout()
     {
         if (_name == null) return;
         Vector2 v = GetViewportRect().Size;
-        float pad = 10f;
-        float h = RowH;
-        float y = v.Y - _reserve - pad - h;
+        const float edge = 16f, inset = 6f, xs = 36f;
 
-        // Sideways the row keeps to the left, over the chat, rather
-        // than stretching the seven buttons across two thousand pixels
-        // with a thumb's width of gap between them. Same share of the
-        // width the chat block takes, so the two line up.
-        float block = v.X > v.Y ? Mathf.Min(v.X - pad * 2f, v.X * 0.52f) : v.X - pad * 2f;
+        Button[] top = { _inspect, _attack, _activate, _buy };
+        Button[] under = { _trade, _loot, _quest };
 
-        // The head of the row: portrait and name on one plate, with the
+        float block = Mathf.Min(v.X - edge * 2f, ColW * top.Length + Gap * (top.Length - 1));
+        float w = (block - Gap * (top.Length - 1)) / top.Length;
+        float x = v.X - edge - block;
+
+        // The cluster's ceiling when it has laid itself out, and the
+        // fraction it uses otherwise - the first frame, or a harness that
+        // builds this row without a hotbar.
+        _ceiling = ActionButtons.Ceiling > 0f ? ActionButtons.Ceiling : v.Y * 0.58f;
+        float bottom = Mathf.Max(BlockHeight + edge, _ceiling - M59Skin.Gap);
+        float plateY = Mathf.Round(bottom - BlockHeight);
+        float rowY = plateY + PlateH + 6f;
+
+        // The head of the block: portrait and name on one plate, with the
         // dismiss at its far end.
-        const float inset = 6f, xs = 36f;
-        float plateH = PortraitSize + inset * 2f;
-        float plateY = y - plateH - 6f;
+        _plate.Position = new Vector2(x, plateY);
+        _plate.Size = new Vector2(block, PlateH);
 
-        _plate.Position = new Vector2(pad, plateY);
-        _plate.Size = new Vector2(block, plateH);
-
-        _slot.Position = new Vector2(pad + inset, plateY + inset);
+        _slot.Position = new Vector2(x + inset, plateY + (PlateH - PortraitSize) * 0.5f);
         _slot.Size = new Vector2(PortraitSize, PortraitSize);
         // Inside the slot's rim, so the picture does not sit on it.
         _face.Position = _slot.Position + new Vector2(3f, 3f);
         _face.Size = new Vector2(PortraitSize - 6f, PortraitSize - 6f);
 
-        float nameX = pad + inset + PortraitSize + 10f;
-        _name.Position = new Vector2(nameX, plateY + inset);
-        _name.Size = new Vector2(Mathf.Max(0f, pad + block - inset - xs - 8f - nameX), PortraitSize);
+        float nameX = x + inset + PortraitSize + 10f;
+        _name.Position = new Vector2(nameX, plateY);
+        _name.Size = new Vector2(Mathf.Max(0f, x + block - inset - xs - 8f - nameX), PlateH);
 
-        _clear.Position = new Vector2(pad + block - inset - xs, plateY + (plateH - xs) * 0.5f);
+        _clear.Position = new Vector2(x + block - inset - xs, plateY + (PlateH - xs) * 0.5f);
         _clear.Size = new Vector2(xs, xs);
 
-        Button[] row = { _inspect, _attack, _activate, _buy, _trade, _loot, _quest };
-        const float gap = 6f;
-        float w = (block - gap * (row.Length - 1)) / row.Length;
-        for (int i = 0; i < row.Length; i++)
+        // Four over three, and the short row is RIGHT-aligned: its three
+        // sit under the four nearest the thumb rather than nearest the
+        // middle of the screen.
+        for (int i = 0; i < top.Length; i++)
         {
-            row[i].Position = new Vector2(pad + i * (w + gap), y);
-            row[i].Size = new Vector2(w, h);
+            top[i].Position = new Vector2(Mathf.Round(x + i * (w + Gap)), rowY);
+            top[i].Size = new Vector2(w, RowH);
+        }
+        float x2 = x + block - under.Length * w - (under.Length - 1) * Gap;
+        for (int i = 0; i < under.Length; i++)
+        {
+            under[i].Position = new Vector2(Mathf.Round(x2 + i * (w + Gap)), rowY + RowH + Gap);
+            under[i].Size = new Vector2(w, RowH);
+        }
+
+        if (OS.GetEnvironment("M59HUDRECTS") != "")
+        {
+            GD.Print($"[hud] target block {x:0},{plateY:0} {block:0}x{BlockHeight:0}" +
+                     $" ceiling={_ceiling:0} reserve={_reserve:0}");
+            foreach (Button b in new[] { _inspect, _attack, _activate, _buy, _trade, _loot, _quest, _clear })
+                GD.Print($"[hud] {b.Text,-9} {b.Position.X,6:0},{b.Position.Y,6:0}" +
+                         $" {b.Size.X,4:0}x{b.Size.Y,4:0} gap={Gap:0}");
         }
     }
+
+    /// <summary>
+    /// Where the cluster's ceiling was when this was last laid out, so a
+    /// change in it - the chat block growing, which moves the cluster -
+    /// relays this block rather than leaving it drawn through the arc.
+    /// </summary>
+    float _ceiling;
 
     /// <summary>
     /// Follows the target. <paramref name="avatarId"/> is needed for the

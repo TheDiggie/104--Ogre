@@ -23,9 +23,46 @@ using Meridian59.Data.Models;
 /// Reimplementing that dispatch here would be a second copy of five
 /// rules, and the one in the library is the one the game uses.
 ///
-/// Twelve by four does not fit a phone, so this shows one row of however
-/// many fit across, the first buttons that are set. The rest are still
-/// there in the configuration.
+/// Twelve by four does not fit a phone, so this shows however many fit
+/// in the thumb's reach, the first buttons that are set. The rest are
+/// still there in the configuration.
+///
+/// THE SHAPE, which is the owner's and was photographed before it:
+/// a full-width row of small text buttons along the bottom edge, in the
+/// one place both thumbs have to be - the left one on the movement
+/// stick, the right one dragging to look - so pressing anything meant
+/// lifting the thumb you were steering with, and Attack was one text
+/// button in a row of eight, indistinguishable from Wave.
+///
+/// It is a CLUSTER in the bottom right now, which is where every mobile
+/// action game of the last ten years puts combat, for the same reasons:
+///
+///  - one big round ATTACK under the right thumb's resting point, the
+///    biggest control in the HUD, so the thing you press most is the
+///    thing you cannot miss. It is not a new control - it is the hotbar
+///    slot that holds the game's Attack action, drawn large, so the
+///    press, the hold-to-swing and the drag-off clear are the same code
+///    they always were;
+///  - the other bound slots FAN in an arc up and to the left of it, at
+///    one thumb-sweep radius, so the hand does not move to reach them;
+///  - Next sits at the top of that arc, because acquiring a target is
+///    part of attacking and it was a tile in the menu drawer, four taps
+///    from the fight;
+///  - the bottom LEFT is untouched. That corner belongs to the movement
+///    stick, which is a floating one that appears wherever the thumb
+///    lands (TouchControls.cs:8-9), so anything drawn there is a
+///    gesture eaten;
+///  - the middle and the lower middle of the glass carry nothing. That
+///    is where the creature you are fighting is standing.
+///
+/// The numbers are not eyeballed: 44pt (Apple) / 48dp (Material) is the
+/// smallest target a thumb hits, separation matters more than size above
+/// about 40pt - 8pt between targets at or over 44, 16pt when one is
+/// within 80pt of a screen edge - and reach is a curved arc from the
+/// thumb's pivot rather than a rectangle, with primary controls in the
+/// bottom 40% of the glass. Every rect this file lays out is printed
+/// when M59HUDRECTS is set, so the sizes and the gaps can be read off a
+/// run rather than guessed at. See <see cref="Cluster"/>.
 ///
 /// THE LOOK. This is where a hand lives in a fight, and it was a row of
 /// default Godot buttons - flat grey rectangles that said nothing about
@@ -42,21 +79,33 @@ using Meridian59.Data.Models;
 ///  - the page button is dressed as what it is - a stepper, not another
 ///    action - so turning the page never looks like casting.
 ///
-/// What is deliberately NOT drawn is the empty remainder of the row.
-/// The grid in the reference shows all forty-eight cells, full or not,
-/// and empty cells here would say "slots" more loudly - but they would
-/// also lay chrome across the part of the world a thumb is pointing
-/// at, and the world is the game. Only bound slots are drawn, as
-/// before.
+/// An empty seat IS drawn now, and that is a change from "only bound
+/// slots are drawn". The old reasoning still stands - the grid in the
+/// reference shows all forty-eight cells, and chrome laid across the
+/// part of the world a thumb is pointing at costs you the game - so the
+/// empty seat is a hollow ring at a third of the rim's strength, with no
+/// cell, no caption and, crucially, no INPUT: it is a Panel with the
+/// mouse filter on ignore, so a tap aimed through it reaches the world
+/// and targets what is behind it, exactly as it did when nothing was
+/// drawn there at all. A bound slot has the lit rim and the opaque cell
+/// and so reads as holding something; an empty one does not shout.
 ///
 /// None of that touches what a press DOES: the hold-to-repeat rules
 /// below, the drag-off clear and the dispatch are all unchanged.
 /// </summary>
 public partial class ActionButtons : Control
 {
-    [Export] public int FontSize = 13;
-    [Export] public int IconSize = 40;
-    [Export] public int ButtonSize = 72;
+    [Export] public int FontSize = 18;
+    [Export] public int IconSize = 56;
+    /// <summary>An arc seat's diameter. Twice the 48dp floor.</summary>
+    [Export] public int ButtonSize = 96;
+    /// <summary>
+    /// The primary's diameter. It is not "a bit bigger": the research
+    /// every action game converges on is ONE control that is obviously
+    /// the one, and at 160 it is two thirds again the size of the slots
+    /// around it and nothing else in the HUD comes close.
+    /// </summary>
+    [Export] public int AttackSize = 160;
 
     /// <summary>
     /// Pixels at the bottom already spoken for. Setting it relays out:
@@ -94,8 +143,117 @@ public partial class ActionButtons : Control
     }
     float _left;
 
+    // ---- the cluster's geometry ------------------------------------
+    //
+    // One place, because three things have to agree about it: the
+    // buttons, the empty rings drawn behind them, and the target block
+    // in ActionBar, which sits ABOVE the cluster and would otherwise
+    // have to guess where the cluster's ceiling is.
+
+    /// <summary>
+    /// How far the primary's own edge sits from the right edge of the
+    /// glass. Not a margin for its own sake: a thumb pivots at the
+    /// corner of the device, not in it, so the control it rests on wants
+    /// to be a thumb's width inboard - and the arc's top seat needs room
+    /// to lean right of vertical without falling off the glass.
+    /// </summary>
+    public const float EdgeRight = 80f;
+    /// <summary>Over whatever the view has reserved along the bottom.</summary>
+    public const float EdgeBottom = 16f;
+
+    /// <summary>
+    /// The radius the arc seats sit at, measured from the primary's
+    /// centre - one thumb sweep, and the reason there are five seats and
+    /// not eight.
+    ///
+    /// It is bounded from both sides. Below, by separation: at 240 the
+    /// gap between the primary's rim and a seat's rim is 112 points,
+    /// where 8 is the floor for targets this size, and shrinking it does
+    /// not buy a seat - the seat count is set by the ANGLE each one eats,
+    /// which grows as the radius falls. Above, by reach: the top seat's
+    /// centre lands 238 points up from the primary, which is 22% of a
+    /// 1080-tall glass and keeps the whole cluster inside the bottom 40%
+    /// where a primary control belongs. Past about 300 the far seats are
+    /// a hand movement, not a sweep, and a hand movement is the thing
+    /// this layout exists to remove.
+    /// </summary>
+    public const float ArcR = 240f;
+
+    /// <summary>
+    /// The arc runs from 70 degrees - just right of straight up, which
+    /// the <see cref="EdgeRight"/> inset is what makes affordable - round
+    /// to 180, straight left. It does not continue below 180: that is
+    /// over the bottom edge and, further round, over the movement stick.
+    /// </summary>
+    public const float ArcFrom = 70f, ArcTo = 180f;
+
+    /// <summary>
+    /// Seats on the arc: Next, then the hotbar's own.
+    ///
+    /// FIVE, and the arithmetic is the whole argument. Two adjacent seats
+    /// must be <see cref="ButtonSize"/> apart plus a gap - 96 + 16 = 112
+    /// points of chord - and a chord of 112 at radius 240 subtends
+    /// 2*asin(56/240) = 26.9 degrees, so the 110 degrees of arc hold
+    /// floor(110/26.9) + 1 = 5. Six would mean either 22-degree steps,
+    /// which puts the rims 92 points apart and breaks the separation
+    /// rule, or a smaller button.
+    /// </summary>
+    public const int ArcSeats = 5;
+
+    /// <summary>Hotbar seats: the arc, less the one Next takes.</summary>
+    public const int HotSeats = ArcSeats - 1;
+
+    /// <summary>The primary's centre, which the whole cluster hangs off.</summary>
+    Vector2 Pivot(Vector2 v) => new Vector2(
+        v.X - EdgeRight - AttackSize * 0.5f,
+        v.Y - BottomReserve - EdgeBottom - AttackSize * 0.5f);
+
+    /// <summary>
+    /// Seat 0 is the top of the arc and holds Next; 1 upwards are the
+    /// hotbar's, running down and round towards the left.
+    /// </summary>
+    Vector2 Seat(Vector2 v, int i)
+    {
+        float a = Mathf.DegToRad(ArcFrom + (ArcTo - ArcFrom) * i / (ArcSeats - 1));
+        return Pivot(v) + new Vector2(Mathf.Cos(a), -Mathf.Sin(a)) * ArcR;
+    }
+
+    /// <summary>
+    /// The page stepper's seat: inside the arc, on the bisector between
+    /// the two middle seats, where it is 100 points from either of them
+    /// and 34 from the primary. It is not ON the arc because an arc seat
+    /// spent on turning the page is a binding the player cannot reach,
+    /// which is the whole complaint the paging answers.
+    /// </summary>
+    Vector2 TurnSeat(Vector2 v)
+    {
+        float a = Mathf.DegToRad(ArcFrom + (ArcTo - ArcFrom) * 2.5f / (ArcSeats - 1));
+        return Pivot(v) + new Vector2(Mathf.Cos(a), -Mathf.Sin(a)) * (ArcR * 0.625f);
+    }
+
+    /// <summary>A round control's rect, from its centre and diameter.</summary>
+    static Rect2 Round(Vector2 centre, float d) => new Rect2(
+        Mathf.Round(centre.X - d * 0.5f), Mathf.Round(centre.Y - d * 0.5f), d, d);
+
+    /// <summary>
+    /// The top of the cluster in viewport units, as the last layout
+    /// actually placed it: nothing else in the HUD may come below it on
+    /// the right, and ActionBar's target block sits above it.
+    ///
+    /// Published rather than computed from the screen, because the
+    /// cluster's height depends on <see cref="BottomReserve"/>, which the
+    /// view sets and which changes with the chat block - and a target
+    /// block that assumed a fraction of the glass would be drawn through
+    /// the arc the moment that reserve grew. Static because there is one
+    /// hotbar; zero until the first layout, which is the caller's cue to
+    /// fall back. ActionBar watches it for changes.
+    /// </summary>
+    public static float Ceiling { get; private set; }
+
     DataController _data;
     readonly List<Button> _pool = new List<Button>();
+    /// <summary>The hollow rings for seats with nothing in them.</summary>
+    readonly List<Panel> _rings = new List<Panel>();
     /// <summary>The button number showing in each screen slot, so a press
     /// can resolve what it fires at the moment it happens.</summary>
     readonly List<int> _nums = new List<int>();
@@ -287,15 +445,46 @@ public partial class ActionButtons : Control
     public void Sync(DataController data)
     {
         _data = data;
-        if (data?.ActionButtons == null) { HideFrom(0); return; }
+        // No list means no world yet: the whole cluster goes, rings and
+        // Next included. A ring left on screen over the character picker
+        // is the sort of thing that reads as a renderer fault.
+        if (data?.ActionButtons == null)
+        {
+            HideFrom(0);
+            for (int i = 0; i < _rings.Count; i++) _rings[i].Visible = false;
+            if (_turn != null) _turn.Visible = false;
+            if (_nextBtn != null) _nextBtn.Visible = false;
+            _signature = "";
+            return;
+        }
 
         var set = new List<ActionButtonConfig>();
         foreach (ActionButtonConfig b in data.ActionButtons)
             if (b != null && b.ButtonType != ActionButtonType.Unset) set.Add(b);
 
         Vector2 v = GetViewportRect().Size;
-        float gap = 6f;
-        int across = Math.Max(1, (int)((v.X - LeftReserve - gap) / (ButtonSize + gap)));
+
+        // The primary is the slot that holds the game's Attack action -
+        // the same config, the same press, the same hold - drawn at
+        // AttackSize in the middle of the cluster instead of as one more
+        // seat on the arc. Same test as Repeats uses, so the one control
+        // that swings while you lean on it is the one that gets the
+        // thumb's resting place.
+        //
+        // Nothing synthesises an Attack that is not in the list. A
+        // config the client's list does not hold is one BaseClient never
+        // subscribed to, so pressing it would do nothing at all
+        // (see Seed) - and the player who drags Attack off the cluster
+        // meant to. The seat then shows its empty ring until Attack is
+        // bound again from the Acts panel, which lands it straight back
+        // here: Bind keeps the slot number and this finds it by type.
+        ActionButtonConfig anchor = null;
+        foreach (ActionButtonConfig b in set)
+            if (b.ButtonType == ActionButtonType.Action
+                && b.Data is AvatarAction act && act == AvatarAction.Attack) { anchor = b; break; }
+
+        var arc = new List<ActionButtonConfig>(set);
+        if (anchor != null) arc.Remove(anchor);
 
         // The game draws all forty-eight buttons at once, twelve by four
         // (`UIActionButtons.cpp:23-26`). A phone has one row, and what
@@ -305,19 +494,26 @@ public partial class ActionButtons : Control
         // only way to reach it was to turn the device sideways. The
         // bindings were saved the whole time; they were just invisible.
         //
-        // So the row pages. The last cell becomes the page button when
-        // there is more than one page, which costs a slot and is worth
-        // it: a button you cannot see is worth less than none.
-        bool paged = set.Count > across;
-        int perPage = paged ? Math.Max(1, across - 1) : across;
-        int pages = paged ? (set.Count + perPage - 1) / perPage : 1;
+        // So the cluster pages, and paging is also the answer to the arc
+        // holding four when the seeded set is eight. The alternatives
+        // were weighed and are worse: a smaller button is the defect
+        // being fixed, a second outer ring puts its far seats 350 points
+        // from the thumb's pivot, which is a hand movement rather than a
+        // sweep, and dropping the overflow is what used to happen and
+        // reads as a client that lost your binding. The stepper does NOT
+        // cost a seat any more - it sits inside the arc (see TurnSeat),
+        // so a page is four bindings rather than three.
+        bool paged = arc.Count > HotSeats;
+        int perPage = HotSeats;
+        int pages = paged ? (arc.Count + perPage - 1) / perPage : 1;
 
         // A binding just made is worth more than whatever page you were
         // on: turn to it, so pressing "+" in the spell book shows you
-        // where the spell went.
+        // where the spell went. Attack is the exception and needs no
+        // turn - it is the primary, on every page.
         if (LastBound >= 0)
         {
-            int at = set.FindIndex(b => b.Num == LastBound);
+            int at = arc.FindIndex(b => b.Num == LastBound);
             if (at >= 0) _page = at / perPage;
             LastBound = -1;
         }
@@ -326,13 +522,18 @@ public partial class ActionButtons : Control
         if (_page < 0) _page = 0;
 
         int first = _page * perPage;
-        int count = Math.Min(perPage, Math.Max(0, set.Count - first));
+        int count = Math.Min(perPage, Math.Max(0, arc.Count - first));
 
         var sb = new System.Text.StringBuilder();
+        if (anchor != null)
+            sb.Append('!').Append(anchor.Num).Append(':').Append(anchor.Name).Append(';');
         for (int i = 0; i < count; i++)
-            sb.Append(set[first + i].Num).Append(':').Append(set[first + i].ButtonType)
-              .Append(':').Append(set[first + i].Name).Append(';');
-        sb.Append('@').Append(across).Append('@').Append((int)LeftReserve)
+            sb.Append(arc[first + i].Num).Append(':').Append(arc[first + i].ButtonType)
+              .Append(':').Append(arc[first + i].Name).Append(';');
+        // The viewport and the reserve, because the cluster is measured
+        // off both corners of the glass.
+        sb.Append('@').Append((int)v.X).Append('x').Append((int)v.Y)
+          .Append('@').Append((int)BottomReserve).Append('@').Append((int)LeftReserve)
           .Append('@').Append(_page).Append('/').Append(pages);
 
         string now = sb.ToString();
@@ -341,11 +542,20 @@ public partial class ActionButtons : Control
 
         _nums.Clear();
 
-        float y = v.Y - BottomReserve - ButtonSize - 8f;
-        for (int i = 0; i < count; i++)
+        // Pool index 0 is the primary when there is one, then the arc in
+        // seat order. The handlers below capture the POOL index and
+        // _nums runs parallel to it, which is what lets a press resolve
+        // the button number it is firing at the moment it happens - see
+        // the long note where they are wired.
+        int at0 = 0;
+        for (int i = -1; i < count; i++)
         {
-            ActionButtonConfig cfg = set[first + i];
-            Button b = Take(i);
+            bool primary = i < 0;
+            if (primary && anchor == null) continue;
+            ActionButtonConfig cfg = primary ? anchor : arc[first + i];
+            float d = primary ? AttackSize : ButtonSize;
+            Rect2 cell = Round(primary ? Pivot(v) : Seat(v, i + 1), d);
+            Button b = Take(at0);
 
             // Label is an empty string rather than null when unset, so a
             // null-coalesce picks the blank one and every button reads "?".
@@ -373,6 +583,11 @@ public partial class ActionButtons : Control
             // button, so it has to be the name: Label holds the key the
             // game binds the slot to, and there are no keys on a phone.
             b.Text = icon != null && !isAlias ? "" : Short(cfg.Name, isAlias ? 6 : 8);
+            // The primary says its name at title size. An action has no
+            // picture to show - the seeded set is all actions - so the
+            // word IS the icon here, and "Attack" at body size in a
+            // 160-point circle is the row of small text buttons again.
+            b.AddThemeFontSizeOverride("font_size", primary ? M59Skin.TitleSize : FontSize);
             // The reference's tooltip is the name over "Key: <label>"
             // (`:177-183`); Label is the keyboard binding, which a phone
             // does not have, so the second line is spent on the thing
@@ -382,9 +597,9 @@ public partial class ActionButtons : Control
             b.TooltipText = isAlias && cfg.Data is KeyValuePairString kv
                 ? cfg.Name + "\n" + kv.Value
                 : cfg.Name;
-            b.Position = new Vector2(LeftReserve + gap + i * (ButtonSize + gap), y);
-            b.Size = new Vector2(ButtonSize, ButtonSize);
-            SlotEdge(b);
+            b.Position = cell.Position;
+            b.Size = cell.Size;
+            SlotEdge(b, d, primary);
             b.Visible = true;
 
             // The slot, not the button number and not the config object.
@@ -406,7 +621,7 @@ public partial class ActionButtons : Control
             // another's. The game has no such bug because it resolves
             // the index at the click (`UIActionButtons.cpp:351`), and
             // that is what the slot gives us.
-            int slot = i;
+            int slot = at0++;
             _nums.Add(cfg.Num);
             if (b.HasMeta("wired")) continue;
             b.SetMeta("wired", true);
@@ -427,7 +642,40 @@ public partial class ActionButtons : Control
             b.Pressed += () => Fire(slot);
         }
 
-        // The page button, last in the row, saying where you are.
+        // Next, at the top of the arc, where an upward flick of the
+        // thumb finds it.
+        //
+        // It is a TARGETING control and not a binding: it holds no
+        // config, it cannot be dragged off, and it does not page. The
+        // library does the choosing - nearest guild enemy first, then
+        // nearest attackable, skipping the ones already visited
+        // (`DataController.NextTarget`) - and this sends it through the
+        // same gate the hotbar's own presses go through, which is the
+        // same gate the view's Next went through: Run is HotbarAct, and
+        // HotbarAct with keepLatch false is WorldAct exactly (the
+        // IsWaiting exit, the send, then the self-target latch spent).
+        //
+        // The view still carries one of these as a tile in the menu
+        // drawer (`GameView.cs`, "Next target"), which is where it was
+        // before this cluster existed and four taps from a fight. That
+        // file is not this change's to edit; the tile is now a duplicate
+        // and can go.
+        if (_nextBtn == null)
+        {
+            _nextBtn = new Button { Text = "Next", ClipText = true };
+            _nextBtn.Name = "hotnext";
+            _nextBtn.TooltipText = "Next target";
+            _nextBtn.AddThemeFontSizeOverride("font_size", FontSize);
+            _nextBtn.Pressed += PressNext;
+            AddChild(_nextBtn);
+        }
+        Rect2 nextCell = Round(Seat(v, 0), ButtonSize);
+        _nextBtn.Position = nextCell.Position;
+        _nextBtn.Size = nextCell.Size;
+        SlotEdge(_nextBtn, ButtonSize, false, true);
+        _nextBtn.Visible = true;
+
+        // The page button, saying where you are.
         // Its own button, not one out of the pool: a pooled button
         // already carries a Pressed handler that fires whatever action
         // sat in that position, and turning the page would cast a spell.
@@ -436,8 +684,8 @@ public partial class ActionButtons : Control
             if (_turn == null)
             {
                 _turn = new Button();
-                // A stepper, not a slot: it moves the row rather than
-                // doing anything in the world.
+                // A stepper, not a slot: it moves the cluster rather
+                // than doing anything in the world.
                 M59Skin.Dress(_turn, M59Skin.Kind.Step);
                 _turn.AddThemeFontSizeOverride("font_size", 18);
                 _turn.Name = "hotpage";
@@ -446,13 +694,42 @@ public partial class ActionButtons : Control
                 AddChild(_turn);
             }
             _turn.Text = $"{_page + 1}/{pages}";
-            _turn.Position = new Vector2(LeftReserve + gap + count * (ButtonSize + gap), y);
-            _turn.Size = new Vector2(ButtonSize, ButtonSize);
+            // Round, like everything else in the cluster - the skin's
+            // Step is a rounded square, and one square among six circles
+            // reads as a thing that failed to load rather than as a
+            // stepper. Its COLOURS stay the stepper's, which is what
+            // says it is not another action.
+            var face = Cell(M59Skin.Rule, new Color(0.157f, 0.141f, 0.118f, 0.94f), 2, TurnSize);
+            var hit = Cell(M59Skin.GoldDim, new Color(0.267f, 0.224f, 0.157f, 0.96f), 2, TurnSize);
+            _turn.AddThemeStyleboxOverride("normal", face);
+            _turn.AddThemeStyleboxOverride("hover", face);
+            _turn.AddThemeStyleboxOverride("focus", face);
+            _turn.AddThemeStyleboxOverride("pressed", hit);
+            Rect2 turnCell = Round(TurnSeat(v), TurnSize);
+            _turn.Position = turnCell.Position;
+            _turn.Size = turnCell.Size;
             _turn.Visible = true;
         }
         else if (_turn != null) _turn.Visible = false;
 
-        HideFrom(count);
+        HideFrom(at0);
+
+        // The empty seats, as rings. One for the primary when nothing is
+        // bound to Attack, one for each arc seat past the bindings on
+        // this page - and none at all while the page is full, which is
+        // the usual case with the seeded set.
+        int ring = 0;
+        if (anchor == null) Ring(ring++, Round(Pivot(v), AttackSize));
+        for (int i = count; i < HotSeats; i++) Ring(ring++, Round(Seat(v, i + 1), ButtonSize));
+        for (int i = ring; i < _rings.Count; i++) _rings[i].Visible = false;
+
+        // The highest seat, not seat 0: the arc's top is one step round
+        // from the end that leans towards the screen edge.
+        float top = v.Y * 0.58f;
+        for (int i = 0; i < ArcSeats; i++)
+            top = Mathf.Min(top, Round(Seat(v, i), ButtonSize).Position.Y - M59Skin.Gap);
+        Ceiling = top;
+        Measure(v, anchor, count, paged);
     }
 
     /// <summary>
@@ -734,7 +1011,7 @@ public partial class ActionButtons : Control
             M59Skin.Dress(b, M59Skin.Kind.Slot);
             b.AddThemeFontSizeOverride("font_size", FontSize);
             // An alias shows its picture AND its key, and a 24px
-            // sprite with a word beside it does not fit a 72 square.
+            // sprite with a word beside it does not fit a 96 circle.
             // Godot has no vertical-icon flag on Button, so the gap
             // between them is pulled to nothing and the caption is
             // clipped rather than pushing the icon off the cell.
@@ -745,6 +1022,9 @@ public partial class ActionButtons : Control
         return _pool[index];
     }
 
+    /// <summary>The page stepper's diameter. Over 44, under a seat's.</summary>
+    const float TurnSize = 72f;
+
     /// <summary>
     /// The slot's own frame, over the skin's Slot dress.
     ///
@@ -752,28 +1032,152 @@ public partial class ActionButtons : Control
     /// inventory's, where a cell is pressed to CHOOSE and the pressed
     /// state is a selection. Here a press is a cast or a swing and a
     /// held press repeats, so the pressed state has to be the loudest
-    /// thing on the row: gold rim, lifted fill. The cell is near-opaque
-    /// for the same reason the plates above are - this row sits over
-    /// the floor, not over a panel.
+    /// thing on the cluster: gold rim, lifted fill. The cell is
+    /// near-opaque for the same reason the plates above are - this sits
+    /// over the floor, not over a panel.
+    ///
+    /// ROUND, now, and round is not decoration. A circle is what tells
+    /// the thumb that this is the combat cluster and not a panel or a
+    /// list, every action game on a phone draws it that way, and a ring
+    /// at the primary's size is also the only honest way to show a seat
+    /// with nothing in it (see <see cref="Ring"/>).
+    ///
+    /// Three dresses, one shape. The primary carries the skin's Primary
+    /// colours with a gold rim at every size, because it IS the one thing
+    /// the cluster is for; a bound seat keeps the lit rim and the opaque
+    /// cell, so it reads as holding something; Next is dressed apart, dim
+    /// gold on a darker cell, because it acquires rather than acts.
     /// </summary>
-    static void SlotEdge(Button b)
+    static void SlotEdge(Button b, float d, bool primary, bool target = false)
     {
-        var normal = Cell(M59Skin.Rule, new Color(0.078f, 0.071f, 0.063f, 0.94f), 1);
-        var down = Cell(M59Skin.Gold, M59Skin.RowPick, 2);
+        StyleBoxFlat normal, down;
+        if (primary)
+        {
+            normal = Cell(M59Skin.Gold, new Color(0.286f, 0.231f, 0.129f, 0.96f), 3, d);
+            down = Cell(M59Skin.GoldBright, new Color(0.420f, 0.329f, 0.169f, 0.98f), 4, d);
+            b.AddThemeColorOverride("font_color", M59Skin.GoldBright);
+            b.AddThemeColorOverride("font_pressed_color", M59Skin.GoldBright);
+            b.AddThemeColorOverride("font_hover_color", M59Skin.GoldBright);
+            b.AddThemeColorOverride("font_disabled_color", M59Skin.TextOff);
+        }
+        else if (target)
+        {
+            normal = Cell(M59Skin.GoldDim, new Color(0.110f, 0.100f, 0.086f, 0.94f), 2, d);
+            down = Cell(M59Skin.Gold, M59Skin.RowPick, 3, d);
+            b.AddThemeColorOverride("font_color", M59Skin.Gold);
+            b.AddThemeColorOverride("font_pressed_color", M59Skin.GoldBright);
+            b.AddThemeColorOverride("font_hover_color", M59Skin.Gold);
+        }
+        else
+        {
+            normal = Cell(M59Skin.EdgeLit, new Color(0.078f, 0.071f, 0.063f, 0.94f), 2, d);
+            down = Cell(M59Skin.Gold, M59Skin.RowPick, 3, d);
+            b.AddThemeColorOverride("font_color", M59Skin.Text);
+            b.AddThemeColorOverride("font_pressed_color", M59Skin.GoldBright);
+            b.AddThemeColorOverride("font_hover_color", M59Skin.Text);
+        }
         b.AddThemeStyleboxOverride("normal", normal);
         b.AddThemeStyleboxOverride("hover", normal);
         b.AddThemeStyleboxOverride("focus", normal);
         b.AddThemeStyleboxOverride("pressed", down);
     }
 
-    static StyleBoxFlat Cell(Color edge, Color fill, int width)
+    /// <summary>
+    /// A round cell. <paramref name="d"/> is the diameter: a corner
+    /// radius of half the box is what makes a StyleBoxFlat a circle, and
+    /// passing it in rather than hard-coding 6 is the whole difference
+    /// between a rounded square and the cluster.
+    /// </summary>
+    static StyleBoxFlat Cell(Color edge, Color fill, int width, float d = 12f)
     {
         var s = new StyleBoxFlat { BgColor = fill, AntiAliasing = true };
         s.CornerRadiusTopLeft = s.CornerRadiusTopRight =
-        s.CornerRadiusBottomLeft = s.CornerRadiusBottomRight = 6;
+        s.CornerRadiusBottomLeft = s.CornerRadiusBottomRight = (int)(d * 0.5f);
         s.BorderWidthTop = s.BorderWidthBottom = s.BorderWidthLeft = s.BorderWidthRight = width;
         s.BorderColor = edge;
         return s;
+    }
+
+    /// <summary>
+    /// An empty seat: a hollow ring where a binding would sit.
+    ///
+    /// A Panel and not a Button, and the mouse filter is the point. An
+    /// empty Button would eat the tap aimed at whatever is standing
+    /// behind it, which is the reason this file drew nothing at all here
+    /// for so long; a Panel set to ignore is seen and not felt. At a
+    /// third of the rim's strength and with no caption it says "a seat"
+    /// without saying it louder than the bindings beside it.
+    /// </summary>
+    void Ring(int index, Rect2 cell)
+    {
+        while (_rings.Count <= index)
+        {
+            var p = new Panel { MouseFilter = MouseFilterEnum.Ignore, Visible = false };
+            // Behind the buttons: added later than the pool would draw
+            // it over them, and a ring over a bound slot is a smudge.
+            AddChild(p);
+            MoveChild(p, 0);
+            _rings.Add(p);
+        }
+        Panel ring = _rings[index];
+        var s = Cell(new Color(M59Skin.Rule.R, M59Skin.Rule.G, M59Skin.Rule.B, 0.35f),
+                     new Color(0f, 0f, 0f, 0.18f), 2, cell.Size.X);
+        ring.AddThemeStyleboxOverride("panel", s);
+        ring.Position = cell.Position;
+        ring.Size = cell.Size;
+        ring.Visible = true;
+    }
+
+    /// <summary>
+    /// Asks the library for the next target, through the same gate every
+    /// other press here goes through. See where it is placed for why it
+    /// is in this file at all.
+    /// </summary>
+    void PressNext()
+    {
+        Action go = () =>
+        {
+            try { _data?.NextTarget(); }
+            catch (Exception e) { GD.PrintErr($"[ActionButtons] next: {e.Message}"); }
+        };
+        if (Run != null) Run(go, false);
+        else go();
+    }
+
+    /// <summary>
+    /// Prints every control's rect, with M59HUDRECTS set.
+    ///
+    /// Not decoration and not a debug leftover: the rules this layout is
+    /// built to - 44pt targets, 8pt between them, 16 near an edge, the
+    /// primary inside the bottom 40% - are claims about numbers, and
+    /// numbers are not a thing to eyeball off a screenshot. A layout that
+    /// cannot be measured gets measured by the player, in a fight.
+    /// </summary>
+    void Measure(Vector2 v, ActionButtonConfig anchor, int count, bool paged)
+    {
+        if (OS.GetEnvironment("M59HUDRECTS") == "") return;
+
+        void Say(string what, Rect2 r) => GD.Print(
+            $"[hud] {what,-10} {r.Position.X,6:0},{r.Position.Y,6:0} {r.Size.X,4:0}x{r.Size.Y,4:0}" +
+            $"  edge r={v.X - r.Position.X - r.Size.X,4:0} b={v.Y - r.Position.Y - r.Size.Y,4:0}" +
+            $"  up={(v.Y - r.Position.Y - r.Size.Y * 0.5f) / v.Y * 100f,4:0}%");
+
+        GD.Print($"[hud] viewport {v.X}x{v.Y} reserve b={BottomReserve} l={LeftReserve}" +
+                 $" ceiling={Ceiling:0} page={_page + 1} paged={paged}");
+        Say(anchor != null ? "ATTACK" : "attack(-)", Round(Pivot(v), AttackSize));
+        Say("next", Round(Seat(v, 0), ButtonSize));
+        for (int i = 1; i < ArcSeats; i++)
+            Say(i <= count ? $"seat{i}" : $"seat{i}(-)", Round(Seat(v, i), ButtonSize));
+        if (paged) Say("page", Round(TurnSeat(v), TurnSize));
+
+        // The gaps that the rules are actually about: rim to rim, which
+        // is what a thumb feels, not centre to centre.
+        float rim = ArcR - AttackSize * 0.5f - ButtonSize * 0.5f;
+        float step = (Seat(v, 1) - Seat(v, 0)).Length() - ButtonSize;
+        float turn = (TurnSeat(v) - Pivot(v)).Length() - AttackSize * 0.5f - TurnSize * 0.5f;
+        float near = (TurnSeat(v) - Seat(v, 2)).Length() - TurnSize * 0.5f - ButtonSize * 0.5f;
+        GD.Print($"[hud] gaps primary-to-arc={rim:0} arc-to-arc={step:0}" +
+                 $" primary-to-page={turn:0} page-to-arc={near:0}");
     }
 
     /// <summary>Which page of bindings the row is showing.</summary>
@@ -781,6 +1185,9 @@ public partial class ActionButtons : Control
 
     /// <summary>The page button, when there is more than one page.</summary>
     Button _turn;
+
+    /// <summary>The target control. Not a binding - see where it is placed.</summary>
+    Button _nextBtn;
 
     void HideFrom(int from)
     {

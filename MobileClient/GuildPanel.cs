@@ -158,8 +158,6 @@ public partial class GuildPanel : Control
 
     public bool IsOpen => _panel != null && _panel.Visible;
 
-    [Export] public float ButtonRight = 12f;
-    [Export] public float ButtonBottom = 12f;
 
     public override void _Ready()
     {
@@ -177,7 +175,7 @@ public partial class GuildPanel : Control
             Opened?.Invoke();
         };
         AddChild(_open);
-        Panels.Opener(_open);
+        Panels.Opener(_open, "Your guild", 220);
 
         // The scrim eats the touch that would reach the world behind;
         // the card over it is opaque, which the old 0.97 panel was not -
@@ -396,8 +394,6 @@ public partial class GuildPanel : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        _open.Size = new Vector2(78, 40);
-        _open.Position = new Vector2(v.X - ButtonRight - 78, v.Y - ButtonBottom - 40);
 
         _panel.Position = Vector2.Zero;
         _panel.Size = v;

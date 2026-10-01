@@ -171,7 +171,7 @@ public partial class ChatOverlay : Control
         _open = new Button { Text = "Say" };
         _open.Pressed += Open;
         AddChild(_open);
-        Panels.Opener(_open);
+        Panels.Opener(_open, "Speak", 10, Panels.Where.Owner);
 
         // The recall button sits at the end of the entry, where a
         // thumb already is when the box is open.
@@ -184,7 +184,7 @@ public partial class ChatOverlay : Control
         _history.AddThemeFontSizeOverride("font_size", FontSize);
         _history.Pressed += ShowHistory;
         AddChild(_history);
-        Panels.Opener(_history);
+        Panels.Opener(_history, "The chat log", 20, Panels.Where.Owner);
 
         // The scrim dims the world and eats the touch that would reach
         // it; the CARD is the opaque part. (The old full-bleed rectangle

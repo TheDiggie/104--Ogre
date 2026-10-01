@@ -57,8 +57,6 @@ public partial class QuestsPanel : Control
 
     public bool IsOpen => _panel != null && _panel.Visible;
 
-    [Export] public float ButtonRight = 12f;
-    [Export] public float ButtonBottom = 12f;
 
     public override void _Ready()
     {
@@ -69,7 +67,7 @@ public partial class QuestsPanel : Control
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);
-        Panels.Opener(_open);
+        Panels.Opener(_open, "Your quests", 210);
 
         _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
         _panel.MouseFilter = MouseFilterEnum.Stop;
@@ -124,8 +122,6 @@ public partial class QuestsPanel : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        _open.Size = new Vector2(88, 40);
-        _open.Position = new Vector2(v.X - ButtonRight - 88, v.Y - ButtonBottom - 40);
 
         _panel.Position = Vector2.Zero;
         _panel.Size = v;

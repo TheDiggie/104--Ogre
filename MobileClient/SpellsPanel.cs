@@ -95,7 +95,7 @@ public partial class SpellsPanel : Control
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);
-        Panels.Opener(_open);
+        Panels.Opener(_open, "Spells & skills", 20);
 
         // The scrim eats the touch that would reach the world behind.
         // The card is opaque, which the old 0.94 panel was not - the
@@ -155,8 +155,6 @@ public partial class SpellsPanel : Control
         return b;
     }
 
-    /// <summary>Where the opening button sits, left of whatever else owns the corner.</summary>
-    public float RightReserve { get; set; } = 250f;
     /// <summary>
     /// Pixels at the top already spoken for by the avatar block. Kept
     /// because the view may set it, but the card is centred and bounded
@@ -171,10 +169,6 @@ public partial class SpellsPanel : Control
     {
         if (_open == null) return;
         Vector2 v = GetViewportRect().Size;
-        const float pad = 12f;
-
-        _open.Size = new Vector2(76, 40);
-        _open.Position = new Vector2(v.X - RightReserve - 76f, v.Y - 40f - pad);
 
         _panel.Position = Vector2.Zero;
         _panel.Size = v;

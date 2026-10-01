@@ -512,7 +512,7 @@ Not closed:
 - The member view still shows an Exile control per row with EXILE clear in the
   word. Whether it is merely disabled was not established - it is a client
   question, and the switch is what makes it askable.
-- M59_GUILD=none leaves the Guild button on the bottom row, which now opens
+- M59_GUILD=none leaves the Guild tile in the menu drawer, which now opens
   nothing. Also a client question the switch newly exposes.
 
 Every switch here is off unless set. Control: scenes entry plus

@@ -29,8 +29,6 @@ public partial class ActionsPanel : Control
 
     [Export] public int FontSize = 16;
     [Export] public int RowHeight = 52;
-    [Export] public float ButtonRight = 12f;
-    [Export] public float ButtonBottom = 12f;
 
     /// <summary>Do it now.</summary>
     public event Action<AvatarAction> Perform;
@@ -66,7 +64,7 @@ public partial class ActionsPanel : Control
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);
-        Panels.Opener(_open);
+        Panels.Opener(_open, "Emotes & actions", 30);
 
         // The scrim eats the touch that would otherwise reach the world
         // behind, and puts the card in front of something rather than
@@ -203,8 +201,6 @@ public partial class ActionsPanel : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        _open.Size = new Vector2(76, 40);
-        _open.Position = new Vector2(v.X - ButtonRight - 76, v.Y - ButtonBottom - 40);
 
         _panel.Position = Vector2.Zero;
         _panel.Size = v;

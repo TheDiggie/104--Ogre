@@ -205,7 +205,7 @@ public partial class MiniMap : Control
         _toggle = new Button { Text = "Map" };
         _toggle.Pressed += () => { _shown = !_shown; Save(); Layout(); Redraw(); };
         AddChild(_toggle);
-        Panels.Opener(_toggle);
+        Panels.Opener(_toggle, "The map", 10, Panels.Where.Top);
 
         // The game zooms with the mouse wheel, between 1 and 32
         // (`UIMiniMap.cpp:105-114`). A wheel is desktop input but zoom
@@ -413,9 +413,6 @@ public partial class MiniMap : Control
         // viewport does not turn ninety degrees under it - so the dial
         // is pulled back inside what fits whenever the screen changes.
         MapSize = Mathf.Clamp(MapSize, MinMapSize, FittingMax());
-        _toggle.Size = new Vector2(70, 40);
-        _toggle.Position = new Vector2(v.X - 70 - Margin, v.Y - 40 - Margin);
-
         // On the dial's own face rather than under it. Below the dial
         // they sat over the world, where a dark button on a dark wall is
         // barely a shape; the face is pale and holds them.

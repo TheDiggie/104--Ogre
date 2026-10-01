@@ -337,6 +337,27 @@ public static class M59Skin
     }
 
     /// <summary>
+    /// Marks a TOGGLE's on state.
+    ///
+    /// <see cref="Dress"/>'s pressed fill is a shade DARKER than its
+    /// normal one, which is right for a button you are holding down and
+    /// wrong for one that stays down: autorun latched on looked almost
+    /// exactly like autorun off. A toggle that is on says so in gold,
+    /// the way a chosen row and an active tab do.
+    /// </summary>
+    public static void Latch(Button b)
+    {
+        if (b == null) return;
+        var s = Flat(new Color(0.286f, 0.231f, 0.129f), 8f);
+        s.BorderWidthTop = s.BorderWidthBottom = s.BorderWidthLeft = s.BorderWidthRight = 2;
+        s.BorderColor = Gold;
+        s.AntiAliasing = true;
+        Style(b, "pressed", s);
+        Style(b, "hover_pressed", s);
+        b.AddThemeColorOverride("font_pressed_color", GoldBright);
+    }
+
+    /// <summary>
     /// Marks a row as the chosen one: the fill the pressed state uses,
     /// plus a gold edge down the left, which is what tells you which row
     /// you are looking at when the fill alone is a shade of brown.

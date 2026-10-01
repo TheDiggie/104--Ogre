@@ -69,8 +69,6 @@ public partial class PlayersPanel : Control
     public bool IsOpen => _panel != null && _panel.Visible;
 
     /// <summary>Where the open button sits. Set by the view.</summary>
-    [Export] public float ButtonRight = 12f;
-    [Export] public float ButtonBottom = 12f;
 
     public override void _Ready()
     {
@@ -81,7 +79,7 @@ public partial class PlayersPanel : Control
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);
-        Panels.Opener(_open);
+        Panels.Opener(_open, "Players online", 240);
 
         // The scrim eats the touch that would reach the world behind,
         // and is what makes the card read as being in front of
@@ -150,8 +148,6 @@ public partial class PlayersPanel : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        _open.Size = new Vector2(64, 40);
-        _open.Position = new Vector2(v.X - ButtonRight - 64, v.Y - ButtonBottom - 40);
 
         _panel.Position = Vector2.Zero;
         _panel.Size = v;

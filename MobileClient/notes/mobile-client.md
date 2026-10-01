@@ -4,7 +4,7 @@
 with `Meridian59.Ogre.Client` and then played until it was usable.
 
 ## The panels
-Tags: architecture | Each panel owns its opener button and registers it with Panels.Opener so the view can hide the row as a row
+Tags: architecture | Each panel owns its opener button and registers it with Panels.Opener, which now decides WHERE it goes as well as whether it shows
 
 Chat, spells/skills, inventory, loot, buy, trade, look, amount prompt,
 hotbar, minimap, lost-connection. `GameView.cs` gates all of it on
@@ -12,7 +12,17 @@ hotbar, minimap, lost-connection. `GameView.cs` gates all of it on
 `EnteredGame` instead left a newly created character in a room with no
 interface at all, because character creation skips `UseCharacter`.
 
-See also: godot-ui.md | Panels.cs
+The openers were a row of fourteen small text buttons along the bottom
+edge, each panel counting its own seat from the right. They are a
+DRAWER now: one `Menu` control at the top centre opens a card of large
+labelled tiles, and `Panels` lays them all out from one place. Three
+things stay off the grid because they are constant and are not combat -
+Say and Log in the chat's own line, Map beside Menu, and Auto on the
+left edge by the thumb that steers. The bottom-left is the movement
+stick and the bottom-right is the combat cluster; nothing else goes
+there.
+
+See also: godot-ui.md | Panels.cs | MenuDrawer.cs
 
 ## The hotbar persists per character
 Tags: architecture | HotbarStore writes Num, ButtonType, NumOfSameName and Name only - Data is re-resolved by name by DataController, and Label is a key binding a phone does not have
@@ -222,12 +232,13 @@ to take you through.
 It is not the target row's Open and not `AvatarAction.Activate`: those
 act on a thing you tapped, and ReqGo carries no argument at all. There
 is no AvatarAction for it either, so it cannot be a hotbar button - it
-has to be its own control. It sits in the bottom row between Log and
-Settings, registered with `Panels.Opener` so it hides with the row.
+has to be its own control. It is a tile in the menu drawer,
+registered with `Panels.Opener`, which places it.
 
-Placing it by slot arithmetic alone drew it on top of Settings, which
-is 96 wide where every other slot is 76: the shot read "SetGoings".
-Look at the row, not at the numbers.
+It used to sit in the bottom row between Log and Settings, placed by
+slot arithmetic that drew it on top of Settings - 96 wide where every
+other slot was 76, and the shot read "SetGoings". That is the reason
+no file counts seats any more.
 
 See also: godot-ui.md | the fixture -> fake-server.md
 

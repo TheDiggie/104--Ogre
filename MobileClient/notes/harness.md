@@ -41,8 +41,12 @@ See also: SceneShot.cs
 ## What has been played end to end
 Tags: process | Kept so the next session tests something new rather than re-proving these; each was watched on the wire, not just on screen
 
-- Every bottom-row panel opens and closes; Map is a toggle with no Close,
-  which is right.
+- Every panel opens and closes. They come out of the menu drawer now, so
+  a run presses `@name:menuButton` first and the tile after it; a tile
+  is not visible-in-tree with the drawer shut, so `FindButton` will not
+  find "Bag" on its own. Map is a toggle with no Close, which is right,
+  and Map, Auto, Say and Log are pinned outside the drawer and press
+  directly.
 - Chat: plain text sends `SayTo` with ChatTransmissionType.Normal and the
   room answers.
 - Targeting: tap outlines in red, tapping elsewhere clears it, and the

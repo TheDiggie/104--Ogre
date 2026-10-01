@@ -19,9 +19,10 @@ Tags: process | Things deliberately parked, so they are not rediscovered as bugs
 
 - The unsigned commits are not rebased until Ashton is at the keyboard:
   the rewrite would desync his working copy. See delivery.md.
-- Autorun (the reference's AutoMove) and its Actions window - Dance,
-  Point and GuildInvite - have nowhere to live: the bottom row is full
-  at 1080 wide. Waiting on Ashton for where they should go.
+- Autorun and the Actions window had nowhere to live while the bottom
+  row was full at 1080 wide. Settled: the row is a drawer, Acts is a
+  tile in it, and Auto is pinned to the left edge because it is
+  movement. See MenuDrawer.cs.
 
 See also: delivery -> ./delivery.md | the client -> ./mobile-client.md
 

@@ -286,7 +286,7 @@ public partial class GameView : Node2D
     ObjectBase _amountForTrade;
     uint _targetBeforeBag = uint.MaxValue;
     RoomBuffsPanel _roomBuffs;
-    Button _loot, _go, _auto, _next;
+    Button _loot, _go, _auto;
     LootPanel _lootList;
     ActionsPanel _acts;
     LootPanel _contents;
@@ -610,43 +610,6 @@ public partial class GameView : Node2D
         FindResources();
     }
 
-    /// <summary>Bottom right, left of the map toggle.</summary>
-    void LayoutLoot()
-    {
-        Vector2 v = GetViewportRect().Size;
-        if (_loot != null)
-        {
-            _loot.Size = new Vector2(76, 40);
-            _loot.Position = new Vector2(v.X - 70f - 12f - 76f - 8f, v.Y - 40f - 12f);
-        }
-
-        // The far end of the same row, past Settings. Slot arithmetic
-        // alone puts it underneath Settings, which is 96 wide rather
-        // than 76 - the first attempt drew "Go" straight through the
-        // word and the shot showed "SetGoings". So: the seven 76-wide
-        // slots from Map to Guild, then Settings' own 96, then this.
-        const float edge = 12f, map = 70f, gap = 8f, slot = 76f, settings = 96f;
-        float past = edge + map + gap + (slot + gap) * 7f + settings + gap;
-        if (_go != null)
-        {
-            _go.Size = new Vector2(slot, 40);
-            _go.Position = new Vector2(v.X - (past + slot), v.Y - 40f - 12f);
-        }
-
-        if (_auto != null)
-        {
-            _auto.Size = new Vector2(slot, 40);
-            _auto.Position = new Vector2(v.X - (past + (slot + gap) + slot), v.Y - 40f - 12f);
-        }
-
-        if (_next != null)
-        {
-            _next.Size = new Vector2(slot, 40);
-            _next.Position = new Vector2(
-                v.X - (past + (slot + gap) * 3f + slot), v.Y - 40f - 12f);
-        }
-    }
-
     /// <summary>Status text from a worker thread.</summary>
     void SetStatus(string text) { if (_status != null) _status.Text = text; }
 
@@ -798,7 +761,7 @@ public partial class GameView : Node2D
         if (_options != null) return;
 
         // Left of the mail button.
-        _options = new OptionsPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 7f };
+        _options = new OptionsPanel();
         _options.SoundVolume += v => { if (_sound != null) _sound.Volume = v; };
         _options.MusicVolume += v => { if (_sound != null) _sound.MusicLevel = v; };
         _options.LoopSounds  += on => { if (_sound != null) _sound.Loops = on; };
@@ -1378,7 +1341,12 @@ public partial class GameView : Node2D
         Widget("chat", () =>
         {
             // Clear of the minimap's own button in the bottom corner.
-            _chat = new ChatOverlay { RightReserve = 70f + 12f + 8f };
+            // Nothing is reserved at the bottom right any more. That
+            // 70 was the minimap's toggle, which used to sit in the
+            // corner and had the recall arrow drawn through it; the
+            // toggle is in the top band now and the corner belongs to
+            // the combat cluster, which the chat block does not reach.
+            _chat = new ChatOverlay();
             _chat.Submitted += text =>
             {
                 try
@@ -1571,7 +1539,7 @@ public partial class GameView : Node2D
         });
         Widget("quests", () =>
         {
-            _quests = new QuestsPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 4f };
+            _quests = new QuestsPanel();
             _quests.Opened += () => Act(() =>
                 _client.SendSendStatsMessage(Meridian59.Common.Enums.StatGroup.Quests));
             _quests.Look += id => Act(() => _client.SendReqLookMessage(id));
@@ -1595,7 +1563,7 @@ public partial class GameView : Node2D
         Widget("mail", () =>
         {
             // Left of the quest log button.
-            _mail = new MailPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 5f };
+            _mail = new MailPanel();
             _mail.Refresh += () => Act(() => _client.SendReqGetMail());
             _mail.Lookup += names => Act(() => _client.SendReqLookupNames(names));
             // The second half of the send: the server has said who these
@@ -1677,7 +1645,7 @@ public partial class GameView : Node2D
         Widget("guild", () =>
         {
             // No button opens this: UserCommandGuildInfo raises it.
-            _guild = new GuildPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 6f };
+            _guild = new GuildPanel();
             // The window wants the roster AND the list of other guilds;
             // the reference asks for both, along with the shield lists
             // it uses and this does not (`UIGuild.cpp:604-620`).
@@ -1911,22 +1879,17 @@ public partial class GameView : Node2D
         });
         Widget("players", () =>
         {
-            // Left of the character sheet button.
-            // Past Next, at the far end of the row.
-            //
-            // The slot arithmetic that put it at 12 + 78 + 84*3 landed
-            // it exactly on top of the spell book's opener, which
-            // reserves 330 and is 76 wide - the two buttons were drawn
-            // one over the other, the Who button was unreachable, and
-            // once the Who panel had been opened once it came to the
-            // front and took every later tap meant for Book. The row
-            // mixes 64, 70, 76, 78 and 96-wide buttons, so counting
-            // slots is not enough; this is measured off the same
-            // expression LayoutLoot uses for Next.
-            const float edge = 12f, map = 70f, gap = 8f, slot = 76f, settings = 96f;
-            float pastSettings = edge + map + gap + (slot + gap) * 7f + settings + gap;
-            _players = new PlayersPanel
-            { ButtonRight = pastSettings + (slot + gap) * 4f };
+            // WHY THE SEAT ARITHMETIC IS GONE, kept because it is the
+            // case that proves the point: this button's old position,
+            // 12 + 78 + 84*3, landed it exactly on top of the spell
+            // book's opener, which reserved 330 and was 76 wide. The
+            // two were drawn one over the other, Who was unreachable,
+            // and once the Who panel had been opened once it came to
+            // the front and took every later tap meant for Book. The
+            // row mixed 64, 70, 76, 78 and 96-wide buttons, so no file
+            // counting slots could get it right on its own. Panels
+            // lays the openers out now - see Panels.Opener.
+            _players = new PlayersPanel();
             _players.Opened += () => Act(() => _client.SendSendPlayers());
             // Nothing goes to the server: HandleSaid consults this list
             // and drops the message before it reaches the log.
@@ -1998,7 +1961,7 @@ public partial class GameView : Node2D
         Widget("sheet", () =>
         {
             // Right of the Book button, left of the Bag.
-            _sheet = new AttributesPanel { ButtonRight = 12f + 70f + 8f + 76f + 8f + 76f + 8f };
+            _sheet = new AttributesPanel();
             _sheet.Opened += () => Act(() =>
                 _client.SendSendStatsMessage(Meridian59.Common.Enums.StatGroup.Attributes));
             _ui.AddChild(_sheet);
@@ -2172,7 +2135,7 @@ public partial class GameView : Node2D
         });
         Widget("book", () =>
         {
-            _book = new SpellsPanel { RightReserve = 330f };
+            _book = new SpellsPanel();
             _book.Opened += () => Act(() => { _client.SendSendSpellsMessage(); _client.SendSendSkillsMessage(); });
             _book.Cast += id => WorldAct(() => _client.SendReqCastMessage(id));
             _book.Perform += id => WorldAct(() => _client.SendReqPerformMessage(id));
@@ -2203,7 +2166,7 @@ public partial class GameView : Node2D
         {
             // Left of Auto, which is left of Go, which is left of the
             // panels' own row.
-            _acts = new ActionsPanel { ButtonRight = 12f + 70f + 8f + (76f + 8f) * 7f + 96f + 8f + (76f + 8f) * 2f };
+            _acts = new ActionsPanel();
             _acts.Perform += a => WorldAct(() => _client.ExecAction(a));
             _acts.Assign += a => Act(() =>
             {
@@ -2374,7 +2337,7 @@ public partial class GameView : Node2D
             // and Get All buttons in that window are for.
             _loot.Pressed += () => WorldAct(() => _client.ExecAction(AvatarAction.Loot));
             _ui.AddChild(_loot);
-            Panels.Opener(_loot);
+            Panels.Opener(_loot, "Pick things up", 110);
 
             // Go, which is the game's Open key - space, by default
             // (`OISKeyBinding.cpp:52`), dispatched at
@@ -2397,7 +2360,7 @@ public partial class GameView : Node2D
             // turn and the move out ahead of the request.
             _go.Pressed += () => WorldAct(() => _client.SendReqGo(true));
             _ui.AddChild(_go);
-            Panels.Opener(_go);
+            Panels.Opener(_go, "Through the door", 120);
 
             // Autorun. A toggle rather than a hold, as the reference's
             // key is: press once and walk until something stops you.
@@ -2412,18 +2375,27 @@ public partial class GameView : Node2D
                 _autoMoveOnMove = on && _touch.Move.LengthSquared() > 0.0001f;
             };
             _ui.AddChild(_auto);
-            Panels.Opener(_auto);
+            // Movement, so it is pinned to the LEFT edge by the thumb
+            // that steers, not buried in a drawer and not over on the
+            // right where the look drag and the combat cluster are. It
+            // is also a toggle, and a toggle whose state you cannot see
+            // without opening a menu is a toggle you cannot trust - the
+            // button follows _autoMove every frame and has to be on
+            // screen for that to be worth anything.
+            Panels.Opener(_auto, "Walk by itself", 10, Panels.Where.Left);
 
-            // The game's NextTarget key (`ControllerInput.cpp:564`).
-            // The library does the choosing - nearest guild enemy
-            // first, then nearest attackable, skipping the ones
-            // already visited (`DataController.NextTarget`) - and a
-            // phone needs it more than a mouse does: a rat across a
-            // dark room is a few pixels of tap target.
-            _next = new Button { Text = "Next" };
-            _next.Pressed += () => WorldAct(() => _client.Data?.NextTarget());
-            _ui.AddChild(_next);
-            Panels.Opener(_next);
+            // NEXT TARGET IS NOT HERE ANY MORE. It was the game's
+            // NextTarget key (`ControllerInput.cpp:564`), and a phone
+            // needs it more than a mouse does: a rat across a dark room
+            // is a few pixels of tap target. But it is COMBAT, and the
+            // one rule the drawer keeps is that combat does not live
+            // behind a menu - picking your next enemy four taps deep is
+            // worse than the bottom-edge row it replaced. It is in the
+            // combat cluster now, beside the attack control, as
+            // `ActionButtons._nextBtn` (`hotnext`), which sends it
+            // through the same gate this did. Two buttons reading
+            // "Next" is also one too many for a harness that presses by
+            // text.
 
             // The list the game has: what is in the thing, with names in
             // the library's own colours, and a Get for one item as well as
@@ -2488,9 +2460,6 @@ public partial class GameView : Node2D
                 _client.SendReqBuyItemsMessage(who.ID, ids);
             });
             _ui.AddChild(_shop);
-
-            LayoutLoot();
-            GetViewport().SizeChanged += LayoutLoot;
         });
 
         Widget("character picker", () =>
@@ -2591,6 +2560,13 @@ public partial class GameView : Node2D
         // is built before they are, so it cannot do this itself - see
         // OptionsPanel.Apply.
         Widget("settings", () => _options?.Apply());
+
+        // Last, so the drawer starts as the top child of the layer -
+        // and after every panel, because this is what collects their
+        // opener buttons into the grid. Mounting it earlier is not
+        // wrong (it raises itself on open, and its Layout adopts
+        // whatever has registered since), only pointlessly busier.
+        Widget("menu", () => Panels.Mount(_ui));
 
         // RootClient.Start loads the config before calling Init, and this
         // did not load it at all. It is where the player's aliases, ignore
@@ -2891,7 +2867,6 @@ public partial class GameView : Node2D
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;
         if (_go != null) _go.Visible = inWorld;
-        if (_next != null) _next.Visible = inWorld;
         if (_auto != null)
         {
             _auto.Visible = inWorld;
@@ -2918,13 +2893,20 @@ public partial class GameView : Node2D
         }
         _bagWasOpen = bagOpen;
 
-        bool covered = PanelUp;
+        // The drawer is not in PanelUp and must not be: PanelUp is
+        // what makes ShowOpeners(false) happen, and ShowOpeners(false)
+        // is what SHUTS the drawer - it would close itself the frame
+        // it opened. It still covers the screen, though, so the two
+        // rows that live over the world go with it; a hotbar left
+        // showing under the grid's scrim is a row of buttons that
+        // cannot be pressed.
+        bool covered = PanelUp || Panels.DrawerOpen;
         if (_hotbar != null) _hotbar.Visible = inWorld && !covered;
         // The row of buttons that open the panels goes with it - and
         // also while the chat box is up, because the row shares a line
         // with the entry. Each button belongs to the panel it opens, so
         // no panel could hide the others; Panels keeps the list.
-        Panels.ShowOpeners(inWorld && !covered && !(_chat != null && _chat.Capturing));
+        Panels.ShowOpeners(inWorld && !PanelUp && !(_chat != null && _chat.Capturing));
         // Not simply !covered: the row hides itself when there is
         // nothing targeted, and this runs every frame.
         if (_actions != null) _actions.Visible = inWorld && !covered && _actions.HasTarget;
@@ -3107,7 +3089,8 @@ public partial class GameView : Node2D
         // input reaches this at all - _UnhandledInput means a drag a
         // panel wanted never got here - so what is applied is a drag on
         // the visible world, which is what the reference turns on too.
-        if ((_chat != null && (_chat.Capturing || _chat.ShowingHistory)) || PanelUp)
+        if ((_chat != null && (_chat.Capturing || _chat.ShowingHistory)) || PanelUp
+            || Panels.DrawerOpen)
         {
             float look = _touch.TakeTurn(delta);
             if (look != 0f) _client.TryYaw(look);

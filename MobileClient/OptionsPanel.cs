@@ -250,8 +250,6 @@ public partial class OptionsPanel : Control
     }
     bool _openerAllowed;
 
-    [Export] public float ButtonRight = 12f;
-    [Export] public float ButtonBottom = 12f;
 
     public override void _Ready()
     {
@@ -268,7 +266,7 @@ public partial class OptionsPanel : Control
         // harmless while nothing built this panel before the world.
         _open.Visible = _openerAllowed;
         AddChild(_open);
-        Panels.Opener(_open);
+        Panels.Opener(_open, "Options", 310);
 
         // The scrim eats the touch that would reach the world behind,
         // and is what makes the card read as being in front of
@@ -424,8 +422,6 @@ public partial class OptionsPanel : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        _open.Size = new Vector2(96, 40);
-        _open.Position = new Vector2(v.X - ButtonRight - 96, v.Y - ButtonBottom - 40);
 
         _panel.Position = Vector2.Zero;
         _panel.Size = v;

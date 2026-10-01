@@ -63,7 +63,7 @@ public partial class AttributesPanel : Control
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);
-        Panels.Opener(_open);
+        Panels.Opener(_open, "Your character", 40);
 
         // The scrim eats the touch that would reach the world behind;
         // the card is opaque, which the old 0.95 panel was not.
@@ -133,16 +133,12 @@ public partial class AttributesPanel : Control
     }
 
     /// <summary>Where the open button sits. Set by the view.</summary>
-    [Export] public float ButtonRight = 12f;
-    [Export] public float ButtonBottom = 12f;
 
     void Layout()
     {
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        _open.Size = new Vector2(64, 40);
-        _open.Position = new Vector2(v.X - ButtonRight - 64, v.Y - ButtonBottom - 40);
 
         _panel.Position = Vector2.Zero;
         _panel.Size = v;

@@ -102,8 +102,6 @@ public partial class MailPanel : Control
 
     public bool IsOpen => _panel != null && _panel.Visible;
 
-    [Export] public float ButtonRight = 12f;
-    [Export] public float ButtonBottom = 12f;
 
     public override void _Ready()
     {
@@ -114,7 +112,7 @@ public partial class MailPanel : Control
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);
-        Panels.Opener(_open);
+        Panels.Opener(_open, "Letters", 230);
 
         // The scrim dims the world instead of hiding it, and the card
         // over it is what the panel actually is now. See M59Skin.
@@ -338,8 +336,6 @@ public partial class MailPanel : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        _open.Size = new Vector2(76, 40);
-        _open.Position = new Vector2(v.X - ButtonRight - 76, v.Y - ButtonBottom - 40);
 
         _panel.Position = Vector2.Zero;
         _panel.Size = v;
