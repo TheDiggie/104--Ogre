@@ -92,16 +92,52 @@ public partial class FirstPersonView : Node2D
         if (M59Paths.NeedsUnpack())
         {
             _status.Text = "Unpacking game data...";
+            // This view is an offline/harness one, not the phone's first-run
+            // path, so a refused unpack does NOT get GameView's UnpackScreen
+            // (GameView.cs:472-530: a screen plus a Try again button, for a
+            // player who has no console and no way to relaunch with a fix).
+            // Here the person is a developer who reruns the scene and reads
+            // the log, so the right behaviour is to stop loudly: the report's
+            // Problem names the file or folder that failed
+            // (M59Paths.cs:410, 465, 481, 502) and goes both to an
+            // in-page label (never a system dialog) and to stderr. What
+            // matters is the same as in GameView - the only way on to
+            // FindResources is r.Ok, because Resolve would find a
+            // part-written folder and the room would load half-installed.
             System.Threading.Tasks.Task.Run(() =>
             {
                 // Callable.From rather than a method name: these are
                 // private methods, so the engine has no name for them.
-                M59Paths.UnpackIfNeeded(msg => Callable.From(() => SetStatus(msg)).CallDeferred());
-                Callable.From(FindResources).CallDeferred();
+                try
+                {
+                    M59Paths.UnpackReport r = M59Paths.UnpackIfNeeded(
+                        msg => Callable.From(() => SetStatus(msg)).CallDeferred());
+                    Callable.From(() => Unpacked(r)).CallDeferred();
+                }
+                catch (Exception e)
+                {
+                    // A task's exception is unobserved: without this the
+                    // view would sit on "Unpacking game data..." for ever.
+                    Callable.From(() => Fail($"Unpacking the game data threw:\n{e.GetType().Name}: {e.Message}"))
+                        .CallDeferred();
+                }
             });
             return;
         }
 
+        FindResources();
+    }
+
+    /// <summary>The unpack's verdict. Main thread only.</summary>
+    void Unpacked(M59Paths.UnpackReport r)
+    {
+        if (!r.Ok)
+        {
+            Fail(r.Problem ?? "The game data could not be installed.");
+            return;
+        }
+        if (r.Lost != null && r.Lost.Count > 0)
+            GD.PrintErr($"[FirstPersonView] {r.Lost.Count} data file(s) missing from this build, first: {r.Lost[0]}");
         FindResources();
     }
 

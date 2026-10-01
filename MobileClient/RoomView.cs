@@ -51,7 +51,20 @@ public partial class RoomView : Node2D
 
         // On Android the game data has to be copied out of the .pck before
         // the library, which reads with System.IO, can see any of it.
-        M59Paths.UnpackIfNeeded(s => GD.Print("[M59] " + s));
+        //
+        // Offline/harness view, so no UnpackScreen (GameView.cs:472-530 has
+        // one for a player who cannot relaunch with a fix): a refusal stops
+        // here, loudly, with the report's Problem - which names the failing
+        // file or folder (M59Paths.cs:410, 465, 481, 502) - in the
+        // in-page label and on stderr. Carrying on would Resolve a
+        // part-written folder and draw a half-installed room. Synchronous
+        // on purpose: a developer tool has no watchdog to appease.
+        M59Paths.UnpackReport report = M59Paths.UnpackIfNeeded(s => GD.Print("[M59] " + s));
+        if (!report.Ok)
+        {
+            Fail(report.Problem ?? "The game data could not be installed.");
+            return;
+        }
         string dir = M59Paths.Resolve(ResourceDir);
         if (dir == null) { Fail(M59Paths.NotFoundMessage()); return; }
 
