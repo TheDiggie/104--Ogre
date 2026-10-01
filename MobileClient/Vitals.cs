@@ -115,7 +115,9 @@ public partial class Vitals : Control
     /// game - but only slightly, or the bright floor comes through it.
     /// </summary>
     static StyleBoxFlat _plate;
-    static StyleBoxFlat Plate()
+    /// <summary>Shared with <see cref="Purse"/>, which sits beside this
+    /// block and has to read as the same object.</summary>
+    internal static StyleBoxFlat Plate()
     {
         if (_plate != null) return _plate;
         var s = new StyleBoxFlat

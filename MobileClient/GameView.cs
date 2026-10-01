@@ -349,6 +349,7 @@ public partial class GameView : Node2D
     SpellsPanel _book;
     M59Sound _sound;
     Vitals _vitals;
+    Purse _purse;
     AvatarPanel _face;
     InventoryPanel _bag;
 
@@ -2432,6 +2433,11 @@ public partial class GameView : Node2D
             // has them.
             _vitals = new Vitals { Left = 94f, Top = 14f };
             _ui.AddChild(_vitals);
+
+            // The coin, beside the bars. Its own HUD piece, so it can be
+            // moved or hidden like anything else - see Purse.
+            _purse = new Purse { Left = 94f + 300f, Top = 14f };
+            _ui.AddChild(_purse);
         });
 
         // Picking things up one at a time by tapping each is exactly the
@@ -2932,6 +2938,7 @@ public partial class GameView : Node2D
         }
 
         _vitals?.Follow(_client.Data);
+        _purse?.Follow(_client.Data);
         _face?.Follow(_client.Data);
         _face?.SyncBuffs(_client.Data);
         _bag?.Sync(_client.Data?.InventoryObjects);
@@ -2996,7 +3003,7 @@ public partial class GameView : Node2D
         // no one moment that is "logged in" - see the note above on why
         // this is an avatar in a room and not a button press.
         if (_options != null) _options.Playing = inWorld;
-        foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _questMarks, _face, _vitals, _chat, _overlays })
+        foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _questMarks, _face, _vitals, _purse, _chat, _overlays })
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;
         if (_go != null) _go.Visible = inWorld;

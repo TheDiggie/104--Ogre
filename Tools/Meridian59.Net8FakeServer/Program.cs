@@ -62,6 +62,8 @@ static class FakeServer
     const uint RID_GREETING = 60020;
     const uint RID_ECHO = 60021;
     const uint RID_COIN = 60030;
+    const uint RID_SHILLING = 60210;
+    const uint RID_PLATINUM = 60211;
     const uint RID_COINBGF = 60031;
     const uint RID_BOOK = 60032;
     const uint RID_BOOKBGF = 60033;
@@ -749,6 +751,14 @@ static class FakeServer
             new RsbResourceID(RID_GREETING,   "~BThe duskrat~n regards you with ~rmild contempt~w.", 4),
             new RsbResourceID(RID_ECHO,       "The duskrat has nothing to say about that.", 4),
             new RsbResourceID(RID_COIN,       "a gold doubloon", 4),
+            // The other two coins, so the HUD's purse has something to
+            // count. Named the way a server names a stack - with the
+            // article and the plural attached - because that is what the
+            // client has to match against, and a fixture that answers
+            // with a bare "shilling" would make the matching look easier
+            // than it is. See notes/harness.md.
+            new RsbResourceID(RID_SHILLING,   "12 shillings",    4),
+            new RsbResourceID(RID_PLATINUM,   "a platinum bar",  4),
             new RsbResourceID(RID_COINBGF,    "doubloon.bgf",    4),
             new RsbResourceID(RID_BOOK,       "a tattered book", 4),
             new RsbResourceID(RID_BOOKBGF,    "book1.bgf",       4),
@@ -1865,6 +1875,14 @@ static class FakeServer
             Carry(8001, RID_AXEBGF,  RID_AXE,   0, true),
             Carry(8002, RID_BOOKBGF, RID_BOOK,  0, false),
             Carry(coinId, RID_COINBGF, RID_COIN, coinNow, false),
+            // Two stacks of shillings rather than one, because the purse
+            // adds stacks up and a single stack would not show whether
+            // it does.
+            Carry(8011, RID_COINBGF, RID_SHILLING, 240, false),
+            Carry(8012, RID_COINBGF, RID_SHILLING, 67,  false),
+            // Count 0 is NOT STACKABLE, which for a coin means one of
+            // it - the case the purse has to read as 1 and not as 0.
+            Carry(8013, RID_COINBGF, RID_PLATINUM, 0,   false),
         };
 
         var all = new List<InventoryObject>(bag);

@@ -221,7 +221,7 @@ public partial class ChatOverlay : Control
         _entry.TextSubmitted += OnSubmitted;
         AddChild(_entry);
 
-        _open = new Button { Text = "Say" };
+        _open = new Button { Text = "Chat" };
         _open.Pressed += Open;
         AddChild(_open);
         Panels.Opener(_open, "Speak", 10, Panels.Where.Owner);
