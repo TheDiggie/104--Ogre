@@ -771,6 +771,66 @@ public sealed class ObjectParticles
     const float RayRate = 50f;
     const float RayLife = 4f;
 
+    // ---------------------------------------------------------------
+    // The cost budget. Measured with the shipping Renderer (barinn.roo,
+    // 300 frames interleaved per scenario, medians, noisy 2-core box):
+    // the sprite pass has a fixed ~0.8 ms the moment any sprite exists,
+    // and after that the price is FILL, not count - the black hole's
+    // fat new sparks cost far more than its old shrunken ones. The
+    // simulation is ~0.15 ms. At 960x540 one globe 2.5 squares away
+    // added ~5.0 ms at full script density (1,126 sprites) and three
+    // added ~11.7 ms; with the budget below one adds ~3.2 ms and three
+    // still ~3.2 ms (a braziers-only room stays at ~1 ms).
+    // ---------------------------------------------------------------
+
+    /// <summary>One grid square in world units.</summary>
+    const float Grid = 1024f;
+
+    /// <summary>
+    /// Inside this the systems run at the script's own density. Beyond
+    /// it the emission rate and quota fall as FullDist / distance, which
+    /// is how the object shrinks on screen, so a far object gets fewer
+    /// and smaller particles. Cost: none near. Bought: a globe 12
+    /// squares off runs ~220 sprites for ~0.2 ms instead of ~1,100.
+    /// </summary>
+    const float ParticleFullDist = 5f * Grid;
+
+    /// <summary>
+    /// Beyond this an object's system does not run at all: not stepped,
+    /// not drawn, its particles dropped. A flame twenty squares off is a
+    /// couple of pixels. Cost: a flame that pops in when you come within
+    /// range and ramps up over ~0.7 s. Bought: nothing at all is spent
+    /// on distant braziers.
+    /// </summary>
+    const float ParticleCullDist = 20f * Grid;
+
+    /// <summary>Density never falls below this fraction inside the cull range.</summary>
+    const float ParticleMinScale = 0.2f;
+
+    /// <summary>
+    /// Ceiling on particle sprites per frame across every system,
+    /// nearest object first (as M59Grass.MaxPerFrame does for grass).
+    /// Cost: about a third of the near globe's sparks are not drawn (the
+    /// rest are drawn denser to compensate; side by side with the full
+    /// 1,126 the ball reads the same) and the streaks never fit; in a
+    /// room crowded with globes the furthest ones lose sprites first.
+    /// Bought: near-globe cost 5.0 -> ~3.2 ms at 960x540 (~3.5 -> ~2.1
+    /// at 768x432), and a hard ceiling however many
+    /// globes are in range - three cost the same as one.
+    /// </summary>
+    public const int MaxParticleSprites = 360;
+
+    /// <summary>
+    /// The black hole's streaks are drawn only inside this and only as
+    /// <see cref="RayDots"/> dots instead of ten. They are ~50 flashes a
+    /// second at a colour of about (0.04, 0.03, 0.19) - the least visible
+    /// thing in the effect and over half its sprites at full density.
+    /// Cost: the faint spokes are lost whenever the sparks alone fill
+    /// the cap, which is every near view. Bought: ~570 sprites.
+    /// </summary>
+    const float RayMaxDist = 8f * Grid;
+    const int RayDots = 4;
+
     struct Particle
     {
         public float X, Y, Z;          // world units
@@ -804,6 +864,25 @@ public sealed class ObjectParticles
     readonly Dictionary<uint, Emitter> _emitters = new Dictionary<uint, Emitter>();
     readonly List<uint> _dead = new List<uint>();
 
+    /// <summary>What this frame's Add calls decided to draw, sorted and emitted by End.</summary>
+    struct Cand
+    {
+        public Emitter E;
+        public float Dist;
+        public object Tag;
+        public List<Renderer.Sprite> Into;
+        public float Comp, ToX, ToY;
+    }
+    readonly List<Cand> _cands = new List<Cand>();
+    static readonly Comparison<Cand> ByDist = (a, b) => a.Dist.CompareTo(b.Dist);
+
+    /// <summary>
+    /// overlay file name -> model entry (null for the great majority of
+    /// objects), so the per-object, per-frame test costs one hash and no
+    /// string is built. Bounded: names come from a fixed resource set.
+    /// </summary>
+    readonly Dictionary<string, Def> _defCache = new Dictionary<string, Def>();
+
     double _last = double.NaN;
     float _dt, _eyeX, _eyeY;
     Renderer _r;
@@ -820,7 +899,9 @@ public sealed class ObjectParticles
     public void Reset()
     {
         _emitters.Clear();
+        _cands.Clear();
         _last = double.NaN;
+        Drawn = 0;
     }
 
     /// <summary>
@@ -837,6 +918,8 @@ public sealed class ObjectParticles
         _eyeX = eyeX; _eyeY = eyeY;
         _r = renderer;
         Drawn = 0;
+        _cands.Clear();
+        if (_emitters.Count == 0) return;
         foreach (Emitter e in _emitters.Values) e.Seen = false;
     }
 
@@ -846,6 +929,19 @@ public sealed class ObjectParticles
     /// </summary>
     public void End()
     {
+        if (_emitters.Count == 0) { _cands.Clear(); return; }
+
+        // Nearest first, so the cap can only ever cost the furthest.
+        if (_cands.Count > 1) _cands.Sort(ByDist);
+        foreach (Cand c in _cands)
+        {
+            int room = MaxParticleSprites - Drawn;
+            if (room <= 0) break;
+            if (c.E.Def.Kind == Kind.Torch) EmitTorch(c.E, c.Into, c.Tag, c.Comp, c.ToX, c.ToY, room);
+            else EmitHole(c.E, c.Into, c.Tag, c.Comp, room);
+        }
+        _cands.Clear();
+
         _dead.Clear();
         foreach (var kv in _emitters) if (!kv.Value.Seen) _dead.Add(kv.Key);
         foreach (uint id in _dead) _emitters.Remove(id);
@@ -865,8 +961,29 @@ public sealed class ObjectParticles
     public void Add(uint id, string overlayFile, int group, float wx, float wy, float baseZ,
                     object tag, List<Renderer.Sprite> into)
     {
-        Def def = Find(overlayFile);
+        if (overlayFile == null) return;
+        if (!_defCache.TryGetValue(overlayFile, out Def def))
+        {
+            if (_defCache.Count > 512) _defCache.Clear();
+            def = Find(overlayFile);
+            _defCache[overlayFile] = def;
+        }
         if (def == null) return;
+
+        // Distance to the viewer, which is also what the shading below
+        // needs. Beyond the cull range the system is not run, and what it
+        // held is dropped so it costs nothing to keep.
+        float nx = _eyeX - wx, ny = _eyeY - wy;
+        float l = MathF.Sqrt(nx * nx + ny * ny);
+        if (l > ParticleCullDist)
+        {
+            if (_emitters.TryGetValue(id, out Emitter far))
+            {
+                far.Seen = true; far.On = false;
+                far.Live.Clear(); far.Rays.Clear(); far.Acc = far.RayAcc = 0f;
+            }
+            return;
+        }
         EnsureArt();
 
         if (!_emitters.TryGetValue(id, out Emitter e))
@@ -885,15 +1002,16 @@ public sealed class ObjectParticles
         if (!want) { e.On = false; e.Live.Clear(); e.Rays.Clear(); e.Acc = e.RayAcc = 0f; return; }
         e.On = true;
 
+        // Density by distance: how big the object is on screen.
+        float scale = Math.Clamp(ParticleFullDist / MathF.Max(l, 1f), ParticleMinScale, 1f);
         float ox = wx, oy = wy, oz = baseZ + def.Y * U;
-        if (def.Kind == Kind.Torch) StepTorch(e, ox, oy, oz);
-        else StepHole(e, ox, oy, oz);
+        if (def.Kind == Kind.Torch) StepTorch(e, ox, oy, oz, scale);
+        else StepHole(e, ox, oy, oz, scale, l <= RayMaxDist);
 
         // Sprite light compensation, divergence 2: what the renderer's
         // ordinary object shading (ambient plus sun, facing the viewer)
         // would do to this sprite, undone, capped at 2.5x.
-        float nx = _eyeX - wx, ny = _eyeY - wy;
-        float l = MathF.Sqrt(nx * nx + ny * ny);
+        float dist = l;
         if (l > 0f) { nx /= l; ny /= l; }
         float shade = _r != null ? _r.Lit(nx, ny, 0f, Renderer.ObjectAmbientWeight, Renderer.ObjectSunWeight) : 1f;
         float comp = 1f / MathF.Max(0.4f, shade);
@@ -904,13 +1022,14 @@ public sealed class ObjectParticles
         float toX = l > 0f ? nx * 24f : 0f, toY = l > 0f ? ny * 24f : 0f;
         if (def.Kind != Kind.Torch) toX = toY = 0f;
 
-        if (def.Kind == Kind.Torch) EmitTorch(e, into, tag, comp, toX, toY);
-        else EmitHole(e, into, tag, comp);
+        // Emitted by End, once every object's distance is known and the
+        // cap can be spent nearest-first.
+        _cands.Add(new Cand { E = e, Dist = dist, Tag = tag, Into = into, Comp = comp, ToX = toX, ToY = toY });
     }
 
     // ---- brazier flame ---------------------------------------------
 
-    void StepTorch(Emitter e, float ox, float oy, float oz)
+    void StepTorch(Emitter e, float ox, float oy, float oz, float scale)
     {
         float dt = _dt;
         Random rng = e.Rng;
@@ -937,11 +1056,14 @@ public sealed class ObjectParticles
         // Emit. The quota is a hard ceiling on live particles
         // (mp_torch.pu:6); an emitter that is full simply does not emit,
         // it does not save the debt up for later.
+        // A far flame is a small one: the quota, which is what bounds
+        // the count, shrinks with the object (never under 3).
+        int quota = Math.Max(3, (int)MathF.Round(TorchQuota * scale));
         e.Acc += TorchRate * dt;
         while (e.Acc >= 1f)
         {
             e.Acc -= 1f;
-            if (e.Live.Count >= TorchQuota) { e.Acc = 0f; break; }
+            if (e.Live.Count >= quota) { e.Acc = 0f; break; }
 
             // A point emitter: everything starts at the entry's position.
             // Direction is up, within the cone of `angle 5`
@@ -966,10 +1088,11 @@ public sealed class ObjectParticles
         }
     }
 
-    void EmitTorch(Emitter e, List<Renderer.Sprite> into, object tag, float comp, float toX, float toY)
+    void EmitTorch(Emitter e, List<Renderer.Sprite> into, object tag, float comp, float toX, float toY, int room)
     {
         foreach (Particle p in e.Live)
         {
+            if (room <= 0) return;
             float f = p.Age / p.Life;
 
             // The Colour affector (mp_torch.pu:34-39): black at birth,
@@ -992,13 +1115,13 @@ public sealed class ObjectParticles
                 TintR = 1f * comp, TintG = 0.45098f * comp, TintB = 0.235294f * comp,
                 Tag = tag,
             });
-            Drawn++;
+            Drawn++; room--;
         }
     }
 
     // ---- news globe black hole -------------------------------------
 
-    void StepHole(Emitter e, float ox, float oy, float oz)
+    void StepHole(Emitter e, float ox, float oy, float oz, float scale, bool rays)
     {
         float dt = _dt;
         Random rng = e.Rng;
@@ -1038,11 +1161,14 @@ public sealed class ObjectParticles
                 e.Live[i] = p;
             }
 
-            e.Acc += HoleRate * h;
+            // Rate and quota follow the object's size on screen; the
+            // sparks already in flight are left to finish.
+            int quota = (int)(HoleQuota * scale);
+            e.Acc += HoleRate * scale * h;
             while (e.Acc >= 1f)
             {
                 e.Acc -= 1f;
-                if (e.Live.Count >= HoleQuota) { e.Acc = 0f; break; }
+                if (e.Live.Count >= quota) { e.Acc = 0f; break; }
 
                 // SphereSurface: a random point on the sphere of radius
                 // 12 (blackHole.pu:12-17), leaving along its own normal
@@ -1062,6 +1188,7 @@ public sealed class ObjectParticles
 
         // Streaks, blackHole.pu:33-75: a point emitter sending them off in
         // every direction (angle 360) at velocity 1, for 4 seconds.
+        if (!rays) { e.Rays.Clear(); e.RayAcc = 0f; return; }
         float rdt = dt;
         for (int i = e.Rays.Count - 1; i >= 0; i--)
         {
@@ -1089,10 +1216,20 @@ public sealed class ObjectParticles
         }
     }
 
-    void EmitHole(Emitter e, List<Renderer.Sprite> into, object tag, float comp)
+    void EmitHole(Emitter e, List<Renderer.Sprite> into, object tag, float comp, int room)
     {
+        // Over the cap: draw an even share of the sparks, not the first
+        // ones. The list is in birth order, so a cut off the end would
+        // keep only the oldest - the smallest, shrunk to nothing - and
+        // drop the fat new ones that make the ball.
+        int have = e.Live.Count, take = Math.Min(have, room), err = 0;
+        // The ones left are drawn a little denser to make up, so the ball
+        // thins less than the count says (capped: opacity tops out at 1).
+        float boost = take < have ? MathF.Min(1.5f, (float)have / Math.Max(1, take)) : 1f;
         foreach (Particle p in e.Live)
         {
+            if (take < have) { err += take; if (err < have) continue; err -= have; }
+            if (room <= 0) return;
             float f = p.Age / p.Life;
 
             // The Colour affector (blackHole.pu:18-23): deep blue
@@ -1112,17 +1249,20 @@ public sealed class ObjectParticles
                 X = p.X, Y = p.Y, BaseZ = p.Z - p.H * 0.5f,
                 Width = p.W, Height = p.H,
                 Texture = _flare,
-                Opacity = 0.9f * peak,
+                Opacity = MathF.Min(1f, 0.9f * peak * boost),
                 TintR = r / peak * comp, TintG = g / peak * comp, TintB = b / peak * comp,
                 Tag = tag,
             });
-            Drawn++;
+            Drawn++; room--;
         }
 
-        // Streaks as runs of dots, divergence 3.
-        const int Dots = 10;
+        // Streaks as runs of dots, divergence 3. Fewer, larger dots than
+        // the script's length calls for (see RayDots), and the first to go
+        // when the cap bites.
+        const int Dots = RayDots;
         foreach (Ray ray in e.Rays)
         {
+            if (room < Dots) return;
             float hW = (ray.H0 - 45f * ray.Age) * U;
             float wW = (ray.W0 - 1.2f * ray.Age) * U;
 
@@ -1155,7 +1295,7 @@ public sealed class ObjectParticles
                     TintR = cr / peak * comp, TintG = cg / peak * comp, TintB = cb / peak * comp,
                     Tag = tag,
                 });
-                Drawn++;
+                Drawn++; room--;
             }
         }
     }
