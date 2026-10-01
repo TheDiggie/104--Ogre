@@ -389,6 +389,12 @@ public partial class GameView : Node2D
         while (_log.Count > LogLines) _log.RemoveAt(0);
     }
     string _passwordBefore, _passwordAfter;
+    /// <summary>
+    /// What to do when the server answers a password change, held rather
+    /// than subscribed because Settings runs before there is a client to
+    /// subscribe to. See Settings.
+    /// </summary>
+    Action<bool> _passwordAnswer;
 
     M59Client _client;
     WorldSync _world;
@@ -846,17 +852,38 @@ public partial class GameView : Node2D
             // and M59Client overrides both.
         });
 
-        _client.PasswordAnswered += ok =>
+        // The server's answer to that change. This is the one line in
+        // Settings that does NOT read its target at invoke time - a `+=`
+        // has to have the client in hand now - and the summary above
+        // says everything here is safe to wire before the client exists,
+        // so the two were in contradiction and the contradiction won:
+        // `Ask` calls Settings before Begin has built a client
+        // (`Widget("options", () => Settings())`, and Begin's own
+        // Widget("options") returns early on `_options != null`), so this
+        // threw a NullReferenceException on EVERY session, the Widget
+        // swallowed it as designed, and the throw is before
+        // `_ui.AddChild(_options)` - so the Options panel was built,
+        // never added to the tree, and never rebuilt. There were no
+        // settings at all, on the login screen or in the world: no
+        // volume, no brightness, no look speed, no language, no
+        // password box. Caught by a census of the node tree, which
+        // reported OptionsPanel=0 with the log line "[GameView] options
+        // unavailable: NullReferenceException" above it.
+        //
+        // Held as a delegate and attached wherever the client turns up
+        // first, which restores the invariant the summary claims.
+        _passwordAnswer = ok =>
         {
             // Only undo what this change did: if the stored password is
             // no longer the one we wrote, something else has replaced it.
-            var info = _client.Config?.SelectedConnectionInfo;
+            var info = _client?.Config?.SelectedConnectionInfo;
             if (!ok && info != null && _passwordAfter != null && info.Password == _passwordAfter)
                 info.Password = _passwordBefore;
             _passwordBefore = _passwordAfter = null;
             _ask?.Tell(ok ? "Password changed successfully."
                           : "The server did not accept your new password.", null, false);
         };
+        if (_client != null) _client.PasswordAnswered += _passwordAnswer;
 
         _options.LanguageChanged += UseLanguage;
 
@@ -941,6 +968,210 @@ public partial class GameView : Node2D
         LoginPromptShown(true);
     }
 
+    /// <summary>
+    /// Where the last character played on each server is kept.
+    ///
+    /// The reference keeps it on the connection entry -
+    /// `Config->SelectedConnectionInfo->Character`, written on all three
+    /// of its selection paths (`UIWelcome.cpp:170-172`, `:214-216`,
+    /// `:300-302`) - and Config writes that field out with the rest of
+    /// the entry (`Meridian59/Common/Config.cs:672`) and reads it back
+    /// (`:504-505`) so `CharacterAdd` can preselect the row whose name
+    /// matches (`UIWelcome.cpp:124-128`).
+    ///
+    /// The entry half is done here too, because that is where the
+    /// reference reads it from and it costs one line. The FILE half
+    /// cannot be: nothing in this client ever calls `Config.Save`, and a
+    /// phone has no writable folder beside the executable to put a
+    /// configuration.xml in - the same reason the server pick, the
+    /// aliases and the settings all live in `user://`. So this follows
+    /// what those already do rather than inventing a shape: a small
+    /// ConfigFile of its own, keyed by server address exactly as
+    /// `ServerList` keys its remembered pick, and its own file rather
+    /// than a shared one because OptionsPanel rewrites settings.cfg
+    /// whole on every change.
+    ///
+    /// By address, not by account: an account name is per server
+    /// (`UILogin.cpp:94-101`) and a character name is per account, so
+    /// the address is the coarsest key that is never wrong about which
+    /// server's characters it is naming. Two accounts on one server
+    /// share the row, which costs one failed name match on the picker
+    /// and nothing else.
+    /// </summary>
+    const string CharacterStorePath = "user://character.cfg";
+    const string CharacterStoreSection = "login";
+
+    /// <summary>The character last played on the server now chosen, or null.</summary>
+    string RememberedCharacter()
+    {
+        try
+        {
+            var file = new ConfigFile();
+            if (file.Load(CharacterStorePath) != Error.Ok) return null;
+            string got = (string)file.GetValue(CharacterStoreSection, Chosen.Address, "");
+            return string.IsNullOrWhiteSpace(got) ? null : got;
+        }
+        catch (Exception e) { GD.PrintErr($"[GameView] character store: {e.Message}"); return null; }
+    }
+
+    /// <summary>
+    /// Remembers a character, on the connection entry and on disk.
+    ///
+    /// Written as it is chosen rather than on the way out, which is what
+    /// the reference does too (the assignment sits immediately before
+    /// `SendUseCharacterMessage`, `UIWelcome.cpp:170-175`) and what every
+    /// other store in this client does, for the reason HotbarStore
+    /// spells out: a phone client is not closed, it is swiped away, and
+    /// there is no shutdown to hang a save on.
+    /// </summary>
+    void RememberCharacter(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        // The reference's own line (`UIWelcome.cpp:171-172`).
+        var info = _client?.Config?.SelectedConnectionInfo;
+        if (info != null) info.Character = name;
+
+        try
+        {
+            var file = new ConfigFile();
+            // Loaded first: the file holds one row per server and a
+            // write that did not read would drop the others.
+            file.Load(CharacterStorePath);
+            file.SetValue(CharacterStoreSection, Chosen.Address, name);
+            file.Save(CharacterStorePath);
+        }
+        catch (Exception e) { GD.PrintErr($"[GameView] character store: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// Marks the row of the character played last, which is the whole of
+    /// what `CharacterAdd` does with the remembered name
+    /// (`UIWelcome.cpp:124-128`: `widget->setSelected(true)` on the row
+    /// whose Name equals `coninfo->Character`).
+    ///
+    /// The reference's rows are items in a CEGUI ListBox with a separate
+    /// button to act on the selection, so "selected" there is a state
+    /// that can be preselected. Here each row IS the button and tapping
+    /// it logs straight in (`CharacterPicker.cs:235`), so there is no
+    /// selection state to set - which leaves focus, the only per-row
+    /// state a Godot Button has that means "this is the one you would
+    /// act on", plus the picker's own highlight colour so that it is
+    /// legible on a phone rather than only to a focus ring.
+    ///
+    /// Deliberately NOT done by setting `PreferredCharacter`: that is a
+    /// different feature. `M59Client.HandleCharactersMessage` logs the
+    /// preferred character in without showing the picker at all
+    /// (`M59Client.cs:383-387`, `:417`), which is right for the
+    /// harness's `--char` and wrong here - the reference preselects a
+    /// row and still waits for the player to press it, and silently
+    /// entering the world as whoever you played last is not the same
+    /// offer.
+    /// </summary>
+    void PreselectCharacter(string name)
+    {
+        if (_picker == null || string.IsNullOrWhiteSpace(name)) return;
+        Button row = RowNamed(_picker, name);
+        if (row == null) return;
+        // All three states, not just `font_color`: a Godot Button draws
+        // its label through `font_focus_color` while it holds focus and
+        // `font_hover_color` under a finger, so overriding the normal
+        // colour alone left the marked row looking exactly like the
+        // others - photographed, white text inside the focus ring.
+        Color mark = new Color(1, 0.92f, 0.6f);
+        row.AddThemeColorOverride("font_color", mark);
+        row.AddThemeColorOverride("font_focus_color", mark);
+        row.AddThemeColorOverride("font_hover_color", mark);
+        row.GrabFocus();
+    }
+
+    /// <summary>
+    /// The room's soundscape, ended, because the room has been left -
+    /// dropped, kicked or logged out.
+    ///
+    /// Nothing did this. The ConnectionLost handler showed its screen and
+    /// disconnected and never touched `_sound`, so the last room's
+    /// looping ambient - and its music - played on underneath "connection
+    /// lost" for as long as the app stayed open. The room itself is gone:
+    /// `BaseClient.Disconnect` resets the data layer
+    /// (`BaseClient.cs:142-147`), so the sound was coming from a room
+    /// that no longer existed in any model.
+    ///
+    /// The reference cannot reach that state. Disconnect goes to
+    /// `DemoSceneLoadBrax` (`OgreClient.cpp:641`), which is
+    /// `DemoSceneDestroy` (`:1183`) -> `ControllerRoom::UnloadRoom` plus
+    /// `Data->RoomObjects->Clear()` (`:1171-1172`); clearing the object
+    /// list destroys every RemoteNode, and a RemoteNode's destructor
+    /// stops and drops every sound attached to it
+    /// (`RemoteNode.cpp:112-125`). `StopAll` is this client's equivalent
+    /// of that sweep and is already what a room CHANGE uses
+    /// (`M59Sound.cs:619-624`).
+    ///
+    /// Then the music. `DemoSceneLoadBrax` finishes by starting
+    /// "nec02.ogg" (`OgreClient.cpp:1199-1203`), which is a deliberate
+    /// switch and not a side effect - the menu track is named there and
+    /// nowhere else. It is also the only way the room's track can be
+    /// stopped from here: M59Sound exposes no StopMusic, and replacing
+    /// the track is what the reference does anyway.
+    ///
+    /// So: does menu music belong on a phone? At LAUNCH, no, and that is
+    /// left as it is. The reference's login screen is a rendered tavern -
+    /// `DemoSceneLoadBrax` loads tosinn.roo and points a camera at it
+    /// (`:1181-1198`) - and nec02 is that scene's score; this client's
+    /// login screen is a dark panel with three boxes on it, so there is
+    /// nothing for the music to be the music OF. A game that starts
+    /// playing before you have typed anything is also the wrong thing to
+    /// hand someone who opened it on a bus, and `_sound` does not exist
+    /// until a client is built, so it would mean moving the audio setup
+    /// to get a result nobody asked for.
+    ///
+    /// Leaving the WORLD is the other case, and there it belongs: the
+    /// player has had the room's music in their ears for an hour, the
+    /// room has just been taken away, and the choice is between the
+    /// track of a room that is gone and the track the game itself plays
+    /// when you are not in one. The second is the reference's answer and
+    /// the better one.
+    ///
+    /// It obeys the music slider because `PlayMusic` is where that is
+    /// enforced: it refuses to start at all at zero, as `StartMusic`
+    /// does (`ControllerSound.cpp:488`), and sets the level from
+    /// MusicLevel, which the Settings panel keeps live
+    /// (`M59Sound.cs:630-655`, `:63-72`).
+    ///
+    /// The lower-case name is the reference's own spelling. The file on
+    /// disk is `Nec02.ogg`; the case-insensitive resolve in `M59Sound`
+    /// (`OnDisk`, used by `Load`) is what makes the mismatch harmless,
+    /// and asking the way the reference asks is the point of citing it.
+    /// </summary>
+    void LeftTheWorldAudio()
+    {
+        if (_sound == null) return;
+        try
+        {
+            _sound.StopAll();
+
+            Meridian59.Files.ResourceManager res = _client?.ResourceManager;
+            if (res == null) return;
+            var menu = new Meridian59.Data.Models.PlayMusic { ResourceName = "nec02.ogg" };
+            menu.ResolveResources(res, false);
+            _sound.PlayMusic(menu);
+        }
+        catch (Exception e) { GD.PrintErr($"[GameView] leaving audio: {e.Message}"); }
+    }
+
+    /// <summary>The picker row carrying this character's name, if it has one.</summary>
+    static Button RowNamed(Node under, string name)
+    {
+        foreach (Node n in under.GetChildren())
+        {
+            if (n is Button b && string.Equals(b.Text, name, StringComparison.OrdinalIgnoreCase))
+                return b;
+            Button deeper = RowNamed(n, name);
+            if (deeper != null) return deeper;
+        }
+        return null;
+    }
+
     /// <summary>Builds the client and connects, once we know who we are.</summary>
     void Begin(string user, string pass)
     {
@@ -987,6 +1218,9 @@ public partial class GameView : Node2D
             VersionMajor = (byte)Math.Clamp(VersionMajor, 0, 255),
             VersionMinor = (byte)Math.Clamp(VersionMinor, 0, 255),
         };
+        // The one handler Settings could not attach itself, because
+        // Settings runs from Ask and this is where its target is born.
+        if (_passwordAnswer != null) _client.PasswordAnswered += _passwordAnswer;
         _world = new WorldSync(_client.ResourceManager);
         _world.RootPath = _resDir;
         _world.SkyDir = M59Paths.SkyDir();
@@ -1112,12 +1346,23 @@ public partial class GameView : Node2D
             // makes visible here.
             try { _client.Disconnect(); } catch { }
             LoginMode();
+            LeftTheWorldAudio();
             _lost?.Show(why);
         };
         _client.EnteredGame += name =>
         {
             _state = $"playing as {name}";
             _wasInGame = true;
+            // And here too, because this client reaches the world by
+            // routes the reference does not have. The three paths
+            // UIWelcome writes the name on are all picker rows; here the
+            // picker is skipped entirely when the account holds one
+            // character or `PreferredCharacter` matches one
+            // (`M59Client.cs:383-387`, `:404-414`), and a character
+            // played that way is still the character you played last.
+            // Empty on the creation path (`M59Client.cs:534` has no name
+            // to give), which the wizard covers itself.
+            RememberCharacter(name);
             // In the world - the login screen has done its job, and so
             // has the creation wizard if that is how we got here. The
             // wizard no longer closes when Create is pressed, because
@@ -1807,6 +2052,13 @@ public partial class GameView : Node2D
                 // it: inWorld is read from this flag or a live avatar,
                 // and Reset has already taken the avatar.
                 _wasInGame = false;
+                // And the room's soundscape with it. The reference
+                // reaches the same call from its Quit handler as from
+                // its Disconnect - `DemoSceneLoadBrax()` at
+                // `OgreClient.cpp:961` and `:641` - so a logout and a
+                // dropped socket sound identical there, and the bug
+                // fixed for the drop was the same bug here.
+                LeftTheWorldAudio();
                 left.Open();
             };
         });
@@ -2244,7 +2496,12 @@ public partial class GameView : Node2D
         Widget("character picker", () =>
         {
             _picker = new CharacterPicker();
-            _picker.Chosen += c => _client.UseCharacter(c);
+            // Remembered on the way in, which is where the reference
+            // remembers it: the write to Config->...->Character sits
+            // immediately before the SendUseCharacterMessage on every one
+            // of its three selection paths (`UIWelcome.cpp:170-175`,
+            // `:214-219`, `:300-305`). See RememberCharacter.
+            _picker.Chosen += c => { RememberCharacter(c?.Name); _client.UseCharacter(c); };
             // Asking for the palette is a separate round trip: the
             // server sends back every face part, colour, spell and
             // skill on offer, and the data layer builds the example
@@ -2281,6 +2538,11 @@ public partial class GameView : Node2D
                         if (c != null && c.IsEmptySlot) { _emptySlot = c.ID; break; }
                 LoginPromptShown(false);
                 _picker.Offer(chars);
+                // After Offer, because Offer is what builds the rows -
+                // which is the same order the reference works in, its
+                // preselect being the tail of CharacterAdd
+                // (`UIWelcome.cpp:118-128`).
+                PreselectCharacter(RememberedCharacter());
             };
 
             _newChar = new CreateCharacter();
@@ -2289,6 +2551,13 @@ public partial class GameView : Node2D
                 _client.Data.CharCreationInfo.AvatarName = name;
                 _client.Data.CharCreationInfo.AvatarDescription = description;
                 _client.SendSystemMessageNewCharInfo();
+                // The character you are about to play, remembered here
+                // because the creation path raises EnteredGame with no
+                // name at all (`M59Client.cs:534`). The server may still
+                // refuse the name, in which case the stored one matches
+                // no row next time and the picker simply preselects
+                // nothing - the cheapest possible failure.
+                RememberCharacter(name);
             });
             _newChar.Complain += text => _ask?.Tell(text);
             // The wizard has no resource manager of its own, and the
@@ -2380,7 +2649,16 @@ public partial class GameView : Node2D
         GD.Print($"[M59] server: {where.Name} {where.Address}  string file: {where.Strings}");
         _client.Config.Connections.Add(new ConnectionInfo(
             where.Name, where.Host, (ushort)where.Port, where.Strings,
-            user, pass, Character, null));
+            // The Character field is the reference's own store for the
+            // character played last (`UIWelcome.cpp:170-172` writes it,
+            // `:124-128` reads it back), so the entry starts out holding
+            // it: the scene's own `Character` when one was set, and
+            // otherwise whatever this server's row in character.cfg
+            // says. See RememberCharacter for why the file exists as
+            // well as the field.
+            user, pass,
+            string.IsNullOrWhiteSpace(Character) ? (RememberedCharacter() ?? "") : Character,
+            null));
         _client.Config.SelectedConnectionIndex = _client.Config.Connections.Count - 1;
 
         // The saved language, now that there is both a Config to put it

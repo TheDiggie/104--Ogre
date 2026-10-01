@@ -203,11 +203,43 @@ public partial class LoginPrompt : Control
     void Go()
     {
         string u = _user.Text.Trim(), p = _pass.Text;
-        if (u.Length == 0) { _user.GrabFocus(); return; }
-        if (p.Length == 0) { _pass.GrabFocus(); return; }
+
+        // The guard on an empty box stays, and it now says so.
+        //
+        // The reference has no guard at all: `OnConnectClicked` copies
+        // both boxes straight into the selected ConnectionInfo and calls
+        // `Connect()` whatever they hold (`UILogin.cpp:146-158`), and the
+        // server answers a blank account with a LoginFailed, which
+        // becomes the popup "Your account credentials are not correct."
+        // (`OgreClient.cpp:887-896`). So a desktop player always gets a
+        // sentence back; it costs a socket, a handshake and a refusal to
+        // get it.
+        //
+        // What was here took the half of that trade that helps nobody.
+        // It moved focus to the empty box and returned - nothing sent,
+        // nothing said. On a desktop a caret jumping between two fields
+        // IS an answer; on a phone the soft keyboard covers the fields
+        // it is jumping between and there is no caret to see, so
+        // Connect read as a dead button, which is what it was reported
+        // as.
+        //
+        // The guard is the kinder half and is kept: a server has nothing
+        // to tell you about a box you left blank that you do not already
+        // know, and a phone on a bad connection pays real seconds to be
+        // told it. What was missing is the other half, so the note that
+        // already carries "connecting..." and every refusal
+        // (see Trouble) carries this too. In-page, as everything this
+        // client says is - never an engine or OS dialog.
+        if (u.Length == 0) { Trouble("Type your account name to connect."); _user.GrabFocus(); return; }
+        if (p.Length == 0) { Trouble("Type your password to connect."); _pass.GrabFocus(); return; }
 
         Remember(u);
         _go.Disabled = true;
+        // Back to the neutral colour before the progress line, for the
+        // reason Pick does it: the note doubles as the error line, and
+        // "connecting..." in refusal red is a lie about what is
+        // happening.
+        _note.AddThemeColorOverride("font_color", new Color(0.6f, 0.6f, 0.66f));
         _note.Text = "connecting...";
         Submitted?.Invoke(u, p);
     }
