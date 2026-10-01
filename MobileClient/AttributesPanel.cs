@@ -59,7 +59,7 @@ public partial class AttributesPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _open = new Button { Text = "Me" };
+        _open = new Button { Text = "Stats" };
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);

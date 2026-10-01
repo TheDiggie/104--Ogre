@@ -431,3 +431,27 @@ Tags: gotchas, lessons | Each of these produced a screenshot or a log that looke
   the rule are in fake-server.md.
 
 See also: the fixture -> fake-server.md | SceneShot.cs
+
+## A fixture that answers more nicely than the real thing cannot fail
+
+The fake server named the condition resources "health", "mana",
+"vigor", "toughness". Those are not what a condition's resource
+string is: it is the BGF FILENAME the library looks the icon up by
+(`StatNumeric.cs:304-316`, `GetObject(resourceName)`). A real server
+sends "icon.bgf".
+
+The client was printing that string next to the bar instead of
+drawing the icon the reference draws (`UIAvatar.cpp:396-405`,
+`Resource->Frames[0]`). Against the fixture the bars read
+"health / mana / vigor / toughness" and looked perfect in every
+screenshot taken for months. On the player's phone the health bar
+said "icon.bgf".
+
+The fixture now sends filenames, and deliberately sends four
+different shapes: two with art that exists, one whose art is missing,
+and the literal "icon.bgf". All four fallback paths are on screen in
+one frame.
+
+The rule: when a fixture invents a value, invent it in the SHAPE the
+real thing uses, even when a prettier value would make the
+screenshots nicer. A pretty value is a check that cannot fail.

@@ -253,6 +253,49 @@ public partial class Vitals : Control
         QueueRedraw();
     }
 
+    /// <summary>
+    /// The condition's own icon, composed once per resource.
+    ///
+    /// FromSprite rather than From: a stat icon is art with a
+    /// transparent key round it, and read as a flat texture the key
+    /// becomes a solid block of cyan behind the picture.
+    /// </summary>
+    readonly System.Collections.Generic.Dictionary<string, ImageTexture> _icons
+        = new System.Collections.Generic.Dictionary<string, ImageTexture>();
+
+    ImageTexture StatIcon(StatNumeric s)
+    {
+        if (s?.Resource == null || s.Resource.Frames.Count == 0) return null;
+        string key = s.Resource.Filename ?? s.ResourceName ?? "";
+        if (key.Length == 0) return null;
+        if (_icons.TryGetValue(key, out ImageTexture had)) return had;
+
+        ImageTexture made = null;
+        try { made = M59Assets.FromTex(Tex.FromSprite(s.Resource, 0)); }
+        catch (Exception e) { GD.PrintErr($"[Vitals] {key}: {e.Message}"); }
+        // Only a picture is cached. A resource that exists but whose
+        // bitmap has not been read yet composes to nothing and would be
+        // answered with that nothing for ever - the same trap
+        // RoomBuffsPanel.Icon documents.
+        if (made != null) _icons[key] = made;
+        return made;
+    }
+
+    /// <summary>
+    /// A fallback label from a resource filename. "health.bgf" reads as
+    /// a word; "icon.bgf" does not, and an empty gutter is quieter than
+    /// a wrong one.
+    /// </summary>
+    static string Readable(string resource)
+    {
+        if (string.IsNullOrWhiteSpace(resource)) return "";
+        string n = resource.Trim();
+        int dot = n.LastIndexOf('.');
+        if (dot > 0) n = n.Substring(0, dot);
+        if (n.Equals("icon", StringComparison.OrdinalIgnoreCase)) return "";
+        return n;
+    }
+
     public override void _Draw()
     {
         if (_data?.AvatarCondition == null) return;
@@ -341,12 +384,36 @@ public partial class Vitals : Control
             // belongs in the gutter and subordinate, the numbers at the
             // bar's end and bright, and one label cannot be in two
             // places or two colours.
-            string name = s.ResourceName;
+            // THE ICON, which is what the reference actually puts here:
+            // `UIAvatar.cpp:396-405` draws `condition->Resource->Frames[0]`
+            // beside each bar and that icon is the only label a bar gets.
+            // This used to print ResourceName instead - and ResourceName
+            // is a BGF FILENAME, the key the library looks the art up by
+            // (`StatNumeric.cs:304-316`, `GetObject(resourceName)`), not
+            // a word for a human. On a real server that is "icon.bgf"
+            // written next to the health bar. The fake server happens to
+            // answer with readable words, which is why nothing caught it.
             Label label = _names[i];
-            label.Text = string.IsNullOrWhiteSpace(name) ? "" : name;
-            label.Position = new Vector2(left + pad, row);
-            label.Size = new Vector2(nameW, barH);
-            label.Visible = true;
+            ImageTexture art = StatIcon(s);
+            if (art != null)
+            {
+                float side = Mathf.Min(barH, nameW);
+                DrawTextureRect(art,
+                    new Rect2(left + pad, row + (barH - side) * 0.5f, side, side), false);
+                label.Visible = false;
+            }
+            else
+            {
+                // No art - a condition whose BGF is missing or not read
+                // yet. The filename is still better than nothing, but
+                // the extension is noise and a bare "icon" says less
+                // than the empty gutter does.
+                string name = Readable(s.ResourceName);
+                label.Text = name;
+                label.Position = new Vector2(left + pad, row);
+                label.Size = new Vector2(nameW, barH);
+                label.Visible = true;
+            }
 
             Label value = _values[i];
             value.Text = $"{s.ValueCurrent} / {max}";

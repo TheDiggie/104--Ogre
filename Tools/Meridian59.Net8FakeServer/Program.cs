@@ -776,10 +776,23 @@ static class FakeServer
             // the client resolves it into the bar's name. Sending zero
             // leaves every bar anonymous, which is what this fixture
             // did while the client had nowhere to show a name anyway.
-            new RsbResourceID(RID_COND1,      "health",           4),
-            new RsbResourceID(RID_COND2,      "mana",             4),
-            new RsbResourceID(RID_COND3,      "vigor",            4),
-            new RsbResourceID(RID_COND4,      "toughness",        4),
+            // BGF FILENAMES, as a real server sends them. These used to
+            // be readable words - "health", "mana" - and that is not
+            // what a condition's resource string is: it is the key the
+            // library looks the ICON up by
+            // (`StatNumeric.cs:304-316`, `GetObject(resourceName)`). The
+            // readable version hid a bug for months, because the client
+            // was printing the string next to the bar and it happened to
+            // read correctly here while a real server put "icon.bgf" on
+            // screen. A fixture that answers more nicely than the thing
+            // it stands in for is a fixture that cannot fail.
+            new RsbResourceID(RID_COND1,      "iconveyance.bgf",  4),
+            new RsbResourceID(RID_COND2,      "imanashld.bgf",    4),
+            // One with no art behind it and one that is the literal
+            // "icon.bgf" a real server sends, so both fallback shapes
+            // are on screen: a name worth printing, and one that is not.
+            new RsbResourceID(RID_COND3,      "vigor.bgf",        4),
+            new RsbResourceID(RID_COND4,      "icon.bgf",         4),
             new RsbResourceID(RID_QACTIVE,    "Active Quests: ",  4),
             new RsbResourceID(RID_QNOACTIVE,  "No Active Quests", 4),
             new RsbResourceID(RID_QDONE,      "Completed Quests: ", 4),
