@@ -103,6 +103,13 @@ public partial class MailPanel : Control
 
         _to = Field("to (comma separated)");
         _subject = Field("subject");
+        // The game's own limits, and they are not arbitrary: SendSendMail
+        // glues "Subject: " + the title onto the front of the body, and
+        // the server's 4096 applies to the whole thing - which is why the
+        // reference takes the title's 60 and another 11 off the body's
+        // allowance (`UIMailCompose.cpp:20-26`). Without them a long
+        // letter is silently truncated or refused with nothing said.
+        _subject.MaxLength = 60;
         _text = new TextEdit { Visible = false, PlaceholderText = "..." };
         _text.AddThemeFontSizeOverride("font_size", FontSize);
         AddChild(_text);
@@ -379,12 +386,22 @@ public partial class MailPanel : Control
 
         to = ids;
         subject = _subject.Text ?? "";
+        // Godot's multi-line box has no MaxLength, so the body is cut
+        // here instead, to the same allowance the reference gives it:
+        // MAIL_MESSAGE_MAX_LENGTH less the title's 60 and the eleven
+        // characters SendSendMail glues on in front
+        // (`UIMailCompose.cpp:20-26`).
         text = _text.Text ?? "";
+        int room = Meridian59.Common.Constants.BlakservStringLengths.MAIL_MESSAGE_MAX_LENGTH - 60 - 10 - 1;
+        if (text.Length > room) text = text.Substring(0, room);
 
         _to.Text = ""; _subject.Text = ""; _text.Text = "";
         _error.Text = "";
         _composing = false;
-        Show(false);
+        // Only the compose form closes; the mailbox stays up, as it does
+        // in the reference (`UIMailCompose.cpp:91-97`). Closing the whole
+        // panel made sending two letters in a row needlessly slow.
+        Show(true);
         return true;
     }
 }

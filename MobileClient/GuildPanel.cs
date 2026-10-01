@@ -206,8 +206,15 @@ public partial class GuildPanel : Control
         _scroll.Visible = on; _close.Visible = on; _open.Visible = !on;
 
         // The guildmaster half is only there when the server says you
-        // have a hall to have a password on.
-        bool hall = on && _info != null && _info.PasswordSetFlag != 0;
+        // have a hall to have a password on - AND when you are the
+        // guildmaster. The reference removes the whole tab whenever
+        // IsRenounce is set, which is its way of saying you are not
+        // (`UIGuild.cpp:176-212`), and only then looks at the password
+        // flag (:164-173). Without the first half, any member of a
+        // guild with a hall was offered 'Abandon hall'. The server
+        // refuses it, but the button should not be there to press.
+        bool master = _info != null && _info.Flags.IsDisband;
+        bool hall = on && master && _info.PasswordSetFlag != 0;
         _chest.Visible = hall; _setPassword.Visible = hall; _abandon.Visible = hall;
         _renounce.Visible = on;
 

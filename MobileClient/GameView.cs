@@ -887,11 +887,27 @@ public partial class GameView : Node2D
             // else here can select you: you cannot tap yourself in
             // first person, so every self-cast through the target row
             // had nothing to aim at.
-            _face.SelfTarget += () => Act(() =>
+            // Self-target is a MODE, not a target. SendReqCastMessage
+            // checks Data.SelfTarget and aims the spell at your avatar
+            // without touching TargetID (BaseClient.cs:1735-1741), which
+            // is the whole point: the reference holds a modifier key
+            // (`ControllerInput.cpp:776-778`) and lets go, and what you
+            // were fighting is still what you were fighting. Setting
+            // TargetID to your own id instead - which this did - meant a
+            // self-heal in the middle of a fight threw the monster away
+            // and you had to tap it again.
+            //
+            // There is no key to hold on a phone, so it latches: tap the
+            // portrait, the next thing is aimed at you, and it clears
+            // itself.
+            _face.SelfTarget += () =>
             {
-                uint me = _client.Data.AvatarID;
-                if (ObjectID.IsValid(me)) _client.Data.TargetID = me;
-            });
+                if (_client.Data == null) return;
+                _client.Data.SelfTarget = !_client.Data.SelfTarget;
+                _chat?.Local(_client.Data.SelfTarget
+                    ? "Self-target on: the next spell is aimed at you."
+                    : "Self-target off.");
+            };
             _ui.AddChild(_face);
         });
 
@@ -1506,10 +1522,32 @@ public partial class GameView : Node2D
         }
     }
 
+    /// <summary>
+    /// Sends something, and says so rather than throwing if it fails.
+    ///
+    /// Nothing is sent while the server has you waiting. The reference
+    /// swallows input at every level during a wait - key down
+    /// (`ControllerInput.cpp:541`), key up (:568), mouse press (:333)
+    /// and mouse release before CEGUI sees it at all (:268), so the
+    /// Attack button and the spell list are dead too. Requests thrown
+    /// into that window are ignored by the server and still spend the
+    /// local attack and cast throttles, so the first thing you do after
+    /// a teleport does nothing.
+    /// </summary>
     void Act(Action send)
     {
+        if (_client?.Data != null && _client.Data.IsWaiting) return;
         try { send(); }
         catch (Exception e) { _chat?.Local($"{e.GetType().Name}: {e.Message}"); }
+
+        // The latch spends itself on whatever was just sent, so you do
+        // not heal yourself for the rest of the fight by accident. The
+        // reference gets this free by holding a key down.
+        if (_client?.Data != null && _client.Data.SelfTarget)
+        {
+            _client.Data.SelfTarget = false;
+            _chat?.Local("Self-target off.");
+        }
     }
 
     /// <summary>
@@ -1521,6 +1559,11 @@ public partial class GameView : Node2D
     void ApplyTap()
     {
         if (_world.Renderer == null || _client?.Data == null) return;
+        // Retargeting during a wait is the same mistake as acting during
+        // one, and a swapped target mid-teleport is the worst version of
+        // it. The reference drops the press outright
+        // (`ControllerInput.cpp:333-339`).
+        if (_client.Data.IsWaiting) { _touch.TakeTap(out _); return; }
         if (!_touch.TakeTap(out Vector2 screen)) return;
 
         // Screen is the stretched viewport; the renderer works in its own
@@ -1537,12 +1580,22 @@ public partial class GameView : Node2D
         Renderer.Sprite hit = _world.Renderer.Pick(bx, by, _w, _h, cx, cy, cz, avatar.Angle);
         var obj = hit?.Tag as RoomObject;
 
+        // A tap that hits nothing is not a command to forget what you
+        // were fighting. The reference changes only the cursor when a
+        // click misses (`ControllerInput.cpp:243-246`); the one
+        // deliberate clear is the Close key (:554-560). Clearing on a
+        // miss is bad enough on a mouse and worse under a thumb: drop
+        // the target mid-melee and the next Attack quietly picks the
+        // nearest attackable in front of you instead, which may be a
+        // different monster or somebody's pet.
+        if (obj == null) return;
+
         // Only the id is set. The library resolves it to an object and
         // raises TargetObject, and the row follows that - which is how
         // the game does it, and the only way the row hears about the
         // targets the library sets by itself: the thing you killed
         // leaving the room, a room change, a tab-target, a click-target.
-        _client.Data.TargetID = obj == null ? uint.MaxValue : obj.ID;
+        _client.Data.TargetID = obj.ID;
     }
 
     /// <summary>

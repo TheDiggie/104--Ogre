@@ -255,13 +255,31 @@ public partial class LootPanel : Control
     {
         if (_rows == null) return;
 
-        if (!visible || items == null || items.Count == 0)
+        // An empty list is an open, empty window, not a closed one. The
+        // reference keys the window on the model's IsVisible alone
+        // (`UILootList.cpp:53-62`). Treating a count of zero as
+        // "invisible" here was worse than cosmetic: Close() does not
+        // clear IsVisible - only Dismiss() does - so opening an empty
+        // chest left the model visible while this re-closed the panel
+        // every frame, and the tap looked like it had done nothing at
+        // all.
+        if (!visible)
         {
             if (IsOpen) Close();
             return;
         }
 
         if (!IsOpen) Show(true);
+
+        if (items == null || items.Count == 0)
+        {
+            if (_signature == "")
+            { _title.Text = $"{Heading} (0)"; return; }
+            _signature = "";
+            foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
+            _title.Text = $"{Heading} (0)";
+            return;
+        }
 
         // The name and the flags are in the signature, not just the id
         // and the count. The contents window is the one window the game

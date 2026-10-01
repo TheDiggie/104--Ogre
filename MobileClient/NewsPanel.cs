@@ -308,7 +308,13 @@ public partial class NewsPanel : Control
 
     void Send()
     {
-        Post?.Invoke(Truncate(_subject.Text ?? ""), _text.Text ?? "");
+        // The body has its own cap, NEWS_POSTING_MAX_LENGTH - 1, as the
+        // reference sets on the box (`UINewsGroupCompose.cpp:17-18`).
+        // Godot's multi-line box has no MaxLength, so it is cut here.
+        string body = _text.Text ?? "";
+        int cap = Meridian59.Common.Constants.BlakservStringLengths.NEWS_POSTING_MAX_LENGTH - 1;
+        if (body.Length > cap) body = body.Substring(0, cap);
+        Post?.Invoke(Truncate(_subject.Text ?? ""), body);
         _subject.Text = ""; _text.Text = "";
         _composing = false;
         _signature = "";

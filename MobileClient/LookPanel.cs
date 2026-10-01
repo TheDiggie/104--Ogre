@@ -189,8 +189,8 @@ public partial class LookPanel : Control
                     (argb & 0xFF) / 255f));
             }
 
-            _description.Text = text;
-            _inscription.Text = ins;
+            _description.Text = Safe(text);
+            _inscription.Text = Safe(ins);
 
             try
             {
@@ -224,7 +224,7 @@ public partial class LookPanel : Control
             _shown = id; _lastText = text;
             _name.Text = o?.Name ?? "";
             Tint(o);
-            _description.Text = text;
+            _description.Text = Safe(text);
             _inscription.Text = "";
             _detail.Text = Join(
                 info.SchoolName?.FullString,
@@ -256,7 +256,7 @@ public partial class LookPanel : Control
             _shown = id; _lastText = text;
             _name.Text = o?.Name ?? "";
             Tint(o);
-            _description.Text = text;
+            _description.Text = Safe(text);
             _inscription.Text = "";
             _detail.Text = Join(info.SchoolName?.FullString, info.SkillLevel?.FullString);
             Picture(o);
@@ -303,4 +303,17 @@ public partial class LookPanel : Control
         }
         return M59Compose.Icon(o, size);
     }
+
+    /// <summary>
+    /// Text on its way into a BBCode label, with the one character
+    /// that would be read as markup taken out of its way.
+    ///
+    /// The reference writes a description into a plain edit box
+    /// (`UIObjectDetails.cpp:107`) where a bracket is a bracket. Here
+    /// the label parses BBCode, so a '[' anywhere in a server string
+    /// opens a tag and swallows the rest of the line. The other panels
+    /// in this client already knew that - MailPanel, NewsPanel and
+    /// NpcQuestsPanel all do this - and this one did not.
+    /// </summary>
+    static string Safe(string s) => s == null ? "" : s.Replace("[", "[lb]");
 }

@@ -198,13 +198,28 @@ public partial class BuyPanel : Control
         if (_rows == null) return;
         _buy = buy;
 
-        if (buy == null || !buy.IsVisible || buy.Items == null || buy.Items.Count == 0)
+        // Visibility is the model's to decide, not the item count's.
+        // The reference opens the window on IsVisible alone
+        // (`UIBuy.cpp:60-66`), so a shop with nothing in stock is an
+        // open, empty shop rather than a tap that appeared to do
+        // nothing.
+        if (buy == null || !buy.IsVisible)
         {
             if (IsOpen) Close();
             return;
         }
 
         if (!IsOpen) Show(true);
+
+        if (buy.Items == null || buy.Items.Count == 0)
+        {
+            if (_signature != "")
+            {
+                _signature = "";
+                foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
+            }
+            return;
+        }
 
         var sb = new System.Text.StringBuilder();
         foreach (TradeOfferObject o in buy.Items)

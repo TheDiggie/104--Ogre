@@ -151,7 +151,11 @@ public partial class OptionsPanel : Control
     }
 
     /// <summary>The flags this panel switches; read every time it opens.</summary>
-    public void Follow(PreferencesFlags prefs) => _prefs = prefs;
+    public void Follow(PreferencesFlags prefs)
+    {
+        _prefs = prefs;
+        FollowPreferences();
+    }
 
     void Build()
     {
@@ -193,6 +197,28 @@ public partial class OptionsPanel : Control
                                   on => { if (_prefs != null) _prefs.ReagentBag = on; }));
         _rows.AddChild(Preference("Show spell power", () => _prefs != null && _prefs.SpellPower,
                                   on => { if (_prefs != null) _prefs.SpellPower = on; }));
+    }
+
+    /// <summary>
+    /// The seven server-side preference switches and how to read each
+    /// one back, so they can be greyed out until the server has spoken
+    /// and re-read when it does.
+    /// </summary>
+    readonly List<(CheckBox Box, Func<bool> Get)> _prefRows =
+        new List<(CheckBox, Func<bool>)>();
+
+    /// <summary>
+    /// Puts the preference switches where the model says they are, and
+    /// shows them as unavailable until it has anything to say.
+    /// </summary>
+    public void FollowPreferences()
+    {
+        bool live = _prefs != null && _prefs.Enabled;
+        foreach ((CheckBox box, Func<bool> get) in _prefRows)
+        {
+            box.Disabled = !live;
+            box.SetPressedNoSignal(get());
+        }
     }
 
     Control Section(string text)
@@ -283,7 +309,23 @@ public partial class OptionsPanel : Control
             Name = $"pref{Slug(name)}",
         };
         box.AddThemeFontSizeOverride("font_size", FontSize);
-        box.Toggled += on => { set(on); Preferences?.Invoke(); };
+        // Nothing is sent until the server has told us what the
+        // preferences actually are. The word arrives as
+        // UserCommandReceivePreferences and sets PreferencesFlags.Enabled
+        // (DataController.cs:2785); until then every flag reads zero, so
+        // opening Settings early showed all seven switches off and
+        // flipping any one of them sent the whole word back with the
+        // other six cleared - safety off, autoloot, reagent bag and
+        // spell power quietly turned off on the server. The reference
+        // keeps the boxes disabled for exactly this long
+        // (`UIOptions.cpp:994-1002`, :2702).
+        box.Toggled += on =>
+        {
+            if (_prefs == null || !_prefs.Enabled) { box.SetPressedNoSignal(get()); return; }
+            set(on);
+            Preferences?.Invoke();
+        };
+        _prefRows.Add((box, get));
         _switches.Add(box);
         return box;
     }
