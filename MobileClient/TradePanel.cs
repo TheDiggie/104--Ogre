@@ -160,6 +160,13 @@ public partial class TradePanel : Control
     VBoxContainer _rowsMine, _rowsTheirs;
     Button _add, _offer, _accept, _cancel;
 
+    /// <summary>
+    /// What has happened to your side of the offer since you built it -
+    /// an in-page line, never a system dialog. See Reconcile.
+    /// </summary>
+    Label _notice;
+    InventoryPanel _bag;
+
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
     string _theirSignature = "";
     string _mineSignature = "";
@@ -179,6 +186,11 @@ public partial class TradePanel : Control
         _title = Head("Trade", FontSize + 4, new Color(1, 0.92f, 0.6f));
         _mine = Head("You offer", FontSize, new Color(0.8f, 0.85f, 1f));
         _theirs = Head("They offer", FontSize, new Color(1, 0.85f, 0.8f));
+
+        _notice = Head("", FontSize, new Color(1f, 0.78f, 0.45f));
+        _notice.Name = "tradeNotice";
+        _notice.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _notice.VerticalAlignment = VerticalAlignment.Center;
 
         _rowsMine = new VBoxContainer();
         _rowsMine.AddThemeConstantOverride("separation", 3);
@@ -216,6 +228,12 @@ public partial class TradePanel : Control
         // rule rather than by two.
         _offer = Act("Offer", () =>
         {
+            // Checked again at the press, not only on the last frame: an
+            // offer is irreversible once accepted, and if the pack moved
+            // under it the player is shown that INSTEAD of the offer
+            // going out - they press again knowing what it now holds.
+            if (Reconcile(_trade)) return;
+            _notice.Text = ""; Layout();
             var send = new List<ObjectID>();
             if (_trade?.ItemsYou != null)
                 foreach (ObjectBase o in _trade.ItemsYou)
@@ -266,6 +284,7 @@ public partial class TradePanel : Control
         if (on) Panels.ToFront(this);
         foreach (Node n in GetChildren())
             if (n is Control c && c != this) c.Visible = on;
+        _notice.Visible = on && _notice.Text != "";
         _panel.Visible = on;
         Layout();
     }
@@ -288,7 +307,9 @@ public partial class TradePanel : Control
         _title.Size = new Vector2(w, rowH);
 
         float listTop = top + rowH;
-        float listH = (height - rowH * 3f - 28f) / 2f;
+        // Room for the notice only while there is one to show.
+        float noteH = _notice.Text != "" ? rowH * 1.1f : 0f;
+        float listH = (height - rowH * 3f - 28f - noteH) / 2f;
 
         _mine.Position = new Vector2(side, listTop);
         _mine.Size = new Vector2(w, rowH * 0.8f);
@@ -304,6 +325,8 @@ public partial class TradePanel : Control
         _rowsTheirs.CustomMinimumSize = new Vector2(w, 0);
 
         float y = top + height - rowH - Foot;
+        _notice.Position = new Vector2(side, y - noteH);
+        _notice.Size = new Vector2(w, noteH);
         Button[] row = { _add, _offer, _accept, _cancel };
         float bw = (w - 6f * (row.Length - 1)) / row.Length;
         for (int i = 0; i < row.Length; i++)
@@ -346,6 +369,104 @@ public partial class TradePanel : Control
     }
 
     /// <summary>
+    /// Keeps the things you have put up pointed at what you actually
+    /// carry.
+    ///
+    /// <c>Put</c> stores the bag's own InventoryObject in
+    /// <c>Trade.ItemsYou</c>, which is how the game does it too
+    /// (`UITrade.cpp:480-481`) - but the game's rows are destroyed by the
+    /// list's own ItemRemove as the model changes, so a row can never
+    /// outlive its object. Here the rows are rebuilt from the list on a
+    /// poll, and nothing removed the entry. A server that replaces a
+    /// stack sends InventoryRemove then InventoryAdd under a NEW id
+    /// (`DataController.cs:2450-2478`; the list drops the object and adds
+    /// another), so the trade went on offering the old id at the old
+    /// count: an object the server no longer knows, and a count that may
+    /// exceed the stack - which on a counter-offer cancels the whole
+    /// trade (`user.kod:7237-7244`). The clamp in <c>Chosen</c> cannot
+    /// catch that, because it clamps against the stale object's own
+    /// Count. The bag drops its selection the same way when the id is
+    /// gone (`InventoryPanel.cs` Sync), and this follows it.
+    ///
+    /// What the player sees: an in-page line saying what left the offer
+    /// and why, kept until they act. A row silently disappearing from
+    /// an offer about to be accepted would be its own kind of wrong.
+    ///
+    /// Only while the offer is still yours to edit. Once the server has
+    /// echoed it (Offered/CounterOffered, `DataController.cs:2971-2990`)
+    /// ItemsYou holds the SERVER's objects, not the pack's, and the
+    /// server decides what happens to a trade whose stuff has gone.
+    ///
+    /// Returns true when it changed anything.
+    /// </summary>
+    bool Reconcile(TradeInfo trade)
+    {
+        if (trade?.ItemsYou == null || trade.IsItemsYouSet || trade.ItemsYou.Count == 0) return false;
+
+        if (_bag == null || !IsInstanceValid(_bag))
+        {
+            _bag = null;
+            if (GetParent() != null)
+                foreach (Node n in GetParent().GetChildren())
+                    if (n is InventoryPanel b) { _bag = b; break; }
+        }
+        IList<InventoryObject> pack = _bag?.Items;
+        if (pack == null) return false;
+
+        var gone = new List<string>();
+        var shrunk = new List<string>();
+        var keep = new List<ObjectBase>();
+        bool swapped = false;
+        foreach (ObjectBase o in trade.ItemsYou)
+        {
+            if (o == null) continue;
+            InventoryObject live = null;
+            foreach (InventoryObject p in pack)
+                if (p != null && p.ID == o.ID) { live = p; break; }
+
+            if (live == null)
+            {
+                gone.Add(string.IsNullOrWhiteSpace(o.Name) ? "An item" : o.Name);
+                _amounts.Remove(o.ID);
+                continue;
+            }
+            if (!ReferenceEquals(live, o)) swapped = true;
+
+            // A number you chose that the stack can no longer cover is
+            // lowered, and said so: Chosen would clamp it silently.
+            if (live.IsStackable && _amounts.TryGetValue(live.ID, out uint set) && set > live.Count)
+            {
+                _amounts[live.ID] = Math.Max(1u, live.Count);
+                shrunk.Add($"{(string.IsNullOrWhiteSpace(live.Name) ? "An item" : live.Name)} (now {live.Count})");
+            }
+            keep.Add(live);
+        }
+
+        if (gone.Count == 0 && shrunk.Count == 0 && !swapped) return false;
+
+        if (gone.Count > 0 || swapped)
+        {
+            trade.ItemsYou.Clear();
+            foreach (ObjectBase o in keep) trade.ItemsYou.Add(o);
+        }
+        _mineSignature = "";
+
+        if (gone.Count == 0 && shrunk.Count == 0) return false;
+
+        string said = "";
+        if (gone.Count > 0)
+            said += string.Join(", ", gone) + (gone.Count == 1 ? " is" : " are") +
+                    " no longer in your pack and was taken off your offer. ";
+        if (shrunk.Count > 0)
+            said += "Your stack changed, so the amount was lowered: " + string.Join(", ", shrunk) + ".";
+        said = said.Trim();
+        _notice.Text = char.ToUpperInvariant(said[0]) + said.Substring(1);
+        _notice.Visible = IsOpen;
+        Layout();
+        return true;
+    }
+
+    /// <summary>
     /// Follows the trade the server set up. Your side is yours to fill,
     /// so only theirs is rebuilt from the model.
     /// </summary>
@@ -361,6 +482,8 @@ public partial class TradePanel : Control
         }
 
         if (!IsOpen) { Show(true); Clear(); }
+
+        Reconcile(trade);
 
         // Which buttons are live is the model's business, not the
         // window's. Show() turns everything on; these three turn back
@@ -417,6 +540,7 @@ public partial class TradePanel : Control
     void Clear()
     {
         _amounts.Clear();
+        if (_notice != null) { _notice.Text = ""; _notice.Visible = false; }
         _theirSignature = "";
         _mineSignature = "";
         foreach (Node n in _rowsMine.GetChildren()) { _rowsMine.RemoveChild(n); n.QueueFree(); }

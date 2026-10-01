@@ -313,11 +313,20 @@ public partial class InventoryPanel : Control
     public bool IsOpen => _panel != null && _panel.Visible;
 
     /// <summary>
+    /// The live pack, as last handed to Sync - even while the window is
+    /// shut. The trade reconciles what you have put up against it, so a
+    /// stack the server replaced or took is not offered from a stale
+    /// object (see TradePanel.Reconcile).
+    /// </summary>
+    public IList<InventoryObject> Items { get; private set; }
+
+    /// <summary>
     /// Rebuilds the grid if the inventory has changed. Cheap to call every
     /// frame: it compares a signature and does nothing when nothing moved.
     /// </summary>
     public void Sync(IList<InventoryObject> items)
     {
+        Items = items;
         if (_grid == null || !IsOpen || items == null) return;
 
         // What a slot shows is what decides whether it is rebuilt, and
@@ -334,6 +343,7 @@ public partial class InventoryPanel : Control
         {
             sb.Append(o?.ID).Append(':').Append(o?.Count)
               .Append(o != null && o.IsInUse ? "u" : "-").Append(':')
+              .Append(o != null && o.Flags != null && o.Flags.IsApplyable ? "a" : "-").Append(':')
               .Append(o?.Name).Append(':').Append(o?.ColorTranslation).Append(':')
               .Append(o?.Effect).Append(':').Append(o?.ViewerFrameIndex).Append(';');
         }
@@ -361,10 +371,23 @@ public partial class InventoryPanel : Control
                 if (o != null && o.ID == _picked.ID) { still = o; break; }
 
             if (still == null) Pick(null);
-            else if (!ReferenceEquals(still, _picked))
+            else
             {
                 // Not through Pick: the item was not tapped, so this must
                 // not re-arm the target or move the selection.
+                //
+                // Relabelled whether or not the instance changed. The
+                // library mutates the SAME InventoryObject in place for
+                // exactly what the caption reads: IsInUse
+                // (`DataController.cs:2481-2506`, UseList/Unuse/Use), the
+                // name and flags (`HandleChange` :2288-2292 via
+                // NextUpdate, `HandleChangeObjectFlags` :2139-2143). Only
+                // re-pointing on a new instance left "Use" up over an
+                // item that was now worn, while the button, which goes
+                // through `BaseClient.UseUnuseApply` (`BaseClient.cs:
+                // 3008-3026`), reads IsInUse afresh and sent ReqUnuse.
+                // The caption says what that function will do, so it has
+                // to be recomputed whenever the signature above moved.
                 _picked = still;
                 Relabel(still);
             }
