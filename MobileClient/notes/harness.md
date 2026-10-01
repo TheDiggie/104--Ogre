@@ -14,7 +14,7 @@ Steps in `--press`: a bare node name, `@tap:XxY`, `@hold:<Node>`,
 `@type`, `@submit`, `@name:<Node>`, `@slot`.
 
 Fixture switches on the fake server: `M59_STATCHANGE=1`, `M59_NEWS=1`,
-`M59_CHATFLOOD=1`.
+`M59_CHATFLOOD=1`, `M59_PARALYZE=1`, `M59_WAIT=1`.
 
 See also: the fixture -> fake-server.md
 
@@ -59,7 +59,8 @@ Tags: process | Kept so the next session tests something new rather than re-prov
   against the schools, the confirmation is an in-page modal, and Yes
   sends `ChangedStats` (157).
 - Chat flood: 205 lines, the full log scrolls and closes.
-- Resting: Rest raises the RESTING banner, Stand clears it.
+- Resting: Rest raises the RESTING banner, Stand clears it. PARALYZED
+  and SAVING photographed too, through the two new fixture switches.
 - Walking: a held stick drag sends `ReqMove`, the minimap redraws, and a
   wall stops you instead of letting you through.
 - Go: puts `ReqGo` on the wire, and with the fixture's second room the

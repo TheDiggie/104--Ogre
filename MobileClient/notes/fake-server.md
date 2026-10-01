@@ -113,3 +113,14 @@ Delete `rsc0000.rsb` from the resource folder if the dictionary ever
 looks stale anyway; it is rewritten on the next start.
 
 See also: harness.md
+
+## M59_PARALYZE and M59_WAIT
+Tags: process | The two notifier states nothing in the client can cause - both are the server holding you still
+
+`M59_PARALYZE=1` sends an `EffectParalyze` six messages in and an
+`EffectRelease` at thirty; `M59_WAIT=1` does the same with Wait and
+Unwait. Resting needs no switch: the Rest button sets `IsResting`
+client-side before the command even goes out
+(`BaseClient.cs:1377`).
+
+See also: the notifier -> mobile-client.md

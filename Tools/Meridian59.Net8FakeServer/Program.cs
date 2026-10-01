@@ -86,6 +86,9 @@ static class FakeServer
     const uint RID_BUFF1 = 60070;
     const uint RID_BUFF2 = 60071;
     static int stopAfter;
+    // M59_PARALYZE=1 / M59_WAIT=1: the other two states that stop you
+    // moving, so the notifier's other two words can be photographed.
+    static int paralyzeAfter, releaseAfter, waitAfter, unwaitAfter;
     const uint RID_SPELLDESC = 60110;
     const uint RID_SCHOOL = 60111;
     const uint RID_LEVEL = 60112;
@@ -352,6 +355,31 @@ static class FakeServer
             {
                 Send(ns, ctrl, new StopWaveMessage(
                     new StopSound(RID_RATSOUND, 0)));
+            }
+
+            // Paralyze holds you still until a Release; Wait is the
+            // server saying "saving, stand by". Both stop movement in
+            // BaseClient, and both are server-driven with nothing to
+            // press, so they go out on a count like the sound stop.
+            if (paralyzeAfter > 0 && --paralyzeAfter == 0)
+            {
+                Console.WriteLine("  -> Paralyze");
+                Send(ns, ctrl, new EffectMessage(new EffectParalyze()));
+            }
+            if (releaseAfter > 0 && --releaseAfter == 0)
+            {
+                Console.WriteLine("  -> Release");
+                Send(ns, ctrl, new EffectMessage(new EffectRelease()));
+            }
+            if (waitAfter > 0 && --waitAfter == 0)
+            {
+                Console.WriteLine("  -> Wait");
+                Send(ns, ctrl, new WaitMessage());
+            }
+            if (unwaitAfter > 0 && --unwaitAfter == 0)
+            {
+                Console.WriteLine("  -> Unwait");
+                Send(ns, ctrl, new UnwaitMessage());
             }
 
             // The stat change wizard has no request behind it - the
@@ -1702,6 +1730,11 @@ static class FakeServer
                 Say(ns, ctrl, RID_HEADLINE);
             }
             statChangeAfter = wantStatChange ? 12 : 0;
+
+            if (Environment.GetEnvironmentVariable("M59_PARALYZE") == "1")
+            { paralyzeAfter = 6; releaseAfter = 30; }
+            if (Environment.GetEnvironmentVariable("M59_WAIT") == "1")
+            { waitAfter = 6; unwaitAfter = 30; }
 
             // Somebody offering you a trade. OfferMessage carries the
             // partner and what they are putting up, and the client's
