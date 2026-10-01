@@ -43,6 +43,20 @@ public partial class RoomBuffsPanel : Control
     /// <summary>Leaves room for whatever owns the top-right corner.</summary>
     [Export] public float TopReserve = 0f;
 
+    /// <summary>
+    /// How many enchantments the panel will show at all.
+    ///
+    /// The game's grid is a fixed number of slots, built once:
+    /// `UIRoomEnchantments.cpp:23` sizes it
+    /// `UI_ROOMENCHANTMENTS_COLS * UI_ROOMENCHANTMENTS_ROWS`, and
+    /// `Constants.h:874-875` makes that 14 by 1. There is no growth path -
+    /// `BuffAdd` (`UIRoomEnchantments.cpp:123`) only touches a slot when
+    /// `Grid->getChildCount() > Index`, so a fifteenth room enchantment is
+    /// dropped on the floor by the reference client too. Fourteen is
+    /// therefore the count to mirror, not a limit invented here.
+    /// </summary>
+    const int MaxSlots = 14 * 1;
+
     /// <summary>An enchantment was tapped: look at it.</summary>
     public event Action<uint> Look;
 
@@ -61,28 +75,66 @@ public partial class RoomBuffsPanel : Control
         if (buffs == null) { Hide(0); return; }
 
         var sb = new System.Text.StringBuilder();
-        foreach (ObjectBase b in buffs) sb.Append(b?.ID).Append(';');
+        // The resolution state of each entry belongs in the signature as
+        // much as its id does. A room enchantment arrives as an
+        // AddEnchantment long before its sprite does: the reference client
+        // never waits for one, it hands the object to a composer and
+        // repaints the slot later, from the composer's own
+        // NewImageAvailable callback (`UIRoomEnchantments.cpp:42` subscribes
+        // it, `:87-101` is the repaint). There is no equivalent callback
+        // here - the icon is composed inline - so the panel's only chance
+        // to pick up a late sprite is another rebuild.
+        //
+        // With an id-only signature there was no such chance. The loop
+        // below skips an entry whose Resource has not resolved yet, the
+        // signature it produced was identical once the resource landed,
+        // Sync returned early for ever, and that enchantment stayed
+        // invisible for as long as the room held it. Appending whether the
+        // resource is there yet moves the signature exactly when a sprite
+        // resolves, which is the moment a rebuild is needed.
+        // <see cref="AvatarPanel.SyncBuffs"/> does the same for your own.
+        foreach (ObjectBase b in buffs)
+            sb.Append(b?.ID).Append(b?.Resource != null ? "+" : "-").Append(';');
         string now = sb.ToString();
         if (now == _signature) return;
         _signature = now;
 
         Vector2 v = GetViewportRect().Size;
 
+        // The game's row is fourteen 16-pixel icons inside a window the
+        // layout caps at 250x42 (`Meridian59.layout:1284`), so all fourteen
+        // always fit across it and one row is all the grid ever needs.
+        // A phone is narrower than a desktop window is wide and these icons
+        // are IconSize, not sixteen, so fourteen of them do not fit across
+        // a portrait screen. Wrapping onto further rows below is a
+        // deliberate divergence: it keeps the reference's count of fourteen
+        // visible - which a single clipped row would not - rather than
+        // changing how many the panel holds.
+        float step = IconSize + 12f;
+        int perRow = Mathf.Clamp((int)((v.X - 2f * Margin) / step), 1, MaxSlots);
+
         int used = 0;
         foreach (ObjectBase b in buffs)
         {
             if (b?.Resource == null) continue;
+            // Past the grid's capacity the reference simply does nothing
+            // with the entry (`UIRoomEnchantments.cpp:123`); stopping here
+            // is the same outcome without leaving stale slots behind.
+            if (used >= MaxSlots) break;
             uint id = b.ID;
 
             Button slot = Take(used);
             slot.Icon = Icon(b);
             slot.TooltipText = b.Name;
             slot.Size = new Vector2(IconSize + 8f, IconSize + 8f);
-            // Filled right to left from the right margin, so the row
-            // grows towards the middle instead of off the screen.
+            // Filled right to left from the right margin, so a row grows
+            // towards the middle instead of off the screen, and downwards
+            // once the row is full.
+            int col = used % perRow;
+            int row = used / perRow;
             slot.Position = new Vector2(
-                v.X - Margin - (used + 1) * (IconSize + 12f),
-                Margin + TopReserve);
+                v.X - Margin - (col + 1) * step,
+                Margin + TopReserve + row * step);
             slot.Visible = slot.Icon != null;
 
             // Rebuilt rows are reused slots, so the old handler has to
@@ -120,7 +172,13 @@ public partial class RoomBuffsPanel : Control
         ImageTexture tex = null;
         try { tex = M59Assets.FromTex(M59Compose.Icon(o, IconSize)); }
         catch (Exception e) { GD.PrintErr($"[RoomBuffsPanel] {o.Name}: {e.Message}"); }
-        _icons[key] = tex;
+        // Only a picture is worth keeping. Caching the failure would undo
+        // the signature fix above for the half-loaded case: the resource
+        // exists, so the signature moves and a rebuild happens, but
+        // `M59Compose.Icon` can still come back with nothing while the
+        // bitmap behind it is unread - and a cached null would then be
+        // answered for ever instead of being composed on the next rebuild.
+        if (tex != null) _icons[key] = tex;
         return tex;
     }
 }
