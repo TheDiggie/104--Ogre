@@ -165,6 +165,7 @@ public partial class CreateCharacter : Control
     public void Open(CharCreationInfo info)
     {
         _info = info;
+        Watch(info);
         if (info == null) return;
 
         _gender = Gender.Male;
@@ -176,6 +177,42 @@ public partial class CreateCharacter : Control
     }
 
     public void Close() => Show(false);
+
+    // The refusal watch. The reference subscribes once when the wizard is
+    // built and unsubscribes when it is destroyed
+    // (`UIAvatarCreateWizard.cpp:98-99`, `:209-210`) and reads the flag in
+    // OnCharCreationInfoPropertyChanged (:229). The object it watches is
+    // the data layer's single long-lived CharCreationInfo
+    // (`DataController.cs:950,345`), so the wizard owns the subscription
+    // for exactly as long as it watches that object: one handler however
+    // many times the wizard is opened, and gone with the node.
+    CharCreationInfo _watched;
+
+    void Watch(CharCreationInfo info)
+    {
+        if (ReferenceEquals(_watched, info)) return;
+        if (_watched != null) _watched.PropertyChanged -= OnInfoChanged;
+        _watched = info;
+        if (_watched != null) _watched.PropertyChanged += OnInfoChanged;
+    }
+
+    void OnInfoChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != CharCreationInfo.PROPNAME_CHARINFONOTOKERROR) return;
+        var info = sender as CharCreationInfo;
+        if (info == null) return;
+        CharInfoNotOkError why = info.CharInfoNotOkError;
+        if (why == CharInfoNotOkError.NoError) return;
+        // Cleared before it is shown, as the reference does once it has
+        // read it (:411-490): the clear raises this event again and that
+        // one returns on NoError above, so a second handler on the same
+        // object - a leftover subscription elsewhere - reads NoError too
+        // and stays quiet.
+        info.CharInfoNotOkError = CharInfoNotOkError.NoError;
+        Refused(why);
+    }
+
+    public override void _ExitTree() => Watch(null);
 
     void Build()
     {

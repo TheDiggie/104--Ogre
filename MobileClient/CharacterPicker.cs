@@ -35,6 +35,31 @@ public partial class CharacterPicker : Control
     /// </summary>
     RichTextLabel _motd;
     string _said = null;
+
+    /// <summary>
+    /// The live welcome model, remembered from <see cref="Sync"/>. It is
+    /// where the empty slots are: the list <see cref="Offer"/> is handed
+    /// is only the characters that exist, so whether the account has
+    /// room for another is read from the model at the moment of the
+    /// offer rather than passed in.
+    /// </summary>
+    WelcomeInfo _welcome;
+
+    /// <summary>
+    /// The id of the first empty slot on the account, 0 when there is
+    /// none. The reference hands it to the palette request
+    /// (`UIWelcome.cpp:159-160`, `SendSystemMessageSendCharInfo(ID)`)
+    /// and it comes back as the target of NewCharInfo
+    /// (`BaseClient.cs:2644,2656`); the caller of
+    /// <see cref="NewWanted"/> should pass it on.
+    /// </summary>
+    public uint FreeSlotId { get; private set; }
+
+    /// <summary>
+    /// Whether the last offer included "New character" - the account
+    /// had an empty slot.
+    /// </summary>
+    public bool CanCreate { get; private set; } = true;
     float _motdH;
 
     public override void _Ready()
@@ -144,6 +169,7 @@ public partial class CharacterPicker : Control
     /// </summary>
     public void Sync(WelcomeInfo info)
     {
+        if (info != null) _welcome = info;
         if (_motd == null) return;
 
         string text = info?.MOTD ?? "";
@@ -177,7 +203,25 @@ public partial class CharacterPicker : Control
 
     public void Offer(IList<CharSelectItem> characters)
     {
-        foreach (Node n in _rows.GetChildren()) n.QueueFree();
+        // Removed first, then freed. QueueFree alone is deferred, so the
+        // old rows would still be children - still holding the name
+        // "newCharacter" - when the new one is added, and Godot would
+        // rename the newcomer to @Button@NNN. CreateCharacter.Build
+        // does it the same way.
+        foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
+
+        // The wizard is reachable only from an empty slot
+        // (`UIWelcome.cpp:157,201,287`); an account with none has no
+        // such row, so it gets no "New character" either. Without a
+        // welcome model to ask, keep the offer - the old behaviour.
+        CanCreate = true;
+        FreeSlotId = 0;
+        if (_welcome?.Characters != null)
+        {
+            CanCreate = false;
+            foreach (CharSelectItem c in _welcome.Characters)
+                if (c != null && c.IsEmptySlot) { CanCreate = true; FreeSlotId = c.ID; break; }
+        }
 
         foreach (CharSelectItem c in characters)
         {
@@ -192,16 +236,19 @@ public partial class CharacterPicker : Control
             _rows.AddChild(b);
         }
 
-        var make = new Button
+        if (CanCreate)
         {
-            Text = "New character",
-            CustomMinimumSize = new Vector2(0, FontSize * 2.8f),
-            Name = "newCharacter",
-        };
-        make.AddThemeFontSizeOverride("font_size", FontSize);
-        make.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
-        make.Pressed += () => { Visible = false; NewWanted?.Invoke(); };
-        _rows.AddChild(make);
+            var make = new Button
+            {
+                Text = "New character",
+                CustomMinimumSize = new Vector2(0, FontSize * 2.8f),
+                Name = "newCharacter",
+            };
+            make.AddThemeFontSizeOverride("font_size", FontSize);
+            make.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+            make.Pressed += () => { Visible = false; NewWanted?.Invoke(); };
+            _rows.AddChild(make);
+        }
 
         Visible = true;
         Layout();
