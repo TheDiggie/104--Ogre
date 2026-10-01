@@ -193,10 +193,19 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
                 _palette = true;
                 break;
 
+            // A MIDI track and an Ogg track arrive as two different
+            // messages carrying the same PlayMusic, and the reference
+            // sends both to the same StartMusic
+            // (`ControllerSound.cpp:248-253`). Only one of them was
+            // handled here, so a room whose music comes as PlayMidi was
+            // silent.
+            case MessageTypeGameMode.PlayMidi:
             case MessageTypeGameMode.PlayMusic:
                 try
                 {
-                    PlayMusic tune = ((PlayMusicMessage)Message).PlayInfo;
+                    PlayMusic tune = Message is PlayMidiMessage midi
+                        ? midi.PlayInfo
+                        : ((PlayMusicMessage)Message).PlayInfo;
                     // Like a wave, this arrives as a string-resource id and
                     // has to be turned into a filename before anything can
                     // open it.

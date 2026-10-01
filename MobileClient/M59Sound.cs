@@ -31,22 +31,54 @@ using Meridian59.Files.ROO;
 /// </summary>
 public partial class M59Sound : Node
 {
-    /// <summary>0 to 1, as the game's own slider is 0 to 10.</summary>
-    [Export] public float Volume = 0.7f;
+    /// <summary>
+    /// 0 to 1, as the game's own slider is 0 to 10.
+    ///
+    /// Setting it reaches what is already playing, as the reference's
+    /// AdjustSoundVolume does (`ControllerSound.cpp:198-227`, called
+    /// from the options panel at UIOptions.cpp:2274). Before, moving
+    /// the slider did nothing at all until the next sound started.
+    /// </summary>
+    [Export] public float Volume
+    {
+        get => _volume;
+        set { _volume = value; Reheard(); }
+    }
+    float _volume = 0.7f;
     /// <summary>
     /// Music has its own level, as it does in the game - two sliders,
     /// not one - and a room's ambience is not the same nuisance as a
     /// fountain three doors away.
     /// </summary>
-    [Export] public float MusicLevel = 0.5f;
+    [Export] public float MusicLevel
+    {
+        get => _musicLevel;
+        set
+        {
+            _musicLevel = value;
+            if (_music != null && _music.Playing)
+                _music.VolumeDb = Mathf.LinearToDb(Mathf.Clamp(_musicLevel, 0.0001f, 1f));
+        }
+    }
+    float _musicLevel = 0.5f;
     /// <summary>
     /// Off silences the looping sounds only, which is what
     /// Config->DisableLoopSounds does: a fountain stops, a sword does
     /// not.
     /// </summary>
     [Export] public bool Loops = true;
-    /// <summary>Server units past which a sound is inaudible.</summary>
+    /// <summary>
+    /// Server units past which a sound stops getting quieter. The
+    /// game's own `setDefault3DSoundMaxDistance(2000.0f)`
+    /// (ControllerSound.cpp:45).
+    /// </summary>
     [Export] public float MaxDistance = 2000f;
+
+    /// <summary>
+    /// The fall-off, `setRolloffFactor(0.002f)` (ControllerSound.cpp:47):
+    /// a sound is heard at 1/(1 + 0.002 * distance) of its level.
+    /// </summary>
+    [Export] public float Rolloff = 0.002f;
     /// <summary>How many one-shot sounds may overlap.</summary>
     [Export] public int Voices = 12;
     /// <summary>Prints what it plays, for the test harnesses.</summary>
@@ -58,11 +90,47 @@ public partial class M59Sound : Node
     AudioStreamPlayer _music;
     string _musicPlaying = "";
 
+    /// <summary>
+    /// What a 2D sound is heard from. Without one, Godot listens from
+    /// the middle of the viewport in world coordinates - and this node
+    /// sits at the world origin, which is the top-left CORNER of the
+    /// screen. Every sound in the game was therefore panned hard left
+    /// and, because AudioStreamPlayer2D also applies its own distance
+    /// fall-off from that point, quieter than the gain worked out for
+    /// it. One listener at the origin puts the ear where the
+    /// arithmetic already assumed it was.
+    /// </summary>
+    AudioListener2D _ear;
+
     public override void _Ready()
     {
         _music = new AudioStreamPlayer { Bus = "Master" };
         AddChild(_music);
+
+        _ear = new AudioListener2D();
+        AddChild(_ear);
+        _ear.MakeCurrent();
     }
+
+    /// <summary>
+    /// Gives every voice a chance to hear a volume change. Only the
+    /// loops need their position kept - a one-shot is over before a
+    /// slider can move - so the pan is left alone and only the level
+    /// is re-applied, from the gain each voice was started with.
+    /// </summary>
+    void Reheard()
+    {
+        foreach (var kv in _loops)
+            if (kv.Value != null && kv.Value.Playing && _gain.TryGetValue(kv.Value, out float g))
+                kv.Value.VolumeDb = Mathf.LinearToDb(Mathf.Max(0.0001f, g * _volume));
+        foreach (var p in _pool)
+            if (p.Playing && _gain.TryGetValue(p, out float g))
+                p.VolumeDb = Mathf.LinearToDb(Mathf.Max(0.0001f, g * _volume));
+    }
+
+    /// <summary>Each voice's gain before the master level, so a slider can be re-applied.</summary>
+    readonly Dictionary<AudioStreamPlayer2D, float> _gain =
+        new Dictionary<AudioStreamPlayer2D, float>();
 
     /// <summary>
     /// Plays one. <paramref name="listener"/> is where you are and
@@ -87,10 +155,18 @@ public partial class M59Sound : Node
     {
         float dx = sx - listenerX, dy = sy - listenerY;
         float distance = MathF.Sqrt(dx * dx + dy * dy);
-        if (distance > MaxDistance) return;
 
-        // Linear fall-off to the game's own maximum, then into decibels.
-        float gain = Volume * (1f - distance / MaxDistance);
+        // The game's own fall-off, which is inverse-distance rather than
+        // linear: `setRolloffFactor(0.002f)` with a maximum distance of
+        // 2000 and a minimum of 0 (`ControllerSound.cpp:45-47`). Past the
+        // maximum the sound does not vanish, it stops getting quieter -
+        // so a distant bell is faint and still there, where a linear
+        // ramp cut it off dead. A linear ramp was also much too loud in
+        // the middle: at 500 units it gave 0.75 of full where the game
+        // gives 0.50.
+        float d = MathF.Min(distance, MaxDistance);
+        float shape = 1f / (1f + Rolloff * d);
+        float gain = Volume * shape;
         if (gain <= 0.001f) return;
 
         // Panned by which side of you it is on: the component of the
@@ -103,6 +179,10 @@ public partial class M59Sound : Node
         }
 
         bool loop = info.PlayFlags != null && info.PlayFlags.IsLoop;
+        // Asked for before the player is made, not after: creating the
+        // loop player first left an idle node behind for every distinct
+        // ambient while looping sounds were switched off.
+        if (loop && !Loops) return;
         AudioStreamPlayer2D player = loop ? Loop(Key(info.ResourceName)) : Idle();
         if (player == null) return;
 
@@ -110,8 +190,7 @@ public partial class M59Sound : Node
         // and the streams are shared between callers - so a looping sound
         // gets its own copy rather than making every later one-shot of the
         // same file loop as well.
-        if (loop && !Loops) return;
-
+        bool alreadyRunning = false;
         if (loop)
         {
             if (player.Stream == null || !player.Playing)
@@ -120,14 +199,26 @@ public partial class M59Sound : Node
                 if (own is AudioStreamOggVorbis o) o.Loop = true;
                 player.Stream = own;
             }
-            else return;   // already looping this one
+            else alreadyRunning = true;   // keep the voice, move the ear
         }
         else player.Stream = stream;
+
+        // The reference follows a sound as its object moves -
+        // `RemoteNode::RefreshPosition` walks the node's sound list and
+        // calls setPosition on each (`RemoteNode.cpp:510-535`). A loop
+        // here used to keep for ever the gain and pan it had the instant
+        // it started, so a fountain was as loud behind you as in front.
+        // It cannot follow every frame from here, but it can at least be
+        // re-placed whenever the server mentions it again.
+        _gain[player] = shape;
         player.VolumeDb = Mathf.LinearToDb(gain);
-        // AudioStreamPlayer2D pans by where it sits relative to the
-        // listener; putting it that far to one side is the panning.
+        // Distance and panning are worked out above, in the game's own
+        // units, so Godot must not apply a second fall-off of its own on
+        // top: attenuation off, and a distance no sound will reach.
+        player.Attenuation = 0f;
+        player.MaxDistance = 1e6f;
         player.Position = new Vector2(pan * 400f, 0f);
-        player.Play();
+        if (!alreadyRunning) player.Play();
         if (Verbose) GD.Print($"[M59Sound] {info.ResourceName} gain {gain:0.00} pan {pan:0.00} loop {loop}");
     }
 
@@ -166,14 +257,39 @@ public partial class M59Sound : Node
     }
 
     /// <summary>
+    /// Silences everything that is still going, which is what a room
+    /// change does: the reference stops and drops every sound in its
+    /// global list when a Player message arrives
+    /// (`ControllerSound.cpp:341-357`). Without it a fountain from a
+    /// room three doors back plays for the rest of the session, and
+    /// another one joins it at every doorway. Music is left alone -
+    /// the reference changes that only when the server says to.
+    /// </summary>
+    public void StopAll()
+    {
+        foreach (var kv in _loops)
+            if (kv.Value != null) { kv.Value.Stop(); kv.Value.QueueFree(); }
+        _loops.Clear();
+        foreach (var p in _pool) p.Stop();
+        _gain.Clear();
+    }
+
+    /// <summary>
     /// The room's background music. Changed only when the track changes,
     /// so walking around does not restart it.
     /// </summary>
     public void PlayMusic(PlayMusic info)
     {
         string path = info?.Resource;
+        // A name that resolves to nothing leaves what is playing alone.
+        // The reference returns early (`ControllerSound.cpp:485-486`)
+        // rather than treating a missing file as an instruction to fall
+        // silent, and so does this now.
         if (string.IsNullOrEmpty(path))
-        { if (Verbose) GD.Print($"[M59Sound] no music file for {info?.ResourceName}"); _music.Stop(); _musicPlaying = ""; return; }
+        { if (Verbose) GD.Print($"[M59Sound] no music file for {info?.ResourceName}"); return; }
+        // Music turned all the way down is not started at all, as
+        // StartMusic refuses on MusicVolume == 0 (`:488`).
+        if (MusicLevel <= 0f) return;
         if (path == _musicPlaying && _music.Playing) return;
 
         AudioStream stream = Load(path);

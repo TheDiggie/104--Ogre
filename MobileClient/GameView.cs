@@ -1735,6 +1735,13 @@ public partial class GameView : Node2D
     void SyncRoom()
     {
         if (!_world.SyncRoom(_client.Data?.RoomInformation?.ResourceRoom)) return;
+
+        // The room's sounds belong to the room. The reference stops and
+        // drops every one of them when a Player message arrives
+        // (`ControllerSound.cpp:341-357`); without it a fountain from
+        // three rooms back keeps running, and another joins it at every
+        // doorway until the session is a swamp.
+        _sound?.StopAll();
         _map?.Build(_world.Room);
         _state = $"in room {_client.Data.RoomInformation.RoomID}";
         GD.Print($"[M59] room -> {_world.Room.Filename} " +
