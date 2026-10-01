@@ -141,24 +141,49 @@ public partial class AvatarPanel : Control
         // Resolution state is in the signature as well as the id: a
         // buff whose sprite has not been resolved yet is skipped below,
         // and on an id-only signature it would stay skipped for ever.
-        foreach (ObjectBase b in data.AvatarBuffs)
-            sb.Append(b?.ID).Append(b?.Resource != null ? "+" : "-").Append(';');
-        string now = sb.ToString();
-        if (now == _buffSignature) return;
-        _buffSignature = now;
-
-        int used = 0;
+        // The reference repaints a slot from the composer's own
+        // NewImageAvailable (`UIAvatar.cpp:172-186`); there is no such
+        // callback here, so the signature - and the retry timer below for
+        // a sprite that is resolved but not yet composable - is the
+        // equivalent.
+        int n = 0;
         foreach (ObjectBase b in data.AvatarBuffs)
         {
+            if (n++ >= MaxSlots) break;
+            sb.Append(b?.ID).Append(b?.Resource != null ? "+" : "-").Append(';');
+        }
+        sb.Append('@').Append(Columns());
+        string now = sb.ToString();
+        if (_buffMissed && Time.GetTicksMsec() >= _buffRetryAt) _buffSignature = "";
+        if (now == _buffSignature) return;
+        _buffSignature = now;
+        _buffMissed = false;
+        _buffRetryAt = Time.GetTicksMsec() + 500;
+
+        int cols = Columns();
+        int used = 0, seen = 0;
+        foreach (ObjectBase b in data.AvatarBuffs)
+        {
+            // Slots past the cap are dropped, as the reference drops them
+            // (`UIAvatar.cpp:226-228`, see MaxSlots).
+            if (seen++ >= MaxSlots) break;
             if (b?.Resource == null) continue;
             uint id = b.ID;
 
+            // A buff that cannot be drawn yet takes no slot: leaving a
+            // hole in the row for an invisible button looked like a gap
+            // and, once the art arrived, shifted every icon after it.
+            ImageTexture tex = BuffIcon(b);
+            if (tex == null) { _buffMissed = true; continue; }
+
             Button icon = TakeBuff(used);
-            icon.Icon = BuffIcon(b);
+            icon.Icon = tex;
             icon.TooltipText = b.Name;
-            icon.Position = new Vector2(Margin + used * (BuffSize + 8f), Margin + TopReserve + HeadSize + 6f);
+            icon.Position = new Vector2(
+                Margin + (used % cols) * (BuffSize + 8f),
+                Margin + TopReserve + HeadSize + 6f + (used / cols) * (BuffSize + 8f));
             icon.Size = new Vector2(BuffSize + 6f, BuffSize + 6f);
-            icon.Visible = icon.Icon != null;
+            icon.Visible = true;
 
             // Slots are reused as the list changes, so the old handler
             // has to go or a tap looks at whatever was in that position
@@ -172,6 +197,36 @@ public partial class AvatarPanel : Control
         HideBuffs(used);
     }
 
+    /// <summary>
+    /// How many enchantments the panel will show at all: the reference's
+    /// grid, UI_AVATAR_ENCHANTMENTS_COLS * UI_AVATAR_ENCHANTMENTS_ROWS =
+    /// 14 x 2 (`Constants.h:872-873`). Like the room panel's 14 x 1
+    /// (RoomBuffsPanel.MaxSlots) the COUNT is the reference's: BuffAdd only
+    /// touches a slot when `Enchantments->getChildCount() > Index`
+    /// (`UIAvatar.cpp:226-228`), so the 29th enchantment is silently
+    /// dropped there too.
+    ///
+    /// The SHAPE is not. Fourteen 34-pixel icons are about 500 px, fine on
+    /// a landscape phone, but the right half of the screen belongs to the
+    /// minimap and the room's enchantments, so the row wraps at whatever
+    /// fits in the left half (at most the reference's 14) and grows
+    /// downward instead. 28 slots then always fit on screen and can never
+    /// run off the right edge, which an unbounded single row did past
+    /// about 53 enchantments at 1920 wide.
+    /// </summary>
+    const int MaxSlots = 14 * 2;
+    const int MaxColumns = 14;
+
+    int Columns()
+    {
+        float avail = GetViewportRect().Size.X * 0.5f - Margin;
+        int cols = (int)(avail / (BuffSize + 8f));
+        return Mathf.Clamp(cols, 1, MaxColumns);
+    }
+
+    bool _buffMissed;
+    ulong _buffRetryAt;
+
     ImageTexture BuffIcon(ObjectBase o)
     {
         string key = $"{o.Resource.Filename}:{BuffSize}";
@@ -180,7 +235,13 @@ public partial class AvatarPanel : Control
         ImageTexture tex = null;
         try { tex = M59Assets.FromTex(M59Compose.Icon(o, BuffSize)); }
         catch (Exception e) { GD.PrintErr($"[AvatarPanel] buff {o.Name}: {e.Message}"); }
-        _icons[key] = tex;
+        // Only a picture is worth keeping, for the reason given at
+        // RoomBuffsPanel.Icon:176-182: `M59Compose.Icon` returns null while
+        // the bitmap behind a present resource is unreadable, and a cached
+        // null was answered for every buff sharing that art for the whole
+        // session. The reference repaints from NewImageAvailable
+        // (`UIAvatar.cpp:172-186`), so a first miss is always recoverable.
+        if (tex != null) _icons[key] = tex;
         return tex;
     }
 

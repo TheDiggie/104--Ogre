@@ -58,6 +58,8 @@ public partial class SpellsPanel : Control
 
     bool _showingSpells = true;
     string _signature = "";
+    bool _iconMissed;
+    ulong _iconRetryAt;
     DataController _data;
 
     /// <summary>
@@ -196,14 +198,42 @@ public partial class SpellsPanel : Control
         SkillList list = _showingSpells ? data.AvatarSpells : data.AvatarSkills;
         if (list == null) return;
 
+        // Every field Row() draws has to be in here, or a row keeps the
+        // picture it was built with. The name and the icon are resolved
+        // later than the id and the percentage can arrive: ResourceName
+        // by StatList's ResolveStrings and Resource from ResourceIconName
+        // by ResolveResources (`Meridian59/Data/Models/StatList.cs:259-294`),
+        // and an in-place StatMessage rewrites name, percent and icon name
+        // on the existing row (`StatList.cs:302-318`). The reference does
+        // not poll: it reacts to ListChangedType.ItemChanged, which BaseList
+        // raises for any PropertyChanged on a row, and its SpellChange /
+        // SkillChange rewrite all three (`UISpells.cpp:109-164`,
+        // `UISkills.cpp:38-54`). This signature is the port's substitute
+        // for that subscription (see notes/godot-ui.md, "Subscribe, do not
+        // poll"), the same shape as Vitals.Follow, AvatarPanel.SyncBuffs
+        // and RoomBuffsPanel.Sync: a row that arrived as "(unnamed)" or
+        // with no icon was otherwise stuck that way until the panel was
+        // reopened. The resource's file name stands for "has art, and
+        // which", since the icon is cached by it.
         var sb = new System.Text.StringBuilder();
         sb.Append(_showingSpells ? 's' : 'k').Append(':');
         foreach (StatList s in list)
-            sb.Append(s.ObjectID).Append('/').Append(s.SkillPoints).Append(';');
+            sb.Append(s.ObjectID).Append('/').Append(s.SkillPoints).Append('/')
+              .Append(s.ResourceName).Append('/').Append(s.ResourceIconName).Append('/')
+              .Append(s.Resource?.Filename).Append(';');
 
+        // A row whose art exists but could not be turned into a picture
+        // yet (see Icon) gets another try on a timer: nothing in the data
+        // changes when the bitmap behind a resource becomes readable, so
+        // the signature alone would never notice. Half a second, not every
+        // frame - a permanently bad bitmap would otherwise be re-read 60
+        // times a second.
         string now = sb.ToString();
+        if (_iconMissed && Time.GetTicksMsec() >= _iconRetryAt) _signature = "";
         if (now == _signature) return;
         _signature = now;
+        _iconMissed = false;
+        _iconRetryAt = Time.GetTicksMsec() + 500;
         _chosen = 0;
 
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
@@ -376,7 +406,12 @@ public partial class SpellsPanel : Control
         ImageTexture tex = null;
         try { tex = M59Assets.FromBgf(s.Resource, 0); }
         catch (Exception e) { GD.PrintErr($"[SpellsPanel] icon: {e.Message}"); }
-        _icons[key] = tex;
+        // Only a picture is worth keeping. Caching the failure answered
+        // null for every spell sharing this art for the whole session,
+        // though the bitmap behind a resource can be unread at first and
+        // fine a moment later (RoomBuffsPanel.Icon, AvatarPanel.BuffIcon).
+        if (tex != null) _icons[key] = tex;
+        else _iconMissed = true;
         return tex;
     }
 }
