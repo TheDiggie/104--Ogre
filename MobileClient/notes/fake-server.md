@@ -57,3 +57,21 @@ it on `IsItemsYouSet && IsItemsPartnerSet && !IsBackgroundOffer`
 offer. You counter; they accept.
 
 See also: the trade panel -> mobile-client.md
+
+## There are two rooms now, and Go moves between them
+Tags: process | ReqGo re-enters: second room, second Go back again - one button exercises the whole room-change path without a door to stand on
+
+A second room is the smallest fixture that proves a room CHANGE rather
+than a room. The second one is deliberately barer - the avatar and one
+rat - so an object list that failed to clear would show.
+
+Its spawn point is not hard-coded. Coordinates that are fine in barinn
+land in rock in another .roo, and a client standing in rock reads as a
+client bug, so the fixture reads the room, takes the roomiest leaf of
+its BSP tree and converts the centre: kod = room/16 + 64, the same
+conversion `BaseClient.SendReqMoveMessage` does in reverse. Run against
+barinn it returns 752,672 - exactly the coordinate this fixture has
+used by hand since the beginning, which is the check that the
+conversion is right.
+
+See also: the client -> mobile-client.md | harness.md

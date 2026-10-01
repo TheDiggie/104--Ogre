@@ -1465,7 +1465,8 @@ public partial class GameView : Node2D
         if (!_world.SyncRoom(_client.Data?.RoomInformation?.ResourceRoom)) return;
         _map?.Build(_world.Room);
         _state = $"in room {_client.Data.RoomInformation.RoomID}";
-        GD.Print($"[M59] room -> {_world.Room.Filename} ({_world.Room.Walls.Count} walls)");
+        GD.Print($"[M59] room -> {_world.Room.Filename} " +
+                 $"({_world.Room.Walls.Count} walls, {_map?.MappedWalls ?? 0} on the map)");
     }
 
     /// <summary>Mirrors the server's object list into the renderer each frame.</summary>

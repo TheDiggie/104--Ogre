@@ -249,6 +249,13 @@ public partial class MiniMap : Control
         QueueRedraw();
     }
 
+    /// <summary>
+    /// How many wall segments survived the map-never filter. The room's
+    /// own wall count is not the same number and does not tell you
+    /// whether the map has anything to draw.
+    /// </summary>
+    public int MappedWalls => _walls.Count / 2;
+
     /// <summary>Objects to show. The avatar among them is skipped.</summary>
     public void SetObjects(IEnumerable<RoomObject> objects) => _objects = objects;
 

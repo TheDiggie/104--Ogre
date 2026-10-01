@@ -61,8 +61,9 @@ Tags: process | Kept so the next session tests something new rather than re-prov
 - Chat flood: 205 lines, the full log scrolls and closes.
 - Walking: a held stick drag sends `ReqMove`, the minimap redraws, and a
   wall stops you instead of letting you through.
-- Go: the new button puts `ReqGo` on the wire and the fixture answers,
-  which is as far as it can be taken until there is a second room.
+- Go: puts `ReqGo` on the wire, and with the fixture's second room the
+  whole change happens - new walls, a new object list, a rebuilt map,
+  the room id and name in the status line.
 
 See also: the fixture -> fake-server.md | the panels -> mobile-client.md
 
@@ -91,6 +92,19 @@ is roughly y 250..1150 at 1080x1920; above is the HUD, below is the
 hotbar, the target row and the chat block.
 
 See also: the touch layer -> TouchControls.cs | the client -> mobile-client.md
+
+## An empty minimap is usually a big room, not a broken map
+Tags: gotchas, lessons | The dial came up blank in the fixture's second room with 454 walls loaded; six presses of "-" and the walls were there
+
+The zoom is saved per character and carried into the next run like the
+hotbar is, so a run can start zoomed further in than the room wants.
+`MiniMap.MappedWalls` and the `room ->` line say how many walls
+survived the map-never filter, which is the number that matters - the
+room's own wall count does not tell you whether the map has anything to
+draw. 454 on the map and nothing on the dial is a window problem;
+0 on the map would have been a filter problem.
+
+See also: MiniMap.cs
 
 ## A run inherits the last run's hotbar
 Tags: gotchas, process | HotbarStore saves to user://hotbar.cfg per character, so every scripted bind is still there next run - the slots accumulate across a testing session

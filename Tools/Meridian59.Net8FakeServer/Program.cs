@@ -9,6 +9,7 @@ using Meridian59.Common;
 using Meridian59.Common.Enums;
 using Meridian59.Data.Lists;
 using Meridian59.Data.Models;
+using Meridian59.Files.ROO;
 using Meridian59.Files.RSB;
 using Meridian59.Protocol;
 using Meridian59.Protocol.Enums;
@@ -42,6 +43,10 @@ static class FakeServer
     // client's string dictionary, so EnsureStrings writes one.
     const uint RID_ROOMFILE = 60001;
     const uint RID_ROOMNAME = 60002;
+    // The room on the other side of a Go. Two rooms is the smallest
+    // number that proves a room CHANGE rather than a room.
+    const uint RID_ROOMFILE2 = 60005;
+    const uint RID_ROOMNAME2 = 60006;
     const uint RID_PLAYERNAME = 60003;
     const uint RID_RATNAME = 60004;
     const uint RID_PLAYERBGF = 60010;
@@ -113,6 +118,9 @@ static class FakeServer
     static readonly StringDictionary strings = new StringDictionary();
 
     static string room = "barinn.roo";
+    /// <summary>Where a Go takes you, and a second Go brings you back.</summary>
+    static string room2 = "a1.roo";
+    static bool inRoom2;
     static string dir = "/tmp/res";
 
     static int Main(string[] args)
@@ -150,6 +158,8 @@ static class FakeServer
         {
             new RsbResourceID(RID_ROOMFILE,   room,          4),
             new RsbResourceID(RID_ROOMNAME,   "Somewhere",   4),
+            new RsbResourceID(RID_ROOMFILE2,  room2,         4),
+            new RsbResourceID(RID_ROOMNAME2,  "Elsewhere",   4),
             new RsbResourceID(RID_PLAYERNAME, "Tester",      4),
             new RsbResourceID(RID_RATNAME,    "a duskrat",   4),
             new RsbResourceID(RID_PLAYERBGF,  "bri.bgf",     4),
@@ -467,11 +477,14 @@ static class FakeServer
                     // The Open key's request: "take me through whatever
                     // I am standing at". Its body is the PI and nothing
                     // else - there is no argument to read. A real server
-                    // answers with a room change, which this fixture has
-                    // no second room to give, so it says so instead and
-                    // the client's half is still proved on the wire.
+                    // answers with a room change, and so does this one:
+                    // Go takes you to the second room, Go again brings
+                    // you back, which is the whole room-change path -
+                    // new walls, new object list, a rebuilt map - with
+                    // one button and no door to stand on.
                     Console.WriteLine("  <- ReqGo");
-                    Say(ns, ctrl, RID_ECHO);
+                    inRoom2 = !inRoom2;
+                    EnterRoom(ns, ctrl);
                     break;
 
                 case MessageTypeGameMode.UserCommand:
@@ -1453,9 +1466,104 @@ static class FakeServer
     /// <summary>
     /// Puts the client in the room: where it is, then what is in it.
     /// </summary>
+    /// <summary>
+    /// A point that is actually inside a room, in the server's own
+    /// units. Hard-coding coordinates works for the room this fixture
+    /// grew up in and nowhere else: dropped into another .roo they can
+    /// land in rock, and a client standing in rock is a bug report
+    /// about the client. So the room is read, the roomiest leaf of its
+    /// BSP tree is taken, and its centre converted - kod = room/16 + 64,
+    /// the same conversion BaseClient uses in reverse.
+    /// </summary>
+    static (ushort X, ushort Y) Spawn(string file, ushort fallbackX, ushort fallbackY)
+    {
+        try
+        {
+            var roo = new RooFile(Path.Combine(dir, file));
+            RooSubSector best = null;
+            double bestSpan = 0;
+
+            foreach (RooSubSector leaf in roo.BSPTreeLeaves)
+            {
+                if (leaf?.Vertices == null || leaf.Vertices.Count < 3) continue;
+
+                double minX = leaf.Vertices[0].X, maxX = minX;
+                double minY = leaf.Vertices[0].Y, maxY = minY;
+                foreach (V2 v in leaf.Vertices)
+                {
+                    if (v.X < minX) minX = v.X;
+                    if (v.X > maxX) maxX = v.X;
+                    if (v.Y < minY) minY = v.Y;
+                    if (v.Y > maxY) maxY = v.Y;
+                }
+
+                double span = (maxX - minX) * (maxY - minY);
+                if (span > bestSpan) { bestSpan = span; best = leaf; }
+            }
+
+            if (best == null) return (fallbackX, fallbackY);
+
+            double sx = 0, sy = 0;
+            foreach (V2 v in best.Vertices) { sx += v.X; sy += v.Y; }
+            sx /= best.Vertices.Count;
+            sy /= best.Vertices.Count;
+
+            return ((ushort)(sx / 16f + 64f), (ushort)(sy / 16f + 64f));
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"  !! no spawn point in {file}: {e.GetType().Name}, using the fallback");
+            return (fallbackX, fallbackY);
+        }
+    }
+
+    /// <summary>
+    /// The room a Go leads to: the same avatar, one rat, nothing else.
+    /// </summary>
+    static void EnterSecondRoom(NetworkStream ns, MessageControllerClient ctrl, uint avatarId)
+    {
+        (ushort sx, ushort sy) = Spawn(room2, 752, 672);
+
+        var info = new RoomInfo(
+            AvatarID: avatarId,
+            AvatarOverlayRID: RID_PLAYERBGF,
+            AvatarNameRID: RID_PLAYERNAME,
+            RoomID: 2,
+            RoomFileRID: RID_ROOMFILE2,
+            RoomNameRID: RID_ROOMNAME2,
+            RoomSecurity: 0,
+            AmbientLight: 160,
+            AvatarLight: 0,
+            BackgroundFileRID: 0,
+            WadingSoundFileRID: 0,
+            Flags: 0,
+            Depth1: 0, Depth2: 0, Depth3: 0);
+
+        Send(ns, ctrl, new PlayerMessage(info));
+
+        var objects = new[]
+        {
+            Obj(avatarId, RID_PLAYERBGF, RID_PLAYERNAME, sx, sy, 0f, OF_PLAYER),
+            Obj(2004, RID_RATBGF, RID_RATNAME, (ushort)(sx + 4), sy, 2f,
+                OF_ATTACKABLE, MM_MONSTER),
+        };
+        Send(ns, ctrl, new RoomContentsMessage(new ObjectID(2, 0), objects));
+        Console.WriteLine($"  -> room {room2} at {sx},{sy} with {objects.Length} objects");
+
+        // Nothing carried over from the other room.
+        lootLeft = 0;
+        lootOpen = false;
+        takenSoFar.Clear();
+    }
+
     static void EnterRoom(NetworkStream ns, MessageControllerClient ctrl)
     {
         const uint avatarId = 1001;
+
+        // The second room is deliberately barer than the first: a room
+        // change that only moved the walls could be a redraw, while one
+        // that also empties the object list is a room change.
+        if (inRoom2) { EnterSecondRoom(ns, ctrl, avatarId); return; }
 
         var info = new RoomInfo(
             AvatarID: avatarId,
