@@ -44,13 +44,16 @@ public partial class LookPanel : Control
     uint _shown;
     string _lastText = "";
     /// <summary>
-    /// Which of the four things is on screen - "object", "spell",
-    /// "skill", "player". The change test below is an id and a body of
-    /// text, and ids are not unique ACROSS these four: a spell and a
-    /// player can carry the same number, so without this a look at a
-    /// player right after a look at a spell with the same id would be
-    /// taken for "nothing changed" and the window would keep the wrong
-    /// contents.
+    /// Which of the four things is on screen - the <see cref="Kind"/>'s
+    /// name. The change test below is an id and a body of text, and ids
+    /// are not unique ACROSS these four: a spell and a player can carry
+    /// the same number, so without this a look at a player right after a
+    /// look at a spell with the same id would be taken for "nothing
+    /// changed" and the window would keep the wrong contents. The spell
+    /// and skill branches used to leave it out of their own test, which
+    /// is the same hole one step smaller: skill 5101 and spell 5101 with
+    /// the same wording would have kept the previous kind's detail line
+    /// and picture.
     /// </summary>
     string _kind = "";
 
@@ -59,7 +62,6 @@ public partial class LookPanel : Control
     TextEdit _descEdit;
     LineEdit _urlEdit;
     Button _save;
-    PlayerInfo _player;
     bool _playerMode, _playerEditable;
     string _wasDesc = "", _wasUrl = "";
 
@@ -223,7 +225,14 @@ public partial class LookPanel : Control
         _save.Pressed += SaveSelf;
         AddChild(_save);
 
-        _close = new Button { Text = "Close", Visible = false };
+        // Named, because "Close" as a piece of TEXT is not this button:
+        // the spell book behind this panel has one too, and a scripted
+        // run that asks for a button reading "Close" gets the book's,
+        // shuts the book, and photographs a look window that is still
+        // up - which reads exactly like the soft-lock this panel used to
+        // have and hid a run of it. AliasEditor names its own for the
+        // same reason.
+        _close = new Button { Text = "Close", Visible = false, Name = "lookClose" };
         _close.AddThemeFontSizeOverride("font_size", FontSize);
         _close.Pressed += Close;
         AddChild(_close);
@@ -322,12 +331,35 @@ public partial class LookPanel : Control
         if (_playerMode && _playerEditable) SaveSelf();
 
         Show(false);
-        // The server's own flag, so the client and the view agree on
-        // whether the window is up. LookPlayer carries its own
-        // (`Meridian59/Data/Models/PlayerInfo.cs:251-266`) and it is the
-        // one the reference clears (`UIPlayerDetails.cpp:243`).
-        if (_info != null) _info.IsVisible = false;
-        if (_player != null) _player.IsVisible = false;
+
+        // Writing the flag back is the whole of closing. The view does
+        // not decide whether this window is up - the model's IsVisible
+        // does, and `Sync` reads it again on the very next frame - so a
+        // Close that only hid the controls was undone before it was
+        // seen: the panel came back up, its full-screen shade went on
+        // eating every touch, and with `GameView.PanelUp` true the
+        // bottom row, the hotbar and all movement stayed gone for the
+        // rest of the session. Only a relog cleared it, and a phone has
+        // no ESC to fall back on.
+        //
+        // The reference does exactly this, once per window:
+        // `UISpellDetails.cpp:178-187` (closed) and `:164-176` (ESC),
+        // `UISkillDetails.cpp:167-176` and `:153-162`,
+        // `UIPlayerDetails.cpp:243`. It gets away with one line each
+        // because it has one window each. This panel is all four at
+        // once, and it cleared only two of the four flags - LookObject
+        // and LookPlayer - because those were the only two it had ever
+        // kept a reference to.
+        //
+        // So the reference is not kept by hand any more. `_showing` is
+        // whichever <see cref="Kind"/> row of the table below is on
+        // screen, and every row carries its own `Hide`. A fifth kind of
+        // look cannot forget to write its flag back, because a kind
+        // that is not a row is never drawn - `Sync` walks the table and
+        // nothing else - and a row cannot be written without a `Hide`:
+        // the constructor demands one.
+        _showing?.Hide(_data);
+        _showing = null;
     }
 
     /// <summary>
@@ -404,7 +436,73 @@ public partial class LookPanel : Control
         Layout();
     }
 
-    ObjectInfo _info;
+    /// <summary>
+    /// One kind of look: the model flag that says it is up, the way to
+    /// write that flag back, and the way to put it on screen.
+    ///
+    /// The point of the type is the middle one. Four models carry an
+    /// IsVisible and none of them share an interface that has it, so
+    /// before this each branch reached for its own model by hand and two
+    /// of the four never stored theirs - which is the soft-lock Close()
+    /// describes. A row cannot exist without a Hide, and a kind that has
+    /// no row is never drawn, so the next kind of look added here is
+    /// closable by construction rather than by remembering.
+    /// </summary>
+    sealed class Kind
+    {
+        public readonly string Name;
+        /// <summary>Whether the server has this kind's window up.</summary>
+        public readonly Func<DataController, bool> Up;
+        /// <summary>Clears the flag, which is what closing means.</summary>
+        public readonly Action<DataController> Hide;
+        /// <summary>Fills the rows from this kind's model.</summary>
+        public readonly Action<DataController> Draw;
+        /// <summary>Whether it was up last frame - see Sync.</summary>
+        public bool WasUp;
+
+        public Kind(string name, Func<DataController, bool> up,
+                    Action<DataController> hide, Action<DataController> draw)
+        {
+            Name = name; Up = up; Hide = hide; Draw = draw;
+        }
+    }
+
+    Kind[] _kinds;
+    /// <summary>The row on screen, and so the flag Close must clear.</summary>
+    Kind _showing;
+    /// <summary>The last data seen, so Close can reach the model.</summary>
+    DataController _data;
+
+    /// <summary>
+    /// The four kinds, in the order a tie is broken.
+    ///
+    /// Ties are rarer than they look. The library keeps LookObject,
+    /// LookSpell and LookSkill mutually exclusive itself - each of
+    /// `DataController.cs:2900-2928` raises one and clears the other two
+    /// - so at most one of those three is ever up. LookPlayer is the odd
+    /// one out: `DataController.cs:2774-2777` raises it and clears
+    /// nothing, and the object/spell/skill handlers do not clear it
+    /// either, so a look at a player and a look at a thing really can
+    /// both be up at once. The reference has a window each and shows
+    /// both; this panel is one window, so it shows the one that arrived
+    /// LAST - see Sync - and this order only decides what to do if two
+    /// were already up when the panel first looked.
+    /// </summary>
+    Kind[] Kinds() => _kinds ??= new[]
+    {
+        new Kind("spell",  d => d?.LookSpell?.IsVisible == true,
+                           d => { if (d?.LookSpell  != null) d.LookSpell.IsVisible  = false; },
+                           DrawSpell),
+        new Kind("skill",  d => d?.LookSkill?.IsVisible == true,
+                           d => { if (d?.LookSkill  != null) d.LookSkill.IsVisible  = false; },
+                           DrawSkill),
+        new Kind("player", d => d?.LookPlayer?.IsVisible == true,
+                           d => { if (d?.LookPlayer != null) d.LookPlayer.IsVisible = false; },
+                           DrawPlayer),
+        new Kind("object", d => d?.LookObject?.IsVisible == true,
+                           d => { if (d?.LookObject != null) d.LookObject.IsVisible = false; },
+                           DrawObject),
+    };
 
     /// <summary>
     /// A new inscription for the object being looked at: its id and the
@@ -441,19 +539,57 @@ public partial class LookPanel : Control
     /// </summary>
     public void Sync(DataController data)
     {
+        _data = data;
+
         // A spell or a skill description arrives in its own place -
         // LookSpell and LookSkill, each with its own IsVisible - and the
         // game gives each its own window (UISpellDetails.cpp,
         // UISkillDetails.cpp). They are the same window with different
-        // lines on it, so this one does all three, and the extra lines
+        // lines on it, so this one does all four, and the extra lines
         // come from the same places the game reads them.
-        if (Spell(data) || Skill(data) || Player(data)) return;
+        //
+        // Whichever ARRIVED last wins, not whichever sits earliest in
+        // the table: a flag that was down last frame and is up this one
+        // is a look that has just come in, and a look that has just come
+        // in is the one the player asked for. Without that a look at a
+        // player - the one flag the library does not clear when another
+        // look arrives (`DataController.cs:2774-2777`) - would pin this
+        // window shut against every object look after it until it was
+        // closed by hand.
+        Kind arrived = null, anyUp = null;
+        foreach (Kind k in Kinds())
+        {
+            bool up = k.Up(data);
+            if (up && !k.WasUp) arrived = k;
+            if (up && anyUp == null) anyUp = k;
+            k.WasUp = up;
+        }
 
+        if (arrived != null) _showing = arrived;
+        // What was showing has been closed - by this panel, by another
+        // look replacing it, or by the library clearing all four on a
+        // save or a logout (`DataController.cs:1035`, `:2363`). Fall
+        // back to whatever else is still up, which is normally nothing.
+        else if (_showing == null || !_showing.Up(data)) _showing = anyUp;
+
+        if (_showing == null)
+        {
+            _playerMode = false;
+            if (IsOpen) Show(false);
+            return;
+        }
+
+        _showing.Draw(data);
+        if (!IsOpen) Show(true);
+    }
+
+    /// <summary>
+    /// A look at a thing. `UIObjectDetails.cpp` is the window.
+    /// </summary>
+    void DrawObject(DataController data)
+    {
         _playerMode = false;
-        _info = data?.LookObject;
-        if (_info == null) { if (IsOpen) Show(false); return; }
-
-        if (!_info.IsVisible) { if (IsOpen) Show(false); return; }
+        ObjectInfo _info = data.LookObject;
 
         ObjectBase o = _info.ObjectBase;
         string text = _info.Message?.FullString ?? "";
@@ -497,8 +633,6 @@ public partial class LookPanel : Control
             }
             catch (Exception e) { GD.PrintErr($"[Look] {o?.Name}: {e.Message}"); }
         }
-
-        if (!IsOpen) Show(true);
     }
 
     /// <summary>
@@ -507,17 +641,21 @@ public partial class LookPanel : Control
     /// `ServerString` the server sends already worded, so none of it is
     /// composed here.
     /// </summary>
-    bool Spell(DataController data)
+    void DrawSpell(DataController data)
     {
-        SpellInfo info = data?.LookSpell;
-        if (info == null || !info.IsVisible) return false;
+        SpellInfo info = data.LookSpell;
         _playerMode = false;
 
         ObjectBase o = info.ObjectBase;
         string text = info.Message?.FullString ?? "";
         uint id = o?.ID ?? 0;
 
-        if (id != _shown || text != _lastText)
+        // _kind belongs in the test here as much as in the object and
+        // player branches, and was missing from both this one and the
+        // skill one: the fixture's skill 5101 and a spell of the same
+        // number with the same wording would have left the previous
+        // kind's school/level/mana line and picture in place.
+        if (id != _shown || text != _lastText || _kind != "spell")
         {
             _shown = id; _lastText = text; _kind = "spell";
             _name.Text = o?.Name ?? "";
@@ -531,26 +669,22 @@ public partial class LookPanel : Control
                 info.VigorCost?.FullString);
             Picture(o);
         }
-
-        if (!IsOpen) Show(true);
-        return true;
     }
 
     /// <summary>
     /// A skill description - the same window with two lines instead of
     /// four, which is all `UISkillDetails.cpp` has.
     /// </summary>
-    bool Skill(DataController data)
+    void DrawSkill(DataController data)
     {
-        SkillInfo info = data?.LookSkill;
-        if (info == null || !info.IsVisible) return false;
+        SkillInfo info = data.LookSkill;
         _playerMode = false;
 
         ObjectBase o = info.ObjectBase;
         string text = info.Message?.FullString ?? "";
         uint id = o?.ID ?? 0;
 
-        if (id != _shown || text != _lastText)
+        if (id != _shown || text != _lastText || _kind != "skill")
         {
             _shown = id; _lastText = text; _kind = "skill";
             _name.Text = o?.Name ?? "";
@@ -560,9 +694,6 @@ public partial class LookPanel : Control
             _detail.Text = Join(info.SchoolName?.FullString, info.SkillLevel?.FullString);
             Picture(o);
         }
-
-        if (!IsOpen) Show(true);
-        return true;
     }
 
     /// <summary>
@@ -590,17 +721,15 @@ public partial class LookPanel : Control
     /// whether to appear - this view does not decide that, exactly as the
     /// object, spell and skill branches above do not.
     ///
-    /// Returning true claims the window, so this is checked in the same
-    /// chain as the spell and skill branches rather than in place of the
-    /// object one: four kinds of look, one panel, whichever kind the
-    /// server has most recently declared visible.
+    /// It is a row of the table in Kinds() like the other three, not a
+    /// case in place of the object one: four kinds of look, one panel,
+    /// whichever kind the server most recently declared visible. It is
+    /// also the one whose flag the library never clears for you, which
+    /// is why Sync goes by arrival rather than by table order.
     /// </summary>
-    bool Player(DataController data)
+    void DrawPlayer(DataController data)
     {
-        PlayerInfo info = data?.LookPlayer;
-        if (info == null || !info.IsVisible) { if (_playerMode && IsOpen) Show(false); return false; }
-
-        _player = info;
+        PlayerInfo info = data.LookPlayer;
         _playerMode = true;
 
         ObjectBase o = info.ObjectBase;
@@ -643,9 +772,6 @@ public partial class LookPanel : Control
 
             Picture(o);
         }
-
-        if (!IsOpen) Show(true);
-        return true;
     }
 
     static string Join(params string[] parts)
