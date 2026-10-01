@@ -141,6 +141,8 @@ public partial class M59Sound : Node
         public string File;
         /// <summary>Its gain before the master level, so a slider can be re-applied.</summary>
         public float Shape;
+        /// <summary>Where it sits across you, -1 hard left to +1 hard right.</summary>
+        public float Pan;
     }
 
     /// <summary>The one-shot voices, re-used as they fall silent.</summary>
@@ -184,10 +186,33 @@ public partial class M59Sound : Node
         foreach (Voice v in _pool) Level(v);
     }
 
+    /// <summary>
+    /// Puts one voice's gain on its player.
+    ///
+    /// It used to give up on a player that was not already
+    /// <c>Playing</c>, which meant the level set on the way INTO a play
+    /// never landed: a new voice started at 0 dB and a recycled one at
+    /// whatever the last sound through that slot was using, and only the
+    /// next Follow() put it right. Measured, that was the whole distance
+    /// model gone - every distance came out at +0.0 dB with no Follow,
+    /// against -6.0/-9.5/-14.0 dB at 500/1000/2000 units with it - and
+    /// for a sound that arrives before the avatar does, FollowSounds
+    /// returns early (`GameView.cs:3085-3087`) and it is loud for its
+    /// whole length. Setting VolumeDb on an idle player costs nothing and
+    /// is remembered, so there is no reason to skip it.
+    ///
+    /// The pan boost is taken back out here. Godot's law (see Mix) lifts
+    /// the near channel above unity as it silences the far one, which
+    /// would clip a hard-panned sound at full volume; dividing by
+    /// 1 + |pan| leaves the near ear at exactly the level the sound would
+    /// have had dead ahead and fades the far ear to nothing, which is how
+    /// the reference's 3D mix sounds.
+    /// </summary>
     void Level(Voice v)
     {
-        if (v?.Player == null || !v.Player.Playing) return;
-        v.Player.VolumeDb = Mathf.LinearToDb(MathF.Max(0.0001f, v.Shape * _volume));
+        if (v?.Player == null) return;
+        float gain = v.Shape * _volume / (1f + MathF.Abs(v.Pan));
+        v.Player.VolumeDb = Mathf.LinearToDb(MathF.Max(0.0001f, gain));
     }
 
     /// <summary>
@@ -241,7 +266,15 @@ public partial class M59Sound : Node
         // loop player first left an idle node behind for every distinct
         // ambient while looping sounds were switched off.
         if (loop && !Loops) return;
-        if (_volume <= 0.001f) return;
+        // No volume gate. The reference's StartSound has none - it plays
+        // the sound and then calls setVolume
+        // (`ControllerSound.cpp:374-480`), so at volume 0 the loop exists
+        // and is silent, and AdjustSoundVolume (:206-227) brings it back
+        // the instant the slider moves. Returning early here instead cost
+        // the room its ambients for good: the slider can be stepped to 0
+        // and is persisted, so muting for a phone call and unmuting left
+        // the room silent until the next doorway. The gate belongs to
+        // MUSIC only (`:488`), which PlayMusic mirrors.
 
         string key = loop ? LoopKey(info) : null;
         Voice voice = loop ? Voice3D(key, info, sx, sy, sh, onListener) : Idle(info);
@@ -279,8 +312,20 @@ public partial class M59Sound : Node
         // top: attenuation off, and a distance no sound will reach.
         player.Attenuation = 0f;
         player.MaxDistance = 1e6f;
+        // Started, then levelled, then let go - the reference's order,
+        // and for its reason: play3D(..., startPaused = true, ...) then
+        // setVolume then setIsPaused(false)
+        // (`ControllerSound.cpp:455-479`, music :495-518), so a sound is
+        // never audible at a level nobody has worked out yet. Mixing
+        // first and playing after cannot do that, because a player has
+        // no position and no level to set until it is running.
+        if (!alreadyRunning)
+        {
+            player.StreamPaused = true;
+            player.Play();
+        }
         Mix(voice, listenerX, listenerY, listenerH, facing);
-        if (!alreadyRunning) player.Play();
+        if (!alreadyRunning) player.StreamPaused = false;
         if (Verbose)
             GD.Print($"[M59Sound] {info.ResourceName} gain {voice.Shape * _volume:0.00} loop {loop}");
     }
@@ -351,7 +396,77 @@ public partial class M59Sound : Node
             float c = MathF.Cos(facing), s = MathF.Sin(facing);
             pan = Mathf.Clamp((dy * c - dx * s) / distance, -1f, 1f);
         }
-        v.Player.Position = new Vector2(pan * 400f, 0f);
+        v.Pan = pan;
+        Steer(v.Player, pan);
+    }
+
+    /// <summary>
+    /// Puts a voice at <paramref name="pan"/>, -1 hard left to +1 hard
+    /// right, given what Godot's own panning actually does.
+    ///
+    /// AudioStreamPlayer2D has no pan property: it derives one from where
+    /// the node sits relative to the listener, RELATIVE TO THE VIEWPORT.
+    /// The law was measured off mixed PCM, sweeping a steady tone past a
+    /// listener and reading per-channel RMS (39 points, a 2.0s 440Hz ogg,
+    /// AudioEffectCapture on Master). It is, with w the viewport's
+    /// visible width and g the two strengths multiplied:
+    ///
+    ///     t = clamp(x / w, -1, 1)
+    ///     g = ProjectSettings "audio/general/2d_panning_strength"
+    ///         * node PanningStrength * t
+    ///     left = 1 - g,  right = 1 + g
+    ///
+    /// Every measured point fits that to a tenth of a dB: at g = 0.125,
+    /// 0.25, 0.375 and 0.5 the channels part by 2.2, 4.4, 6.8 and 9.5 dB,
+    /// and at g = 1 the far channel goes to true silence.
+    ///
+    /// Two things follow. The clamp is on x/w, so no offset past one
+    /// viewport width buys anything - 1920px and 2880px measured
+    /// identically. And the project's global strength defaults to 0.5, so
+    /// with an untouched node the most any position can give is g = 0.5,
+    /// which is 9.5 dB and not full separation.
+    ///
+    /// That is why the old `pan * 400f` was inaudible: it is 21% of a
+    /// 1920-wide viewport, which is g = 0.104 and 1.8 dB between the ears
+    /// - and, being a bare pixel count, it got WEAKER on a wider window,
+    /// which is the wrong way round for a client that runs at whatever
+    /// size the phone is. Sweeping it proved the causation: 400 gave
+    /// 1.8 dB, 960 gave 4.4, 1920 gave 9.5.
+    ///
+    /// So: the offset is one full viewport width at full pan, which is
+    /// where the clamp is, and the node's strength undoes the global one
+    /// so g comes out equal to pan itself whatever either is set to.
+    /// Nothing here is a magic number - both terms are read from the
+    /// engine, so a different window or a changed project setting cannot
+    /// quietly flatten the mix again. Level() takes the resulting boost
+    /// back off the near channel.
+    ///
+    /// The DIRECTION was already right and is untouched: it has to agree
+    /// with the picture, and `dy * cos - dx * sin` is literally what
+    /// Renderer.cs:1129-1135 puts on screen-right.
+    /// </summary>
+    void Steer(AudioStreamPlayer2D player, float pan)
+    {
+        float width = 1920f;
+        Viewport vp = GetViewport();
+        if (vp != null)
+        {
+            float w = vp.GetVisibleRect().Size.X;
+            if (w > 1f) width = w;
+        }
+
+        // Guarded because a project may set the global strength to zero,
+        // and a division would then be an infinity on a player property.
+        float global = 1f;
+        try
+        {
+            global = (float)ProjectSettings.GetSetting("audio/general/2d_panning_strength", 0.5f);
+        }
+        catch { }
+        if (!(global > 0.001f)) global = 0.5f;
+
+        player.PanningStrength = 1f / global;
+        player.Position = new Vector2(pan * width, 0f);
     }
 
     /// <summary>
@@ -584,24 +699,107 @@ public partial class M59Sound : Node
         return false;
     }
 
+    /// <summary>
+    /// Every folder this has had to look in, lowercased file name to the
+    /// name as the filesystem actually spells it. Built once per folder.
+    /// </summary>
+    readonly Dictionary<string, Dictionary<string, string>> _byFolder =
+        new Dictionary<string, Dictionary<string, string>>();
+    /// <summary>Names already complained about, so a missing file costs one line.</summary>
+    readonly HashSet<string> _moaned = new HashSet<string>();
+
+    /// <summary>
+    /// The file the server means, spelled the way the disk spells it.
+    ///
+    /// The string table and the files disagree about case. Measured
+    /// against this repo's own rsc0000.rsb and Resources/{sounds,music}:
+    /// of the 495 names the table asks for that exist on disk, 282 match
+    /// case-exactly and 213 do not - `ambcave.ogg` for `AMBCave.ogg`,
+    /// `LogIn.ogg` for `Login.ogg`, `KILLED.ogg` for `Killed.ogg`. The
+    /// library hands us a path built from the CALLER's spelling
+    /// (`ResourceManager.GetWavFile` combines WavFolder with the name it
+    /// was asked for, `ResourceManager.cs:400`; music at :431), so on
+    /// Windows all of them resolve anyway and on Android none of them
+    /// do. Worse, that method writes the bad path back into a
+    /// case-INSENSITIVE dictionary (`Wavs.TryUpdate(File, filename,
+    /// null)`, :403), so one mis-cased request poisons the file for the
+    /// session and asking later with the disk's own spelling fails too.
+    ///
+    /// This is not a bug in this port: the reference asks for
+    /// "nec02.ogg" for its own login music (`OgreClient.cpp:1201`) while
+    /// the file is `Nec02.ogg`, and only NTFS hides it.
+    ///
+    /// M59Client.Init closes the same hole at registration so the
+    /// library never gets the chance (see RegisterAudio there). This is
+    /// the backstop, and it is also the half that registration cannot
+    /// reach: a path that came from somewhere else entirely.
+    /// </summary>
+    string OnDisk(string path)
+    {
+        if (System.IO.File.Exists(path)) return path;
+
+        string folder = System.IO.Path.GetDirectoryName(path);
+        string name = System.IO.Path.GetFileName(path);
+        if (string.IsNullOrEmpty(folder) || string.IsNullOrEmpty(name)) return null;
+
+        if (!_byFolder.TryGetValue(folder, out Dictionary<string, string> index))
+        {
+            index = new Dictionary<string, string>();
+            try
+            {
+                // "*" and not "*.ogg": the pattern itself is
+                // case-sensitive here, which is the second half of the
+                // same bug - `Directory.GetFiles(folder, "*.ogg")`
+                // returns a.ogg and silently drops B.OGG, measured.
+                foreach (string f in System.IO.Directory.GetFiles(folder))
+                    index[System.IO.Path.GetFileName(f).ToLowerInvariant()] =
+                        System.IO.Path.GetFileName(f);
+            }
+            catch (Exception e) { GD.PrintErr($"[M59Sound] cannot list {folder}: {e.Message}"); }
+            _byFolder[folder] = index;
+        }
+
+        return index.TryGetValue(name.ToLowerInvariant(), out string real)
+             ? System.IO.Path.Combine(folder, real)
+             : null;
+    }
+
     AudioStream Load(string path)
     {
         if (string.IsNullOrEmpty(path)) return null;
-        if (_streams.TryGetValue(path, out AudioStream cached)) return cached;
+
+        // Keyed on the name the filesystem uses, not the one that was
+        // asked for, so two spellings of one file are one stream and
+        // neither can poison the other.
+        string real = OnDisk(path);
+        if (real == null)
+        {
+            if (_moaned.Add(path)) GD.PrintErr($"[M59Sound] no such file: {path}");
+            return null;
+        }
+        if (_streams.TryGetValue(real, out AudioStream cached)) return cached;
 
         AudioStream stream = null;
         try
         {
             // Despite the library calling them wavs, the files are Ogg
             // Vorbis - PlaySound changes the extension itself.
-            if (path.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase))
-                stream = AudioStreamOggVorbis.LoadFromFile(path);
-            else if (path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase))
-                stream = AudioStreamWav.LoadFromFile(path);
+            if (real.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase))
+                stream = AudioStreamOggVorbis.LoadFromFile(real);
+            else if (real.EndsWith(".wav", StringComparison.OrdinalIgnoreCase))
+                stream = AudioStreamWav.LoadFromFile(real);
         }
-        catch (Exception e) { GD.PrintErr($"[M59Sound] {path}: {e.Message}"); }
+        catch (Exception e) { GD.PrintErr($"[M59Sound] {real}: {e.Message}"); }
 
-        _streams[path] = stream;
+        if (stream == null) GD.PrintErr($"[M59Sound] unreadable: {real}");
+        // The master copy never loops. Looping is per-play in the
+        // reference (an argument to play3D/play2D,
+        // `ControllerSound.cpp:457`, :496) and per-COPY here: both the
+        // loop path and PlayMusic duplicate before setting it, so
+        // nothing can turn a shared stream into a looping one behind a
+        // later caller's back.
+        if (stream is AudioStreamOggVorbis o) o.Loop = false;
+        _streams[real] = stream;
         return stream;
     }
 

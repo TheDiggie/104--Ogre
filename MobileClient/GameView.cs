@@ -87,59 +87,128 @@ public partial class GameView : Node2D
     static readonly System.Collections.Generic.HashSet<string> ChatWords = BuildChatWords();
 
     /// <summary>
-    /// Whether this line is a command, answered by the only thing that
-    /// can answer it: the library's parser.
+    /// Classifies one submitted line, by parsing it EXACTLY ONCE.
     ///
-    /// This used to be a word-length heuristic - a first word of two or
-    /// more letters that appeared in the command vocabulary - and it was
-    /// wrong in the way that matters. `ChatCommand.Parse` accepts
-    /// ONE-LETTER keys (b broadcast, y yell, t tell, c/z cast, g guild,
-    /// p/a perform, e emote, m broadcast, s say; see the KEY constants
-    /// in `Meridian59/Data/Models/ChatCommand/`), so the heuristic said
-    /// "not a command" about lines the parser then happily executed.
-    /// The caller below acted on that "no" by doing BOTH things -
-    /// executing the line and saying it aloud - so
-    /// `t alice meet me at the tower` sent the tell and then repeated
-    /// the whole sentence, name and all, to everyone in the room. A
-    /// private message is exactly the thing that must never leak, and
-    /// this leaked it every time.
+    /// The old shape asked a bool question - `IsCommand(line)` - and
+    /// then let `ExecChatCommand` parse the same line all over again.
+    /// Two things were wrong with that, and both of them shipped:
     ///
-    /// Asking Parse costs one parse and cannot disagree with the parse
-    /// that follows, because Parse is a pure function of the text, the
-    /// data controller and the alias list - all three unchanged in
-    /// between. A non-null answer means `ExecChatCommand` will act on
-    /// this line; null means it will do nothing but log it, which is the
-    /// only case where saying it is safe.
+    /// 1. `ChatCommand.Parse` is NOT pure, whatever the comment that
+    ///    used to sit here claimed. `ParseTell`, `ParseCast`,
+    ///    `ParseGoPlayer` and `ParseGetPlayer` push a ServerString into
+    ///    `Data.ChatMessages` on every failure path
+    ///    (`ChatCommand.cs:400-405`, `:411-412`, `:432-433`, `:470-474`,
+    ///    `:631-633`, `:640-641`, `:645-647`, `:700-701`, `:729-731`,
+    ///    `:735-737`). Parsing twice therefore printed every such error
+    ///    twice: "No player or group with prefix: Alice" on two
+    ///    consecutive rows, photographed. The reference parses once
+    ///    (`UIChat.cpp:274-281` hands the raw line to ExecChatCommand
+    ///    and that is the only parse in the path).
     ///
-    /// Note what is deliberately NOT done here: the line is not
-    /// alias-expanded first. Parse expands a leading alias itself as its
-    /// very first act (`ChatCommand.cs:66-86`), so pre-expanding made
-    /// the expansion happen twice - once here, once inside the parser -
-    /// and a value beginning with another alias key was therefore
-    /// expanded again, where the reference expands exactly once
-    /// (`UIChat.cpp:279` hands the raw line to ExecChatCommand and that
-    /// is the only expansion in the path). Handing Parse the raw line
-    /// restores that. It also restores the reference's command history,
-    /// which holds the line as TYPED: ExecChatCommand logs before it
-    /// parses (`BaseClient.cs:3039` then :3042), so arrow-up now gives
-    /// back "chuckle" rather than "emote chuckles.".
+    /// 2. A null parse was read as "this is speech". Every MALFORMED
+    ///    command parses to null - `tell Alice` with the message
+    ///    missing, a tell to someone who just logged off, `deposit all`,
+    ///    a typo'd command word - so the whole line went out as SayTo to
+    ///    everyone in the room. `tell Zorak my guild password is
+    ///    hunter2` was captured on the wire doing exactly that. The
+    ///    reference sends NOTHING for a null parse: it falls off the end
+    ///    of `BaseClient.cs:3033-3045` at `:3200-3202`.
+    ///
+    /// So the single parse is done here and its result is what the
+    /// caller acts on. <paramref name="said"/> reports whether the
+    /// library itself put something in the chat log while parsing, which
+    /// is how the caller knows whether a failed command needs a word of
+    /// its own or has already been explained.
     /// </summary>
-    bool IsCommand(string text)
+    Meridian59.Data.Models.ChatCommand ParseChat(string text, out bool said)
     {
-        if (string.IsNullOrEmpty(text)) return false;
+        said = false;
+        if (string.IsNullOrEmpty(text)) return null;
+
+        var log = _client?.Data?.ChatMessages;
+        int before = log?.Count ?? 0;
         try
         {
-            return Meridian59.Data.Models.ChatCommand.Parse(
-                text, _client.Data, _client.Config) != null;
+            var parsed = Meridian59.Data.Models.ChatCommand.Parse(
+                text, _client.Data, _client.Config);
+            said = (log?.Count ?? 0) > before;
+            return parsed;
         }
         catch (Exception e)
         {
             // A parser that throws is not a licence to broadcast the
-            // line instead. Treat it as a command and let it fail
-            // loudly rather than quietly turning it into speech.
+            // line instead. The caller treats a throw as a command that
+            // failed, which is silent, rather than as speech.
+            said = (log?.Count ?? 0) > before;
             GD.PrintErr($"[GameView] chat parse: {e.Message}");
-            return true;
+            throw new ChatCommandFailed();
         }
+    }
+
+    /// <summary>A parse that threw. Carries no message; see ParseChat.</summary>
+    class ChatCommandFailed : Exception { }
+
+    /// <summary>
+    /// The first word of a line, after the one alias expansion the
+    /// parser itself would do (`ChatCommand.cs:66-86`).
+    /// </summary>
+    string FirstWord(string line)
+    {
+        string expanded = AliasStore.Expand(_client?.Config, line)?.Trim() ?? "";
+        int cut = expanded.IndexOf(' ');
+        return (cut < 0 ? expanded : expanded.Substring(0, cut)).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Whether the line opens with a word the library's parser treats as
+    /// a command. A line that does is never said aloud, however badly it
+    /// is formed: that is the whole of finding 1.
+    /// </summary>
+    bool OpensWithCommandWord(string line)
+        => ChatWords.Contains(FirstWord(line));
+
+    /// <summary>
+    /// The six commands that take no argument and, unlike every other
+    /// no-argument command in the same switch, are not length-checked.
+    ///
+    /// `ChatCommandBalance` (`ChatCommand.cs:199-203`),
+    /// `ChatCommandSuicide` (`:206-211`) and `ChatCommandTime`
+    /// (`:293-298`) all guard on `splitted.Length == 1`. Rest, Stand,
+    /// Quit, Dance, Point and Wave (`:239-266`) do not, so the parser
+    /// accepts "wave goodbye everyone" and "quit messing about" as the
+    /// bare command with the rest of the sentence discarded.
+    ///
+    /// On the desktop that parser sits behind a command line and the
+    /// cost is a shrug. Here it sits behind a button labelled Say, in a
+    /// box whose placeholder reads "say something", so the same line
+    /// waves at the room and says nothing - and "quit ..." logs you out
+    /// mid-sentence. The documented departure above licenses saying
+    /// plain text and NOTHING more, so the tie is broken the way the
+    /// library itself breaks it everywhere it remembered to: a
+    /// no-argument command is a one-word line. With anything after it,
+    /// the line is a sentence.
+    /// </summary>
+    static readonly System.Collections.Generic.HashSet<Meridian59.Common.Enums.ChatCommandType>
+        WordlessCommands = new System.Collections.Generic.HashSet<Meridian59.Common.Enums.ChatCommandType>
+        {
+            Meridian59.Common.Enums.ChatCommandType.Rest,
+            Meridian59.Common.Enums.ChatCommandType.Stand,
+            Meridian59.Common.Enums.ChatCommandType.Quit,
+            Meridian59.Common.Enums.ChatCommandType.Dance,
+            Meridian59.Common.Enums.ChatCommandType.Point,
+            Meridian59.Common.Enums.ChatCommandType.Wave,
+        };
+
+    /// <summary>
+    /// A parse that succeeded but that this client declines to treat as
+    /// a command: a no-argument command word with a sentence after it.
+    /// See <see cref="WordlessCommands"/>.
+    /// </summary>
+    bool SentenceNotCommand(Meridian59.Data.Models.ChatCommand cmd, string line)
+    {
+        if (cmd == null || !WordlessCommands.Contains(cmd.CommandType)) return false;
+        string expanded = AliasStore.Expand(_client?.Config, line)?.Trim() ?? "";
+        return expanded.IndexOf(' ') >= 0;
     }
 
     /// <summary>
@@ -200,6 +269,12 @@ public partial class GameView : Node2D
     }
     ActionBar _actions;
     CharacterPicker _picker;
+
+    /// <summary>
+    /// The id of the first empty character slot the server offered, for
+    /// the creation request to name. See the NewWanted handler.
+    /// </summary>
+    uint _emptySlot;
     MiniMap _map;
     SplashNotifier _splash;
     LostConnection _lost;
@@ -829,9 +904,83 @@ public partial class GameView : Node2D
         catch (Exception e) { GD.PrintErr($"[GameView] language: {e.Message}"); }
     }
 
+    /// <summary>
+    /// Shows or hides the login screen, if there is one.
+    ///
+    /// There often is not: an account out of the environment never
+    /// builds one (`Ask` is skipped), which is exactly why the bug this
+    /// exists to fix was invisible to every scripted run.
+    /// </summary>
+    void LoginPromptShown(bool on)
+    {
+        if (_login != null) _login.Visible = on;
+    }
+
+    /// <summary>
+    /// Back to the login screen, with the character picker and the
+    /// creation wizard put away.
+    ///
+    /// The three are mutually exclusive in the reference by
+    /// construction - `Login::Window->setVisible(mode == UIMode::Login)`
+    /// (`ControllerUI.cpp:747`), the welcome window only in
+    /// AvatarSelection (`:710`), the wizard only in AvatarCreation
+    /// (`:742`) - and here they were not exclusive at all. Nothing ever
+    /// hid LoginPrompt after `Ask` added it to `_ui` (`:663-669`), and
+    /// the picker's backdrop is 0.82 alpha, so "Meridian 59", the server
+    /// field, the account box, the MASKED PASSWORD box and Connect all
+    /// stayed legible through the picker and through the wizard, and
+    /// stayed on screen for the rest of the session. Photographed.
+    ///
+    /// `BaseClient.Disconnect` sets `Data.UIMode = UIMode.Login`
+    /// (`BaseClient.cs:142-147`); this is that line's visible half.
+    /// </summary>
+    void LoginMode()
+    {
+        if (_picker != null) _picker.Visible = false;
+        _newChar?.Close();
+        LoginPromptShown(true);
+    }
+
     /// <summary>Builds the client and connects, once we know who we are.</summary>
     void Begin(string user, string pass)
     {
+        // Once. The Connect button comes back after a refusal (Fail puts
+        // the reason on the login screen and leaves the button live), so
+        // a second press ran all of this a second time: a second
+        // M59Client, a second WorldSync, a second copy of every one of
+        // the sixteen `Widget(...)` panels below - none of which guard
+        // on their field already being set, unlike Widget("ask") and
+        // Widget("options") in `Ask`, which do - a second
+        // `GetViewport().SizeChanged += Resize` subscription, and a
+        // first client left orphaned, never pumped and never
+        // disconnected. The reference cannot reach this state at all:
+        // it disables its login window while a connection is in flight
+        // (`OgreClient.cpp:642` re-enables it) and there is only ever
+        // the one client singleton.
+        //
+        // A retry after a refusal is Connect(), which reuses the client
+        // that is already built - that is what LostConnection's
+        // Reconnect button calls, and what the login screen's second
+        // press now falls through to.
+        if (_client != null)
+        {
+            // The credentials may have changed between the two presses -
+            // a refused password retyped is the likeliest second press
+            // there is - so the entry this client logs in with is
+            // updated before the retry rather than left at the first
+            // attempt's values.
+            var already = _client.Config?.SelectedConnectionInfo;
+            if (already != null) { already.Username = user; already.Password = pass; }
+            // Marked offline first, or Connect refuses to run while the
+            // client still thinks the refused socket is up - the same
+            // reason the ConnectionLost handler disconnects before
+            // offering Reconnect.
+            try { _client.Disconnect(); } catch { }
+            LoginMode();
+            Connect();
+            return;
+        }
+
         _client = new M59Client
         {
             PreferredCharacter = Character,
@@ -843,7 +992,35 @@ public partial class GameView : Node2D
         _world.SkyDir = M59Paths.SkyDir();
         // Every arrival in a room, the same one included - see the note
         // on _arrived.
-        _client.Arrived += () => _arrived = true;
+        //
+        // The room's sounds are stopped HERE, in the handler for the
+        // Player message, and not in SyncRoom. The reference dispatches
+        // one message at a time in arrival order
+        // (`ControllerSound.cpp:229-256`) and clears its sound list when
+        // it REACHES the Player message (`:341-357`), so a PlayWave that
+        // arrives after the Player message belongs to the new room and
+        // survives. `_client.Update()` drains the ENTIRE socket before
+        // returning (`BaseClient.cs:333-349` loops the enrichment queue
+        // dry), firing Sound for every message in the batch, so stopping
+        // afterwards in SyncRoom inverted that order: the new room's
+        // looping ambient - the loudest and most continuous thing in the
+        // soundscape - started and was killed in the same frame whenever
+        // the Player message and the room's PlayWave landed in one batch,
+        // which is most of the time. Photographed: "f5 Player message",
+        // "Rat_awr.ogg gain 0.77 loop True", "room sounds stopped", all
+        // in frame 5.
+        //
+        // Unconditional, as HandlePlayerMessage is: nothing about the new
+        // room's file gets in the way, so a .roo that fails to load still
+        // silences the room you have left instead of playing it for the
+        // rest of the session over a room that is not there.
+        _client.Arrived += () =>
+        {
+            if (_sound != null && _sound.Verbose)
+                GD.Print($"[GameView] f{Engine.GetProcessFrames()} Player message: room sounds stopped");
+            _sound?.StopAll();
+            _arrived = true;
+        };
 
         // `/suicide`. The library parses the word and calls a virtual
         // Suicide() that its own base class leaves empty on purpose
@@ -907,19 +1084,34 @@ public partial class GameView : Node2D
         // in the background - so it needs a sentence and a way back in.
         _client.ConnectionLost += why =>
         {
-            // Shown whenever there is nothing else that will say it.
-            // The login screen says its own piece and hands the Connect
-            // button back, so a drop while it is up needs nothing here
-            // - but when the account came out of the environment there
-            // IS no login screen, and a drop before entering the world
-            // left the client silent with a dead last frame. The
-            // reference always shows its popup (OgreClient.cpp:646-654).
-            if (!_wasInGame && _login != null) return;
+            // Shown ALWAYS, with no gate on how far into the session
+            // this is. It used to bail out whenever the player had not
+            // entered the world and a login screen existed, on the
+            // theory that the login screen says its own piece - but the
+            // login screen is UNDERNEATH the character picker, and the
+            // window between "Login accepted" and "Entering the world"
+            // is exactly where a phone drops its connection. What the
+            // player got was a line of small red text they could not
+            // reach, a live-looking picker, and a dead socket behind it;
+            // reproduced by cutting the connection four seconds after
+            // Connect. The reference shows its failure popup on EVERY
+            // connection exception with no gate on UI mode at all
+            // (`OgreClient.cpp:644-653`).
+            //
+            // In-page, as everything in this client is: LostConnection
+            // is a Control, never a system dialog.
+            //
             // Disconnect first. Nothing else marks the connection
             // offline after a broken pipe, and Connect refuses to run
             // while it thinks it is still up - so without this the
-            // Reconnect button would do nothing at all.
+            // Reconnect button would do nothing at all. It is also what
+            // the reference does on the way out of its popup
+            // (`OgreClient.cpp:941-944`), and `BaseClient.Disconnect`
+            // resets the data layer and puts UIMode back to Login
+            // (`BaseClient.cs:142-147`) - which is what the line below
+            // makes visible here.
             try { _client.Disconnect(); } catch { }
+            LoginMode();
             _lost?.Show(why);
         };
         _client.EnteredGame += name =>
@@ -951,7 +1143,7 @@ public partial class GameView : Node2D
                     // The library's parser answers for itself on a
                     // desktop: you type "broadcast x" or you type
                     // nothing it understands, and plain text does
-                    // nothing at all - `UIChat.cpp:279` calls
+                    // nothing at all - `UIChat.cpp:274-281` calls
                     // ExecChatCommand and stops there, and the parser
                     // only makes a say out of text beginning with the
                     // word "say" (ChatCommand.cs:103).
@@ -962,15 +1154,19 @@ public partial class GameView : Node2D
                     // before every sentence costs far more on a soft
                     // keyboard than on a real one.
                     //
-                    // The departure has exactly one rule, and it was
-                    // broken: a line is EITHER executed OR said, never
-                    // both. It used to be both whenever the length
-                    // heuristic in IsCommand disagreed with the parser -
-                    // which it did for every one-letter key and for
-                    // every alias - so a tell went to its recipient and
-                    // then to the room. IsCommand now asks the parser,
-                    // so the two cannot disagree, and each branch below
-                    // does one thing.
+                    // The departure has exactly one rule: a line is
+                    // EITHER executed OR said, never both - and the
+                    // corollary that took a wire capture to notice, a
+                    // line that was MEANT as a command is never said,
+                    // not even when it fails to parse. Deciding by
+                    // "did Parse return something?" got the corollary
+                    // backwards, because every malformed command parses
+                    // to null: `tell Zorak my guild password is
+                    // hunter2` went out as SayTo to the whole room and
+                    // the room echoed it back. So the decision is made
+                    // in two parts - what the parser made of the line,
+                    // and whether the line opens with a command word at
+                    // all - and only a line that fails both is spoken.
                     //
                     // ExecChatCommand gets the line as typed, because it
                     // is the parser's job to expand a leading alias
@@ -979,32 +1175,62 @@ public partial class GameView : Node2D
                     // the first word, which is what lets the parser see
                     // a phone keyboard's "Tell" and "Chuckle" at all.
                     string line = Commandable(text);
-                    if (IsCommand(line))
+
+                    // A leading slash is not the library's syntax - it
+                    // has none - but it is every other game's, and a
+                    // player who types one has unambiguously said "this
+                    // is a command, not a sentence". Honouring it costs
+                    // one character and stops `/tell bob the plan` from
+                    // being read out to the room, which is what it did.
+                    bool sigil = line != null && line.TrimStart().StartsWith("/");
+                    if (sigil) line = Commandable(line.TrimStart().Substring(1));
+
+                    bool said;
+                    Meridian59.Data.Models.ChatCommand cmd = null;
+                    bool threw = false;
+                    try { cmd = ParseChat(line, out said); }
+                    catch (ChatCommandFailed) { said = false; threw = true; }
+
+                    // Parsed, and this client is content to run it.
+                    if (cmd != null && !SentenceNotCommand(cmd, line))
                     {
-                        // A command runs as a command, and does not
-                        // become speech when it fails. "tell Alice"
-                        // with the message missing parses to nothing;
-                        // saying it instead would put a private word in
-                        // front of the whole room, and the next attempt
-                        // would put the message there too.
+                        // ExecChatCommand parses a second time. That is
+                        // harmless HERE and only here: the failure paths
+                        // are the only ones that touch Data.ChatMessages,
+                        // and this parse has just succeeded, so the
+                        // second one succeeds identically and says
+                        // nothing. It is also what logs the line to the
+                        // command history (`BaseClient.cs:3039`).
                         _client.ExecChatCommand(line);
                     }
+                    // Meant as a command and not one: silent. The line
+                    // is logged to the history so arrow-up gives it back
+                    // to be corrected (`BaseClient.cs:3039` does the
+                    // same for a malformed line), and nothing whatever
+                    // reaches the wire.
+                    else if (cmd == null && (threw || sigil || OpensWithCommandWord(line)))
+                    {
+                        _client.Data?.ChatCommandHistoryAdd(line);
+                        // Silent, unless the library was silent too. A
+                        // failed command that says nothing at all is a
+                        // dead button on a phone, where there is no
+                        // console to check.
+                        if (!said)
+                            _chat?.Local($"\"{FirstWord(line)}\" needs different words - nothing was sent.");
+                    }
+                    // Speech.
                     else
                     {
-                        // Still through the parser first, because that
-                        // is what puts the line in the command history
-                        // (BaseClient.cs:3039) - and IsCommand has just
-                        // established that it will find nothing, which
-                        // is the point: no command can run here.
-                        _client.ExecChatCommand(line);
+                        // Through the history the way ExecChatCommand
+                        // would have logged it, but NOT through the
+                        // parser again: the one parse above is the only
+                        // one this line gets.
+                        _client.Data?.ChatCommandHistoryAdd(line);
 
                         // Said with a leading alias expanded, because an
                         // alias whose value is not a command ("brb" ->
                         // "be right back") is still the player asking
-                        // for the long form. Expanding here and not
-                        // above is what keeps the count at one: the
-                        // parse that just happened produced nothing and
-                        // its expansion was thrown away with it.
+                        // for the long form.
                         _client.SendSayToMessage(
                             Meridian59.Common.Enums.ChatTransmissionType.Normal,
                             AliasStore.Expand(_client.Config, line));
@@ -1469,7 +1695,26 @@ public partial class GameView : Node2D
             // Not the game's: its row has an ignore checkbox its own
             // source never implements. A tell has to start somewhere on
             // a phone, and the list of names is the obvious place.
-            _players.Tell += who => { _players.Close(); _chat?.Compose($"tell {who} "); };
+            _players.Tell += who =>
+            {
+                _players.Close();
+                // QUOTED, always. `ParseTell`'s unquoted branch
+                // (`ChatCommand.cs:441-472`) extends the name one word
+                // at a time only while the prefix is ambiguous and
+                // stops at the SHORTEST prefix that matches one player,
+                // treating everything after it as the message - so a
+                // pre-filled "tell Cordelia the DM " sent the body
+                // "the DM" to Cordelia, proved on the wire. The quoted
+                // branch (`:344-347`, `:350-352`) matches the name
+                // exactly with `GetItemByName`, which is what a name
+                // taken from the server's own Who list deserves, and it
+                // exists for precisely this case.
+                //
+                // Quotes in the name itself would break `GetQuote`, so
+                // they come out; no Meridian name contains one.
+                string name = (who ?? "").Replace("\"", "");
+                _chat?.Compose($"tell \"{name}\" ");
+            };
             _ui.AddChild(_players);
         });
         Widget("amount", () =>
@@ -2004,9 +2249,39 @@ public partial class GameView : Node2D
             // server sends back every face part, colour, spell and
             // skill on offer, and the data layer builds the example
             // model out of it before the wizard has anything to show.
-            _picker.NewWanted += () => Act(() => _client.SendSystemMessageSendCharInfo());
+            // The empty slot's own id, not 0.
+            //
+            // `SendSystemMessageSendCharInfo()` defaults SlotID to 0
+            // (`BaseClient.cs:2634-2645`) and that value is written as
+            // the FIRST field of the NewCharInfo that follows
+            // (`:2651-2670`). Server-104 reads that field as the user
+            // object - `oUser = Nth(client_msg,2)` then
+            // `Send(oUser, @IsFirstTime)` (`kod/util/system.kod:4570`,
+            // `:4572`, `:4579`) - so a 0 is refused and creating a
+            // character fails every time on the live server. The
+            // reference passes the selected slot's own ID
+            // (`UIWelcome.cpp:159-161`, `:203-205`, `:289-291`).
+            //
+            // The picker offers ONE "New character" button rather than
+            // a row per slot (`CharacterPicker.cs:196-204`), so the slot
+            // it means is the first empty one in the list the server
+            // sent - which is remembered here, since the picker's event
+            // carries no argument and that file is not ours to change.
+            // The fixture's empty slot happens to BE id 0
+            // (`Tools/Meridian59.Net8FakeServer/Program.cs:1855`), which
+            // is why no harness run could ever have caught this.
+            _picker.NewWanted += () => Act(() =>
+                _client.SendSystemMessageSendCharInfo(_emptySlot));
             _ui.AddChild(_picker);
-            _client.ChooseCharacter += chars => _picker.Offer(chars);
+            _client.ChooseCharacter += chars =>
+            {
+                _emptySlot = 0;
+                if (chars != null)
+                    foreach (Meridian59.Data.Models.CharSelectItem c in chars)
+                        if (c != null && c.IsEmptySlot) { _emptySlot = c.ID; break; }
+                LoginPromptShown(false);
+                _picker.Offer(chars);
+            };
 
             _newChar = new CreateCharacter();
             _newChar.Create += (name, description) => Act(() =>
@@ -2025,6 +2300,7 @@ public partial class GameView : Node2D
             _ui.AddChild(_newChar);
             _client.CharacterPalette += info =>
             {
+                LoginPromptShown(false);
                 _newChar.Open(info);
                 // The server's refusal arrives as a property change on
                 // the same object the wizard is showing
@@ -3313,21 +3589,13 @@ public partial class GameView : Node2D
         if (!fresh && !_arrived) return;
         _arrived = false;
 
-        // The room's sounds belong to the room. The reference stops and
-        // drops every one of them when a Player message arrives
-        // (`ControllerSound.cpp:341-357`); without it a fountain from
-        // three rooms back keeps running, and another joins it at every
-        // doorway until the session is a swamp.
-        //
-        // First thing, and before the `Room == null` check below, because
-        // that is where the reference does it: HandlePlayerMessage walks
-        // and clears the list unconditionally, with nothing about the new
-        // room's file in the way. A .roo that fails to load is exactly
-        // when this matters most - the arrival flag has already been
-        // spent, so nothing would come back to stop the old room's loops
-        // and they played for the rest of the session over a room that
-        // was not there.
-        _sound?.StopAll();
+        // The room's sounds are NOT stopped here any more. They are
+        // stopped where the reference stops them, at the Player message
+        // itself - see the Arrived handler in Begin. Doing it here meant
+        // doing it after `_client.Update()` had already drained the whole
+        // socket and fired Sound for every message in the batch, so the
+        // new room's looping ambient started and was destroyed in the
+        // same frame, every time the two landed in one batch.
 
         // The room the server sent has no .roo behind it: the resource
         // id resolved to a filename and nothing on disk matched, so
