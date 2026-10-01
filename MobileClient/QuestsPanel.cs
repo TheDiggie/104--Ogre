@@ -14,13 +14,18 @@ using Meridian59.Data.Models;
 ///
 /// One rule in that file is easy to miss and changes how the list
 /// reads: **`SkillPoints == 0` means the row is a heading**, not a
-/// quest. The game draws those in bold and takes the hand cursor away,
-/// because there is nothing to click. Everything else is a quest, and
-/// clicking one sends `SendReqLookMessage(id)` - the same look the
-/// client uses for an object, answered with a description.
+/// quest. The game draws those in bold with the plain arrow cursor
+/// instead of the hand (`UIQuests.cpp:113-123`). Everything else is a
+/// quest, and clicking one sends `SendReqLookMessage(id)` - the same look
+/// the client uses for an object, answered with a description.
 ///
-/// Headings are drawn here as headings and are not tappable, which is
-/// the same rule stated the way a phone can state it.
+/// There is no collapsing or grouping behind a heading: the list is flat,
+/// items are only added, removed and changed in place
+/// (`UIQuests.cpp:37-53`), and nothing toggles a section. A heading is a
+/// label. (The reference does still wire its click handler to every row,
+/// headings included - `:68-70` - so a click on one asks the server to
+/// look at the heading's id; that is an oversight the cursor contradicts,
+/// and it is not copied here.)
 /// </summary>
 public partial class QuestsPanel : Control
 {

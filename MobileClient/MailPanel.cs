@@ -63,6 +63,14 @@ public partial class MailPanel : Control
     TextEdit _text;
     Button _send, _cancel;
 
+    // The in-page question asked when Reply would overwrite a draft that
+    // has a body. Never a system dialog: these are children of the panel.
+    ColorRect _dim;
+    Label _askText;
+    Button _askYes, _askNo;
+    Action _replace;
+    bool _asking;
+
     MailList _mails;
     readonly List<Button> _buttons = new List<Button>();
     // The chosen letter, by its Num and not by its place in the list: the
@@ -119,7 +127,7 @@ public partial class MailPanel : Control
         _text.AddThemeFontSizeOverride("font_size", FontSize);
         AddChild(_text);
 
-        _new = Push("New", () => Compose(null, null));
+        _new = Push("New", Resume);
         _reply = Push("Reply", () => Reply(false));
         _replyAll = Push("Reply all", () => Reply(true));
         _refresh = Push("Refresh", () => Refresh?.Invoke());
@@ -128,6 +136,20 @@ public partial class MailPanel : Control
 
         _send = Push("Send", Ask);
         _cancel = Push("Cancel", () => { _composing = false; _asked = null; Show(true); });
+
+        // Last children, so they draw over everything else in the panel.
+        _dim = new ColorRect { Color = new Color(0, 0, 0, 0.82f), Visible = false,
+                               MouseFilter = MouseFilterEnum.Stop };
+        AddChild(_dim);
+        _askText = new Label { Visible = false, AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                               HorizontalAlignment = HorizontalAlignment.Center,
+                               VerticalAlignment = VerticalAlignment.Center };
+        _askText.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        AddChild(_askText);
+        _askYes = Push("Replace draft", () => { Action go = _replace; Unask(); go?.Invoke(); });
+        _askYes.Name = "draftreplace";
+        _askNo = Push("Keep draft", () => { Unask(); Resume(); });
+        _askNo.Name = "draftkeep";
 
         GetViewport().SizeChanged += Layout;
         Layout();
@@ -159,12 +181,17 @@ public partial class MailPanel : Control
         return b;
     }
 
-    public void Open() { _composing = false; _pickedNum = -1; _asked = null; Show(true); Refresh?.Invoke(); _signature = ""; }
+    public void Open() { _composing = false; _asking = false; _pickedNum = -1; _asked = null; Show(true); Refresh?.Invoke(); _signature = ""; }
     // Close forgets the selection and any lookup in flight, so the next
     // open starts with nothing chosen (`UIMail.cpp:182`, `:266`: Respond
     // and Delete do nothing without a selection) and a late LookupNames
     // answer cannot send a letter the player walked away from.
-    public void Close() { _composing = false; _pickedNum = -1; _asked = null; Show(false); }
+    //
+    // It does NOT touch the draft. The reference keeps the compose
+    // window's text when it is hidden and only empties it after a send
+    // (`UIMailCompose.cpp:91-94`); hiding it is `Window->hide()` /
+    // `setVisible(false)` and nothing clears the boxes.
+    public void Close() { _composing = false; _asking = false; _replace = null; _pickedNum = -1; _asked = null; Show(false); }
 
     void Show(bool on)
     {
@@ -182,6 +209,12 @@ public partial class MailPanel : Control
 
         _to.Visible = write; _subject.Visible = write; _text.Visible = write;
         _send.Visible = write; _cancel.Visible = write;
+
+        bool ask = on && list && _asking;
+        _dim.Visible = ask; _askText.Visible = ask; _askYes.Visible = ask; _askNo.Visible = ask;
+        // A letter is in progress: say so, so New is not mistaken for a
+        // blank page.
+        _new.Text = HasDraft ? "Draft" : "New";
 
         if (on) GetParent()?.MoveChild(this, -1);
         Layout();
@@ -203,6 +236,12 @@ public partial class MailPanel : Control
 
         _panel.Position = new Vector2(side * 0.5f, top - 12f);
         _panel.Size = new Vector2(v.X - side, height + 12f);
+
+        _dim.Position = _panel.Position; _dim.Size = _panel.Size;
+        float bw = Mathf.Min(w, 760f), bx = v.X * 0.5f - bw * 0.5f;
+        float by2 = top + height * 0.5f - rowH * 1.5f;
+        _askText.Position = new Vector2(bx, by2); _askText.Size = new Vector2(bw, rowH * 2f);
+        Row(new[] { _askYes, _askNo }, bx, by2 + rowH * 2f + 8f, bw, rowH);
 
         float y = top;
         _title.Position = new Vector2(side, y); y += FontSize * 1.8f;
@@ -394,17 +433,50 @@ public partial class MailPanel : Control
         if (all && m.Recipients != null)
             foreach (string r in m.Recipients) to += "," + r;
 
-        Compose(to, (prefix ? "Re: " : "") + title);
+        Begin(to, (prefix ? "Re: " : "") + title);
     }
 
-    void Compose(string to, string subject)
+    /// <summary>Anything typed into the letter in progress.</summary>
+    bool HasDraft => !string.IsNullOrEmpty(_to.Text) || !string.IsNullOrEmpty(_subject.Text)
+                  || !string.IsNullOrEmpty(_text.Text);
+
+    /// <summary>
+    /// Show the compose form exactly as it was left. The reference's New
+    /// only shows the window (`UIMail.cpp:166-171`) - the boxes are
+    /// emptied after a send and at no other time - so a letter that was
+    /// cancelled, or hidden with the panel, is still there.
+    /// </summary>
+    void Resume()
+    {
+        _error.Text = "";
+        _asked = null;
+        _composing = true;
+        Show(true);
+    }
+
+    /// <summary>Start a reply: recipients and subject set, body empty.</summary>
+    void Fill(string to, string subject)
     {
         _to.Text = to ?? "";
         _subject.Text = subject ?? "";
         _text.Text = "";
-        _error.Text = "";
-        _asked = null;
-        _composing = true;
+        Resume();
+    }
+
+    void Unask() { _asking = false; _replace = null; Show(true); }
+
+    /// <summary>
+    /// A reply overwrites the recipients and subject (`UIMail.cpp:194-199`),
+    /// and reply-all empties the body (`:246`). Over an unsent body that
+    /// would destroy the letter, so the player is asked first, in the
+    /// panel.
+    /// </summary>
+    void Begin(string to, string subject)
+    {
+        if (string.IsNullOrEmpty(_text.Text)) { Fill(to, subject); return; }
+        _replace = () => Fill(to, subject);
+        _asking = true;
+        _askText.Text = "You have an unsent letter. Replace it with this reply?";
         Show(true);
     }
 
