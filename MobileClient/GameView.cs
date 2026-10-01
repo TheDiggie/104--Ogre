@@ -4253,17 +4253,11 @@ public partial class GameView : Node2D
         // channel here, where the pixels already are, and it lands on
         // the view rather than over the buttons - which is where the
         // reference's compositor lands too.
+        // Sixteen bytes at a time where there is a vector unit to do
+        // it with, and the same arithmetic one pixel at a time where
+        // there is not. See Repack.
         bool flip = _fx != null && _fx.Inverted;
-        for (int i = 0; i < _px.Length; i++)
-        {
-            uint c = _px[i];
-            byte r = (byte)(c >> 16), g = (byte)(c >> 8), b = (byte)c;
-            if (flip) { r = (byte)(255 - r); g = (byte)(255 - g); b = (byte)(255 - b); }
-            _rgba[i * 4] = r;
-            _rgba[i * 4 + 1] = g;
-            _rgba[i * 4 + 2] = b;
-            _rgba[i * 4 + 3] = 255;
-        }
+        Repack.ToRgba(_px, _rgba, _px.Length, flip);
         // Drink swims the edges of your vision: the reference turns on
         // COMPOSITOR_BLUR for the viewport while the effect lasts
         // (ControllerEffects.cpp:222-231), which is a ten-tap radial blur

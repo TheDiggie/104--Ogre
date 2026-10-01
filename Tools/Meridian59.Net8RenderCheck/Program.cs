@@ -30,11 +30,51 @@ static class RenderCheck
     }
 
 
+    /// <summary>
+    /// The vector repack against the scalar one it replaced, on random
+    /// pixels, both ways round, plus what it bought. Neither shipped
+    /// oracle looks at the final buffer at all - they stop at the
+    /// renderer's own ARGB words - so without this the one loop every
+    /// pixel of every frame goes through had no check on it.
+    /// </summary>
+    static int RepackCheck()
+    {
+        const int W = 1280, H = 1080, N = W * H;
+        var px = new uint[N];
+        var rnd = new Random(7);
+        for (int i = 0; i < N; i++) px[i] = (uint)rnd.Next();
+        var a = new byte[N * 4];
+        var b = new byte[N * 4];
+        int bad = 0;
+        foreach (bool flip in new[] { false, true })
+        {
+            Array.Clear(a); Array.Clear(b);
+            Repack.ToRgba(px, a, N, flip);
+            Repack.ToRgbaScalar(px, b, N, flip);
+            int wrong = 0;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) wrong++;
+            Console.WriteLine($"repack flip={flip}: {(wrong == 0 ? "identical" : wrong + " BYTES DIFFER")}");
+            bad += wrong == 0 ? 0 : 1;
+        }
+
+        for (int w = 0; w < 20; w++) { Repack.ToRgba(px, a, N, false); Repack.ToRgbaScalar(px, b, N, false); }
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        for (int k = 0; k < 100; k++) Repack.ToRgbaScalar(px, b, N, false);
+        sw.Stop(); double sc = sw.Elapsed.TotalMilliseconds / 100;
+        sw.Restart();
+        for (int k = 0; k < 100; k++) Repack.ToRgba(px, a, N, false);
+        sw.Stop(); double ve = sw.Elapsed.TotalMilliseconds / 100;
+        Console.WriteLine($"repack {W}x{H}: scalar {sc:F3} ms  vector {ve:F3} ms  {sc / Math.Max(ve, 0.0001):F2}x" +
+                          $"  (accelerated={System.Runtime.Intrinsics.Vector128.IsHardwareAccelerated})");
+        return bad;
+    }
+
     static int Main(string[] a)
     {
         string mode = a.Length > 0 ? a[0].ToLowerInvariant() : "all";
         string dir  = a.Length > 1 ? a[1] : "/tmp/res";
         int bad = 0;
+        if (mode == "repack"  || mode == "all") bad += RepackCheck();
         if (mode == "threads" || mode == "all") bad += Threads(dir);
         if (mode == "pick"    || mode == "all") bad += Pick(dir);
         if (mode == "seethrough" || mode == "all") SeeThrough(dir);
