@@ -23,6 +23,108 @@ per session.
 
 See also: HotbarStore.cs
 
+## First run, and the half-installed game
+Tags: gotchas, lessons | The "unpacked" test was "the folder holds one .roo", which is true seconds into a ~470MB copy - so an interrupted first run left the game permanently half-installed with no message anywhere
+
+`M59Paths.HasContent` is the right question to ask of a folder the
+PLAYER pointed us at and was entirely the wrong one to ask of our own
+copy. The destination is created first and the files are written in pack
+order, so "it exists and holds a .roo" turned true within seconds of a
+copy that takes minutes. Background the app, run the battery down or
+fill the disk in that window and the next launch believed it was done:
+a working login screen, then a blank world behind a live HUD, because
+`RenderFrame` draws nothing without a room. No message, and clearing app
+data the only cure.
+
+What it is now:
+
+- A completion marker, `user://resource/.unpacked`, written after the
+  last byte of the last file and nowhere else. Its absence means
+  unfinished, which is a thing we can resume - files already on disk at
+  the right length are skipped, so an interrupt near the end costs
+  seconds rather than the whole copy again.
+- The marker carries a stamp: `application/config/version` plus the
+  pack's file count and total bytes. The old marker was content, so a
+  new APK's resources were ignored for ever - `version/code` was 1 for
+  every build and is not readable at runtime anyway. Bump the version
+  and devices replace their data; forget to, and changed content still
+  replaces itself. A stamp that differs also prunes files the new build
+  does not ship.
+- `DirAccess.GetSpaceLeft()` before the first byte, with the client's
+  own refusal screen and a Try again button. The old per-file catch
+  logged `e.Message` to logcat and carried on, so a full disk produced
+  one failure per file for hundreds of files, left the part-written ones
+  on disk, and still returned a count above zero - which the caller
+  threw away. A write that fails now stops the run and says so.
+- `UnpackIfNeeded` returns an `UnpackReport`, and `GameView` only
+  reaches `FindResources` on `Ok`.
+
+Measured, not reasoned: a 6MB filesystem refuses before writing anything
+and leaves `NeedsUnpack` true; deleting the marker, truncating one file
+and deleting another makes the next run write exactly those two and skip
+the other seven.
+
+See also: M59Paths.cs | the screen -> UnpackScreen.cs
+
+## Sound shipped, and did not arrive
+Tags: gotchas, lessons | Godot IMPORTS .ogg, so the pack holds `X.ogg.import` and a compiled `.oggvorbisstr` and NOT `X.ogg` - and the unpack skipped `*.import`, so the phone had no sound and no music at all
+
+Established by exporting a pack and reading its file list, which is the
+only way this was ever going to be settled:
+
+```
+Storing File: res://.godot/imported/AMBCave.ogg-<md5>.oggvorbisstr
+Storing File: res://resource/AMBCave.ogg.import
+```
+
+and `DirAccess.GetFiles("res://resource")` in the exported build returns
+`AMBCave.ogg.import` with no `AMBCave.ogg` beside it. The library reads
+sound and music as `.ogg` off the disk (`ResourceManager.cs:583,595`),
+so every one of them was missing on the device, silently.
+
+The cure is the one `MobileClient/sky/` has carried since the skybox
+went in: an `importer="keep"` sidecar makes Godot pass the file through,
+and the same export then stores `res://resource/AMBCave.ogg` itself and
+no sidecar. `stage-resource.sh` writes them. A `.gdignore` looks like a
+shortcut and is not - it takes the whole folder out of the export,
+`include_filter` and all; the pack came out with no resource folder in
+it.
+
+The walk also recurses now. It was one `GetFiles()` on the top level, so
+nothing in a subfolder ever reached the device, and `include_filter`
+does ship subfolders - `resource/rooms/GreenPlantation.roo` is in the
+pack. A surviving `.import` with no source beside it is now counted and
+said out loud on screen, because "the game has no sound" is otherwise a
+bug report with nothing in it.
+
+See also: M59Paths.cs | the staging -> ../stage-resource.sh
+
+## A riddle after login, sixty times a second
+Tags: gotchas, lessons | `Update` runs every message handler there is, so a corrupt .roo surfaces in Pump's catch - which gave one small stackless line, a frozen world, and an unbounded log
+
+`Fail($"Update: {type}: {message}")` and `return`. The player got a
+label with no stack and no filename, the world stayed on its last frame
+with every button still looking live, and because `Fail` appended to
+`_log` without trimming while the other two appenders trimmed to six,
+a persistent exception grew that list by about sixty strings a second
+for as long as the app was left up - and `RenderFrame` joined all of
+them into the status label every one of those frames. A leak and a
+slowdown out of an error path.
+
+`PumpFailed` now: the whole trace to the console every time, the room
+file on screen (the nearest thing to a filename the library gives us
+here, and a corrupt room is the likeliest cause), and the same fault
+three frames running escalates to the full-screen scrollable report and
+stops pumping. One throw may be one bad object in one message and
+killing the session over it would be a regression - the old `return`
+was right about that much. The same throw every frame is not transient.
+
+Every append to `_log` goes through `Note` now, which is the only place
+that trims. `mobile-client.md` carried the lesson this path did not
+follow: a message without a stack is a riddle (`M59Assets.cs:66`).
+
+See also: GameView.cs | lessons -> rulings.md
+
 ## Known gaps, deliberately left
 Tags: design | Hotbar alias buttons do not exist, because no alias list exists anywhere in the port
 

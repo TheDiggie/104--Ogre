@@ -81,8 +81,14 @@ public partial class Probe : Node2D
         Step("unpack the game data", () =>
         {
             if (!M59Paths.NeedsUnpack()) { Say("  already unpacked"); return; }
-            int n = M59Paths.UnpackIfNeeded(m => Say("  " + m));
-            Say($"  wrote {n} files");
+            // UnpackIfNeeded reports rather than returning a count now,
+            // because a count could not tell a finished copy from one the
+            // device refused half way - see M59Paths.UnpackReport.
+            M59Paths.UnpackReport r = M59Paths.UnpackIfNeeded(m => Say("  " + m));
+            Say($"  wrote {r.Written} files, {r.Resumed} already there, ok={r.Ok}");
+            if (!r.Ok) Say("  PROBLEM: " + r.Problem);
+            if (r.Lost.Count > 0)
+                Say($"  {r.Lost.Count} source(s) lost to the importer, first {r.Lost[0]}");
         });
 
         Step("resolve again after unpacking", () =>

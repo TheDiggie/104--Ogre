@@ -283,7 +283,36 @@ public partial class GameView : Node2D
     /// </summary>
     CanvasLayer _ui;
     ResourcePrompt _prompt;
+    UnpackScreen _unpack;
+    /// <summary>
+    /// The on-screen scratch log - the corner readout, and the one place
+    /// a failure shows up when nothing else on screen will say it.
+    /// </summary>
     readonly List<string> _log = new List<string>();
+
+    /// <summary>
+    /// How many lines of _log are kept. Six is what fits above the HUD
+    /// without covering the world.
+    /// </summary>
+    const int LogLines = 6;
+
+    /// <summary>
+    /// Adds a line to the on-screen log, oldest out.
+    ///
+    /// Everything that appends goes through here now. Two of the three
+    /// callers trimmed and one did not: Fail appended without a bound,
+    /// and Fail is what the per-message catch in Pump calls - which runs
+    /// at frame rate. A resource that throws every time it is touched
+    /// therefore grew this list by about sixty strings a second, for as
+    /// long as the app was left up, and RenderFrame joined all of them
+    /// into the status label every one of those frames. A leak and a
+    /// slowdown out of an error path, which is the worst place for one.
+    /// </summary>
+    void Note(string line)
+    {
+        _log.Add(line);
+        while (_log.Count > LogLines) _log.RemoveAt(0);
+    }
     string _passwordBefore, _passwordAfter;
 
     M59Client _client;
@@ -409,26 +438,94 @@ public partial class GameView : Node2D
         // Android to decide it had hung.
         if (M59Paths.NeedsUnpack())
         {
-            _status.Text = "Unpacking game data...";
-            System.Threading.Tasks.Task.Run(() =>
-            {
-                // Callable.From rather than a method name: these are
-                // private methods, so the engine has no name for them.
-                try
-                {
-                    M59Paths.UnpackIfNeeded(msg => Callable.From(() => SetStatus(msg)).CallDeferred());
-                    Callable.From(FindResources).CallDeferred();
-                }
-                catch (Exception e)
-                {
-                    // A task's exception is unobserved, so it would
-                    // otherwise be a silent hang on the unpack screen.
-                    Callable.From(() => Boom("unpacking", e)).CallDeferred();
-                }
-            });
+            Unpack();
             return;
         }
 
+        FindResources();
+    }
+
+    /// <summary>
+    /// Copies the bundled game data out, on a worker thread, behind the
+    /// client's own progress screen - and stops here if it cannot.
+    ///
+    /// That last clause is the whole change. This used to call
+    /// UnpackIfNeeded for its side effects and go straight on to
+    /// FindResources whatever came back, so a -1 from a failed
+    /// CreateDirectory and a disk that filled up on file two both
+    /// arrived at the login screen looking healthy. Resolve then found
+    /// the part-written folder - one .roo in it was enough for the old
+    /// HasContent test (M59Paths.cs:57) - and the player logged in to a
+    /// blank world with a live HUD, because RenderFrame draws nothing
+    /// without a room (see :3274 below) and nothing anywhere said why.
+    /// Clearing app data was the only cure and no screen mentioned it.
+    ///
+    /// Now: a refusal is a screen with the reason on it and a button, the
+    /// marker means an interrupted copy resumes from where it stopped,
+    /// and the only path onward to FindResources is a finished unpack.
+    /// </summary>
+    // True from the moment the worker is handed the job until its
+    // verdict comes back. Try again is a button, and two taps in quick
+    // succession would otherwise put two threads on the same files.
+    bool _unpacking;
+
+    void Unpack()
+    {
+        if (_unpacking) return;
+        _unpacking = true;
+
+        if (_unpack == null)
+        {
+            _unpack = new UnpackScreen();
+            _unpack.Retry += Unpack;
+            _ui.AddChild(_unpack);
+        }
+        _status.Text = "";
+        _unpack.Working("Starting...");
+
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            // Callable.From rather than a method name: these are
+            // private methods, so the engine has no name for them.
+            try
+            {
+                M59Paths.UnpackReport r = M59Paths.UnpackIfNeeded(
+                    msg => Callable.From(() => _unpack?.Working(msg)).CallDeferred());
+                Callable.From(() => Unpacked(r)).CallDeferred();
+            }
+            catch (Exception e)
+            {
+                // A task's exception is unobserved, so it would
+                // otherwise be a silent hang on the unpack screen.
+                Callable.From(() => { _unpacking = false; Boom("unpacking", e); })
+                    .CallDeferred();
+            }
+        });
+    }
+
+    /// <summary>What to do with the unpack's verdict. Main thread only.</summary>
+    void Unpacked(M59Paths.UnpackReport r)
+    {
+        _unpacking = false;
+        if (!r.Ok)
+        {
+            _unpack?.Problem(r.Problem ?? "The game data could not be installed.");
+            return;
+        }
+
+        // A file that shipped only as Godot's own converted copy cannot
+        // be unpacked, and on this client that means silence: the
+        // library reads sound and music as .ogg off the disk
+        // (ResourceManager.cs:583,595). It is a packaging fault rather
+        // than a device one, so it does not stop the game - but it is
+        // said out loud, because "the game has no sound" is otherwise a
+        // bug report with nothing in it. See M59Paths.Scan.
+        System.Collections.Generic.List<string> lost = r.Lost;
+        if (lost != null && lost.Count > 0)
+            Note($"{lost.Count} data file(s) missing from this build " +
+                 $"(e.g. {lost[0]}) - sound and music may be silent.");
+
+        _unpack?.Done();
         FindResources();
     }
 
@@ -784,13 +881,12 @@ public partial class GameView : Node2D
         // short player-facing lines only, never exception text.
         _client.Notice += s =>
         {
-            _log.Add(s); GD.Print("[M59] " + s);
+            Note(s); GD.Print("[M59] " + s);
             // Anything that means "you are not getting in" belongs on the
             // login screen, not only in a log nobody can see yet.
             if (_login != null &&
                 (s.StartsWith("Connection error") || s.Contains("ailed") || s.Contains("efused")))
                 _login.Trouble(s);
-            if (_log.Count > 6) _log.RemoveAt(0);
             _chat?.Local(s);
         };
         // The client's own diagnostics (M59Client.Diagnostic): console
@@ -799,11 +895,7 @@ public partial class GameView : Node2D
         _client.Diagnostic += s =>
         {
             GD.Print("[M59] " + s);
-            if (Debugging)
-            {
-                _log.Add(s);
-                if (_log.Count > 6) _log.RemoveAt(0);
-            }
+            if (Debugging) Note(s);
             if (_login != null && s.StartsWith("Connection error"))
                 _login.Trouble(s);
         };
@@ -2035,12 +2127,76 @@ public partial class GameView : Node2D
     void Fail(string msg)
     {
         _state = "error";
-        _log.Add(msg);
+        Note(msg);
         if (_status != null) _status.Text = msg;
         // While the login screen is up it is the only thing on screen,
         // so a failure that only reached the status line was invisible.
         _login?.Trouble(msg);
         GD.PrintErr("[GameView] " + msg);
+    }
+
+    // The last distinct fault out of Update, and how many frames running
+    // it has been the same one. See PumpFailed.
+    string _lastFault;
+    int _faults;
+
+    /// <summary>
+    /// Something threw while the client was applying server messages.
+    ///
+    /// Update runs every message handler there is - room parsing and BGF
+    /// parsing among them - so this is exactly where a corrupt .roo comes
+    /// out, and it used to come out as `Fail($"Update: {type}:
+    /// {message}")`: one small line in the corner, no stack, no file
+    /// name, the world frozen on its last frame and no way for the
+    /// player to say anything useful about it. mobile-client.md carries
+    /// the lesson the rest of this file follows - "a message without a
+    /// stack is a riddle", M59Assets.cs:66 - and this path did not.
+    ///
+    /// So: the whole trace goes to the console every time, and the room
+    /// file we were in goes on the screen, because that is the nearest
+    /// thing to a filename the library gives us at this point and a
+    /// corrupt room is the likeliest cause.
+    ///
+    /// The escalation is deliberate. One throw may be one bad object in
+    /// one message, and killing the session over it would be a
+    /// regression - the old code's `return` and carry on was right about
+    /// that much. The same throw three frames running is not transient;
+    /// it is a client that will never advance again, and then the player
+    /// gets the full-screen report they can scroll, select and send.
+    /// Pumping stops with it, which is also what keeps a repeating
+    /// exception from churning at frame rate.
+    /// </summary>
+    void PumpFailed(Exception e)
+    {
+        string room = _world?.Room?.Filename;
+        string what = $"{e.GetType().Name}: {e.Message}";
+        string key = what + "|" + room;
+
+        // Always, whole trace, whether or not it is the repeat that
+        // earns a screen - a logcat with the first one in it is worth
+        // having when the third never comes.
+        GD.PrintErr($"[GameView] applying a server message (room {room ?? "none"}): {e}");
+
+        if (key != _lastFault)
+        {
+            _lastFault = key;
+            _faults = 1;
+            Fail($"Update failed in {room ?? "no room"}: {what}");
+            return;
+        }
+
+        // Said once already; saying it again per frame is what filled
+        // the log up.
+        if (++_faults < 3) return;
+
+        Boom("applying a server message",
+             $"room: {room ?? "none"}\n" +
+             $"resources: {_resDir ?? "unknown"}\n" +
+             $"state: {_state}\n\n" +
+             $"The same failure has repeated every frame, so the client cannot " +
+             $"go on. If the room file above is named, that is the file to " +
+             $"suspect.\n\n{e}");
+        SetProcess(false);
     }
 
     public override void _Process(double delta)
@@ -2066,7 +2222,7 @@ public partial class GameView : Node2D
         // RootClient.Tick itself is no use here because it sleeps - Godot
         // owns the frame timing.
         try { _client.GameTick.Tick(); _client.Update(); }
-        catch (Exception e) { Fail($"Update: {e.GetType().Name}: {e.Message}"); return; }
+        catch (Exception e) { PumpFailed(e); return; }
 
         SyncRoom();
         _chat?.Sync(_client.Data?.ChatMessages);
@@ -2445,7 +2601,7 @@ public partial class GameView : Node2D
         catch (Exception e)
         {
             string msg = $"{name} unavailable: {e.GetType().Name}: {e.Message}";
-            _log.Add(msg);
+            Note(msg);
             GD.PrintErr("[GameView] " + msg);
         }
     }

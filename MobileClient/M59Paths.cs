@@ -45,6 +45,15 @@ public static class M59Paths
         return null;
     }
 
+    /// <summary>
+    /// Whether a folder looks like a resource folder at all.
+    ///
+    /// This is the right question to ask of a folder somebody handed us
+    /// - Resolve's candidates, and whatever is typed into
+    /// ResourcePrompt - and it is emphatically NOT the question to ask of
+    /// our own copy while it is being made. See UnpackMarker for the
+    /// months of blank world that answer cost.
+    /// </summary>
     static bool HasContent(string dir)
     {
         try
@@ -126,62 +135,437 @@ public static class M59Paths
     }
 
     /// <summary>
-    /// Whether there is bundled game data still to be copied out. Cheap:
-    /// the caller needs to know before deciding to show a progress screen.
+    /// The completion marker, written LAST and nowhere else.
+    ///
+    /// It used to be that "the folder exists and holds one .roo or .bgf"
+    /// was the whole test - see HasContent, which is still the right
+    /// question to ask of a folder the PLAYER pointed us at, and was
+    /// entirely the wrong one to ask of our own copy. The folder is
+    /// created first and the files are written in pack order, so that
+    /// test turned true a second or two into a copy that takes minutes:
+    /// ~470MB out of the .pck. Background the app, run the battery down
+    /// or fill the disk in that window and the next launch believed the
+    /// job was done. The player then got a working login screen and a
+    /// blank world behind a live HUD, because RenderFrame draws nothing
+    /// without a room (GameView.cs:3274 returns before the room is ever
+    /// built) - and not one word about why. Clearing app data was the
+    /// only way out and nothing said so.
+    ///
+    /// So the marker is a separate file, written after the last byte of
+    /// the last file, and it carries the stamp of the pack it came from
+    /// (see PackStamp) so a new APK's data actually replaces the old.
+    /// Its absence means "unfinished", which is a thing we can resume.
+    ///
+    /// It lives inside the unpacked folder deliberately: clearing app
+    /// data or deleting the folder takes the marker with it, and there
+    /// is no way to end up with a marker that outlives its files.
     /// </summary>
-    public static bool NeedsUnpack()
+    public const string UnpackMarker = "user://resource/.unpacked";
+
+    /// <summary>
+    /// Free space we insist on having left over, on top of what the copy
+    /// itself needs. A device with nothing to spare is a device that will
+    /// fail at some other write later on, and Android's own housekeeping
+    /// starts killing things well before zero.
+    /// </summary>
+    const long Headroom = 32L * 1024 * 1024;
+
+    /// <summary>
+    /// How an unpack turned out. A bool could not say the two things
+    /// the caller has to tell apart: nothing happened because nothing
+    /// needed to (Ok, Written 0) and nothing happened because the
+    /// device refused (Problem set).
+    ///
+    /// The old signature returned an int - files written, 0 for nothing
+    /// to do, -1 for failure - and the caller threw it away
+    /// (GameView.Boot called it for its side effects), so a -1 from a
+    /// failed CreateDirectory and a disk that filled up on file two
+    /// both went to the login screen as though all was well.
+    /// </summary>
+    public sealed class UnpackReport
     {
-        string dest = ProjectSettings.GlobalizePath(UserResource);
-        if (Directory.Exists(dest) && HasContent(dest)) return false;
-        using var src = DirAccess.Open(PackedResource);
-        return src != null;
+        /// <summary>True when the data is on disk and the marker is written.</summary>
+        public bool Ok;
+        /// <summary>Files written by this run.</summary>
+        public int Written;
+        /// <summary>Files an earlier run had already written correctly.</summary>
+        public int Resumed;
+        /// <summary>Bytes written by this run.</summary>
+        public long Bytes;
+        /// <summary>A sentence for the player, or null when Ok.</summary>
+        public string Problem;
+        /// <summary>
+        /// Files the exporter converted, so their originals are not in
+        /// the pack at all and cannot be copied out. See LostSources.
+        /// </summary>
+        public List<string> Lost = new List<string>();
+    }
+
+    // One entry per real file in the bundled pack, gathered once. The
+    // stamp needs the whole list and so does the copy, and walking the
+    // .pck twice to get the same answer twice would only give them a
+    // chance to disagree.
+    sealed class PackEntry
+    {
+        public string Pack;      // res://resource/... as FileAccess wants it
+        public string Rel;       // path under the destination, '/' separated
+        public long Length;      // -1 if the entry could not even be opened
+    }
+
+    static List<PackEntry> _pack;
+    static List<string> _lost;
+
+    /// <summary>
+    /// Every file in res://resource, subfolders included, plus the ones
+    /// that are NOT there any more because Godot imported them.
+    ///
+    /// Both halves of this were bugs. The old walk was a single
+    /// GetFiles() on the top level, so anything in a subfolder never
+    /// reached the device - and the game's own resource folder does have
+    /// subfolders (rooms, sounds, music, mails, strings, bgfobjects,
+    /// bgftextures) even when a normal install keeps its files flat.
+    ///
+    /// The second half is worse and was established by exporting a pack
+    /// and reading it rather than by reasoning about it. Godot IMPORTS
+    /// .ogg, .wav and .png: the pack gets
+    /// `.godot/imported/AMBCave.ogg-&lt;md5&gt;.oggvorbisstr` plus a
+    /// 175-byte `resource/AMBCave.ogg.import`, and the original .ogg is
+    /// not in the pack at ALL. DirAccess.GetFiles() on res://resource in
+    /// an exported build then lists "AMBCave.ogg.import" and no
+    /// "AMBCave.ogg" - so the old `.import` skip was skipping the only
+    /// trace of the file, and every sound and every piece of music was
+    /// missing on the phone with nothing anywhere saying so.
+    ///
+    /// The cure is the one MobileClient/sky/ already uses: an
+    /// `importer="keep"` sidecar makes Godot pass the file through, and
+    /// the same export then stores `res://resource/AMBCave.ogg` itself
+    /// and no sidecar. (A `.gdignore` in the folder does NOT work - it
+    /// takes the whole folder out of the export, include_filter and
+    /// all; that was tried and measured.) stage-resource.sh writes those
+    /// sidecars, and this walk records any surviving `.import` so a pack
+    /// staged without it is reported instead of going quiet.
+    /// </summary>
+    static void Scan()
+    {
+        if (_pack != null) return;
+        _pack = new List<PackEntry>();
+        _lost = new List<string>();
+
+        var sidecars = new List<string>();
+        var have = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Walk("", sidecars, have);
+
+        // A sidecar with no source beside it is a file the exporter ate.
+        // On desktop, where res:// is a real folder, BOTH the source and
+        // its .import are listed and this finds nothing, which is right.
+        foreach (string s in sidecars)
+        {
+            string source = s.Substring(0, s.Length - ".import".Length);
+            if (!have.Contains(source)) _lost.Add(source);
+        }
+    }
+
+    static void Walk(string rel, List<string> sidecars, HashSet<string> have)
+    {
+        string dir = rel.Length == 0 ? PackedResource : $"{PackedResource}/{rel}";
+        using var d = DirAccess.Open(dir);
+        if (d == null) return;
+
+        foreach (string name in d.GetFiles())
+        {
+            string child = rel.Length == 0 ? name : $"{rel}/{name}";
+
+            if (name.EndsWith(".import", StringComparison.OrdinalIgnoreCase))
+            {
+                sidecars.Add(child);
+                continue;
+            }
+
+            // Length now, from the pack, because the copy compares it
+            // against what is already on disk to decide what to resume.
+            // GetLength reads the .pck's own header; it does not read
+            // the file.
+            long len = -1;
+            using (Godot.FileAccess f = Godot.FileAccess.Open(
+                       $"{dir}/{name}", Godot.FileAccess.ModeFlags.Read))
+                if (f != null) len = (long)f.GetLength();
+
+            have.Add(child);
+            _pack.Add(new PackEntry { Pack = $"{dir}/{name}", Rel = child, Length = len });
+        }
+
+        foreach (string sub in d.GetDirectories())
+            Walk(rel.Length == 0 ? sub : $"{rel}/{sub}", sidecars, have);
     }
 
     /// <summary>
-    /// Copies res://resource out to user://resource if it shipped in the
-    /// export and has not been unpacked yet. Returns the number of files
-    /// written, 0 if there was nothing to do, -1 on failure.
+    /// What identifies this build's game data, for the marker to carry.
+    ///
+    /// The app version alone would not do: project.godot had no version
+    /// at all and the Android preset's version/code was 1, so every
+    /// build past the first shipped new resources to a device that would
+    /// never look at them again. Content alone would not do either -
+    /// two files swapped for two of the same size and count is not a
+    /// stretch when the game's data is regenerated by tools.
+    ///
+    /// So it is both: the declared version, and the pack's own shape.
+    /// Bump application/config/version and the data is replaced; forget
+    /// to bump it and changed data still replaces itself.
+    /// </summary>
+    public static string PackStamp()
+    {
+        Scan();
+        long total = 0;
+        foreach (PackEntry e in _pack) if (e.Length > 0) total += e.Length;
+
+        string ver = "";
+        try { ver = ProjectSettings.GetSetting("application/config/version", "").AsString(); }
+        catch { }
+
+        return $"version={ver} files={_pack.Count} bytes={total}";
+    }
+
+    /// <summary>
+    /// Names of files that shipped only as Godot's own converted copy,
+    /// so their originals could not be unpacked. Empty is the healthy
+    /// answer; anything in here is a packaging fault, not a device one,
+    /// and on this client it means silence where there should be sound.
+    /// </summary>
+    public static List<string> LostSources()
+    {
+        Scan();
+        return _lost;
+    }
+
+    static string ReadMarker()
+    {
+        try
+        {
+            using Godot.FileAccess f = Godot.FileAccess.Open(
+                UnpackMarker, Godot.FileAccess.ModeFlags.Read);
+            return f?.GetAsText()?.Trim();
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Whether there is bundled game data still to be copied out. Cheap
+    /// enough for boot: it walks the pack's directory entries and asks
+    /// for their lengths, and reads no file contents.
+    ///
+    /// Note what it does NOT ask: whether the destination has a .roo in
+    /// it. That question is what let a half-finished copy pass for a
+    /// finished one. The only thing that says "finished" is the marker,
+    /// and the only thing that says "still current" is its stamp.
+    /// </summary>
+    public static bool NeedsUnpack()
+    {
+        using (var src = DirAccess.Open(PackedResource))
+            if (src == null) return false;            // nothing bundled
+
+        string done = ReadMarker();
+        return done == null || done != PackStamp();
+    }
+
+    /// <summary>
+    /// Copies res://resource out to user://resource, resuming a copy an
+    /// earlier run did not finish and replacing one an older build left
+    /// behind. Returns what happened; see UnpackReport.
     ///
     /// Called before Resolve on first run. Reading res:// needs Godot's
-    /// FileAccess - inside an APK these are entries in the .pck, not files
-    /// on disk, and System.IO cannot see them at all.
+    /// FileAccess - inside an APK these are entries in the .pck, not
+    /// files on disk, and System.IO cannot see them at all.
+    ///
+    /// Three things are deliberate here:
+    ///
+    /// - Space is checked BEFORE the first byte. The old loop caught
+    ///   each write, logged e.Message to logcat and carried on, so a
+    ///   full disk produced one failure per file for hundreds of files,
+    ///   left the part-written ones on disk, and still returned a
+    ///   written count above zero. Nobody saw logcat and the caller
+    ///   ignored the count.
+    /// - A write that fails stops the run. Whatever stopped the first
+    ///   file will stop the rest, and the honest thing to tell the
+    ///   player is the first message, once, on the screen.
+    /// - The marker goes on at the end, and only if nothing failed.
     /// </summary>
-    public static int UnpackIfNeeded(Action<string> progress = null)
+    public static UnpackReport UnpackIfNeeded(Action<string> progress = null)
     {
+        var r = new UnpackReport();
+
+        using (var src = DirAccess.Open(PackedResource))
+            if (src == null) { r.Ok = true; return r; }    // nothing bundled
+
+        Scan();
+        r.Lost = _lost;
+
+        string stamp = PackStamp();
+        string was = ReadMarker();
+        if (was == stamp) { r.Ok = true; return r; }       // already done, and current
+
         string dest = ProjectSettings.GlobalizePath(UserResource);
-        if (Directory.Exists(dest) && HasContent(dest)) return 0;
-
-        using var src = DirAccess.Open(PackedResource);
-        if (src == null) return 0;                    // nothing bundled
-
         try { Directory.CreateDirectory(dest); }
-        catch (Exception e) { GD.PrintErr($"[M59Paths] {dest}: {e.Message}"); return -1; }
-
-        string[] names = src.GetFiles();
-        int written = 0;
-        foreach (string name in names)
+        catch (Exception e)
         {
-            // The exporter renames imported files; raw game data is passed
-            // through untouched, so anything with .import is not ours.
-            if (name.EndsWith(".import", StringComparison.OrdinalIgnoreCase)) continue;
-
-            using Godot.FileAccess f = Godot.FileAccess.Open(
-                $"{PackedResource}/{name}", Godot.FileAccess.ModeFlags.Read);
-            if (f == null) { GD.PrintErr($"[M59Paths] could not read {name}"); continue; }
-
-            try
-            {
-                File.WriteAllBytes(Path.Combine(dest, name), f.GetBuffer((long)f.GetLength()));
-                written++;
-                if (progress != null && (written % 25 == 0 || written == names.Length))
-                    progress($"unpacking {written}/{names.Length}");
-            }
-            catch (Exception e) { GD.PrintErr($"[M59Paths] {name}: {e.Message}"); }
+            r.Problem = "The game data folder could not be created:\n" + dest +
+                        "\n\n" + e.Message;
+            return r;
         }
 
-        GD.Print($"[M59Paths] unpacked {written} files to {dest}");
-        return written;
+        // A marker that exists but reads differently is our own folder
+        // from an older build, so files that build had and this one does
+        // not are stale and go. Without a marker we cannot tell our own
+        // half-copy from a folder the player filled in by hand, and
+        // deleting a player's files on a guess is not a trade worth
+        // making - the copy below overwrites what it needs either way.
+        if (was != null) Prune(dest);
+
+        // What is still missing, or is there at the wrong length because
+        // the process died in the middle of writing it. Skipping the
+        // ones that are already right is what makes an interrupted
+        // 470MB copy cost minutes instead of starting over.
+        var todo = new List<PackEntry>();
+        long need = 0;
+        foreach (PackEntry e in _pack)
+        {
+            string path = Path.Combine(dest, e.Rel.Replace('/', Path.DirectorySeparatorChar));
+            try
+            {
+                var fi = new FileInfo(path);
+                if (fi.Exists && e.Length >= 0 && fi.Length == e.Length) { r.Resumed++; continue; }
+            }
+            catch { }
+            todo.Add(e);
+            if (e.Length > 0) need += e.Length;
+        }
+
+        // GetSpaceLeft returns 0 when the platform cannot answer, which
+        // is not the same as "no space" - refusing to install on a
+        // device that merely declines to say would be worse than the bug
+        // this is here to prevent.
+        long free = SpaceLeft();
+        if (free > 0 && free < need + Headroom)
+        {
+            r.Problem =
+                $"Not enough free space to install the game data.\n\n" +
+                $"Needed: {Mb(need + Headroom)}\nFree: {Mb(free)}\n\n" +
+                "Free some space and start the game again - it will carry on " +
+                "from where it stopped.";
+            return r;
+        }
+
+        foreach (PackEntry e in todo)
+        {
+            byte[] bytes;
+            using (Godot.FileAccess f = Godot.FileAccess.Open(
+                       e.Pack, Godot.FileAccess.ModeFlags.Read))
+            {
+                if (f == null)
+                {
+                    r.Problem = $"The game data in this build cannot be read:\n{e.Rel}\n\n" +
+                                "Reinstalling the app is the fix.";
+                    return r;
+                }
+                bytes = f.GetBuffer((long)f.GetLength());
+            }
+
+            string path = Path.Combine(dest, e.Rel.Replace('/', Path.DirectorySeparatorChar));
+            try
+            {
+                string parent = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+                File.WriteAllBytes(path, bytes);
+            }
+            catch (Exception ex)
+            {
+                r.Problem =
+                    $"Installing the game data stopped at {e.Rel}:\n\n{ex.Message}\n\n" +
+                    $"{r.Written} of {todo.Count} files were written. Free some space " +
+                    "and start the game again - it will carry on from here.";
+                return r;
+            }
+
+            r.Written++;
+            if (e.Length > 0) r.Bytes += e.Length;
+            if (progress != null && (r.Written % 25 == 0 || r.Written == todo.Count))
+                progress($"Installing game data: {r.Written} of {todo.Count}");
+        }
+
+        // LAST. Everything above has to have happened for this line to
+        // be reached, which is the whole point of the marker.
+        try
+        {
+            using Godot.FileAccess f = Godot.FileAccess.Open(
+                UnpackMarker, Godot.FileAccess.ModeFlags.Write);
+            if (f == null)
+            {
+                r.Problem = "The game data was copied but could not be marked as " +
+                            "installed:\n" + ProjectSettings.GlobalizePath(UnpackMarker);
+                return r;
+            }
+            f.StoreString(stamp);
+        }
+        catch (Exception e)
+        {
+            r.Problem = "The game data was copied but could not be marked as " +
+                        $"installed:\n\n{e.Message}";
+            return r;
+        }
+
+        GD.Print($"[M59Paths] unpacked {r.Written} files ({Mb(r.Bytes)}), " +
+                 $"{r.Resumed} already present, to {dest}");
+        if (_lost.Count > 0)
+            GD.PrintErr($"[M59Paths] {_lost.Count} file(s) shipped only as Godot's " +
+                        $"converted copy and could not be unpacked, first: {_lost[0]}");
+
+        r.Ok = true;
+        return r;
     }
+
+    /// <summary>
+    /// Removes files an older build left behind that this one does not
+    /// ship. Only ever called where the marker proves the folder is ours.
+    /// </summary>
+    static void Prune(string dest)
+    {
+        var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (PackEntry e in _pack)
+            keep.Add(Path.Combine(dest, e.Rel.Replace('/', Path.DirectorySeparatorChar)));
+
+        try
+        {
+            foreach (string f in Directory.EnumerateFiles(dest, "*", SearchOption.AllDirectories))
+            {
+                // Our own marker is not in the pack list and is rewritten
+                // at the end regardless, so leaving it be costs nothing
+                // and deleting it mid-run would only widen the window
+                // where a crash looks like a fresh install.
+                if (string.Equals(Path.GetFileName(f), ".unpacked", StringComparison.Ordinal))
+                    continue;
+                if (keep.Contains(f)) continue;
+                try { File.Delete(f); } catch { }
+            }
+        }
+        catch (Exception e) { GD.PrintErr($"[M59Paths] pruning {dest}: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// Free space where the game data goes, or 0 if the platform will
+    /// not say. DirAccess answers for the disk its current directory is
+    /// on, so it has to be opened on a path that exists - user:// always
+    /// does, the folder underneath it may not yet.
+    /// </summary>
+    static long SpaceLeft()
+    {
+        try
+        {
+            using var d = DirAccess.Open("user://");
+            return d == null ? 0 : (long)d.GetSpaceLeft();
+        }
+        catch { return 0; }
+    }
+
+    static string Mb(long bytes) => $"{bytes / (1024.0 * 1024.0):0.#} MB";
 
     /// <summary>Where the skybox faces sit inside the export.</summary>
     public const string PackedSky = "res://sky";
