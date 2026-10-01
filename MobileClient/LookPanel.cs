@@ -92,7 +92,7 @@ public partial class LookPanel : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Mathf.Max(16f, v.X * 0.06f);
+        float side = Panels.Side(v, 0.06f);
         float w = v.X - side;
         float h = Mathf.Min(v.Y * 0.55f, 520f);
         float top = v.Y * 0.18f;

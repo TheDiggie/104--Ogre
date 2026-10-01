@@ -154,12 +154,31 @@ public partial class ChatOverlay : Control
     /// <summary>Pixels at the bottom right already spoken for.</summary>
     public float RightReserve { get; set; }
 
+    /// <summary>
+    /// How wide the chat block is. Held sideways there is width to
+    /// spare and height there is none, so the log keeps to the left
+    /// and leaves the other half of the screen for the hotbar - which
+    /// otherwise has to stack above the chat and ends up lying across
+    /// the middle of the screen, where the thumbs are.
+    /// </summary>
+    public float BlockWidth
+    {
+        get
+        {
+            Vector2 v = GetViewportRect().Size;
+            float pad = 12f;
+            float full = v.X - pad * 2f;
+            return v.X > v.Y ? Mathf.Min(full, v.X * 0.52f) : full;
+        }
+    }
+
     void Layout()
     {
         Vector2 v = GetViewportRect().Size;
         float pad = 12f;
         float entryH = FontSize * 2.4f;
         float btnW = FontSize * 5f;
+        float blockW = BlockWidth;
 
         // The recall arrow stops short of whatever owns the corner -
         // the minimap's own button sits there, and the two were drawn
@@ -167,7 +186,7 @@ public partial class ChatOverlay : Control
         float recallW = entryH;
         float right = pad + RightReserve;
         _entry.Position = new Vector2(pad, v.Y - entryH - pad);
-        _entry.Size = new Vector2(v.X - pad - right, entryH);
+        _entry.Size = new Vector2(Mathf.Min(v.X - pad - right, blockW), entryH);
 
         // Inside the entry's own right edge rather than beyond it. Put
         // outside, it sat over a menu button, and the button's text
@@ -187,7 +206,7 @@ public partial class ChatOverlay : Control
         // so an anchored child came out zero by zero: the log opened
         // and absolutely nothing appeared. Everything else in this file
         // is positioned explicitly, which is why only this was invisible.
-        float side = Mathf.Max(16f, v.X * 0.05f);
+        float side = Panels.Side(v, 0.05f);
         _fullBack.Position = Vector2.Zero;
         _fullBack.Size = v;
 
@@ -201,7 +220,7 @@ public partial class ChatOverlay : Control
 
         float logH = (FontSize + 6) * Lines;
         _log.Position = new Vector2(pad, v.Y - entryH - pad * 2 - logH);
-        _log.Size = new Vector2(v.X - pad * 2, logH);
+        _log.Size = new Vector2(blockW, logH);
     }
 
     /// <summary>True while the full log is covering the screen.</summary>

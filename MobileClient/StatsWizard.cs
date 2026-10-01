@@ -113,7 +113,7 @@ public partial class StatsWizard : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Mathf.Max(16f, v.X * 0.06f);
+        float side = Panels.Side(v, 0.06f);
         float rowH = FontSize * 2.6f;
         float height = Mathf.Min(v.Y * 0.82f, 820f);
         float top = v.Y - height - side * 0.5f;

@@ -124,7 +124,7 @@ public partial class CreateCharacter : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Mathf.Max(16f, v.X * 0.05f);
+        float side = Panels.Side(v, 0.05f);
         float rowH = FontSize * 2.6f;
         float height = v.Y - side;
         float top = side * 0.5f;

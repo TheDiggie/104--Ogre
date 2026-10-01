@@ -126,7 +126,7 @@ public partial class SpellsPanel : Control
         _open.Size = new Vector2(76, 40);
         _open.Position = new Vector2(v.X - RightReserve - 76f, v.Y - 40f - pad);
 
-        float side = Mathf.Max(16f, v.X * 0.05f);
+        float side = Panels.Side(v, 0.05f);
         float rowH = FontSize * 2.6f;
 
         // Below the corner the avatar block owns - the bars and the

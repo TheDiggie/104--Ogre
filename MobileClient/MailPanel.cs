@@ -179,7 +179,7 @@ public partial class MailPanel : Control
         _open.Size = new Vector2(76, 40);
         _open.Position = new Vector2(v.X - ButtonRight - 76, v.Y - ButtonBottom - 40);
 
-        float side = Mathf.Max(16f, v.X * 0.06f);
+        float side = Panels.Side(v, 0.06f);
         float rowH = FontSize * 2.6f;
         float height = Mathf.Min(v.Y * 0.8f, 780f);
         float top = v.Y - height - side * 0.5f;

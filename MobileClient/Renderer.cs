@@ -23,7 +23,40 @@ using Meridian59.Files.ROO;
 /// </summary>
 public sealed class Renderer
 {
-    public const float Fov = 75f * MathF.PI / 180f;
+    /// <summary>
+    /// Vertical field of view. Vertical, not horizontal, because the
+    /// client is landscape now and the buffer's height is the fixed
+    /// side: with a horizontal FOV, a wider screen kept the same swath
+    /// and lost the sky and the floor instead - at 21:9 the vertical
+    /// angle came out at 39 degrees and a duskrat two metres away
+    /// filled the screen.
+    ///
+    /// Sixty vertical gives about ninety across at 16:9 and a hundred
+    /// at 21:9, which is what the game looks like.
+    /// </summary>
+    public const float FovY = 60f * MathF.PI / 180f;
+
+    /// <summary>
+    /// The horizontal field of view never goes below this. Sixty
+    /// vertical on a tall screen would be a 36-degree slit; the client
+    /// is landscape now, but a window that is taller than it is wide
+    /// should still show a room rather than a corridor.
+    /// </summary>
+    public const float FovXMin = 75f * MathF.PI / 180f;
+
+    /// <summary>
+    /// Pixels per unit at unit depth. Whichever of the two fields of
+    /// view is the binding one wins - vertical on a wide screen, the
+    /// horizontal floor on a tall one - so the view widens with the
+    /// screen instead of cropping.
+    ///
+    /// Render and Pick must agree on this to the last float: they used
+    /// to compute it separately, and a picker that disagrees with the
+    /// picture is a tap that lands on nothing.
+    /// </summary>
+    public static float Projection(int W, int H)
+        => MathF.Min((H * 0.5f) / MathF.Tan(FovY * 0.5f),
+                     (W * 0.5f) / MathF.Tan(FovXMin * 0.5f));
     public const float EyeHeight = 0.6f * M59Geo.Fineness;
     public const float FogFar = 4500f;
 
@@ -279,7 +312,7 @@ public sealed class Renderer
     /// <summary>Renders one frame into <paramref name="px"/> (length W*H, ARGB).</summary>
     public int Render(uint[] px, int W, int H, float camX, float camY, float camZ, float angle)
     {
-        float proj = (W * 0.5f) / MathF.Tan(Fov * 0.5f);
+        float proj = Projection(W, H);
         float horizon = Horizon(H, proj);
 
         // Kept so a caller can put something on top of the frame - a name
@@ -726,7 +759,7 @@ public sealed class Renderer
         if (Sprites.Count == 0 || px_ < 0 || px_ >= W || py_ < 0 || py_ >= H) return null;
         if (_depth.Length < W) return null;
 
-        float proj = (W * 0.5f) / MathF.Tan(Fov * 0.5f);
+        float proj = Projection(W, H);
         float horizon = Horizon(H, proj);      // Pick must agree with Render
         float ca = MathF.Cos(-angle), sa = MathF.Sin(-angle);
 

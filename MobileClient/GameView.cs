@@ -27,7 +27,17 @@ public partial class GameView : Node2D
     [Export] public string Password = "";
     [Export] public string Character = "";
     [Export] public string ResourceDir = "";
-    [Export] public int RenderWidth = 480;
+    /// <summary>
+    /// Internal buffer height. The HEIGHT is the fixed side, and the
+    /// width follows the screen: a phone held sideways is 16:9 or 21:9,
+    /// and sizing by width there left 221 rows to draw the world in.
+    /// 432 rows at 21:9 is 936x432, which is the same number of pixels
+    /// a shot cost when this client was portrait.
+    /// </summary>
+    [Export] public int RenderHeight = 432;
+
+    /// <summary>Widest buffer to allow, whatever the screen's aspect.</summary>
+    [Export] public int RenderWidthCap = 1280;
     [Export] public bool AutoConnect = true;
     /// <summary>Client version reported at login; see M59Client.</summary>
     [Export] public int VersionMajor = 5;
@@ -1202,7 +1212,24 @@ public partial class GameView : Node2D
         // and the row is hidden, so the buttons do not hop down the
         // screen and back the moment you tap something.
         if (_hotbar != null && _chat != null)
-            _hotbar.BottomReserve = _chat.BlockHeight + (_actions?.BlockHeight ?? 0f) + 12f;
+        {
+            Vector2 screen = GetViewportRect().Size;
+            if (screen.X > screen.Y)
+            {
+                // Sideways: the chat keeps the left, the hotbar takes
+                // the right and drops to just above the menu row. Left
+                // stacked, the row landed across the middle of the
+                // screen - which on a phone held sideways is exactly
+                // where both thumbs drag.
+                _hotbar.LeftReserve = _chat.BlockWidth + 24f;
+                _hotbar.BottomReserve = 40f + 12f + 8f;
+            }
+            else
+            {
+                _hotbar.LeftReserve = 0f;
+                _hotbar.BottomReserve = _chat.BlockHeight + (_actions?.BlockHeight ?? 0f) + 12f;
+            }
+        }
         _hotbar?.Sync(_client.Data);
         _look?.Sync(_client.Data);
         _book?.Sync(_client.Data);
@@ -1545,8 +1572,8 @@ public partial class GameView : Node2D
     {
         Vector2 view = GetViewportRect().Size;
         if (view.X < 1 || view.Y < 1) return;
-        _w = Math.Max(64, RenderWidth);
-        _h = Math.Max(48, (int)(_w * view.Y / view.X));
+        _h = Math.Max(48, RenderHeight);
+        _w = Math.Clamp((int)(_h * view.X / view.Y), 64, Math.Max(64, RenderWidthCap));
         _px = new uint[_w * _h];
         _rgba = new byte[_w * _h * 4];
         _image = Image.CreateEmpty(_w, _h, false, Image.Format.Rgba8);

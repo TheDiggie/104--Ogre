@@ -21,7 +21,9 @@ public partial class SceneShot : Node
         string room = Arg("--room", "barinn.roo");
         int wait = int.TryParse(Arg("--wait", "30"), out int w) ? w : 30;
 
-        int width = int.TryParse(Arg("--width", "480"), out int rw) ? rw : 480;
+        // --height, because the buffer is sized by its height now: the
+        // client is landscape and the width follows the screen.
+        int height = int.TryParse(Arg("--height", "432"), out int rh) ? rh : 432;
 
         // --host turns this into a shot of the live view instead of the
         // offline one, pointed wherever you say - which in practice means
@@ -39,7 +41,7 @@ public partial class SceneShot : Node
                 // because that is the only way to reach the wizard.
                 Character = Arg("--char", ""),
                 Port = int.TryParse(Arg("--port", "15999"), out int pt) ? pt : 15999,
-                RenderWidth = width,
+                RenderHeight = height,
                 AutoConnect = true,
             };
             AddChild(live);
@@ -50,7 +52,7 @@ public partial class SceneShot : Node
             {
                 ResourceDir = res,
                 RoomFile = room,
-                RenderWidth = width,
+                RenderWidth = height * 2,
             };
             AddChild(view);
         }

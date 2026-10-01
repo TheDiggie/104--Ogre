@@ -52,3 +52,35 @@ beside it. InventoryPanel had the flag all along, which is why its grid
 looked right and the lists did not.
 
 See also: the panels -> mobile-client.md
+
+## Landscape, and what had to move for it
+Tags: design, architecture | The client is sensor-landscape now; three things were sized for a tall screen and had to be told the difference
+
+`project.godot`: 1920x1080 and `handheld/orientation=4`, which is
+sensor landscape - either way up, so the phone can be held with the
+charger port on whichever side.
+
+Three things assumed height:
+
+- The render buffer was sized by its WIDTH, so a sideways screen left
+  221 rows to draw a world in. It is sized by height now (432), and the
+  width follows the screen: 936x432 at 21:9, which is the same pixel
+  count the portrait client drew.
+- The field of view was horizontal, so a wider screen kept the same
+  swath and threw away the sky and the floor instead - 39 degrees
+  vertical at 21:9, with a duskrat two metres away filling the frame.
+  `Renderer.Projection` takes whichever of a 60-degree vertical and a
+  75-degree horizontal floor is binding, so the view widens with the
+  screen and a tall window still shows a room.
+- The chat, the target row and the hotbar stacked bottom-upwards, which
+  put the hotbar across the middle of the screen - exactly where both
+  thumbs drag. Sideways the chat and the target row keep to the left
+  52%, and the hotbar takes the right and drops to just above the menu
+  row.
+
+`Panels.Side` is the shared margin: portrait returns what each panel
+computed for itself, landscape adds enough to keep the content in a
+centred band. A row with a name at one end and a number at the other,
+stretched over two thousand pixels, cannot be read in one glance.
+
+See also: the client -> mobile-client.md | Renderer.cs | Panels.cs

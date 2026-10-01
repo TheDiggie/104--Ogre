@@ -61,7 +61,7 @@ public partial class ResourcePrompt : Control
         _bg.Position = Vector2.Zero;
         _bg.Size = v;
 
-        float pad = Mathf.Max(16f, v.X * 0.06f);
+        float pad = Panels.Side(v, 0.06f);
         float w = v.X - pad * 2f;
         float h = FontSize * 2.6f;
 

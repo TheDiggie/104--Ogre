@@ -51,6 +51,24 @@ public partial class ActionButtons : Control
     }
     float _reserve;
 
+    /// <summary>
+    /// Pixels at the left already spoken for - the chat block, when the
+    /// screen is wide enough that the chat sits beside the hotbar
+    /// rather than under it. Setting it relays out, the same way
+    /// BottomReserve does.
+    /// </summary>
+    public float LeftReserve
+    {
+        get => _left;
+        set
+        {
+            if (Mathf.IsEqualApprox(_left, value)) return;
+            _left = value;
+            _signature = "";
+        }
+    }
+    float _left;
+
     DataController _data;
     readonly List<Button> _pool = new List<Button>();
     /// <summary>The button number showing in each screen slot, so a press
@@ -220,13 +238,13 @@ public partial class ActionButtons : Control
 
         Vector2 v = GetViewportRect().Size;
         float gap = 6f;
-        int across = Math.Max(1, (int)((v.X - gap) / (ButtonSize + gap)));
+        int across = Math.Max(1, (int)((v.X - LeftReserve - gap) / (ButtonSize + gap)));
         int count = Math.Min(set.Count, across);
 
         var sb = new System.Text.StringBuilder();
         for (int i = 0; i < count; i++)
             sb.Append(set[i].Num).Append(':').Append(set[i].ButtonType).Append(':').Append(set[i].Name).Append(';');
-        sb.Append('@').Append(across);
+        sb.Append('@').Append(across).Append('@').Append((int)LeftReserve);
 
         string now = sb.ToString();
         if (now == _signature) return;
@@ -257,7 +275,7 @@ public partial class ActionButtons : Control
             // game binds the slot to, and there are no keys on a phone.
             b.Text = icon != null ? "" : Short(cfg.Name);
             b.TooltipText = cfg.Name;
-            b.Position = new Vector2(gap + i * (ButtonSize + gap), y);
+            b.Position = new Vector2(LeftReserve + gap + i * (ButtonSize + gap), y);
             b.Size = new Vector2(ButtonSize, ButtonSize);
             b.Visible = true;
 

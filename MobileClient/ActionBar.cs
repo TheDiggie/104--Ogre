@@ -124,14 +124,20 @@ public partial class ActionBar : Control
         float h = FontSize * 2.6f;
         float y = v.Y - _reserve - pad - h;
 
+        // Sideways the row keeps to the left, over the chat, rather
+        // than stretching the seven buttons across two thousand pixels
+        // with a thumb's width of gap between them. Same share of the
+        // width the chat block takes, so the two line up.
+        float block = v.X > v.Y ? Mathf.Min(v.X - pad * 2f, v.X * 0.52f) : v.X - pad * 2f;
+
         _face.Position = new Vector2(pad, y - PortraitSize - 4f);
         _face.Size = new Vector2(PortraitSize, PortraitSize);
 
         _name.Position = new Vector2(pad + PortraitSize + 8f, y - PortraitSize + 6f);
-        _name.Size = new Vector2(v.X - pad * 2f - PortraitSize - 8f, h);
+        _name.Size = new Vector2(block - PortraitSize - 8f, h);
 
         Button[] row = { _inspect, _attack, _activate, _buy, _trade, _loot, _quest };
-        float w = (v.X - pad * 2f - 4f * (row.Length - 1)) / row.Length;
+        float w = (block - 4f * (row.Length - 1)) / row.Length;
         for (int i = 0; i < row.Length; i++)
         {
             row[i].Position = new Vector2(pad + i * (w + 4f), y);

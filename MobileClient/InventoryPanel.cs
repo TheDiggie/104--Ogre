@@ -161,7 +161,7 @@ public partial class InventoryPanel : Control
         _open.Size = new Vector2(76, 40);
         _open.Position = new Vector2(v.X - 70f - pad - (76f + 8f) * 2f, v.Y - 40f - pad);
 
-        float side = Mathf.Max(16f, v.X * 0.05f);
+        float side = Panels.Side(v, 0.05f);
         float rowH = FontSize * 2.6f;
 
         _title.Position = new Vector2(side, side);
