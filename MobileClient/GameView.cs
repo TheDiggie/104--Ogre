@@ -1578,13 +1578,22 @@ public partial class GameView : Node2D
         RoomInfo room = _client?.Data?.RoomInformation;
         if (room == null) return 1f;
 
+        // Before the server has put us in a room there is no light to
+        // read and a black screen would look like a broken client, so
+        // full brightness stands in. Once there IS a room, its own
+        // number is the answer even when that number is zero: a room
+        // the server says is pitch dark is pitch dark.
+        if (room.RoomID == 0) return 1f;
+
         int lit = Math.Max(room.AmbientLight, room.AvatarLight);
         // The settings brightness is a factor on top, the way
-        // AdjustAmbientLight applies Config->BrightnessFactor: a room
-        // the server has darkened stays darker than one it has not.
-        float extra = 1f + _bright;
-        if (lit <= 0) return Math.Min(1f, extra);
-        return Math.Min(1f, lit / 255f * extra);
+        // AdjustAmbientLight applies Config->BrightnessFactor
+        // (`Util.h:218-222`), clamped the same way - and NOT capped at
+        // one afterwards, because the reference's scene ambient is not
+        // either. Capping it is what made the slider do nothing in a
+        // room that was already bright.
+        float extra = Math.Clamp(1f + _bright, 1f, 1.8f);
+        return lit / 255f * extra;
     }
 
     /// <summary>

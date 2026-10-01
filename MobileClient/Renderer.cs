@@ -535,8 +535,14 @@ public sealed class Renderer
                 if (fc < nc)
                 {
                     int farCeilY = ScreenY(fc, camZ, horizon, proj, perp);
+                    // No upper texture means no upper part: the gap
+                    // shows the room beyond, which the rest of this
+                    // column walk will draw. Filling it here painted a
+                    // band over the view through a doorway.
+                    Tex upper = side != null ? _tex.Get(side.UpperTexture, texGroup) : null;
+                    if (upper != null)
                     DrawWall(px, W, H, sx, yTop, Math.Min(yBot, farCeilY - 1), ceilY, farCeilY, fc, nc,
-                             side != null ? _tex.Get(side.UpperTexture, texGroup) : null,
+                             upper,
                              along, xOff, yOff, side == null || !side.Flags.IsAboveBottomUp,
                              fog, tpp, false, null, 0f, 0, false,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
@@ -547,8 +553,10 @@ public sealed class Renderer
                 if (ff > nf)
                 {
                     int farFloorY = ScreenY(ff, camZ, horizon, proj, perp);
+                    Tex lower = side != null ? _tex.Get(side.LowerTexture, texGroup) : null;
+                    if (lower != null)
                     DrawWall(px, W, H, sx, Math.Max(yTop, farFloorY), yBot, farFloorY, floorY, nf, ff,
-                             side != null ? _tex.Get(side.LowerTexture, texGroup) : null,
+                             lower,
                              along, xOff, yOff, side != null && side.Flags.IsBelowTopDown,
                              fog, tpp, false, null, 0f, 0, false,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
@@ -900,7 +908,14 @@ public sealed class Renderer
         for (int y = y0; y <= y1; y++)
         {
             uint c;
-            if (t == null) c = Shade(0xFF5A5A62u, fog);
+            // A part with no texture is not drawn at all - the library
+            // clears the texture and the material together
+            // (`RooSideDef.cs:472`) and the Ogre client returns from
+            // CreateSidePart before making anything
+            // (`ControllerRoom.cpp:686`). So the void shows, which is
+            // what a shortened quad leaves. A grey fill instead made
+            // every missing texture look like a wall that is there.
+            if (t == null) c = 0xFF05050Au;
             else
             {
                 float f = (y - spanTopY) / span;                 // 0 at top of span
@@ -1064,9 +1079,16 @@ public sealed class Renderer
 
     static uint Shade(uint c, float f)
     {
-        if (f >= 1f) return c;
+        if (f == 1f) return c;
         if (f < 0f) f = 0f;
-        uint r = (uint)(((c >> 16) & 0xFF) * f), g = (uint)(((c >> 8) & 0xFF) * f), b = (uint)((c & 0xFF) * f);
+        // Over one is allowed and clipped per channel. The game's own
+        // brightness is a FACTOR on the room's light, clamped to 1.8
+        // (`Util.h:218-222`), and Ogre's scene ambient has no ceiling
+        // at one either - so a slider that could only ever darken was
+        // a slider that did nothing in a lit room.
+        uint r = (uint)MathF.Min(255f, ((c >> 16) & 0xFF) * f);
+        uint g = (uint)MathF.Min(255f, ((c >> 8) & 0xFF) * f);
+        uint b = (uint)MathF.Min(255f, (c & 0xFF) * f);
         return 0xFF000000u | (r << 16) | (g << 8) | b;
     }
     void CollectHits(RooFile roo, float ox, float oy, float dx, float dy, Scratch sc)
