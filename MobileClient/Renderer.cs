@@ -508,7 +508,14 @@ public sealed class Renderer
 
                 yTop = Math.Max(yTop, ceilY);
                 yBot = Math.Min(yBot, floorY);
-                if (yTop > yBot) { closed = true; break; }
+                // Closed because the floor and the ceiling met on screen.
+                // The depth has to be recorded even so: it is what stops
+                // a sprite being drawn through the geometry, and a
+                // column that closed without a wall left it at
+                // float.MaxValue, so every creature behind that point
+                // passed the test. A rat on the far side of a rise came
+                // through the hill.
+                if (yTop > yBot) { _depth[sx] = perp; closed = true; break; }
 
                 // Which end of the wall the texture starts from depends on
                 // which side of it you are standing on. `GetVertexData`
@@ -593,6 +600,15 @@ public sealed class Renderer
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
                              Time);
+                    // Nobody draws the band when there is no texture for
+                    // it, and yTop moves past it either way - so those
+                    // rows kept whatever the last frame left there and
+                    // smeared as you turned. The reference has nothing
+                    // to draw there either (`ControllerRoom.cpp:690`),
+                    // but behind it is a skybox; here it is the void.
+                    else for (int y = Math.Max(0, yTop);
+                              y < Math.Min(H, Math.Min(yBot + 1, farCeilY)); y++)
+                        px[y * W + sx] = Tex.Void;
                     yTop = Math.Max(yTop, farCeilY);
                 }
                 if (ff > nf)
@@ -607,6 +623,9 @@ public sealed class Renderer
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
                              Time);
+                    else for (int y = Math.Max(0, Math.Max(yTop, farFloorY));
+                              y < Math.Min(H, yBot + 1); y++)
+                        px[y * W + sx] = Tex.Void;
                     yBot = Math.Min(yBot, farFloorY);
                 }
 
@@ -678,7 +697,15 @@ public sealed class Renderer
             }
 
             if (closed) sc.SolidCols++;
-            else for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0) px[y * W + sx] = Tex.Void;
+            else
+            {
+                // The walk ran out of walls. Nothing is nearer than
+                // this, so the depth is what the column reached rather
+                // than the untouched float.MaxValue - the same reason as
+                // above.
+                _depth[sx] = _depth[sx] == float.MaxValue ? 1e9f : _depth[sx];
+                for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0) px[y * W + sx] = Tex.Void;
+            }
         }
     }
 
@@ -1409,14 +1436,38 @@ public sealed class Renderer
             s += (double)v[j].X * v[i].Y - (double)v[i].X * v[j].Y;
         return (float)Math.Abs(s * 0.5);
     }
+    /// <summary>
+    /// Which sector a point is in, by the library's own BSP descent.
+    ///
+    /// This used to walk every leaf in the room with a crossing test
+    /// and, finding none, hand back sector 0 - which is not a
+    /// neighbouring sector, it is whichever one happens to be first in
+    /// the file, and the whole frame's floors and ceilings then came
+    /// from somewhere else entirely. Standing exactly on a leaf
+    /// boundary is enough to do it, because the crossing test is strict
+    /// on both sides.
+    ///
+    /// `RooFile.GetSubSectorAt` (:1284-1300) is the descent the library
+    /// itself uses for every height query, with a defined rule at the
+    /// boundary - `side >= 0` goes right - and a null when there really
+    /// is nothing. It is also O(log n) rather than O(leaves), and it
+    /// runs once a frame plus once per flat span.
+    ///
+    /// The old scan stays as the fallback for the one case the tree
+    /// cannot answer: a room whose BSP is empty.
+    /// </summary>
     static RooSector SectorAt(RooFile roo, float x, float y)
     {
+        RooSubSector leaf = null;
+        try { leaf = roo.GetSubSectorAt(x, y); } catch { }
+        if (leaf != null) return M59Geo.Sector(roo, leaf.SectorNum);
+
         foreach (RooSubSector l in roo.BSPTreeLeaves)
         {
             if (l.Vertices == null || l.Vertices.Count < 3) continue;
             if (PointIn(l.Vertices, x, y)) return M59Geo.Sector(roo, l.SectorNum);
         }
-        return roo.Sectors.Count > 0 ? roo.Sectors[0] : null;
+        return null;
     }
     static bool PointIn(Polygon p, float x, float y)
     {

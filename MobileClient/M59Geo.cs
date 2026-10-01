@@ -68,10 +68,25 @@ public static class M59Geo
                                     int texW, int texH, out float sx, out float sy)
         => ScrollRate(speed, dir, texW, texH, 12, 6, 2, out sx, out sy);
 
-    /// <summary>Wall scroll, in textures per second.</summary>
+    /// <summary>
+    /// Wall scroll, in textures per second.
+    ///
+    /// The two tables are not the same table with different constants,
+    /// which is what this assumed. `RooSideDef.GetWallScrollSpeed`
+    /// (:683-732) puts north and south on sp.X and east and west on
+    /// sp.Y; `RooSector.GetSectorScrollSpeed` (:896-945) does the
+    /// opposite. Laid side by side, the wall's table IS the sector's
+    /// with the two components exchanged, in all eight directions - so
+    /// the exchange is done here rather than by copying a second
+    /// switch. Without it every cardinal direction came out turned a
+    /// quarter, and south-west came out backwards.
+    /// </summary>
     public static void WallScroll(TextureScrollSpeed speed, TextureScrollDirection dir,
                                   int texW, int texH, out float sx, out float sy)
-        => ScrollRate(speed, dir, texW, texH, 96, 32, 8, out sx, out sy);
+    {
+        ScrollRate(speed, dir, texW, texH, 96, 32, 8, out float a, out float b);
+        sx = b; sy = a;
+    }
 
     static void ScrollRate(TextureScrollSpeed speed, TextureScrollDirection dir,
                            int texW, int texH, int slow, int medium, int fast,
