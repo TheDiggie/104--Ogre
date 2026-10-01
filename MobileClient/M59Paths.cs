@@ -30,7 +30,13 @@ public static class M59Paths
     /// </summary>
     public static string Resolve(string preferred = null)
     {
-        if (!string.IsNullOrWhiteSpace(preferred) && Directory.Exists(preferred))
+        // The same content check the candidates and Remember both
+        // apply. Without it a folder that merely exists was accepted,
+        // and an empty one took the client all the way to the login
+        // screen before anything went wrong - which reads as a broken
+        // client rather than the wrong folder.
+        if (!string.IsNullOrWhiteSpace(preferred) && Directory.Exists(preferred)
+            && HasContent(preferred))
             return preferred;
 
         foreach (string c in Candidates())
