@@ -84,3 +84,35 @@ centred band. A row with a name at one end and a number at the other,
 stretched over two thousand pixels, cannot be read in one glance.
 
 See also: the client -> mobile-client.md | Renderer.cs | Panels.cs
+
+## The interface keeps off the glass's edge
+Tags: design, gotchas | SafeArea insets the whole UI layer - the system's cutouts plus a flat margin for the curve, which nothing reports
+
+Two problems, one answer. Android reports its cutouts - camera hole,
+status bar, gesture bar - through `DisplayServer.GetDisplaySafeArea()`.
+Nothing reports the curve of the glass, so `CurveFraction` adds 2.5% of
+the screen's SHORT side on every edge, which is about the ten to
+fifteen dp a rounded corner eats.
+
+The whole `_ui` CanvasLayer is scaled and offset rather than every
+panel being taught about insets: a panel lays itself out against the
+viewport as it always has, and the layer it sits on is what lives
+inside the safe rectangle. The world underneath is NOT inset - the
+game should fill the glass. Taps still land where they look, which was
+checked rather than assumed: a tap at the Map button's new coordinates
+hides the map.
+
+Two traps, both hit:
+
+- Setting `layer.Scale` replaces whatever the engine put there. Here
+  that is the identity, because this project's viewport rect equals the
+  window - but a project where the stretch lives in the layer transform
+  would have to multiply, not assign.
+- `GetDisplaySafeArea()` off a handheld answers with the DISPLAY's
+  size, not the window's. Under xvfb that is 1280x1024 against a
+  2340x1080 window, which reads as a thousand pixels of cutout and
+  shrinks the interface into a corner - which is what the first run
+  looked like. It is only asked on Android and iOS now, and any inset
+  over a fifth of the screen is refused whatever the answer.
+
+See also: SafeArea.cs | the client -> mobile-client.md

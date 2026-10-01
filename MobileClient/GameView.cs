@@ -199,6 +199,9 @@ public partial class GameView : Node2D
         layer.AddChild(bg);
         layer.AddChild(_crash);
         AddChild(layer);
+        // A stack trace that runs off the curve is a stack trace with
+        // the interesting line missing.
+        SafeArea.Apply(layer, GetViewportRect().Size);
     }
 
     void Boot()
@@ -220,6 +223,13 @@ public partial class GameView : Node2D
 
         _ui = new CanvasLayer();
         AddChild(_ui);
+
+        // Everything on this layer is kept off the glass's edge - the
+        // system's own cutouts, plus a margin for the curve, which
+        // nothing reports. The world underneath keeps the whole
+        // screen. See SafeArea.
+        SafeArea.Apply(_ui, GetViewportRect().Size);
+        GetViewport().SizeChanged += () => SafeArea.Apply(_ui, GetViewportRect().Size);
 
         // Below the avatar block, which owns the corner.
         _status = new Label { Position = new Vector2(12, 132) };
