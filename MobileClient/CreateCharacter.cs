@@ -231,14 +231,79 @@ public partial class CreateCharacter : Control
         presets.AddChild(Preset("Hybrid", () => _info.SetAttributesToHybrid()));
         _rows.AddChild(presets);
 
-        _rows.AddChild(Attribute("Might", () => _info.Might, v => _info.Might = v));
-        _rows.AddChild(Attribute("Intellect", () => _info.Intellect, v => _info.Intellect = v));
-        _rows.AddChild(Attribute("Stamina", () => _info.Stamina, v => _info.Stamina = v));
-        _rows.AddChild(Attribute("Agility", () => _info.Agility, v => _info.Agility = v));
-        _rows.AddChild(Attribute("Mysticism", () => _info.Mysticism, v => _info.Mysticism = v));
-        _rows.AddChild(Attribute("Aim", () => _info.Aim, v => _info.Aim = v));
+        // The reference's hint, under the same heading it sits under
+        // there (`Meridian59.layout:2760`). It is not decoration: the
+        // school requirements are written in multiples of five, so a
+        // character built in ones is a character a point short of things.
+        _rows.AddChild(Prose(
+            "Hint: It is a good idea to use multiples of 5 when you set your stats!"));
+
+        // Each attribute now carries the wizard's own sentence about it.
+        //
+        // The layout gives all six a description apiece
+        // (`Meridian59.layout:2657`, :2676, :2695, :2714, :2733, :2752)
+        // and this client showed six steppers and nothing else - so the
+        // one permanent decision in the whole client was being made
+        // blind. Nothing on the screen said that Mysticism is what the
+        // three mana schools are gated on, or that Intellect gates the
+        // other two, so the player who put everything into Might met
+        // those rules later as a refusal with no explanation.
+        //
+        // Brought across word for word rather than rewritten. These
+        // sentences are the game telling you what its own numbers mean,
+        // and they name specific schools and specific weapons; a summary
+        // of them would be new content, and wrong content the first time
+        // the game changed under it.
+        //
+        // Listed in this file's order rather than the layout's, which
+        // reads down two columns - Might, Agility, Aim on the left and
+        // Stamina, Mysticism, Intellect on the right - and is a
+        // two-column layout's ordering, not a meaning.
+        _rows.AddChild(Attribute("Might", () => _info.Might, v => _info.Might = v,
+            "Might increases your weight limit and melee damage. Mighty warriors can "
+            + "inflict great damage with maces, hammers or their bare hands."));
+        _rows.AddChild(Attribute("Intellect", () => _info.Intellect, v => _info.Intellect = v,
+            "An adventurer's intellect decides how much they can learn. Great intellect "
+            + "is a necessity to master the schools of Jala, the Muse, and Riija the Trickster."));
+        _rows.AddChild(Attribute("Stamina", () => _info.Stamina, v => _info.Stamina = v,
+            "Your stamina affects your maximum health and allows you to master the arts "
+            + "of Kraanan, the Fist, more easily."));
+        _rows.AddChild(Attribute("Agility", () => _info.Agility, v => _info.Agility = v,
+            "Agile fighters are less likely to get hit, master many weapon skills more "
+            + "easily and inflict greater damage with the scimitar."));
+        _rows.AddChild(Attribute("Mysticism", () => _info.Mysticism, v => _info.Mysticism = v,
+            "Your mysticism determines your maximum mana and is needed for the magical "
+            + "schools of Faren, the Fury, Shal'ille, the Compassionate and Qor, the Vile."));
+        _rows.AddChild(Attribute("Aim", () => _info.Aim, v => _info.Aim = v,
+            "True aim helps you to hit your targets and allows you to be highly "
+            + "effective with long swords and bows."));
 
         _rows.AddChild(Section("Spells"));
+        // `AvatarCreateWizard.SpellsSkillsDisclaimer`
+        // (`Meridian59.layout:2817`), which is the only place in the
+        // client either of these two rules is written down.
+        //
+        // They are both rules the model enforces by refusing - Reason()
+        // below turns NotEnoughLevelOneError and the two school errors
+        // into sentences - and a rule you only meet as a refusal is a
+        // rule the player reverse-engineers. Worse here than on a
+        // desktop: the desktop player had this paragraph under both
+        // lists the whole time.
+        //
+        // Above the lists rather than below them, which is the one
+        // departure. The reference can put it at the bottom because its
+        // two lists and its disclaimer are all on screen at once; this is
+        // a scrolling column, and text below a hundred abilities is text
+        // read after the choosing.
+        //
+        // Verbatim, with one exception: the reference's "anta- gonists"
+        // is a hyphen hand-placed to break that word across a
+        // fixed-width CEGUI label, and reproducing it here would put a
+        // hyphen in the middle of a line that Godot wraps for itself.
+        _rows.AddChild(Prose(
+            "To unlock a school's second rank of abilities, choose two or more abilities "
+            + "of the first rank.  The schools of Shal'ille (good) and Qor (evil) are "
+            + "natural antagonists and, thus, mutually exclusive."));
         if (_info.Spells != null)
         {
             int i = 0;
@@ -330,10 +395,40 @@ public partial class CreateCharacter : Control
     Control Stepper(string name, Func<string> read, Action down, Action up)
         => Row(name, read, down, up);
 
-    Control Attribute(string name, Func<uint> get, Action<uint> set)
-        => Row(name, () => get().ToString(),
-               () => { set(get() - 1); _signature = ""; },
-               () => { set(get() + 1); _signature = ""; });
+    /// <summary>
+    /// One attribute: the stepper, and under it the wizard's own
+    /// sentence about what the number does. The two are returned as one
+    /// block so the text cannot drift away from the row it explains when
+    /// the list is rebuilt.
+    /// </summary>
+    Control Attribute(string name, Func<uint> get, Action<uint> set, string about)
+    {
+        var block = new VBoxContainer();
+        block.AddThemeConstantOverride("separation", 0);
+        block.AddChild(Row(name, () => get().ToString(),
+            () => { set(get() - 1); _signature = ""; },
+            () => { set(get() + 1); _signature = ""; }));
+        block.AddChild(Prose(about));
+        return block;
+    }
+
+    /// <summary>
+    /// A paragraph of the wizard's own explanatory text. Wrapped and set
+    /// smaller and dimmer than a row, so a screenful of these still reads
+    /// as a form with notes on it rather than as a wall.
+    /// </summary>
+    Control Prose(string text)
+    {
+        var l = new Label
+        {
+            Text = text,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+        };
+        l.AddThemeFontSizeOverride("font_size", FontSize - 2);
+        l.AddThemeColorOverride("font_color", new Color(0.68f, 0.71f, 0.78f));
+        return l;
+    }
 
     Control Row(string name, Func<string> read, Action down, Action up)
     {

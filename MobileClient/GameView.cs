@@ -196,6 +196,27 @@ public partial class GameView : Node2D
     LoginPrompt _login;
     RichTextLabel _crash;
     string _resDir = "";
+
+    /// <summary>
+    /// The servers there are to log into, and which one is showing.
+    ///
+    /// The reference keeps this list in Config->Connections and the
+    /// choice in Config->SelectedConnectionIndex, which is what
+    /// BaseClient.Connect reads (`BaseClient.cs:114-141`). Held here
+    /// rather than there because the choice has to be made BEFORE the
+    /// client exists - Config.Load runs inside Begin, and Begin is what
+    /// login starts. See ServerList.
+    /// </summary>
+    System.Collections.Generic.List<ServerList.Entry> _servers;
+    int _serverPick;
+    /// <summary>The string dictionary found on disk; see M59Client.FindStringDictionary.</summary>
+    string _strings = "";
+
+    /// <summary>The server about to be connected to, or a last resort.</summary>
+    ServerList.Entry Chosen =>
+        _servers != null && _serverPick >= 0 && _serverPick < _servers.Count
+            ? _servers[_serverPick]
+            : new ServerList.Entry(Host, Host, Port, _strings);
     NameTags _names;
     QuestMarkers _questMarks;
     ScreenEffects _fx;
@@ -447,6 +468,15 @@ public partial class GameView : Node2D
         }
         _resDir = dir;
 
+        // Which servers there are, before anything asks who you are: the
+        // picker is part of the login screen, so the list has to exist by
+        // the time that screen is built. The reference has the same
+        // ordering - Config->Connections is loaded by RootClient.Start
+        // long before UILogin::Initialize fills its combobox from it
+        // (`UILogin.cpp:22-26`).
+        _strings = M59Client.FindStringDictionary(_resDir);
+        _servers = ServerList.Load(Host, Port, _strings, out _serverPick);
+
         string user = !string.IsNullOrWhiteSpace(Username)
             ? Username : System.Environment.GetEnvironmentVariable("M59USER");
         string pass = !string.IsNullOrWhiteSpace(Password)
@@ -469,10 +499,172 @@ public partial class GameView : Node2D
     void Ask()
     {
         if (_login != null) return;
+
+        // Settings and the popup it talks through, built before the login
+        // screen rather than with the rest of the widgets in Begin.
+        //
+        // Every opener in this client is gated on being in the world, and
+        // Settings was no exception, so a player who could not get past
+        // login had no settings at all - could not turn the music down,
+        // could not pick a language, could not even see what the client
+        // thought the server was. The reference puts an Options button on
+        // its login window for exactly this (`Meridian59.layout:3075`,
+        // `UILogin.cpp:16`, :37, :163-171), and the window it opens is the
+        // same window the game opens later.
+        //
+        // The same instances, deliberately: Begin adopts whatever is here
+        // rather than building a second panel, so a volume set on the
+        // login screen is the volume in the world.
+        Widget("ask", () => { if (_ask == null) { _ask = new ConfirmPopup(); _ui.AddChild(_ask); } });
+        Widget("options", () => Settings());
+
         _login = new LoginPrompt();
-        _login.Server(Host, Port);
-        _login.Submitted += (u, p) => Begin(u, p);
+        // Added to the tree before anything is put into it: _Ready is
+        // what builds the widgets, and it does not run until the node is
+        // in the tree. Setting the address first was a silent no-op -
+        // Server() guards on a null label, so the line that told the
+        // player where they were connecting never appeared at all.
         _ui.AddChild(_login);
+
+        _login.Choices(_servers, _serverPick);
+        _login.Server(Chosen.Host, Chosen.Port);
+        _login.Account(Chosen.Account, Chosen.Secret);
+
+        // Which server, remembered as it is picked. The reference writes
+        // the choice to SelectedConnectionIndex there and then
+        // (`UILogin.cpp:88-92`) and refills the account boxes from the
+        // new entry (:94-101), because an account name means nothing on a
+        // server it was not made on.
+        _login.ServerChanged += index =>
+        {
+            if (_servers == null || index < 0 || index >= _servers.Count) return;
+            _serverPick = index;
+            ServerList.Remember(_servers[index]);
+            _login.Server(Chosen.Host, Chosen.Port);
+            _login.Account(Chosen.Account, Chosen.Secret);
+        };
+        _login.Options += () => _options?.Open();
+        _login.Submitted += (u, p) =>
+        {
+            // Remembered on the way in as well as on the pick, so the
+            // server actually logged into is the one that comes back next
+            // time even if it was the default all along.
+            if (_servers != null && _serverPick >= 0 && _serverPick < _servers.Count)
+                ServerList.Remember(_servers[_serverPick]);
+            Begin(u, p);
+        };
+    }
+
+    /// <summary>
+    /// Builds the Settings panel, once, and wires everything about it
+    /// that does not need a client.
+    ///
+    /// Its own method because it is now built from two places. The login
+    /// screen needs it (`Meridian59.layout:3075`, `UILogin.cpp:163-171`),
+    /// and the world needs the same instance and not a second one - the
+    /// settings are a per-player thing, not a per-screen thing, and a
+    /// duplicate panel would mean the volume you set before logging in
+    /// being replaced by the volume the second panel restored.
+    ///
+    /// Everything wired here reads its target at invoke time rather than
+    /// capturing it, so the handlers are safe to attach before the sound
+    /// player, the touch controls and the client itself exist.
+    /// </summary>
+    void Settings()
+    {
+        if (_options != null) return;
+
+        // Left of the mail button.
+        _options = new OptionsPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 7f };
+        _options.SoundVolume += v => { if (_sound != null) _sound.Volume = v; };
+        _options.MusicVolume += v => { if (_sound != null) _sound.MusicLevel = v; };
+        _options.LoopSounds  += on => { if (_sound != null) _sound.Loops = on; };
+        // A factor on the room's own ambient light, not on the
+        // finished picture - AdjustAmbientLight, not a gamma ramp.
+        _options.Brightness  += v => _bright = v;
+        _options.LookSpeed   += v => { if (_touch != null) _touch.LookSensitivity = 0.006f * v; };
+        _options.InvertLook  += on => { if (_touch != null) _touch.InvertLook = on; };
+        _options.Preferences += () => Act(() => _client.SendUserCommandSendPreferences());
+        // The aliases are a page of the Options window in the
+        // reference (`UIOptions.cpp:1241`); here they are their own
+        // panel, so Settings closes and it takes its place.
+        _options.EditAliases += () => { _options.Close(); _aliases?.Open(); };
+        // Whatever the panel has to say goes through the client's own one
+        // popup, which is what the reference does with all four of its
+        // password refusals (`ConfirmPopup::ShowOK` at
+        // `UIOptions.cpp:2785`, :2792, :2799, :2806). Passed false for
+        // closeOnInvalidate for the reason ConfirmPopup spells out: a
+        // popup about the account has no game data behind it to go stale
+        // (`OgreClient.cpp:895`, :908).
+        _options.Complain += text => _ask?.Tell(text, null, false);
+
+        // The password this client believes the account has, which is
+        // what the "old password incorrect" check compares against - the
+        // reference reads the same field
+        // (`UIOptions.cpp:2790` reads Config->SelectedConnectionInfo->Password).
+        _options.KnownPassword = () => _client?.Config?.SelectedConnectionInfo?.Password;
+
+        // The send, and the write-back. Both halves of what
+        // `OnChangePasswordClicked` does once its checks pass
+        // (`UIOptions.cpp:2810-2812`): the request goes up, and the
+        // connection entry is updated so a second change in the same
+        // session compares against the new password rather than the old
+        // one. The library call has been sitting unused in
+        // `BaseClient.cs:797` all along.
+        _options.ChangePassword += (before, after) => Act(() =>
+        {
+            _client.SendReqChangePassword(before, after);
+            if (_client.Config?.SelectedConnectionInfo != null)
+                _client.Config.SelectedConnectionInfo.Password = after;
+            // The server does not acknowledge this, so nothing else would
+            // ever say it had happened.
+            _ask?.Tell("Password change sent.", null, false);
+        });
+
+        _options.LanguageChanged += UseLanguage;
+
+        _ui.AddChild(_options);
+    }
+
+    /// <summary>
+    /// Puts a language into force, the three places
+    /// `OnLanguageChanged` puts it (`UIOptions.cpp:2681-2691`).
+    ///
+    /// Config->Language, because that is what `BaseClient.Connect`
+    /// passes to `SelectStringDictionary` on the next connect
+    /// (`BaseClient.cs:119-121`). StringResources->Language, because the
+    /// RSB already holds every language at once and that property is
+    /// which bracket of the id space a lookup reads
+    /// (`StringDictionary.cs:66`, :101-117) - so this is the one that
+    /// changes anything for a session already running. And then
+    /// ResolveStrings over the whole data model, because every name
+    /// already resolved is still the old language's name
+    /// (`DataController.cs:1161+`).
+    ///
+    /// The reference also calls ControllerUI::ApplyLanguage here, which
+    /// relabels its own buttons from Language.cpp. There is no equivalent
+    /// to port: this client's labels are English literals in C#, and
+    /// inventing a translation table for them would be writing content,
+    /// not porting it. What the setting does buy is the server's own
+    /// strings - object names, room names, what people say - which is the
+    /// larger half and the half that was missing.
+    /// </summary>
+    void UseLanguage(Meridian59.Common.Enums.LanguageCode code)
+    {
+        if (_client == null) return;
+        try
+        {
+            _client.Config.Language = code;
+
+            Meridian59.Common.StringDictionary strings =
+                _client.ResourceManager?.StringResources;
+            if (strings == null) return;
+            if (strings.Language == code) return;
+
+            strings.Language = code;
+            _client.Data?.ResolveStrings(strings, true);
+        }
+        catch (Exception e) { GD.PrintErr($"[GameView] language: {e.Message}"); }
     }
 
     /// <summary>Builds the client and connects, once we know who we are.</summary>
@@ -727,7 +919,9 @@ public partial class GameView : Node2D
             });
             _ui.AddChild(_mail);
         });
-        Widget("ask", () => { _ask = new ConfirmPopup(); _ui.AddChild(_ask); });
+        // Ask() may already have built this, so the login screen had
+        // something for Settings to complain through.
+        Widget("ask", () => { if (_ask == null) { _ask = new ConfirmPopup(); _ui.AddChild(_ask); } });
         Widget("statwizard", () =>
         {
             // No button opens this either: the server offers a stat
@@ -768,25 +962,11 @@ public partial class GameView : Node2D
             });
             _ui.AddChild(_news);
         });
-        Widget("options", () =>
-        {
-            // Left of the mail button.
-            _options = new OptionsPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 7f };
-            _options.SoundVolume += v => { if (_sound != null) _sound.Volume = v; };
-            _options.MusicVolume += v => { if (_sound != null) _sound.MusicLevel = v; };
-            _options.LoopSounds  += on => { if (_sound != null) _sound.Loops = on; };
-            // A factor on the room's own ambient light, not on the
-            // finished picture - AdjustAmbientLight, not a gamma ramp.
-            _options.Brightness  += v => _bright = v;
-            _options.LookSpeed   += v => _touch.LookSensitivity = 0.006f * v;
-            _options.InvertLook  += on => _touch.InvertLook = on;
-            _options.Preferences += () => Act(() => _client.SendUserCommandSendPreferences());
-            // The aliases are a page of the Options window in the
-            // reference (`UIOptions.cpp:1241`); here they are their own
-            // panel, so Settings closes and it takes its place.
-            _options.EditAliases += () => { _options.Close(); _aliases?.Open(); };
-            _ui.AddChild(_options);
-        });
+        // Adopted rather than built: Ask() has already made this so the
+        // login screen has settings to open. All the wiring lives in
+        // Settings(); the only thing that changes here is that the row of
+        // openers along the bottom is now a thing that exists.
+        Widget("options", () => { Settings(); _options.OpenerAllowed = true; });
         Widget("aliases", () =>
         {
             // No button of its own: Settings is the way in, as it is in
@@ -1631,11 +1811,26 @@ public partial class GameView : Node2D
         _chat?.Follow(_client.Data.ChatMessages);
         // Also after Init, for the same reason: Data is what holds it.
         _players?.Follow(_client.Data.IgnoreList);
-        string strings = M59Client.FindStringDictionary(_resDir);
-        GD.Print($"[M59] string file: {strings}");
+        // The server the player picked on the login screen, not the one
+        // baked into the scene. Still exactly one entry on the client's
+        // own Config - the reference keeps the whole list there and
+        // indexes into it, but that list was cleared by Config.Load a few
+        // lines up and rebuilding it here would leave two sources of truth
+        // for a choice that has already been made.
+        ServerList.Entry where = Chosen;
+        GD.Print($"[M59] server: {where.Name} {where.Address}  string file: {where.Strings}");
         _client.Config.Connections.Add(new ConnectionInfo(
-            "server", Host, (ushort)Port, strings, user, pass, Character, null));
+            where.Name, where.Host, (ushort)where.Port, where.Strings,
+            user, pass, Character, null));
         _client.Config.SelectedConnectionIndex = _client.Config.Connections.Count - 1;
+
+        // The saved language, now that there is both a Config to put it
+        // on and a loaded string dictionary to point at it. After
+        // Config.Load, because Load sets Language from configuration.xml
+        // (`Config.cs:581-594`) and would overwrite anything set earlier;
+        // before Connect, because Connect is what passes it to
+        // SelectStringDictionary (`BaseClient.cs:119-121`).
+        if (_options != null) UseLanguage(_options.ChosenLanguage);
 
         Resize();
         GetViewport().SizeChanged += Resize;
@@ -1762,6 +1957,14 @@ public partial class GameView : Node2D
         // with no bars, no hotbar and no menu, which is a far worse
         // failure than the cosmetic one the gate was added for.
         bool inWorld = _wasInGame || _client.Data?.AvatarObject != null;
+        // The reference's UIMode::Playing, which is what decides whether
+        // the Options window's Game tab shows its switches and password
+        // boxes or the two "you must be logged in" lines instead
+        // (`UIOptions.cpp:971`, :979-987). Set every frame rather than on
+        // an event because the panel reads it when it opens, and there is
+        // no one moment that is "logged in" - see the note above on why
+        // this is an avatar in a room and not a button press.
+        if (_options != null) _options.Playing = inWorld;
         foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _questMarks, _face, _vitals, _chat, _overlays })
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;

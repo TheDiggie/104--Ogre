@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using Meridian59.Common.Enums;
 using Meridian59.Data.Models;
 
 /// <summary>
@@ -32,6 +33,31 @@ using Meridian59.Data.Models;
 /// a Say box but nobody is going to type those into it, so they are
 /// offered here as switches. The safety one is the same bit the status
 /// bar already flips, and both see the same value.
+///
+/// Two more of the reference's Game tab now survive as well, and both
+/// were missing for the same reason - they are not renderer knobs, so
+/// nothing about a phone excuses dropping them.
+///
+/// The password. The layout gives the tab three masked boxes and a
+/// button (`Meridian59.layout:4279-4318`), UIOptions binds them
+/// (`:155-161`) and `OnChangePasswordClicked` (`:2777-2815`) validates
+/// them before calling SendReqChangePassword. The library call was
+/// sitting in `BaseClient.cs:797` with nothing in this client reaching
+/// it, which means a mobile-only player whose password leaked had no way
+/// to rotate it short of finding a desktop.
+///
+/// The language. `Meridian59.layout:4207` plus `UIOptions.cpp:456-458`
+/// offer three, and `OnLanguageChanged` (`:2667-2688`) puts the choice on
+/// Config->Language AND on ResourceManager->StringResources->Language.
+/// That second one is the part worth being clear about: the RSB holds
+/// every language at once and `StringDictionary.Language`
+/// (`StringDictionary.cs:66`) picks which bracket of the id space a
+/// lookup reads from (`:101-117`). So this is not a setting about
+/// button labels - it is what language the SERVER's own strings arrive
+/// in: object names, room names, the things people say to you.
+/// `BaseClient.Connect` already passes `Config.Language` into
+/// `SelectStringDictionary` (`BaseClient.cs:119-121`); this client simply
+/// never set it, so everyone got English whether they read it or not.
 /// </summary>
 public partial class OptionsPanel : Control
 {
@@ -64,6 +90,57 @@ public partial class OptionsPanel : Control
     public event Action<float> LookSpeed;
     public event Action<bool> InvertLook;
 
+    /// <summary>
+    /// Something to say, in the client's own popup. The reference says
+    /// all four of its password refusals through `ConfirmPopup::ShowOK`
+    /// (`UIOptions.cpp:2785`, :2792, :2799, :2806) and this client has
+    /// the same one window for the same job.
+    /// </summary>
+    public event Action<string> Complain;
+
+    /// <summary>
+    /// Old and new password, once all four of the reference's checks
+    /// have passed. The send and the write-back of the new password onto
+    /// the connection entry are the view's, because they are the two
+    /// things `OnChangePasswordClicked` does after validating
+    /// (`UIOptions.cpp:2810-2812`) and both need the client.
+    /// </summary>
+    public event Action<string, string> ChangePassword;
+
+    /// <summary>
+    /// A different language was picked. Applied by the view, where the
+    /// resource manager and the data model are - see
+    /// `UIOptions.cpp:2681-2691` for the three things that has to touch.
+    /// </summary>
+    public event Action<LanguageCode> LanguageChanged;
+
+    /// <summary>
+    /// The password this client believes the account has, so the "old
+    /// password incorrect" check has something to check against.
+    ///
+    /// The reference compares against
+    /// `Config->SelectedConnectionInfo->Password`
+    /// (`UIOptions.cpp:2790`) - it is a local sanity check, not an
+    /// authentication; the server is what actually decides. Kept as a
+    /// reader rather than a copied string so this panel never holds a
+    /// credential of its own.
+    /// </summary>
+    public Func<string> KnownPassword { get; set; }
+
+    /// <summary>
+    /// Whether there is a logged-in account behind this panel.
+    ///
+    /// The reference's `UIMode::Playing`, which is exactly what decides
+    /// whether the Game tab shows its switches and password boxes or the
+    /// two "you must be logged in" lines instead
+    /// (`UIOptions.cpp:971`, :979-987). It matters more here than there,
+    /// because this panel now opens from the login screen as well - see
+    /// LoginPrompt.Options - and a password box on a screen with no
+    /// account behind it is an invitation to type a real password into
+    /// nothing.
+    /// </summary>
+    public bool Playing { get; set; }
+
     Button _open;
     ColorRect _panel;
     Label _title;
@@ -88,6 +165,30 @@ public partial class OptionsPanel : Control
     float _sound = 10f, _music = 4f, _bright = 0f, _look = 1f;
     bool _loops = true, _invert;
 
+    // The language, starting where the library starts it:
+    // Config.DEFAULTVAL_LANGUAGE is LanguageCode.English
+    // (`Config.cs:71`).
+    LanguageCode _language = LanguageCode.English;
+
+    /// <summary>
+    /// The three the reference offers, in its order
+    /// (`UIOptions.cpp:456-458`). Not the whole LanguageCode enum, which
+    /// runs to a couple of hundred values (`LanguageCode.cs:22+`) -
+    /// offering a language the RSB has no strings for would just mean
+    /// every lookup silently falling back to English
+    /// (`StringDictionary.cs:41`, :117).
+    /// </summary>
+    static readonly LanguageCode[] Languages =
+    {
+        LanguageCode.English, LanguageCode.German, LanguageCode.Portuguese,
+    };
+
+    // The three password boxes, held rather than found by name: they are
+    // rebuilt with the rest of the list on every Open, and a name search
+    // through a rebuilt tree is one more thing that can quietly return
+    // nothing.
+    LineEdit _oldPass, _newPass, _confirmPass;
+
     // Where they are kept between sessions. The reference writes all of
     // these into configuration.xml on the way out
     // (`OgreClientConfig.cpp` saves the <engine> block from the same
@@ -103,6 +204,32 @@ public partial class OptionsPanel : Control
 
     public bool IsOpen => _panel != null && _panel.Visible;
 
+    /// <summary>
+    /// Whether this panel's own bottom-right button may show itself.
+    ///
+    /// The panel now exists before the login screen does, so that the
+    /// login screen has something to open (see LoginPrompt.Options). Its
+    /// button, though, belongs to the row that lives over the world: on
+    /// the login screen it would be a second, differently-placed way into
+    /// the same panel, drawn on top of a full-screen prompt. The view
+    /// turns it on when the row turns on. False until then.
+    ///
+    /// Not folded into Panels.ShowOpeners because that runs from the
+    /// frame loop, and the frame loop does nothing at all until there is
+    /// a client (`GameView.Pump` returns on a null client) - which is
+    /// precisely the stretch this has to cover.
+    /// </summary>
+    public bool OpenerAllowed
+    {
+        get => _openerAllowed;
+        set
+        {
+            _openerAllowed = value;
+            if (_open != null) _open.Visible = value && !IsOpen;
+        }
+    }
+    bool _openerAllowed;
+
     [Export] public float ButtonRight = 12f;
     [Export] public float ButtonBottom = 12f;
 
@@ -116,6 +243,10 @@ public partial class OptionsPanel : Control
         _open = new Button { Text = "Settings", Name = "settingsButton" };
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
+        // Hidden until the view says the row of openers is in play -
+        // see OpenerAllowed. It used to be born visible, which was
+        // harmless while nothing built this panel before the world.
+        _open.Visible = _openerAllowed;
         AddChild(_open);
         Panels.Opener(_open);
 
@@ -158,6 +289,13 @@ public partial class OptionsPanel : Control
             _look   = (float)file.GetValue(StoreSection, "look", _look);
             _loops  = (bool)file.GetValue(StoreSection, "loops", _loops);
             _invert = (bool)file.GetValue(StoreSection, "invert", _invert);
+            // Stored by name rather than by number, the way
+            // configuration.xml stores it (`Config.cs:589` parses the
+            // <language value="English" /> attribute with Enum.TryParse).
+            // The numbers are an on-the-wire detail of the RSB format and
+            // not something to pin a saved file to.
+            string lang = (string)file.GetValue(StoreSection, "language", _language.ToString());
+            if (Enum.TryParse<LanguageCode>(lang, out LanguageCode parsed)) _language = parsed;
         }
         catch (Exception e) { GD.PrintErr($"[OptionsPanel] load: {e.Message}"); }
     }
@@ -178,6 +316,7 @@ public partial class OptionsPanel : Control
             file.SetValue(StoreSection, "look", _look);
             file.SetValue(StoreSection, "loops", _loops);
             file.SetValue(StoreSection, "invert", _invert);
+            file.SetValue(StoreSection, "language", _language.ToString());
             file.Save(StorePath);
         }
         catch (Exception e) { GD.PrintErr($"[OptionsPanel] save: {e.Message}"); }
@@ -202,7 +341,19 @@ public partial class OptionsPanel : Control
         Brightness?.Invoke(_bright);
         LookSpeed?.Invoke(_look);
         InvertLook?.Invoke(_invert);
+        // The language is deliberately NOT pushed from here. Apply runs
+        // while the view is still building the client, and Config.Load
+        // comes after it - and Load sets Language from configuration.xml
+        // (`Config.cs:581-594`), so anything set before it is overwritten.
+        // The view reads ChosenLanguage once the client is initialised
+        // instead; see GameView.
     }
+
+    /// <summary>
+    /// The saved language, for the view to apply at a moment of its own
+    /// choosing. See Apply for why it is not pushed with the rest.
+    /// </summary>
+    public LanguageCode ChosenLanguage => _language;
 
     public void Open() { Build(); Show(true); }
     public void Close() => Show(false);
@@ -212,7 +363,7 @@ public partial class OptionsPanel : Control
         // Above whatever else is open - see Panels.ToFront.
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
-        _close.Visible = on; _open.Visible = !on;
+        _close.Visible = on; _open.Visible = !on && _openerAllowed;
         if (on) GetParent()?.MoveChild(this, -1);
         Layout();
     }
@@ -258,6 +409,12 @@ public partial class OptionsPanel : Control
     {
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
         _values.Clear(); _readers.Clear(); _switches.Clear();
+        // Cleared with the rest, which it was not: Preference() appends
+        // to this on every Build, so a second Open left FollowPreferences
+        // walking rows whose CheckBox had been queued for freeing. It
+        // only ever threw on the reopen, which is why nothing noticed.
+        _prefRows.Clear();
+        _oldPass = _newPass = _confirmPass = null;
         _signature = "";
 
         _rows.AddChild(Section("Sound"));
@@ -279,7 +436,27 @@ public partial class OptionsPanel : Control
         _rows.AddChild(Switch("Invert look", () => _invert, on =>
             { _invert = on; InvertLook?.Invoke(on); Keep(); }));
 
+        // The reference's own Language heading and its one control
+        // (`Meridian59.layout:4194-4211`). A stepper rather than a
+        // combobox because there are three of them and this file already
+        // steps through everything else; the reference's own control is a
+        // read-only combobox, which with three items is the same
+        // question asked with more taps.
+        _rows.AddChild(Section("Language"));
+        _rows.AddChild(Choice("Selected Language", () => _language.ToString(),
+            () => StepLanguage(-1), () => StepLanguage(1)));
+
         _rows.AddChild(Section("Character"));
+        if (!Playing)
+        {
+            // `SettingsDisabledDescription`, verbatim
+            // (`Meridian59.layout:4224`), shown on exactly the condition
+            // the reference shows it on: mode != Playing
+            // (`UIOptions.cpp:971`).
+            _rows.AddChild(Note("You must be logged in to modify settings."));
+        }
+        else
+        {
         _rows.AddChild(Preference("Safety off", () => _prefs != null && _prefs.IsSafetyOff,
                                   on => { if (_prefs != null) _prefs.IsSafetyOff = on; }));
         _rows.AddChild(Preference("Temporary safety on death", () => _prefs != null && _prefs.TempSafe,
@@ -294,9 +471,176 @@ public partial class OptionsPanel : Control
                                   on => { if (_prefs != null) _prefs.ReagentBag = on; }));
         _rows.AddChild(Preference("Show spell power", () => _prefs != null && _prefs.SpellPower,
                                   on => { if (_prefs != null) _prefs.SpellPower = on; }));
+        }
 
         _rows.AddChild(Section("Chat"));
-        _rows.AddChild(Opens("Aliases", "Edit", () => EditAliases?.Invoke()));
+        // The reference's alias tab is not mode-gated, because its editor
+        // works straight off Config and Config exists before login. This
+        // client's AliasEditor is handed the client's Config by the view
+        // (`GameView`, Widget("aliases")), and there is no client until
+        // login - so from the login screen this row would be a button that
+        // does nothing, which is worse than a row that says why.
+        if (Playing) _rows.AddChild(Opens("Aliases", "Edit", () => EditAliases?.Invoke()));
+        else _rows.AddChild(Note("You must be logged in to edit your aliases."));
+
+        Account();
+    }
+
+    /// <summary>
+    /// English, German, Portuguese and round again.
+    ///
+    /// Nothing is pushed out if the choice did not change, which is the
+    /// reference's own first guard (`UIOptions.cpp:2681-2683`) - the
+    /// re-resolve it triggers walks every object in the room and every
+    /// list in the data model (`DataController.cs:1161+`), and doing that
+    /// because somebody tapped plus and then minus is waste.
+    /// </summary>
+    void StepLanguage(int by)
+    {
+        int at = Array.IndexOf(Languages, _language);
+        if (at < 0) at = 0;
+        LanguageCode next = Languages[Mathf.PosMod(at + by, Languages.Length)];
+        if (next == _language) return;
+
+        _language = next;
+        Keep();
+        LanguageChanged?.Invoke(_language);
+    }
+
+    /// <summary>
+    /// Changing the account password: the Game tab's bottom half
+    /// (`Meridian59.layout:4279-4318`).
+    ///
+    /// Three masked boxes and a button, and - when there is no account
+    /// behind the panel - the reference's own line instead of them
+    /// (`Meridian59.layout:4276`, shown on mode != Playing at
+    /// `UIOptions.cpp:979`).
+    /// </summary>
+    void Account()
+    {
+        _rows.AddChild(Section("Account"));
+
+        if (!Playing)
+        {
+            _rows.AddChild(Note("You must be logged in to change your password."));
+            return;
+        }
+
+        _oldPass = Secret("Current Password", "oldPassword");
+        _newPass = Secret("New Password", "newPassword");
+        _confirmPass = Secret("Confirm Password", "confirmPassword");
+
+        var go = new Button
+        {
+            Text = "Change Password",
+            CustomMinimumSize = new Vector2(0, RowHeight),
+            Name = "changePassword",
+        };
+        go.AddThemeFontSizeOverride("font_size", FontSize);
+        go.Pressed += Rotate;
+        _rows.AddChild(go);
+    }
+
+    /// <summary>
+    /// A labelled masked box. `MaskText True` on all three of the
+    /// reference's editboxes (`Meridian59.layout:4288`, :4300, :4312) -
+    /// which matters most for the current one, since a shoulder over a
+    /// phone is closer than a shoulder over a monitor.
+    /// </summary>
+    LineEdit Secret(string caption, string node)
+    {
+        var label = new Label { Text = caption, CustomMinimumSize = new Vector2(0, FontSize * 1.8f) };
+        label.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        label.AddThemeColorOverride("font_color", new Color(0.72f, 0.74f, 0.8f));
+        _rows.AddChild(label);
+
+        var box = new LineEdit
+        {
+            Secret = true,
+            CustomMinimumSize = new Vector2(0, RowHeight),
+            Name = node,
+        };
+        box.AddThemeFontSizeOverride("font_size", FontSize);
+        _rows.AddChild(box);
+        return box;
+    }
+
+    /// <summary>
+    /// The four checks, in the reference's order and with its own
+    /// wording (`UIOptions.cpp:2782-2808`). The order is not
+    /// interchangeable: filled-in first, because an empty box has no
+    /// business being compared; then the old one, because telling
+    /// somebody their two new passwords disagree when they have
+    /// mistyped the old one sends them off fixing the wrong box.
+    ///
+    /// None of this is security - the server decides, and it will refuse
+    /// a wrong old password itself. It is there so the four common
+    /// mistakes are named on the spot instead of coming back as a
+    /// refusal with no reason attached.
+    /// </summary>
+    void Rotate()
+    {
+        if (_oldPass == null || _newPass == null || _confirmPass == null) return;
+
+        string old = _oldPass.Text ?? "";
+        string now = _newPass.Text ?? "";
+        string again = _confirmPass.Text ?? "";
+
+        if (old.Length == 0 || now.Length == 0 || again.Length == 0)
+        {
+            Complain?.Invoke("Please fill out all password fields.");
+            return;
+        }
+
+        // Skipped when nothing knows the current password - the
+        // environment-variable route into this client never passes
+        // through the login box, so there is a logged-in account whose
+        // password this panel was never told. The reference always has it
+        // because its login window is the only way in.
+        string known = null;
+        try { known = KnownPassword?.Invoke(); } catch { }
+        if (!string.IsNullOrEmpty(known) && old != known)
+        {
+            Complain?.Invoke("Old password incorrect.");
+            return;
+        }
+
+        if (now != again)
+        {
+            Complain?.Invoke("New passwords do not match.");
+            return;
+        }
+
+        if (old == now)
+        {
+            Complain?.Invoke("New password is same as old password.");
+            return;
+        }
+
+        ChangePassword?.Invoke(old, now);
+
+        // Cleared once it has gone. The reference leaves the boxes full,
+        // which on a desktop is a window you close; here the panel is the
+        // screen, and three filled password boxes left sitting on it are
+        // three password boxes somebody can hand the phone over with.
+        _oldPass.Text = ""; _newPass.Text = ""; _confirmPass.Text = "";
+    }
+
+    /// <summary>
+    /// A line of the reference's own explanatory text. Wrapped, because
+    /// these are sentences and the panel is as wide as a phone.
+    /// </summary>
+    Control Note(string text)
+    {
+        var l = new Label
+        {
+            Text = text,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            CustomMinimumSize = new Vector2(0, FontSize * 2f),
+        };
+        l.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        l.AddThemeColorOverride("font_color", new Color(0.7f, 0.72f, 0.78f));
+        return l;
     }
 
     /// <summary>
@@ -408,6 +752,53 @@ public partial class OptionsPanel : Control
         var more = new Button { Text = "+", CustomMinimumSize = new Vector2(52, 0), Name = $"more{Slug(name)}" };
         more.AddThemeFontSizeOverride("font_size", FontSize + 2);
         more.Pressed += () => { set(Mathf.Min(max, get() + 1f)); Redraw(); };
+        line.AddChild(more);
+
+        return line;
+    }
+
+    /// <summary>
+    /// A setting whose value is a word rather than a number, stepped the
+    /// same way the numbers are so the column still reads as one column.
+    /// Laid out exactly as Slider lays itself out - the value is just
+    /// wider, because "Portuguese" is.
+    /// </summary>
+    Control Choice(string name, Func<string> read, Action down, Action up)
+    {
+        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
+        line.AddThemeConstantOverride("separation", 8);
+
+        var label = new Label
+        {
+            Text = name,
+            VerticalAlignment = VerticalAlignment.Center,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+        };
+        label.AddThemeFontSizeOverride("font_size", FontSize);
+        label.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
+        line.AddChild(label);
+
+        var value = new Label
+        {
+            Text = read(),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            CustomMinimumSize = new Vector2(130, 0),
+        };
+        value.AddThemeFontSizeOverride("font_size", FontSize);
+        value.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        line.AddChild(value);
+        _values[name] = value;
+        _readers[name] = read;
+
+        var less = new Button { Text = "-", CustomMinimumSize = new Vector2(52, 0), Name = $"less{Slug(name)}" };
+        less.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        less.Pressed += () => { down(); Redraw(); };
+        line.AddChild(less);
+
+        var more = new Button { Text = "+", CustomMinimumSize = new Vector2(52, 0), Name = $"more{Slug(name)}" };
+        more.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        more.Pressed += () => { up(); Redraw(); };
         line.AddChild(more);
 
         return line;
