@@ -150,8 +150,13 @@ public static class M59Hud
 
         Vector2 pos = natural.Position + p.Offset;
         Vector2 size = natural.Size;
-        float keepX = Mathf.Max(24f, size.X * 0.25f);
-        float keepY = Mathf.Max(24f, size.Y * 0.25f);
+        // A thumb's worth, not a pixel's. 24 left a 24x32 sliver of the
+        // portrait on screen - grabbable with a mouse in the editor,
+        // not with a finger on a phone, which is the only place this
+        // runs. A piece smaller than a thumb is kept whole instead of
+        // being allowed to hang further off than it is big.
+        float keepX = Mathf.Min(size.X, Mathf.Max(44f, size.X * 0.25f));
+        float keepY = Mathf.Min(size.Y, Mathf.Max(44f, size.Y * 0.25f));
         pos.X = Mathf.Clamp(pos.X, -(size.X - keepX), v.X - keepX);
         pos.Y = Mathf.Clamp(pos.Y, -(size.Y - keepY), v.Y - keepY);
 

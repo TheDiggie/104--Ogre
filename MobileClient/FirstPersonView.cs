@@ -367,14 +367,12 @@ public partial class FirstPersonView : Node2D
         if (_px == null) return;
         int closed = _renderer.Render(_px, _w, _h, _camX, _camY, _camZ, _angle);
 
-        for (int i = 0; i < _px.Length; i++)
-        {
-            uint c = _px[i];
-            _rgba[i * 4]     = (byte)(c >> 16);
-            _rgba[i * 4 + 1] = (byte)(c >> 8);
-            _rgba[i * 4 + 2] = (byte)c;
-            _rgba[i * 4 + 3] = 255;
-        }
+        // The same repack the game view uses. This is the tool's own
+        // window rather than the client's, so it is not where the frame
+        // budget is spent - but a second copy of the loop is a second
+        // place to change when the pixel format moves, and this one
+        // would have been missed.
+        Repack.ToRgba(_px, _rgba, _px.Length, false);
         _image.SetData(_w, _h, false, Image.Format.Rgba8, _rgba);
         _texture.Update(_image);
 
