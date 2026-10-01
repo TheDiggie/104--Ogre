@@ -101,8 +101,28 @@ public partial class LeftWorld : Control
         // panel in this client gives: these live under a CanvasLayer
         // whose Control parent has no rect of its own, and an anchored
         // child of one of those comes out zero by zero and never draws.
-        _backdrop.Position = Vector2.Zero;
-        _backdrop.Size = v;
+        //
+        // And in the SCREEN's coordinates rather than the layer's. The
+        // interface layer is scaled and shifted to keep controls off the
+        // curve of the glass (SafeArea.Apply), so a rectangle the size of
+        // the viewport laid out in the layer's own coordinates comes out
+        // inset by that much - about forty-eight pixels short down the
+        // right at 1920x1080, with thinner strips top and bottom. Through
+        // those strips you see the last frame of the room you have just
+        // been thrown out of, lit and undimmed, which is precisely the
+        // "photograph of a room that no longer exists" this backdrop
+        // exists to cover. So the layer's transform is undone, the same
+        // way ScreenEffects.Sync and PlayerOverlays.Sync undo it and for
+        // the same stated reason: the effect belongs to the whole screen.
+        //
+        // The title, the detail line and the button are left alone: those
+        // are interface, and they belong inside the safe rectangle.
+        Vector2 scale = Vector2.One, offset = Vector2.Zero;
+        if (GetParent() is CanvasLayer layer) { scale = layer.Scale; offset = layer.Offset; }
+        if (scale.X <= 0f) scale.X = 1f;
+        if (scale.Y <= 0f) scale.Y = 1f;
+        _backdrop.Position = new Vector2(-offset.X / scale.X, -offset.Y / scale.Y);
+        _backdrop.Size = new Vector2(v.X / scale.X, v.Y / scale.Y);
 
         float mid = v.Y * 0.4f;
         _title.Position = new Vector2(side, mid);

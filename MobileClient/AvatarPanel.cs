@@ -27,7 +27,19 @@ using Meridian59.Data.Models;
 /// </summary>
 public partial class AvatarPanel : Control
 {
-    [Export] public int Size = 72;
+    /// <summary>
+    /// How big the portrait is drawn, in pixels, square.
+    ///
+    /// Named HeadSize rather than Size because Control already has a
+    /// Size, of type Vector2, and an int called Size on a Control hides
+    /// it (CS0108). It worked only by luck of reference type: every use
+    /// inside this class meant the int, and every use outside went
+    /// through a variable typed Control, which meant the Vector2. A
+    /// Vector2 assigned through an AvatarPanel-typed variable would have
+    /// silently set this number instead of the control's rectangle, and
+    /// nothing would have said so.
+    /// </summary>
+    [Export] public int HeadSize = 72;
     [Export] public float Margin = 12f;
     /// <summary>Leaves room for whatever owns the top-left corner.</summary>
     [Export] public float TopReserve = 0f;
@@ -86,7 +98,7 @@ public partial class AvatarPanel : Control
     {
         if (_head == null) return;
         _head.Position = new Vector2(Margin, Margin + TopReserve);
-        _head.Size = new Vector2(Size, Size);
+        _head.Size = new Vector2(HeadSize, HeadSize);
     }
 
     /// <summary>
@@ -106,7 +118,7 @@ public partial class AvatarPanel : Control
 
         try
         {
-            Tex t = M59Compose.Icon(me, Size, (byte)KnownHotspot.HEAD);
+            Tex t = M59Compose.Icon(me, HeadSize, (byte)KnownHotspot.HEAD);
             _head.Icon = M59Assets.FromTex(t);
             _head.Visible = _head.Icon != null;
         }
@@ -144,7 +156,7 @@ public partial class AvatarPanel : Control
             Button icon = TakeBuff(used);
             icon.Icon = BuffIcon(b);
             icon.TooltipText = b.Name;
-            icon.Position = new Vector2(Margin + used * (BuffSize + 8f), Margin + TopReserve + Size + 6f);
+            icon.Position = new Vector2(Margin + used * (BuffSize + 8f), Margin + TopReserve + HeadSize + 6f);
             icon.Size = new Vector2(BuffSize + 6f, BuffSize + 6f);
             icon.Visible = icon.Icon != null;
 

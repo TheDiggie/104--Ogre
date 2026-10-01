@@ -107,6 +107,23 @@ public partial class ConfirmPopup : Control
     void Layout()
     {
         if (_panel == null) return;
+        // Nothing to lay out against once this has left the tree, and
+        // asking anyway is an error rather than a zero: GetViewportRect
+        // is guarded by `!is_inside_tree()` inside the engine and prints
+        // every time it is called from outside it.
+        //
+        // That is not a hypothetical. Teardown walks straight through
+        // here: GameView._ExitTree disconnects, BaseClient.Disconnect
+        // resets the DataController, the reset raises Invalidate, and
+        // Invalidate is wired to DataInvalidated, which calls Show(false),
+        // which calls this - by which point the popup is on its way out
+        // of the tree and there is no viewport to measure. Every single
+        // run ended with that error in the log.
+        //
+        // A hidden popup does not need a layout in any case, so leaving
+        // without one costs nothing: Show(true) lays it out again on the
+        // way in, and so does the viewport's SizeChanged.
+        if (!IsInsideTree()) return;
         Vector2 v = GetViewportRect().Size;
 
         _shade.Position = Vector2.Zero;

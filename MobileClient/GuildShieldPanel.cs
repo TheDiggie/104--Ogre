@@ -108,6 +108,25 @@ public partial class GuildShieldPanel : Control
     /// <summary>Take this shield: ClaimShield with ReallyClaim true (:943).</summary>
     public event Action Claim;
 
+    /// <summary>
+    /// The guild window this designer is a tab of.
+    ///
+    /// In the game it really is a tab - `UIGuild.cpp:15` lists
+    /// `Guild.TabShield` alongside the members, diplomacy and guildmaster
+    /// tabs of one window - so the roster and the designer are never both
+    /// on screen. Split into two panels, that stopped being true by
+    /// itself: this one opened over a roster that was still drawn, and
+    /// with a backdrop at 0.97 the two read through each other, titles
+    /// and Close buttons and all.
+    ///
+    /// So the two are joined back up here, by the view that builds them:
+    /// opening this puts the roster aside and closing it brings the
+    /// roster back. Optional - a null roster simply means nothing to step
+    /// aside - because the panel is also driven on its own by the
+    /// screenshot harness.
+    /// </summary>
+    public GuildPanel Roster;
+
     ColorRect _panel;
     Label _title, _claimedByDesc, _claimedBy, _colour1Desc, _colour2Desc, _designDesc, _note;
     TextureRect _image;
@@ -149,6 +168,12 @@ public partial class GuildShieldPanel : Control
         // the image window empty, and an empty square on a phone reads as
         // a broken panel rather than as "waiting".
         _note = Heading("", FontSize - 2, new Color(0.7f, 0.72f, 0.78f));
+        // The note stands in for the picture, so it is centred in the
+        // picture's place and wraps rather than running on: see Layout,
+        // where it is given the box's rectangle and not the panel's.
+        _note.HorizontalAlignment = HorizontalAlignment.Center;
+        _note.VerticalAlignment = VerticalAlignment.Center;
+        _note.AutowrapMode = TextServer.AutowrapMode.WordSmart;
 
         _colour1Desc = Heading("Color 1", FontSize, new Color(0.86f, 0.88f, 0.92f));
         _colour2Desc = Heading("Color 2", FontSize, new Color(0.86f, 0.88f, 0.92f));
@@ -212,6 +237,9 @@ public partial class GuildShieldPanel : Control
     public void Open()
     {
         if (_panel == null) return;
+        // The roster goes first, so there is never a frame with both of
+        // them on screen - a tab is one thing or the other.
+        Roster?.Suspend();
         _signature = "";
         _image.Texture = null;
         _note.Text = "Waiting for the shield designs.";
@@ -223,6 +251,12 @@ public partial class GuildShieldPanel : Control
     {
         _signature = "";
         Show(false);
+        // And the roster comes back, which is the other half of being a
+        // tab: the way out of the designer is back to the window it
+        // belongs to, not out of the guild altogether. Resume decides for
+        // itself whether there is still a window to show - if the guild
+        // itself went away underneath, it does nothing.
+        Roster?.Resume();
     }
 
     void Show(bool on)
@@ -265,8 +299,18 @@ public partial class GuildShieldPanel : Control
         float imgX = side + (w - box) * 0.5f;
         _image.Position = new Vector2(imgX, y);
         _image.Size = new Vector2(box, box);
-        _note.Position = new Vector2(side, y + box * 0.5f - FontSize);
-        _note.Size = new Vector2(w, FontSize * 2f);
+        // The note goes exactly where the picture would be, not across
+        // the whole panel. It used to start at `side` and run the full
+        // width, which is the same x the left turn button is given and an
+        // overlapping band of y - and the label is added to the tree
+        // after the button, so it drew on top and swallowed every tap
+        // meant for "<". That made the one control the player needs when
+        // there is no art unusable in precisely the case the note is
+        // shown. Centred in the image box it clears both buttons by
+        // construction: on a narrow screen the box is sized to leave a
+        // turn button's width plus twelve on each side.
+        _note.Position = new Vector2(imgX, y);
+        _note.Size = new Vector2(box, box);
 
         _turnLeft.Position = new Vector2(side, y + box * 0.5f - rowH * 0.5f);
         _turnLeft.Size = new Vector2(rowH, rowH);

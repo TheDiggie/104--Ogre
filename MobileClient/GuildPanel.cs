@@ -121,6 +121,12 @@ public partial class GuildPanel : Control
     string _signature = "";
     uint _avatar;
 
+    /// <summary>
+    /// Out of the way while the shield designer has the screen. See
+    /// <see cref="Suspend"/>.
+    /// </summary>
+    bool _suspended;
+
     public bool IsOpen => _panel != null && _panel.Visible;
 
     [Export] public float ButtonRight = 12f;
@@ -256,8 +262,62 @@ public partial class GuildPanel : Control
         }
     }
 
+    /// <summary>
+    /// Steps aside for the shield designer, without closing the window.
+    ///
+    /// In the game the designer is not a separate window at all: it is
+    /// the fourth TAB of this one (`UIGuild.cpp:15` names it
+    /// `Guild.TabShield`), so exactly one of the roster and the designer
+    /// can ever be on screen. Here they are two panels, and nothing said
+    /// so - the designer simply opened on top, its own backdrop only 0.97
+    /// opaque, and the result was two windows in one place: two titles
+    /// printed over each other, the roster's rows and its Exile buttons
+    /// reading through the designer, and two different Close buttons
+    /// stacked at the foot. Which one a tap reached was down to tree
+    /// order.
+    ///
+    /// Not <see cref="Close"/>, which is the real thing and throws both
+    /// models away (`UIGuild.cpp:948-956`) - coming back from the
+    /// designer would then show an empty window and have to re-ask the
+    /// server for a roster it already had. The data stays exactly as it
+    /// is; only the controls go. That is the same trip Settings and the
+    /// alias editor already make, where one closes and the other opens
+    /// and closing it puts the first one back.
+    ///
+    /// The flag is needed because <see cref="Sync"/> runs every frame and
+    /// re-opens the window whenever the server still says IsVisible; a
+    /// bare Show(false) would be undone before the next frame drew.
+    /// </summary>
+    public void Suspend()
+    {
+        if (_panel == null || _suspended) return;
+        _suspended = true;
+        Show(false);
+        // Show(false) is a panel closing, so it puts its own opener back
+        // along the bottom edge. Nothing has closed here, and a "Guild"
+        // button under the designer would be an invitation to open a
+        // third thing on top of the second.
+        if (_open != null) _open.Visible = false;
+    }
+
+    /// <summary>
+    /// The designer has gone: take the screen back, if there is still a
+    /// guild window to take it back for. If the server withdrew the
+    /// window while the designer was up, Sync has already cleared the
+    /// flag and this does nothing.
+    /// </summary>
+    public void Resume()
+    {
+        if (!_suspended) return;
+        _suspended = false;
+        if (_info == null || !_info.IsVisible) return;
+        _signature = "";            // rebuild: the roster may have moved on
+        Show(true);
+    }
+
     public void Close()
     {
+        _suspended = false;
         if (_info != null) _info.IsVisible = false;
         // The reference throws both models away when the window goes
         // (`UIGuild.cpp:948-956`), so the next opening asks the server
@@ -306,12 +366,21 @@ public partial class GuildPanel : Control
 
         if (info == null || !info.IsVisible)
         {
+            // Whatever the designer was standing in front of is gone, so
+            // there is nothing left to come back to: drop the flag here
+            // rather than leaving Resume to re-open a dead window.
+            _suspended = false;
             if (IsOpen) { _info = info; Show(false); _signature = ""; }
             return;
         }
 
         _info = info;
         _avatar = avatarID;
+        // The shield designer has the screen. The model is kept up to
+        // date above - it is the same GuildInfo the designer reads its
+        // guildmaster flags off - but nothing of this window is drawn or
+        // rebuilt until Resume says so.
+        if (_suspended) return;
         if (!IsOpen) Show(true);
 
         var sb = new System.Text.StringBuilder();
