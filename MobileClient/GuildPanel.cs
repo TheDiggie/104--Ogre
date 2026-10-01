@@ -12,9 +12,12 @@ using Meridian59.Data.Models;
 /// guildmaster and the shield designer - on one window. Three of them
 /// are here: members and guildmaster, which say something about your
 /// own guild, and diplomacy, which is every other guild and where you
-/// stand with it. The shield designer is a pixel editor with a scroll
-/// wheel on it and is still left out, which is said here rather than
-/// left to be discovered.
+/// stand with it. The fourth, the shield designer, is its own panel -
+/// GuildShieldPanel - because it wants a picture and three steppers and
+/// this window is already full; the Shield button below opens it. Like
+/// the reference's tab, that button is there only for a guildmaster:
+/// `UIGuild.cpp:176-212` removes both the guildmaster tab and the shield
+/// tab whenever IsRenounce is set, and puts them back on IsDisband.
 ///
 /// Diplomacy is one list with two columns of standing: theirs toward
 /// you, read out of DeclaredYouAllyList and DeclaredYouEnemyList, and
@@ -82,6 +85,13 @@ public partial class GuildPanel : Control
     /// </summary>
     public event Action<uint, int, int> Diplomacy;
 
+    /// <summary>
+    /// Open the shield designer. The reference has no equivalent because
+    /// its designer is a tab of this same window; here it is a separate
+    /// panel, so something has to ask for it.
+    /// </summary>
+    public event Action ShieldDesigner;
+
     /// <summary>Something changed with no echo: reload.</summary>
     public event Action Reload;
     /// <summary>
@@ -100,7 +110,7 @@ public partial class GuildPanel : Control
     ScrollContainer _scroll;
     VBoxContainer _rows;
     LineEdit _chest;
-    Button _setPassword, _abandon, _renounce, _close, _tab;
+    Button _setPassword, _abandon, _renounce, _close, _tab, _shield;
 
     DiplomacyInfo _diplo;
 
@@ -152,6 +162,7 @@ public partial class GuildPanel : Control
             _showingDiplomacy = !_showingDiplomacy;
             _signature = "";        // force the rebuild
         });
+        _shield = Push("Shield", () => ShieldDesigner?.Invoke());
         _close = Push("Close", Close);
 
         GetViewport().SizeChanged += Layout;
@@ -221,11 +232,28 @@ public partial class GuildPanel : Control
         _renounce.Position = new Vector2(side + w * 0.5f + 4f, by);
         _renounce.Size = new Vector2(w * 0.5f - 4f, rowH);
 
+        // The last row is three buttons wide now rather than two: the
+        // list switch, the way into the shield designer, and Close. The
+        // shield button is not always there, so its share of the row goes
+        // to Close when it is not - a gap in the middle of the footer
+        // would read as a button that had failed to draw.
         by += rowH + 8f;
+        bool shield = _shield != null && _shield.Visible;
+        float tabW = w * (shield ? 0.32f : 0.4f);
         _tab.Position = new Vector2(side, by);
-        _tab.Size = new Vector2(w * 0.4f - 4f, rowH);
-        _close.Position = new Vector2(side + w * 0.4f + 4f, by);
-        _close.Size = new Vector2(w * 0.6f - 4f, rowH);
+        _tab.Size = new Vector2(tabW - 4f, rowH);
+        if (shield)
+        {
+            _shield.Position = new Vector2(side + tabW + 4f, by);
+            _shield.Size = new Vector2(w * 0.28f - 8f, rowH);
+            _close.Position = new Vector2(side + tabW + w * 0.28f + 4f, by);
+            _close.Size = new Vector2(w * 0.4f - 4f, rowH);
+        }
+        else
+        {
+            _close.Position = new Vector2(side + tabW + 4f, by);
+            _close.Size = new Vector2(w - tabW - 4f, rowH);
+        }
     }
 
     public void Close()
@@ -260,6 +288,12 @@ public partial class GuildPanel : Control
         bool hall = on && master && _info.PasswordSetFlag != 0;
         _chest.Visible = hall; _setPassword.Visible = hall; _abandon.Visible = hall;
         _renounce.Visible = on;
+
+        // The shield tab is a guildmaster's, and unlike the password and
+        // the hall buttons it does not also depend on owning a hall -
+        // `UIGuild.cpp:196-209` adds and removes the shield tab purely on
+        // the renounce/disband flag.
+        _shield.Visible = on && master;
 
         if (on) GetParent()?.MoveChild(this, -1);
         Layout();
