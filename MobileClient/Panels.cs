@@ -30,27 +30,40 @@ public static class Panels
     /// them here lets the view hide the row as a row.
     /// </summary>
     /// <summary>
-    /// The side margin a panel should lay itself out inside.
+    /// The margin a panel lays itself out inside.
     ///
-    /// Portrait returns what every panel used to compute for itself -
-    /// a share of the width, never under sixteen. Landscape adds
-    /// enough margin to keep the content in a centred band: a phone
-    /// held sideways is two thousand pixels across, and a row with a
-    /// name at one end and a number at the other, stretched over that,
-    /// is a row nobody can read in one glance. The frame stays wider
-    /// than the band, which reads as padding rather than as a gap.
+    /// This is the plain thing it always was - a share of the width,
+    /// never under sixteen - and it is used on BOTH axes by most
+    /// panels, which is the whole story of a bad hour: a landscape
+    /// version of this added enough margin to centre the content in a
+    /// band, and every panel that used `side` for its top edge too
+    /// pushed its content four hundred pixels down the screen. On a
+    /// sideways phone that is nearly half the height, and the
+    /// inventory showed one row of a hundred items.
     ///
-    /// The band is the taller of 900 and 1.45 screen-heights, so it
-    /// grows with the screen instead of being a number that looks
-    /// right on one device.
+    /// Width is banded where it is worth banding, by the panel, with
+    /// <see cref="Band"/> - which is horizontal and says so.
     /// </summary>
     public static float Side(Vector2 v, float fraction, float least = 16f)
+        => Mathf.Max(least, v.X * fraction);
+
+    /// <summary>
+    /// Content width for a panel that would otherwise stretch a row
+    /// across a sideways screen - a name at one end and a number at
+    /// the other, two thousand pixels apart, is a row nobody reads in
+    /// one glance. Portrait gets the full width, as before.
+    ///
+    /// Horizontal only. Nothing here belongs anywhere near a Y.
+    /// </summary>
+    public static float Band(Vector2 v, float side)
     {
-        float side = Mathf.Max(least, v.X * fraction);
         float usable = v.X - side * 2f;
-        float band = Mathf.Min(usable, Mathf.Max(900f, v.Y * 1.45f));
-        return side + Mathf.Max(0f, (usable - band) * 0.5f);
+        return Mathf.Min(usable, Mathf.Max(900f, v.Y * 1.45f));
     }
+
+    /// <summary>The left edge of that band, centred on the screen.</summary>
+    public static float BandLeft(Vector2 v, float side)
+        => side + Mathf.Max(0f, (v.X - side * 2f - Band(v, side)) * 0.5f);
 
     static readonly System.Collections.Generic.List<Button> Openers =
         new System.Collections.Generic.List<Button>();

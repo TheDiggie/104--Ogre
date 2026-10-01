@@ -956,6 +956,19 @@ static class FakeServer
 
         var all = new List<InventoryObject>(bag);
         all.AddRange(takenSoFar);
+
+        // M59_BIGBAG=1 fills the pack to a hundred, which is what
+        // Ashton's character carries on the live server. Three items
+        // is not a test of an inventory window: the bug that showed up
+        // there - five slots visible out of a hundred - could not
+        // happen with three.
+        if (Environment.GetEnvironmentVariable("M59_BIGBAG") == "1")
+            for (uint i = 0; all.Count < 100; i++)
+                all.Add(Carry(8200 + i,
+                    (i % 3) switch { 0u => RID_AXEBGF, 1u => RID_BOOKBGF, _ => RID_COINBGF },
+                    (i % 3) switch { 0u => RID_AXE, 1u => RID_BOOK, _ => RID_COIN },
+                    (i % 3) == 2 ? i + 1 : 0, false));
+
         Send(ns, ctrl, new InventoryMessage(all.ToArray()));
     }
 

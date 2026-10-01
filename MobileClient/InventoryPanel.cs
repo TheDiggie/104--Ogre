@@ -25,8 +25,24 @@ using Meridian59.Data.Models;
 public partial class InventoryPanel : Control
 {
     [Export] public int FontSize = 16;
-    /// <summary>Five, as the game has. UI_INVENTORY_COLS.</summary>
+    /// <summary>
+    /// Five is the game's number (UI_INVENTORY_COLS), for a window 284
+    /// pixels wide. A phone held sideways is two thousand pixels wide
+    /// and a hundred-item bag showing five of them at a time is not an
+    /// inventory, it is a peephole - Ashton's word for it was
+    /// "unuseable". So five is the FLOOR and the width decides the
+    /// rest, at a slot size a finger can hit.
+    /// </summary>
     [Export] public int Columns = 5;
+
+    /// <summary>How many columns actually fit, never fewer than Columns.</summary>
+    int Across()
+    {
+        if (_scroll == null || _scroll.Size.X < 1f) return Columns;
+        const float sep = 8f;
+        int fit = (int)((_scroll.Size.X + sep) / (SlotSize + sep));
+        return Math.Max(Columns, fit);
+    }
     /// <summary>UI_INVENTORYICON_WIDTH/HEIGHT - the icon inside the slot.</summary>
     [Export] public int IconSize = 40;
     /// <summary>UI_INVENTORY_MIN_ROWS - the bag is never smaller than this.</summary>
@@ -206,7 +222,8 @@ public partial class InventoryPanel : Control
     {
         if (_scroll == null) return SlotSize;
         const float sep = 8f;
-        float w = (_scroll.Size.X - sep * (Columns - 1)) / Math.Max(1, Columns);
+        int cols = Across();
+        float w = (_scroll.Size.X - sep * (cols - 1)) / Math.Max(1, cols);
         return Mathf.Clamp(w, SlotSize * 0.5f, SlotSize * 2f);
     }
 
@@ -257,6 +274,10 @@ public partial class InventoryPanel : Control
               .Append(o?.Name).Append(':').Append(o?.ColorTranslation).Append(':')
               .Append(o?.Effect).Append(':').Append(o?.ViewerFrameIndex).Append(';');
         }
+        // The column count is part of it: turn the phone and the grid
+        // has to be rebuilt, and a signature that ignored the width
+        // left five columns on a screen with room for fifteen.
+        sb.Append('@').Append(Across());
         string signature = sb.ToString();
         if (signature == _lastSignature && items.Count == _lastCount) return;
         _lastSignature = signature; _lastCount = items.Count;
@@ -266,8 +287,10 @@ public partial class InventoryPanel : Control
         // Rows grow with the bag and never drop below the minimum, so a
         // near-empty inventory still looks like an inventory rather than
         // one lonely icon. AddInventoryRow/RemoveInventoryRow do the same.
-        int rows = Math.Max(MinRows, (items.Count + Columns - 1) / Columns);
-        int slots = rows * Columns;
+        int cols = Across();
+        if (_grid.Columns != cols) _grid.Columns = cols;
+        int rows = Math.Max(MinRows, (items.Count + cols - 1) / cols);
+        int slots = rows * cols;
 
         for (int i = 0; i < slots; i++)
         {
