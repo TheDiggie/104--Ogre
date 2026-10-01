@@ -104,6 +104,12 @@ public sealed class Renderer
     /// </summary>
     public static bool DistanceFalloff = false;
 
+    /// <summary>
+    /// Whether liquid surfaces ripple. On; here so the two can be
+    /// photographed against each other.
+    /// </summary>
+    public static bool Water = true;
+
     /// <summary>How much light reaches a surface this far away: all of it.</summary>
     public static float Falloff(float distance)
         => DistanceFalloff ? MathF.Min(1f, FogFar / MathF.Max(distance, 1f)) : 1f;
@@ -1150,7 +1156,17 @@ public sealed class Renderer
 
         RooSectorSlopeInfo slope = ceiling ? sec.SlopeInfoCeiling : sec.SlopeInfoFloor;
         float planeH = ceiling ? M59Geo.CeilingXY(sec) : M59Geo.FloorXY(sec);
-        Tex t = tc.Get(ceiling ? sec.CeilingTexture : sec.FloorTexture);
+        ushort texNum = ceiling ? sec.CeilingTexture : sec.FloorTexture;
+        Tex t = tc.Get(texNum);
+
+        // Whether this surface is a liquid, which the room file does not
+        // say - see M59Water. Its own scroll speed becomes the wave's
+        // drift rather than a scroll of the picture: CreateMaterialWater
+        // never calls setScrollAnimation, it sets waveSpeed to
+        // 0.3 * -scroll (Util.h:766-767), and the sector bitmap's UVs
+        // never move at all.
+        bool liquid = Water && WaterNoise.Ready() && M59Water.Is(texNum);
+        float waveX = 0f, waveY = 0f;
         uint flat = ceiling ? 0xFF0B0B10u : 0xFF141418u;
         float texOffX = sec.TextureX * M59Geo.HeightToXY;
         float texOffY = sec.TextureY * M59Geo.HeightToXY;
@@ -1158,14 +1174,16 @@ public sealed class Renderer
         // Scrolling water and lava. The rate is in whole textures per
         // second, so it adds straight onto the sampled coordinates.
         float scrollU = 0f, scrollV = 0f;
-        if (time != 0f && t != null &&
-            (ceiling ? sec.Flags.IsScrollCeiling : sec.Flags.IsScrollFloor))
+        if (t != null && (ceiling ? sec.Flags.IsScrollCeiling : sec.Flags.IsScrollFloor))
         {
             M59Geo.SectorScroll(sec.Flags.ScrollSpeed, sec.Flags.ScrollDirection,
                                 t.W, t.H, out float sxr, out float syr);
-            scrollU = sxr * time;
-            scrollV = syr * time;
+            if (liquid) { waveX = -0.3f * sxr; waveY = -0.3f * syr; }
+            else if (time != 0f) { scrollU = sxr * time; scrollV = syr * time; }
         }
+        // The shader's clock is time_0_x with a period of 100 seconds
+        // (general.material:96), so it is a sawtooth, not a ramp.
+        float waterTime = time - 100f * MathF.Floor(time / 100f);
         float cosFix = MathF.Cos(rayA - angle);
         float rdx = MathF.Cos(rayA), rdy = MathF.Sin(rayA);
 
@@ -1195,6 +1213,16 @@ public sealed class Renderer
                 d = straight / cosFixMax;
             }
             float wx = camX + rdx * d, wy = camY + rdy * d;
+
+            if (liquid)
+            {
+                float surfaceZ = slope != null ? M59Geo.Plane(slope, wx, wy) : planeH;
+                px[y * W + sx] = M59Water.Shade(t, wx, wy, surfaceZ,
+                                                camX, camY, camZ,
+                                                waveX, waveY, waterTime, bright, ceiling);
+                continue;
+            }
+
             float fog = Falloff(straight) * bright;
             // How much world space one screen pixel covers here, in texels.
             // Rows near the horizon cover enormous distances, which is what
@@ -1273,7 +1301,7 @@ public sealed class Renderer
         return 0xFF000000u | (r << 16) | (g << 8) | bl;
     }
 
-    static uint Shade(uint c, float f)
+    internal static uint Shade(uint c, float f)
     {
         if (f == 1f) return c;
         if (f < 0f) f = 0f;

@@ -135,21 +135,16 @@ static void Sides(string dir, ResourceManager rm){
  if(worst>0) Console.WriteLine($"  worst: {worstWhere} off by {worst:F4} of a texture");
 }
 static void AnimProbe(string dir, ResourceManager rm){
- foreach(string path in Directory.GetFiles(dir,"*.roo").OrderBy(x=>x)){
-  RooFile roo; try{ roo=new RooFile(path); roo.ResolveResources(rm);}catch{continue;}
-  var an = roo.SideDefs.Where(sd=>sd.Animation!=null).ToList(); if(an.Count==0) continue;
-  bool art=false; foreach(var sd in an) foreach(ushort n in new[]{sd.MiddleTexture,sd.UpperTexture,sd.LowerTexture}){
-    if(n==0) continue; try{ var b=rm.GetRoomTexture(n); if(b!=null&&b.Frames.Count>1) art=true;}catch{} }
-  if(!art) continue;
-  Console.WriteLine($"ANIM {Path.GetFileName(path)}: {an.Count} animated sidedefs");
-  foreach(var sd in an.Take(4)){
-   var g0 = sd.Animation.CurrentGroup;
-   for(int step=1;step<=40;step++) try{ roo.Tick(step*250.0,250.0);}catch{}
-   Console.WriteLine($"   type {sd.Animation.GetType().Name} group {g0} -> {sd.Animation.CurrentGroup}  tex {sd.MiddleTexture}/{sd.UpperTexture}/{sd.LowerTexture}");
-   foreach(ushort n in new[]{sd.MiddleTexture,sd.UpperTexture,sd.LowerTexture}){
-     if(n==0) continue; var b=rm.GetRoomTexture(n); if(b==null) continue;
-     Console.WriteLine($"     grd{n}: {b.Frames.Count} frames, {b.FrameSets.Count} sets; idx(g1)={b.GetFrameIndex(1,0)} idx(g{sd.Animation.CurrentGroup})={b.GetFrameIndex(sd.Animation.CurrentGroup,0)}");
-   }
+ var liq = new HashSet<ushort>{1802,3203,7201,7202,7203,7204,8894,8895,8911,8912,8913,8914,9083,9084,61018};
+ foreach(string path in new[]{"barlmarket.roo","berg_devroom.roo","bergleader_hall.roo"}){
+  string full=Path.Combine(dir,path); if(!File.Exists(full)) continue;
+  RooFile roo; try{ roo=new RooFile(full); roo.ResolveResources(rm);}catch{continue;}
+  foreach(var leaf in roo.BSPTreeLeaves){
+   if(leaf.Sector==null||leaf.Vertices==null||leaf.Vertices.Count<3) continue;
+   if(!liq.Contains(leaf.Sector.FloorTexture)) continue;
+   double cx=0,cy=0; foreach(var v in leaf.Vertices){cx+=v.X;cy+=v.Y;}
+   cx/=leaf.Vertices.Count; cy/=leaf.Vertices.Count;
+   Console.WriteLine($"LIQ {path} at {cx:F0},{cy:F0} grd{leaf.Sector.FloorTexture} floor {leaf.Sector.FloorHeight*16}");
   }
  }
 }
