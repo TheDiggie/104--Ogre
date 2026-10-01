@@ -575,6 +575,7 @@ public partial class GuildPanel : Control
         bool supported = info.SupportedMember != null && info.SupportedMember.ID == id;
         var vote = new CheckBox { ButtonPressed = supported, Name = $"vote{index}" };
         vote.AddThemeFontSizeOverride("font_size", FontSize - 2);
+        TickStyle.Apply(vote);
         vote.Disabled = f == null || !f.IsVote || supported;
         vote.Toggled += on =>
         {

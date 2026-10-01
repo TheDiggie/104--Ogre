@@ -814,6 +814,7 @@ public partial class OptionsPanel : Control
             Name = $"opt{Slug(name)}",
         };
         box.AddThemeFontSizeOverride("font_size", FontSize);
+        TickStyle.Apply(box);
         box.Toggled += on => set(on);
         _switches.Add(box);
         return box;
@@ -833,6 +834,7 @@ public partial class OptionsPanel : Control
             Name = $"pref{Slug(name)}",
         };
         box.AddThemeFontSizeOverride("font_size", FontSize);
+        TickStyle.Apply(box);
         // Nothing is sent until the server has told us what the
         // preferences actually are. The word arrives as
         // UserCommandReceivePreferences and sets PreferencesFlags.Enabled

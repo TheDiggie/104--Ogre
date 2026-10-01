@@ -327,6 +327,7 @@ public partial class LootPanel : Control
             // lives in child labels, so there is nothing to find it by.
             Name = $"loot{o.ID}",
         };
+        TickStyle.Apply(button);
         button.ButtonDown += () => _downAt = Time.GetTicksMsec();
         button.Toggled += on =>
         {
