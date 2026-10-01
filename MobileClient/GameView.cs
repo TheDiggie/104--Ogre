@@ -42,7 +42,13 @@ public partial class GameView : Node2D
     /// <summary>Client version reported at login; see M59Client.</summary>
     [Export] public int VersionMajor = 5;
     [Export] public int VersionMinor = 0;
-    [Export] public float TurnSpeed = 2.2f;      // radians per second, keyboard
+    /// <summary>
+    /// Keyboard turn rate, radians a second. The reference's own:
+    /// KEYROTATESPEED 0.00012 (ControllerInput.h:49) times the default
+    /// KeyRotateSpeed of 25 (OgreClientConfig.h:61) times milliseconds,
+    /// which is 3 radians a second. It was 2.2 here, which is a guess.
+    /// </summary>
+    [Export] public float TurnSpeed = 3.0f;
     [Export] public bool Run = false;
 
     /// <summary>
@@ -1370,6 +1376,33 @@ public partial class GameView : Node2D
     /// So the client owns the step - predict locally, then send - and the
     /// server corrects us if it disagrees.
     /// </summary>
+    /// <summary>Was the avatar moving, or turning, last frame.</summary>
+    bool _wasMoving, _wasTurning;
+
+    /// <summary>
+    /// Comes to a stop, and tells the server where.
+    ///
+    /// Setting HorizontalSpeed to zero is not enough on its own:
+    /// `SendReqMoveMessage` returns early when the speed is zero
+    /// (BaseClient.cs:1625), so the last stride - up to a whole 100ms
+    /// throttle window of it - is never sent, and the server keeps you
+    /// where you were when it last heard. That is the rubberband on
+    /// every stop. The reference forces a send on the movement-key
+    /// release (`ControllerInput.cpp:604`); this does it on the same
+    /// edge, before the speed is cleared, because clearing it first
+    /// would suppress the very message being forced.
+    /// </summary>
+    void Settle(RoomObject avatar)
+    {
+        if (_wasMoving)
+        {
+            try { _client.SendReqMoveMessage(true); }
+            catch (Exception e) { _chat?.Local($"stop: {e.GetType().Name}: {e.Message}"); }
+            _wasMoving = false;
+        }
+        avatar.HorizontalSpeed = 0f;
+    }
+
     void ApplyInput(double delta)
     {
         RoomObject avatar = _client.Data?.AvatarObject;
@@ -1377,7 +1410,16 @@ public partial class GameView : Node2D
         // Anything covering the screen or owning the keyboard stops
         // movement, so a drag meant for a list does not also walk you.
         if ((_chat != null && (_chat.Capturing || _chat.ShowingHistory)) || PanelUp)
-        { avatar.HorizontalSpeed = 0f; return; }
+        { Settle(avatar); return; }
+
+        // While the server has you waiting - a save, a teleport - the
+        // reference abandons input entirely (`ControllerInput.cpp:736`).
+        // It has to: `SendReqMoveMessage` refuses to send anything while
+        // `IsWaiting` (BaseClient.cs:1624), so walking on regardless
+        // moves you locally, tells the server nothing, and snaps you
+        // back the moment the wait ends.
+        if (_client.Data != null && _client.Data.IsWaiting)
+        { Settle(avatar); return; }
 
         float turn = 0f, fwd = 0f, strafe = 0f;
         if (Input.IsKeyPressed(Key.Left)) turn -= 1f;
@@ -1410,14 +1452,28 @@ public partial class GameView : Node2D
             if (_autoMove && fwd == 0f) fwd += 1f;
         }
 
-        float dAngle = turn * TurnSpeed * (float)delta + _touch.TakeTurn();
+        // The reference halves the keyboard turn rate while you are
+        // walking, so you can steer without spinning
+        // (`ControllerInput.cpp:963-971`). Its own rate is
+        // KEYROTATESPEED * KeyRotateSpeed * milliseconds
+        // (ControllerInput.h:49, OgreClientConfig.h:61), which works out
+        // at 3 radians a second.
+        bool moving = fwd != 0f || strafe != 0f;
+        float rate = TurnSpeed * (moving ? 0.5f : 1f);
+        float dAngle = turn * rate * (float)delta + _touch.TakeTurn();
         if (dAngle != 0f) _client.TryYaw(dAngle);
 
-        if (fwd == 0f && strafe == 0f)
-        {
-            avatar.HorizontalSpeed = 0f;
-            return;
-        }
+        // A turn that has just ended has to be sent whether or not the
+        // throttle is ready, or the last fraction of it is lost and you
+        // swing, attack or cast at a facing the server does not have.
+        // The reference forces one on every rotate-key release and when
+        // mouse aiming stops (`ControllerInput.cpp:599`, :286).
+        bool turning = dAngle != 0f;
+        if (_wasTurning && !turning) _client.SendReqTurnMessage(true);
+        _wasTurning = turning;
+
+        if (!moving) { Settle(avatar); return; }
+        _wasMoving = true;
 
         // The library's own avatar movement, not a hand-rolled one. It
         // denies movement while resting or paralyzed, refuses to run on

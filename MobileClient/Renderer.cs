@@ -63,7 +63,24 @@ public sealed class Renderer
     public static float Projection(int W, int H)
         => MathF.Min((H * 0.5f) / MathF.Tan(FovY * 0.5f),
                      (W * 0.5f) / MathF.Tan(FovXMin * 0.5f));
-    public const float EyeHeight = 0.6f * M59Geo.Fineness;
+    /// <summary>
+    /// How high the eye sits above the floor, in room units.
+    ///
+    /// 0.6 of a grid square was a guess and it was 23% too low, which is
+    /// one of the reasons rooms read as bigger than they are: a low
+    /// camera makes everything above it loom. The library has a number
+    /// for this - <c>PLAYERHEIGHT = 50</c> in kod units
+    /// (GeometryConstants.cs:167), used wherever it needs a sight line
+    /// from someone's eyes rather than their feet
+    /// (RoomObject.cs:1501-1502) - and 50 kod units is 800 room units.
+    ///
+    /// The reference does better still and takes it from the avatar's own
+    /// artwork, 93% of the drawn height (RemoteNode.cpp:405-425), so a
+    /// short race sees from lower down. That needs the composed sprite,
+    /// which this renderer has; it is the obvious next step and is not
+    /// taken here.
+    /// </summary>
+    public const float EyeHeight = GeometryConstants.PLAYERHEIGHT * M59Geo.HeightToXY;
     public const float FogFar = 4500f;
 
     /// <summary>
