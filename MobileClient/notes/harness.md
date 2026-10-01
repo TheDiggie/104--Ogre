@@ -61,6 +61,10 @@ Tags: process | Kept so the next session tests something new rather than re-prov
 - Chat flood: 205 lines, the full log scrolls and closes.
 - Resting: Rest raises the RESTING banner, Stand clears it. PARALYZED
   and SAVING photographed too, through the two new fixture switches.
+- Casting: target something, open Spells, tap the row TWICE - the first
+  tap describes, the second casts - and `ReqCast` with the spell's id
+  reaches the wire. Rows are named `row<id>`, so `@name:row5002` gets
+  there without knowing where the row sits.
 - Walking: a held stick drag sends `ReqMove`, the minimap redraws, and a
   wall stops you instead of letting you through.
 - Go: puts `ReqGo` on the wire, and with the fixture's second room the

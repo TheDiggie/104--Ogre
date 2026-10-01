@@ -528,6 +528,18 @@ static class FakeServer
                     EnterRoom(ns, ctrl);
                     break;
 
+                case MessageTypeGameMode.ReqCast:
+                case MessageTypeGameMode.ReqPerform:
+                    // Named rather than left as "game-mode 105,
+                    // ignored". Whether a cast reached the wire at all
+                    // is the first question every spell bug asks, and
+                    // an anonymous number is a poor answer. The body is
+                    // the PI, the id and then a target list whose shape
+                    // depends on the spell, so only the id is read.
+                    Console.WriteLine(
+                        $"  <- {(MessageTypeGameMode)pi} id {(body.Length > 2 ? body[1] | (body[2] << 8) : -1)}");
+                    break;
+
                 case MessageTypeGameMode.UserCommand:
                 {
                     // The body is the PI and then the user-command type,
