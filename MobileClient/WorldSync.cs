@@ -407,66 +407,59 @@ public sealed class WorldSync
     }
 
     /// <summary>
-    /// Moves from one point to another in room units, sliding along the
-    /// blocking wall if the direct line is refused and
-    /// <paramref name="sliding"/> is set. Returns false, writing nothing
-    /// worth using, when neither works.
+    /// Moves from one point to another in room units, using the
+    /// library's own VerifyMove - the same call BaseClient.TryMove makes
+    /// for the live avatar (BaseClient.cs:2868 into RooFile.cs:1541).
     ///
-    /// Only one retry: a corner blocks both the step and its slide, and
-    /// chasing that with more retries buys a jitter, not a corner.
+    /// This used to be a hand-rolled version: one attempt, then one
+    /// projection of the step onto the blocking wall, and a speed of
+    /// zero. All three were wrong against the reference. VerifyMove
+    /// slides with the wall's own SlideAlong and then, if that is
+    /// refused too, rotates the step by eleven and a quarter degrees
+    /// either way up to eight times (:1568-1588) - which is what gets
+    /// you out of a corner instead of stuck in it. And the speed is not
+    /// decoration: CanMoveInRoom divides by it for the fall-across-a-
+    /// sector term (RooFile.cs:1916-1926), and zero trips the guard
+    /// there that sets it to nine million, removing the term outright.
     ///
-    /// Static and taking the room outright so the offline view can use the
-    /// same movement as the live one instead of its own copy.
+    /// Static and taking the room outright so the offline view uses the
+    /// same movement as the live one rather than its own copy.
     /// </summary>
     /// <param name="height">
     /// The mover's current elevation in room units - NOT a body height.
     /// The library passes Start.Y here in its own VerifyMove, and the
     /// value seeds the step-up and fall checks: zero means the collision
-    /// thinks you are standing at world height zero, which in a room whose
-    /// floor is at three thousand is a long way underground.
+    /// thinks you are standing at world height zero, which in a room
+    /// whose floor is at three thousand is a long way underground.
+    /// </param>
+    /// <param name="kodSpeed">
+    /// The mover's speed in the server's units, which is what the fall
+    /// term wants. USER_WALKING_SPEED and USER_RUNNING_SPEED are 25 and
+    /// 55 (MovementSpeed.cs:35).
     /// </param>
     public static bool TryMove(RooFile room, V2 from, V2 to, bool sliding,
-                               float height, out V2 landed)
+                               float height, out V2 landed, float kodSpeed = 25f)
     {
         landed = to;
         if (room == null) return false;
 
-        RooWall blocker = null;
         try
         {
-            if (room.CanMoveInRoom(ref from, ref to, height, 0f, out blocker)) return true;
+            if (!sliding)
+            {
+                // Without sliding there is nothing to ask VerifyMove
+                // for: it always slides. The direct question is
+                // CanMoveInRoom, which is what it asks first.
+                return room.CanMoveInRoom(ref from, ref to, height, kodSpeed, out _);
+            }
+
+            var start = new V3(from.X, height, from.Y);
+            V2 moved = room.VerifyMove(ref start, ref to, kodSpeed);
+            if (moved.X == 0f && moved.Y == 0f) return false;
+            landed = new V2(from.X + moved.X, from.Y + moved.Y);
+            return true;
         }
         catch { return false; }
-
-        // Walking into a wall at a slight angle and coming to a halt is the
-        // difference between a room that feels solid and one that feels
-        // sticky, and in corridors it is most of the walking you do.
-        if (!sliding) return false;
-        return Slide(room, blocker, from, height, ref landed);
-    }
-
-    static bool Slide(RooFile room, RooWall wall, V2 from, float height, ref V2 to)
-    {
-        if (wall == null) return false;
-
-        float ex = wall.X2 - wall.X1, ey = wall.Y2 - wall.Y1;
-        float len2 = ex * ex + ey * ey;
-        if (len2 < 1e-6f) return false;
-
-        float dx = to.X - from.X, dy = to.Y - from.Y;
-        float t = (dx * ex + dy * ey) / len2;          // projection onto the wall
-        var slid = new V2(from.X + ex * t, from.Y + ey * t);
-        if (MathF.Abs(slid.X - from.X) < 0.01f && MathF.Abs(slid.Y - from.Y) < 0.01f)
-            return false;                              // head-on: nothing to slide along
-
-        try
-        {
-            if (!room.CanMoveInRoom(ref from, ref slid, height, 0f, out _)) return false;
-        }
-        catch { return false; }
-
-        to = slid;
-        return true;
     }
 
     /// <summary>
