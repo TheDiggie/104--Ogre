@@ -59,6 +59,8 @@ Tags: process | Kept so the next session tests something new rather than re-prov
   against the schools, the confirmation is an in-page modal, and Yes
   sends `ChangedStats` (157).
 - Chat flood: 205 lines, the full log scrolls and closes.
+- Walking: a held stick drag sends `ReqMove`, the minimap redraws, and a
+  wall stops you instead of letting you through.
 
 See also: the fixture -> fake-server.md | the panels -> mobile-client.md
 
@@ -74,9 +76,9 @@ exercised by a scripted run, only by hand.
 DELTA, so a drag that sets only Position turns the camera once and then
 sits still for the rest of the hold.
 
-Proved with `@drag:270x1500>270x1100@90` (walk forward: 22 movement
-messages on the wire) and `@drag:1100x700>1500x700@60` (look right: the
-view ends facing a different wall).
+Proved with `@drag:270x1150>270x850@150` (walk forward: eight `ReqMove`
+on the wire and 4,949 changed minimap pixels) and a 400-frame hold into
+a wall, which does not pass through it.
 
 A drag that starts on a button or a panel is eaten by that control and
 never reaches the touch layer. The run then looks exactly like a client

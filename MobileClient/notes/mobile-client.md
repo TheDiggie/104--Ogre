@@ -39,18 +39,23 @@ Tags: design | Ashton's standing requirement: clicking a thing to attack it outl
 
 See also: godot-ui.md
 
-## A press the library drops silently now says so
-Tags: design, lessons | A targeted spell with no target sends nothing and neither the library nor the Ogre client says a word; on a phone that is indistinguishable from a dead button
+## The library is not silent about a missing target
+Tags: lessons | A targeted spell with no target DOES print "This spell requires a target." - grepping three other wordings and finding nothing is not evidence of absence
 
 `SendReqCastMessage` builds its targets from the highlighted object, or
-yourself, or your target, and if the spell needs one and none is there
-it returns without sending (`BaseClient.cs:1717-1743`). A desktop
-survives that - the target is highlighted under the mouse you are
-already holding. A phone does not: a tap with no sound, no animation and
-no text reads as broken, and the player taps again.
+yourself, or your target, and if the spell needs one and none is there it
+adds "This spell requires a target." to `Data.ChatMessages` and returns
+without sending (`BaseClient.cs:1805`, rate-limited by `CanReqCast` so it
+cannot spam). Skills do the same at `:1939`.
 
-So the hotbar says it in the chat log. The check runs BEFORE the
-dispatch and the dispatch still happens, so it can only ever add a line.
-Deliberate divergence, same spirit as the lost-connection overlay.
+I added a second line of my own on the stated grounds that nothing in the
+library said anything, and shipped a duplicate. Two mistakes made it:
+grepping for "no target", "needs a target" and "target required" and
+reading the empty result as an absence, and cropping the last few chat
+lines instead of looking at the whole frame, which put the library's own
+red line one row below the crop. Reverted in 4bf67fa.
 
-See also: the hotbar -> HotbarStore.cs | godot-ui.md
+`SendReqAttackMessage(RoomObject)` is the genuinely silent one - no else
+branch at all - and it hard-gates on line of sight.
+
+See also: the hotbar -> HotbarStore.cs | lessons -> rulings.md
