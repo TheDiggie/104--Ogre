@@ -2941,18 +2941,6 @@ public partial class GameView : Node2D
         _look?.Sync(_client.Data);
         _book?.Sync(_client.Data);
 
-        if (_names != null && _world.Renderer != null && _w > 0 && _h > 0)
-        {
-            // The world is drawn into a smaller buffer and stretched up,
-            // so a name's place on screen is its place in that buffer
-            // times the stretch.
-            Vector2 v = GetViewportRect().Size;
-            _names.Sync(_world.Renderer, _client.Data?.RoomObjects,
-                        new Vector2(v.X / _w, v.Y / _h));
-            _questMarks?.Sync(_world.Renderer, _client.Data?.RoomObjects,
-                              new Vector2(v.X / _w, v.Y / _h));
-        }
-
         RoomObject me = _client.Data?.AvatarObject;
         if (me != null && _map != null)
         {
@@ -2977,6 +2965,40 @@ public partial class GameView : Node2D
         if (_fpsAccum >= 0.5) { _fps = $"{_frames / _fpsAccum:F0} fps"; _fpsAccum = 0; _frames = 0; }
 
         RenderFrame();
+
+        // AFTER the render, and that is the whole of the fix.
+        //
+        // Renderer.Project places a point against the camera of the
+        // last frame Render was called with, because that is the only
+        // camera it has - `_lastCamX` and the rest are written by
+        // Render and nowhere else. These two Syncs used to run up here
+        // with SyncSprites, BEFORE RenderFrame, so every label was
+        // placed for camera(N-1) while its owner's sprite was drawn for
+        // camera(N): the name slid off its owner for as long as you
+        // kept turning and snapped back the moment you stopped. In the
+        // reference a name is a BillboardSet attached to the object's
+        // own SceneNode (RemoteNode.cpp:238, :334) and goes through the
+        // same view matrix in the same pass, so it cannot lag by
+        // construction.
+        //
+        // Nothing moves between RenderFrame and here - the object
+        // positions are the library's and the pump is over - so the
+        // labels now carry camera(N) with position(N), which is what
+        // the sprites were drawn with. Project also reads the two depth
+        // buffers Render fills, so this is the only order in which the
+        // occlusion tests mean anything either.
+        if (_names != null && _world.Renderer != null && _w > 0 && _h > 0)
+        {
+            // The world is drawn into a smaller buffer and stretched up,
+            // so a name's place on screen is its place in that buffer
+            // times the stretch.
+            Vector2 v = GetViewportRect().Size;
+            _names.Sync(_world.Renderer, _client.Data?.RoomObjects,
+                        new Vector2(v.X / _w, v.Y / _h));
+            _questMarks?.Sync(_world.Renderer, _client.Data?.RoomObjects,
+                              new Vector2(v.X / _w, v.Y / _h));
+        }
+
         QueueRedraw();
     }
 

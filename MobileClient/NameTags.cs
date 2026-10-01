@@ -43,6 +43,44 @@ public partial class NameTags : Control
     /// </summary>
     [Export] public float Height = 700f;
 
+    /// <summary>
+    /// How far above the top of the drawn picture the name sits, in
+    /// world units: the reference's +1 scene unit
+    /// (`RemoteNode::UpdateNamePosition`, RemoteNode.cpp:491) at the
+    /// room's SCALE of 0.0625 (ControllerRoom.h:73), which is 16. This
+    /// client placed the name at the picture's top exactly, so every
+    /// name sat one notch lower than the game puts it.
+    /// </summary>
+    [Export] public float Lift = 16f;
+
+    /// <summary>
+    /// The height each object's name is actually drawn at, which is not
+    /// the height its picture happens to be this frame.
+    ///
+    /// `UpdateNamePosition` works out `h` every time it is called and
+    /// then applies it only when it has moved by more than sixteen
+    /// scene units - `if (abs(diff) > 16.0f)`, commented "ignore small
+    /// changes (due to animations)" (RemoteNode.cpp:494-501), with
+    /// `lastNameOffset` starting at zero (RemoteNode.h:52). Sixteen
+    /// scene units is 256 world units here. Without it the name is
+    /// re-placed from `WorldHeight` on every frame and bobs with the
+    /// walk cycle: measured over the art, the top-of-picture height
+    /// across a multi-group BGF's groups has a median spread of 203
+    /// world units, and most of the game's creatures never leave the
+    /// dead band at all - for those the reference holds the name
+    /// perfectly still and this moved it every frame.
+    ///
+    /// Keyed on the object id, because the reference keeps it on the
+    /// node, which is per object. Entries for objects that have left
+    /// the room are dropped at the end of each pass rather than kept
+    /// for a session - ids are reused across rooms.
+    /// </summary>
+    readonly Dictionary<uint, float> _offset = new Dictionary<uint, float>();
+    readonly HashSet<uint> _seen = new HashSet<uint>();
+
+    /// <summary>The reference's threshold, in world units: 16 scene units.</summary>
+    const float Deadband = 256f;
+
     readonly List<Label> _pool = new List<Label>();
 
     public override void _Ready()
@@ -61,15 +99,22 @@ public partial class NameTags : Control
         if (renderer == null || objects == null) { Hide(0); return; }
 
         int used = 0;
+        _seen.Clear();
         foreach (RoomObject o in objects)
         {
             if (!Shows(o)) continue;
 
             float wx = M59Geo.KodToWorld(o.Position3D.X);
             float wy = M59Geo.KodToWorld(o.Position3D.Z);
-            // The top of the drawn picture, as the game does it.
+            // The top of the drawn picture plus the reference's lift,
+            // held steady across animation frames - see _offset.
             float tall = renderer.WorldHeight(renderer.SpriteFor(o));
-            float wz = M59Geo.KodHeightToXY(o.Position3D.Y) + (tall > 0f ? tall : Height);
+            float h = (tall > 0f ? tall : Height) + Lift;
+            _seen.Add(o.ID);
+            if (!_offset.TryGetValue(o.ID, out float held)) held = 0f;
+            if (MathF.Abs(h - held) > Deadband) held = h;
+            _offset[o.ID] = held;
+            float wz = M59Geo.KodHeightToXY(o.Position3D.Y) + held;
 
             if (!renderer.Project(wx, wy, wz, out float sx, out float sy)) continue;
 
@@ -90,6 +135,20 @@ public partial class NameTags : Control
         }
 
         Hide(used);
+        Forget();
+    }
+
+    /// <summary>
+    /// Drops the held heights of objects that are no longer here. The
+    /// reference has nothing to do because the state lives on the scene
+    /// node and dies with it; a dictionary has to be told.
+    /// </summary>
+    void Forget()
+    {
+        if (_offset.Count == 0) return;
+        var gone = new List<uint>();
+        foreach (uint id in _offset.Keys) if (!_seen.Contains(id)) gone.Add(id);
+        foreach (uint id in gone) _offset.Remove(id);
     }
 
     /// <summary>

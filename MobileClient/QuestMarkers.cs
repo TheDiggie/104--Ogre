@@ -52,6 +52,22 @@ public partial class QuestMarkers : Control
     /// <summary>Fallback when the renderer does not know how tall the thing is.</summary>
     [Export] public float Height = 700f;
 
+    /// <summary>
+    /// The height each marker is actually drawn at, held across
+    /// animation frames exactly as the name is - see NameTags._offset
+    /// for the argument. `UpdateQuestMarkerPosition` is the same routine
+    /// with the same threshold, `if (abs(diff) > 16.0f)` commented
+    /// "ignore small changes (due to animations)"
+    /// (RemoteNode.cpp:457-464), over its own `lastQuestMarkerOffset`
+    /// (RemoteNode.h:57). Only the lift differs, +3 scene units against
+    /// +1, which is <see cref="Lift"/>.
+    /// </summary>
+    readonly Dictionary<uint, float> _offset = new Dictionary<uint, float>();
+    readonly HashSet<uint> _seen = new HashSet<uint>();
+
+    /// <summary>The reference's threshold, in world units: 16 scene units.</summary>
+    const float Deadband = 256f;
+
     readonly List<Label> _pool = new List<Label>();
 
     public override void _Ready()
@@ -65,6 +81,7 @@ public partial class QuestMarkers : Control
         if (renderer == null || objects == null) { Hide(0); return; }
 
         int used = 0;
+        _seen.Clear();
         foreach (RoomObject o in objects)
         {
             if (!Shows(o)) continue;
@@ -75,8 +92,12 @@ public partial class QuestMarkers : Control
             float wx = M59Geo.KodToWorld(o.Position3D.X);
             float wy = M59Geo.KodToWorld(o.Position3D.Z);
             float tall = renderer.WorldHeight(renderer.SpriteFor(o));
-            float wz = M59Geo.KodHeightToXY(o.Position3D.Y)
-                     + (tall > 0f ? tall : Height) + Lift;
+            float h = (tall > 0f ? tall : Height) + Lift;
+            _seen.Add(o.ID);
+            if (!_offset.TryGetValue(o.ID, out float held)) held = 0f;
+            if (MathF.Abs(h - held) > Deadband) held = h;
+            _offset[o.ID] = held;
+            float wz = M59Geo.KodHeightToXY(o.Position3D.Y) + held;
 
             if (!renderer.Project(wx, wy, wz, out float sx, out float sy)) continue;
 
@@ -93,6 +114,16 @@ public partial class QuestMarkers : Control
         }
 
         Hide(used);
+        Forget();
+    }
+
+    /// <summary>Drops the held heights of objects that have gone.</summary>
+    void Forget()
+    {
+        if (_offset.Count == 0) return;
+        var gone = new List<uint>();
+        foreach (uint id in _offset.Keys) if (!_seen.Contains(id)) gone.Add(id);
+        foreach (uint id in gone) _offset.Remove(id);
     }
 
     /// <summary>

@@ -41,11 +41,63 @@ public static class M59Compose
         var ri = new RenderInfo(o, true, true);
         Tex t = Raster(ri);
         if (t == null) return null;
+        Mip(t);
 
         worldW = ri.WorldSize.X * M59Geo.HeightToXY;
         worldH = ri.WorldSize.Y * M59Geo.HeightToXY;
         return t;
     }
+
+    /// <summary>
+    /// Gives a composed room-object picture its reduced copies.
+    ///
+    /// Everything the sprite pass draws needs these and this path was
+    /// the one that had none. <c>Raster</c> returned a bare
+    /// <c>Tex { Shrink = 1 }</c>, <c>Tex.Level</c> hands back level 0
+    /// whenever there is no chain (M59Geo.cs:219), and
+    /// <c>Renderer.SpriteTpp</c> - which exists for nothing else - then
+    /// picked a level that was always 0. So every creature and player in
+    /// the room was point-sampled at full resolution at every distance,
+    /// while the single-frame path a composed object never takes built a
+    /// chain as a matter of course (M59Geo.cs:375, :408). The reference
+    /// filters every object texture trilinearly with sixteen-times
+    /// anisotropy (OgreClient.cpp:181, :198-200), so the chain is what
+    /// parity asks for, not an optimisation.
+    ///
+    /// Built here and not lazily inside <c>Level</c>: the render splits
+    /// its columns across threads and two of them reading one texture
+    /// would have to agree about whether the chain exists yet.
+    /// Composition happens once, on the sync thread, before any column
+    /// is walked.
+    ///
+    /// Keyed at 64 after the build, as the grass is
+    /// (M59Grass.cs:283-284). <c>BuildMips</c> already averages colour
+    /// weighted by alpha, which is what keeps the transparent key's
+    /// colour out of an edge texel; the key is the other half. The
+    /// reduced copies average ALPHA as well, and the sprite blit treats
+    /// any non-zero alpha as solid, so a texel that averaged out to a
+    /// quarter coverage would come out an opaque block and a receding
+    /// creature would grow a square halo. The object billboards are
+    /// drawn by <c>base_material</c>, which is
+    /// <c>alpha_rejection greater_equal 64</c> with no blending
+    /// (general.material:287-293), and the GPU applies that test to the
+    /// FILTERED sample - so 64 is the reference's own threshold rather
+    /// than a number picked to look right. Level 0 is untouched by it:
+    /// a composed picture's alpha is already either the palette's opaque
+    /// or the key's zero.
+    /// </summary>
+    static void Mip(Tex t)
+    {
+        if (t == null) return;
+        t.RebuildMips();
+        t.KeyAlpha(64);
+    }
+
+    /// <summary>
+    /// Rebuilds those copies for a caller that has painted over level 0
+    /// since - which is the target outline, and nothing else.
+    /// </summary>
+    public static void Remip(Tex t) => Mip(t);
 
     /// <summary>
     /// The inventory icon for an object, composed the way the game's own
@@ -355,7 +407,13 @@ public sealed class ComposeCache
 
         Tex t = M59Compose.Build(o, out float ww, out float wh);
         if (t == null) return null;
-        if (outlined) M59Compose.Outline(t);
+        // Outline writes over level 0 after the chain was built, so the
+        // chain has to be told: RebuildMips exists for exactly this
+        // (M59Geo.cs:258-263). Without it a distant target kept the
+        // un-outlined art in its reduced copies and lost the red edge
+        // at whatever distance the level changed, which is the ruling
+        // failing to hold at range rather than a filtering nicety.
+        if (outlined) { M59Compose.Outline(t); M59Compose.Remip(t); }
 
         // The cache is per room and rooms are small, but a crowd of
         // players in a lot of poses is not, so it is not unbounded.

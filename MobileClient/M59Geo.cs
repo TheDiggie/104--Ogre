@@ -438,8 +438,40 @@ public sealed class SpriteCache
     {
         if (bgf == null || bgf.Frames.Count == 0) return null;
 
+        // No frame, no picture. This used to clamp an invalid index to
+        // zero, which drew group 1's front frame instead - a creature
+        // whose art lacks the group the server named froze in a wrong
+        // pose facing the wrong way and stripped of its weapon and
+        // clothes, rather than not being drawn.
+        //
+        // The library's answer is null all the way down:
+        // GetFrameIndex returns -1 for a group the art has not got and
+        // for a facing that group has no frame for (BgfFile.cs:490-514),
+        // RoomObject.UpdateFrameIndices then leaves ViewerFrame null
+        // (RoomObject.cs:1742-1746), RenderInfo.Calculate does nothing
+        // without a main frame (Drawing2D/RenderInfo.cs:303),
+        // RemoteNode2D::UpdateMaterial returns early on a null image
+        // (RemoteNode2D.cpp:165-167) and the billboard keeps the zero
+        // dimensions it was created with (:30-31). The object is simply
+        // not drawn.
+        //
+        // Every caller here already copes with null - Place returns
+        // false (Renderer.cs:1249), WorldHeight falls back to the
+        // label's own fallback height (:1174), and the projectile sync
+        // only adds a sprite whose texture came back
+        // (WorldSync.cs:363). Measured over the 629 BGFs with frames:
+        // the clamp fired on all 20128 lookups for a group the art has
+        // not got, and on 242 of 16976 lookups for a group it HAS -
+        // those being a facing that group carries no frame for, which
+        // GetFrameIndex refuses in the same way and for which the
+        // reference therefore draws nothing either. Those 242 are in
+        // four files (gshnecbk, gshnecov, maulov - worn parts, which
+        // reach the screen through the composed path and not through
+        // this cache - and hist_king1, whose index really does run past
+        // its frame list), so none of them is a room object that was
+        // relying on the clamp to be drawn at all.
         int idx = bgf.GetFrameIndex(group < 1 ? 1 : group, viewAngle);
-        if (idx < 0 || idx >= bgf.Frames.Count) idx = 0;
+        if (idx < 0 || idx >= bgf.Frames.Count) return null;
 
         if (!_c.TryGetValue(bgf, out var byFrame))
             _c[bgf] = byFrame = new Dictionary<int, Tex>();
@@ -587,8 +619,13 @@ public sealed class TexCache
     /// opaque - a floor has no holes in it - so a grate drawn with
     /// <see cref="Get"/> is a solid sheet of cyan.
     ///
-    /// No mip chain, for the same reason sprites have none: averaging
-    /// across transparent texels bleeds the key colour into the edges.
+    /// It carries a mip chain like everything else - <see cref="Tex.FromSprite"/>
+    /// builds one and <see cref="Replacement"/> rebuilds one. The comment
+    /// here used to say it had none, on the grounds that averaging across
+    /// transparent texels bleeds the key colour into the edges; that is
+    /// true of a FLAT average and is exactly why <c>BuildMips</c> weights
+    /// colour by alpha. The chain went in with the sprites' and this line
+    /// was not updated with it.
     /// </summary>
     public Tex GetMasked(ushort num, ushort group = 1) => Get(num, group, _masked, true);
 

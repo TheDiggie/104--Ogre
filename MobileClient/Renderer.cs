@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -672,7 +672,8 @@ public sealed class Renderer
 
         // Where a sprite is, and how far away, so see-through walls drawn
         // afterwards know which pixels they must not cover.
-        if (Sprites.Count > 0 || _decor.Count > 0)
+        _spriteValid = Sprites.Count > 0 || _decor.Count > 0;
+        if (_spriteValid)
         {
             if (_spriteDepth == null || _spriteDepth.Length < W * H) _spriteDepth = new float[W * H];
             Array.Clear(_spriteDepth, 0, W * H);
@@ -1284,13 +1285,45 @@ public sealed class Renderer
 
     int _lastW, _lastH;
     float _lastCamX, _lastCamY, _lastCamZ, _lastAngle, _lastProj, _lastHorizon;
+    /// <summary>
+    /// Whether `_spriteDepth` describes the frame just rendered. It is
+    /// only allocated and cleared on a frame that had something to
+    /// paint into it, so on a frame with no objects and no grass it
+    /// still holds the last frame's distances - which would hide a name
+    /// behind a body that is no longer there.
+    /// </summary>
+    bool _spriteValid;
 
     /// <summary>
-    /// Where a world point lands on the last frame, in that frame's pixel
-    /// buffer. False when it is behind the camera, off the sides, or
-    /// behind a wall - the last of those from the same per-column depth
-    /// the sprites are clipped against, so a name does not hang in front
-    /// of the wall its owner is standing behind.
+    /// Where a world point lands on the frame just rendered, in that
+    /// frame's pixel buffer. False when it is behind the camera, clear
+    /// off the sides, or hidden - by a wall, by the window the walk left
+    /// open at that distance, or by an object standing nearer.
+    ///
+    /// Call it AFTER Render with the frame whose camera the point
+    /// belongs with. It reads the camera and the two depth buffers
+    /// Render filled, so calling it before Render places the point for
+    /// the camera of the frame BEFORE it, which is a label that slides
+    /// off its owner every time you turn.
+    ///
+    /// Hidden by an object as well as by a wall, which this used to
+    /// miss: it tested only `_depth`, the per-column wall depth, and
+    /// never `_spriteDepth`, which DrawSprites fills per pixel (:1150)
+    /// for the see-through pass. In the reference a label is an
+    /// ordinary depth-tested pass - `base_material_label` is
+    /// alpha-rejection with depth check and write left on and a
+    /// depth_bias of 12 (general.material:193-221), and the object
+    /// billboards it is tested against are `base_material`, likewise
+    /// alpha-rejection with no scene_blend (:287-315) - so a body
+    /// between you and a name hides that name. In a crowd this client
+    /// floated every name in front of the bodies standing between you
+    /// and their owners.
+    ///
+    /// A name's own body cannot hide its name: the anchor is a point at
+    /// the same X and Y as the sprite, so the two depths are computed
+    /// from the same floats by the same expression and come out equal,
+    /// and the test is strict. The depth_bias the reference applies for
+    /// the same reason is not needed here because of that.
     /// </summary>
     public bool Project(float x, float y, float z, out float sx, out float sy)
     {
@@ -1308,10 +1341,25 @@ public sealed class Renderer
         sx = _lastW * 0.5f + lateral * scale;
         sy = _lastHorizon - (z - _lastCamZ) * scale;
 
-        if (sx < 0f || sx >= _lastW) return false;
+        // Not culled the moment the CENTRE column leaves the screen,
+        // which is what this did. DrawSprites clips a sprite's columns
+        // and only drops it when the whole of it is off
+        // (`x1 < 0 || x0 >= W`), so a creature half on screen was still
+        // drawn while its name had already popped out; in the reference
+        // the label is a 3D billboard and the frustum clips it like any
+        // other. The caller draws a label CENTRED on this point and
+        // Godot clips it to the viewport, so the honest bound is the
+        // widest label that could still show a pixel: no label here is
+        // wider than the viewport, so a centre more than one screen
+        // width outside cannot.
+        if (sx < -_lastW || sx >= _lastW * 2f) return false;
 
+        // The column for the depth tests, clamped: a point just off the
+        // side has no column of its own and the edge column is the
+        // nearest thing to the truth about what is in front of it.
         int col = (int)sx;
-        if (col >= 0 && col < _depth.Length)
+        if (col < 0) col = 0; else if (col >= _lastW) col = _lastW - 1;
+        if (col < _depth.Length)
         {
             if (depth > _depth[col]) return false;
             // And the window the walk left open at that distance - a
@@ -1319,6 +1367,22 @@ public sealed class Renderer
             // Narrow.
             Window(col, depth, out int wTop, out int wBot);
             if (sy < wTop || sy > wBot) return false;
+        }
+
+        // And the objects. Per pixel, as the reference's depth test is,
+        // rather than per column: two creatures side by side in one
+        // column must hide only the name they actually stand in front
+        // of. `_spriteDepth` holds zero where nothing was painted, and
+        // it is only trustworthy on a frame that had sprites to paint -
+        // Render clears it then and not otherwise.
+        if (_spriteValid && _spriteDepth != null)
+        {
+            int row = (int)sy;
+            if (row >= 0 && row < _lastH && col >= 0 && col < _lastW)
+            {
+                float sd = _spriteDepth[row * _lastW + col];
+                if (sd > 0f && sd < depth) return false;
+            }
         }
 
         return true;
