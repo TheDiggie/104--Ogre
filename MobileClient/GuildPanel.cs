@@ -9,12 +9,23 @@ using Meridian59.Data.Models;
 /// guildmaster can do about it.
 ///
 /// `UIGuild.cpp`. In the game this is four tabs - members, diplomacy,
-/// guildmaster and the shield designer - on one window. This is the
-/// members tab and the guildmaster tab, which are the two that say
-/// something about your own guild; diplomacy is a list of every other
-/// guild and its standing, and the shield designer is a pixel editor
-/// with a scroll wheel on it. Neither belongs on a first phone pass,
-/// and leaving them out is said here rather than left to be discovered.
+/// guildmaster and the shield designer - on one window. Three of them
+/// are here: members and guildmaster, which say something about your
+/// own guild, and diplomacy, which is every other guild and where you
+/// stand with it. The shield designer is a pixel editor with a scroll
+/// wheel on it and is still left out, which is said here rather than
+/// left to be discovered.
+///
+/// Diplomacy is one list with two columns of standing: theirs toward
+/// you, read out of DeclaredYouAllyList and DeclaredYouEnemyList, and
+/// yours toward them, which you may change (`UIGuild.cpp:477-557`).
+/// Changing it is not one command but sometimes two, because the
+/// server has no "switch sides" - going from ally to enemy is
+/// GuildEndAlliance followed by GuildMakeEnemy, and enemy to ally is
+/// GuildEndEnemy then GuildMakeAlliance (:762-847). Each transition is
+/// gated on its own right - IsDeclareEnemy, IsEndEnemy, IsMakeAlliance,
+/// IsEndAlliance - and the row is dead unless you hold at least one of
+/// them, or if the guild in it is your own.
 ///
 /// Like the shop and the quest offer, the window is the server's
 /// decision: `GuildInfo.IsVisible` goes up when a UserCommandGuildInfo
@@ -63,6 +74,14 @@ public partial class GuildPanel : Control
     public event Action AbandonHall;
     /// <summary>Leave the guild, or disband it.</summary>
     public event Action<bool> Renounce;
+    /// <summary>
+    /// A change of standing toward another guild: its id, where it
+    /// stood (0 ally, 1 neutral, 2 enemy) and where it should stand.
+    /// The view does not decide which commands that takes - the
+    /// transition table is the reference's and lives with the sending.
+    /// </summary>
+    public event Action<uint, int, int> Diplomacy;
+
     /// <summary>Something changed with no echo: reload.</summary>
     public event Action Reload;
     /// <summary>
@@ -81,7 +100,12 @@ public partial class GuildPanel : Control
     ScrollContainer _scroll;
     VBoxContainer _rows;
     LineEdit _chest;
-    Button _setPassword, _abandon, _renounce, _close;
+    Button _setPassword, _abandon, _renounce, _close, _tab;
+
+    DiplomacyInfo _diplo;
+
+    /// <summary>Which list the window is showing.</summary>
+    bool _showingDiplomacy;
 
     GuildInfo _info;
     string _signature = "";
@@ -123,6 +147,11 @@ public partial class GuildPanel : Control
         _abandon = Push("Abandon hall", () => AbandonHall?.Invoke());
         _renounce = Push("Renounce", () =>
             Renounce?.Invoke(_info != null && _info.Flags != null && _info.Flags.IsDisband));
+        _tab = Push("Diplomacy", () =>
+        {
+            _showingDiplomacy = !_showingDiplomacy;
+            _signature = "";        // force the rebuild
+        });
         _close = Push("Close", Close);
 
         GetViewport().SizeChanged += Layout;
@@ -188,13 +217,21 @@ public partial class GuildPanel : Control
         _renounce.Size = new Vector2(w * 0.5f - 4f, rowH);
 
         by += rowH + 8f;
-        _close.Position = new Vector2(side, by);
-        _close.Size = new Vector2(w, rowH);
+        _tab.Position = new Vector2(side, by);
+        _tab.Size = new Vector2(w * 0.4f - 4f, rowH);
+        _close.Position = new Vector2(side + w * 0.4f + 4f, by);
+        _close.Size = new Vector2(w * 0.6f - 4f, rowH);
     }
 
     public void Close()
     {
         if (_info != null) _info.IsVisible = false;
+        // The reference throws both models away when the window goes
+        // (`UIGuild.cpp:948-956`), so the next opening asks the server
+        // rather than showing what it remembered.
+        _info?.Clear(true);
+        _diplo?.Clear(true);
+        _signature = "";
         Show(false);
     }
 
@@ -204,6 +241,7 @@ public partial class GuildPanel : Control
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _hall.Visible = on;
         _scroll.Visible = on; _close.Visible = on; _open.Visible = !on;
+        _tab.Visible = on;
 
         // The guildmaster half is only there when the server says you
         // have a hall to have a password on - AND when you are the
@@ -222,8 +260,9 @@ public partial class GuildPanel : Control
         Layout();
     }
 
-    public void Sync(GuildInfo info, uint avatarID)
+    public void Sync(GuildInfo info, DiplomacyInfo diplomacy, uint avatarID)
     {
+        _diplo = diplomacy;
         if (_rows == null) return;
 
         if (info == null || !info.IsVisible)
@@ -237,6 +276,12 @@ public partial class GuildPanel : Control
         if (!IsOpen) Show(true);
 
         var sb = new System.Text.StringBuilder();
+        sb.Append(_showingDiplomacy ? 'D' : 'M').Append('|');
+        if (_showingDiplomacy && diplomacy?.Guilds != null)
+            foreach (GuildEntry g in diplomacy.Guilds)
+                sb.Append(g?.ID).Append(':').Append(g?.Name).Append(':')
+                  .Append(Standing(diplomacy, g?.ID ?? 0, true)).Append(':')
+                  .Append(Standing(diplomacy, g?.ID ?? 0, false)).Append(';');
         sb.Append(info.GuildName).Append('|').Append(info.PasswordSetFlag).Append('|')
           .Append(info.SupportedMember?.ID).Append('|')
           .Append(info.Flags != null ? info.Flags.Flags : 0u).Append('|');
@@ -255,8 +300,21 @@ public partial class GuildPanel : Control
         // Renounce and Disband are the same button with two names, and
         // which one it is comes off the flags rather than off your rank.
         _renounce.Text = info.Flags != null && info.Flags.IsDisband ? "Disband" : "Renounce";
+        _tab.Text = _showingDiplomacy ? "Members" : "Diplomacy";
 
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
+
+        if (_showingDiplomacy)
+        {
+            if (diplomacy?.Guilds != null)
+            {
+                int gi = 0;
+                foreach (GuildEntry g in diplomacy.Guilds)
+                    if (g != null) _rows.AddChild(GuildRow(info, diplomacy, g, gi++));
+            }
+            Show(true);
+            return;
+        }
 
         if (info.GuildMembers == null) return;
         GuildMemberEntry me = null;
@@ -268,6 +326,86 @@ public partial class GuildPanel : Control
             if (m != null) _rows.AddChild(Row(info, m, me, index++));
 
         Show(true);
+    }
+
+    /// <summary>
+    /// Where one guild stands: 0 ally, 1 neutral, 2 enemy.
+    /// <paramref name="ours"/> picks whose declaration is being read -
+    /// yours toward them, or theirs toward you. The reference reads the
+    /// same four lists the same way (`UIGuild.cpp:499-531`).
+    /// </summary>
+    static int Standing(DiplomacyInfo d, uint guildID, bool ours)
+    {
+        if (d == null || guildID == 0) return 1;
+        var ally = ours ? d.YouDeclaredAllyList : d.DeclaredYouAllyList;
+        var enemy = ours ? d.YouDeclaredEnemyList : d.DeclaredYouEnemyList;
+        if (ally != null && ally.GetItemByID(guildID) != null) return 0;
+        if (enemy != null && enemy.GetItemByID(guildID) != null) return 2;
+        return 1;
+    }
+
+    static string StandingName(int s) => s == 0 ? "Ally" : (s == 2 ? "Enemy" : "Neutral");
+
+    /// <summary>One other guild, and where the two of you stand.</summary>
+    Control GuildRow(GuildInfo info, DiplomacyInfo d, GuildEntry g, int index)
+    {
+        uint id = g.ID;
+        var line = new HBoxContainer
+        {
+            CustomMinimumSize = new Vector2(0, RowHeight),
+            Name = $"guild{index}",
+        };
+        line.AddThemeConstantOverride("separation", 8);
+
+        var name = new Label
+        {
+            Text = g.Name ?? "(unnamed)",
+            VerticalAlignment = VerticalAlignment.Center,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+        };
+        name.AddThemeFontSizeOverride("font_size", FontSize);
+        line.AddChild(name);
+
+        // Theirs toward you, which you cannot change and the reference
+        // shows as plain text.
+        int theirs = Standing(d, id, false);
+        var said = new Label
+        {
+            Text = StandingName(theirs),
+            VerticalAlignment = VerticalAlignment.Center,
+            CustomMinimumSize = new Vector2(FontSize * 5f, 0),
+            Name = $"theirs{index}",
+        };
+        said.AddThemeFontSizeOverride("font_size", FontSize - 2);
+        said.AddThemeColorOverride("font_color",
+            theirs == 0 ? new Color(0.6f, 0.9f, 0.6f)
+          : theirs == 2 ? new Color(0.95f, 0.55f, 0.5f)
+                        : new Color(0.7f, 0.72f, 0.78f));
+        line.AddChild(said);
+
+        // Yours toward them, in the reference's own order: Ally,
+        // Neutral, Enemy (`UIGuild.cpp:513-518`).
+        int ours = Standing(d, id, true);
+        var pick = new OptionButton { Name = $"ours{index}" };
+        pick.AddThemeFontSizeOverride("font_size", FontSize - 2);
+        pick.AddItem("Ally", 0);
+        pick.AddItem("Neutral", 1);
+        pick.AddItem("Enemy", 2);
+        pick.Selected = ours;
+        pick.CustomMinimumSize = new Vector2(FontSize * 7f, 0);
+
+        // Dead on your own guild, and dead unless you hold at least one
+        // of the four rights (`UIGuild.cpp:545-548`).
+        GuildFlags f = info.Flags;
+        bool any = f != null && (f.IsDeclareEnemy || f.IsEndEnemy
+                              || f.IsEndAlliance || f.IsMakeAlliance);
+        pick.Disabled = !any || (info.GuildID != null && info.GuildID.ID == id);
+
+        int was = ours;
+        pick.ItemSelected += now => Diplomacy?.Invoke(id, was, (int)now);
+        line.AddChild(pick);
+
+        return line;
     }
 
     Control Row(GuildInfo info, GuildMemberEntry m, GuildMemberEntry me, int index)

@@ -676,7 +676,69 @@ public partial class GameView : Node2D
         {
             // No button opens this: UserCommandGuildInfo raises it.
             _guild = new GuildPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 6f };
-            _guild.Opened += () => Act(() => _client.SendUserCommandGuildInfoReq());
+            // The window wants the roster AND the list of other guilds;
+            // the reference asks for both, along with the shield lists
+            // it uses and this does not (`UIGuild.cpp:604-620`).
+            _guild.Opened += () => Act(() =>
+            {
+                _client.SendUserCommandGuildInfoReq();
+                _client.SendUserCommandGuildGuildListReq();
+            });
+
+            // Changing where you stand with another guild. The server
+            // has no "switch sides", so half of these are two commands:
+            // ally to enemy is end the alliance THEN declare, and enemy
+            // to ally is end the enmity THEN ally
+            // (`UIGuild.cpp:762-847`). Each one is gated on its own
+            // right, and a transition you do not hold the rights for
+            // simply does not happen - the reference's final else is
+            // empty, and so is this.
+            //
+            // The lists are updated here as well as sent, because none
+            // of these is echoed: the reference does the same
+            // (:791, :800-801), and without it the row springs back to
+            // where it was on the next rebuild.
+            _guild.Diplomacy += (id, was, now) => Act(() =>
+            {
+                GuildFlags f = _client.Data?.GuildInfo?.Flags;
+                DiplomacyInfo d = _client.Data?.DiplomacyInfo;
+                if (f == null || d == null || was == now) return;
+
+                if (was == 1 && now == 2 && f.IsDeclareEnemy)
+                {
+                    _client.SendUserCommandGuildMakeEnemy(id);
+                    d.YouDeclaredEnemyList.Add(new ObjectID(id, 0));
+                }
+                else if (was == 0 && now == 2 && f.IsEndAlliance && f.IsDeclareEnemy)
+                {
+                    _client.SendUserCommandGuildEndAlliance(id);
+                    _client.SendUserCommandGuildMakeEnemy(id);
+                    Drop(d.YouDeclaredAllyList, id);
+                    d.YouDeclaredEnemyList.Add(new ObjectID(id, 0));
+                }
+                else if (was == 1 && now == 0 && f.IsMakeAlliance)
+                {
+                    _client.SendUserCommandGuildMakeAlliance(id);
+                    d.YouDeclaredAllyList.Add(new ObjectID(id, 0));
+                }
+                else if (was == 2 && now == 0 && f.IsEndEnemy && f.IsMakeAlliance)
+                {
+                    _client.SendUserCommandGuildEndEnemy(id);
+                    _client.SendUserCommandGuildMakeAlliance(id);
+                    Drop(d.YouDeclaredEnemyList, id);
+                    d.YouDeclaredAllyList.Add(new ObjectID(id, 0));
+                }
+                else if (was == 2 && now == 1 && f.IsEndEnemy)
+                {
+                    _client.SendUserCommandGuildEndEnemy(id);
+                    Drop(d.YouDeclaredEnemyList, id);
+                }
+                else if (was == 0 && now == 1 && f.IsEndAlliance)
+                {
+                    _client.SendUserCommandGuildEndAlliance(id);
+                    Drop(d.YouDeclaredAllyList, id);
+                }
+            });
             _guild.Support += id => Act(() => _client.SendUserCommandGuildVote(id));
             // The three irreversible ones go through the popup, with
             // the file's own wording. They were going straight off the
@@ -687,8 +749,7 @@ public partial class GameView : Node2D
                 confirmed => Act(() =>
                 {
                     _client.SendUserCommandGuildExile(confirmed);
-                    _client.Data?.GuildInfo?.Clear(true);
-                    _client.SendUserCommandGuildInfoReq();
+                    Reask();
                 }));
             _guild.SetRank += (id, rank) => Act(() => _client.SendUserCommandGuildSetRank(id, rank));
             _guild.Abdicate += (id, who) => _ask?.Choice(
@@ -696,8 +757,7 @@ public partial class GameView : Node2D
                 confirmed => Act(() =>
                 {
                     _client.SendUserCommandGuildAbdicate(confirmed);
-                    _client.Data?.GuildInfo?.Clear(true);
-                    _client.SendUserCommandGuildInfoReq();
+                    Reask();
                 }));
             _guild.Password += pw => Act(() => _client.SendUserCommandGuildSetPassword(pw));
             _guild.AbandonHall += () => _ask?.Choice(
@@ -715,11 +775,7 @@ public partial class GameView : Node2D
                 }));
             // None of the guild commands is echoed, so the file clears
             // and re-asks after each one rather than guessing.
-            _guild.Reload += () => Act(() =>
-            {
-                _client.Data?.GuildInfo?.Clear(true);
-                _client.SendUserCommandGuildInfoReq();
-            });
+            _guild.Reload += () => Act(Reask);
             _ui.AddChild(_guild);
         });
         Widget("players", () =>
@@ -1268,7 +1324,8 @@ public partial class GameView : Node2D
         _news?.Sync(_client.Data?.NewsGroup);
         _options?.Follow(_client.Data?.ClientPreferences);
         _fx?.Sync(_client.Data);
-        _guild?.Sync(_client.Data?.GuildInfo, _client.Data != null ? _client.Data.AvatarID : 0u);
+        _guild?.Sync(_client.Data?.GuildInfo, _client.Data?.DiplomacyInfo,
+                     _client.Data != null ? _client.Data.AvatarID : 0u);
         _wizard?.Sync(_client.Data?.StatChangeInfo);
         _newChar?.Sync();
 
@@ -1549,6 +1606,30 @@ public partial class GameView : Node2D
     /// local attack and cast throttles, so the first thing you do after
     /// a teleport does nothing.
     /// </summary>
+    /// <summary>
+    /// Throws away what the client thinks about the guild and asks
+    /// again. None of the guild commands is echoed, so the reference
+    /// clears and re-requests after each one rather than guessing
+    /// (`UIGuild.cpp:604-620`) - and it clears the shield model too,
+    /// and asks for the guild list as well as the roster, which is
+    /// what makes the diplomacy view come back current.
+    /// </summary>
+    void Reask()
+    {
+        _client.Data?.GuildInfo?.Clear(true);
+        _client.Data?.GuildShieldInfo?.Clear(true);
+        _client.SendUserCommandGuildInfoReq();
+        _client.SendUserCommandGuildGuildListReq();
+    }
+
+    /// <summary>Takes a guild out of one of the declaration lists.</summary>
+    static void Drop(Meridian59.Data.Lists.ObjectIDList<ObjectID> list, uint id)
+    {
+        if (list == null) return;
+        ObjectID had = list.GetItemByID(id);
+        if (had != null) list.Remove(had);
+    }
+
     void Act(Action send)
     {
         if (_client?.Data != null && _client.Data.IsWaiting) return;

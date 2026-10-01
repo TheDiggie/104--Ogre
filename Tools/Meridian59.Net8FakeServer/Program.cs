@@ -593,6 +593,7 @@ static class FakeServer
                     byte cmd = body.Length > 1 ? body[1] : (byte)0;
                     Console.WriteLine($"  <- UserCommand {(UserCommandType)cmd}");
                     if (cmd == (byte)UserCommandType.ReqGuildInfo) SendGuild(ns, ctrl);
+                    if (cmd == (byte)UserCommandType.ReqGuildList) SendGuildList(ns, ctrl);
                     break;
                 }
 
@@ -1402,6 +1403,38 @@ static class FakeServer
             members);
 
         Send(ns, ctrl, new UserCommandMessage(new UserCommandGuildInfo(info), strings));
+    }
+
+    /// <summary>
+    /// The other guilds and where everyone stands.
+    ///
+    /// One of each case so the diplomacy list has something to show:
+    /// a guild you have allied, one you have declared on, one that has
+    /// declared on you while you stay neutral, one that has allied you
+    /// without an answer, and one nobody has said anything about. Your
+    /// own guild is in the list too, because the reference expects it
+    /// and greys its row out (`UIGuild.cpp:545`).
+    /// </summary>
+    static void SendGuildList(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var guilds = new[]
+        {
+            new GuildEntry("The Quiet Hand", 9001),
+            new GuildEntry("The Gilded Rose", 9002),
+            new GuildEntry("Ashen Company", 9003),
+            new GuildEntry("Wardens of Kocatan", 9004),
+            new GuildEntry("The Long Road", 9005),
+        };
+
+        var info = new DiplomacyInfo(
+            guilds,
+            new[] { new ObjectID(9002, 0) },   // you have allied the Rose
+            new[] { new ObjectID(9003, 0) },   // and declared on Ashen
+            new[] { new ObjectID(9004, 0) },   // the Wardens have allied you
+            new[] { new ObjectID(9003, 0) });  // Ashen has declared back
+
+        Send(ns, ctrl, new UserCommandMessage(new UserCommandGuildGuildList(info), strings));
+        Console.WriteLine($"  -> GuildGuildList ({guilds.Length} guilds)");
     }
 
     /// <summary>
