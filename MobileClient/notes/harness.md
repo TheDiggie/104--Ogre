@@ -105,9 +105,11 @@ A drag that starts on a button or a panel is eaten by that control and
 never reaches the touch layer. The run then looks exactly like a client
 that cannot walk: no movement, nothing on the wire, no error. The step
 now names the control it would hit - "WARNING drag starts on 'hot3'
-(Button)" - so that costs a line instead of an investigation. The world
-is roughly y 250..1150 at 1080x1920; above is the HUD, below is the
-hotbar, the target row and the chat block.
+(Button)" - so that costs a line instead of an investigation. That
+warning, not a remembered rectangle, is the authority on where the
+world is: the client is landscape now and everything moved. A drag
+from 500x700 at 2340x1080 walks (eight `ReqMove`), and the old
+portrait numbers - y 250..1150 at 1080x1920 - are history.
 
 See also: the touch layer -> TouchControls.cs | the client -> mobile-client.md
 
