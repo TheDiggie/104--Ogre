@@ -95,8 +95,17 @@ public partial class LootPanel : Control
     VBoxContainer _rows;
     Button _get, _getAll, _put, _close;
 
-    /// <summary>What is ticked, by id, in the order it was ticked.</summary>
-    readonly Dictionary<uint, ObjectBase> _ticked = new Dictionary<uint, ObjectBase>();
+    /// <summary>
+    /// What is ticked, by id and nothing else. Never an object: the
+    /// reference keeps the selection on the row widget, destroys the
+    /// widget when the model drops the item (`UILootList.cpp:148-153`,
+    /// `UIObjectContents.cpp:147-152`) and at Get walks the LIVE model
+    /// by index (`UILootList.cpp:270-277`, `UIObjectContents.cpp:272-279`).
+    /// Holding instances here sent counts as they were when ticked, and
+    /// a tick outlived its item. Fill prunes ids that left the list and
+    /// <see cref="TickedNow"/> resolves the rest against the model.
+    /// </summary>
+    readonly HashSet<uint> _ticked = new HashSet<uint>();
     string _signature = "";
     // The model the window is currently showing, so closing it can say
     // so. Only one of the two is ever set - see Dismiss.
@@ -138,8 +147,18 @@ public partial class LootPanel : Control
         // `UIObjectContents.cpp:282`), so they go through Dismiss too.
         _get = Action("Get", () =>
         {
-            if (_ticked.Count == 0) return;
-            GetItems?.Invoke(new List<ObjectBase>(_ticked.Values));
+            // Nothing ticked: the reference sends nothing and closes
+            // anyway (`UILootList.cpp:263-284`, `UIObjectContents.cpp:
+            // 265-288`). Not matched, on purpose. On a phone a Get that
+            // looks live and silently throws the window away is a
+            // mis-tap with a cost, and Close is the button beside it.
+            // So Get is DISABLED while nothing is ticked (Caption, run
+            // on every open and every tick) and this guard is only the
+            // belt to that brace. Nothing ticked is also what is left
+            // if every ticked item has left the list.
+            List<ObjectBase> picked = TickedNow();
+            if (picked.Count == 0) return;
+            GetItems?.Invoke(picked);
             Dismiss();
         });
         _put = Action("Put", () => PutWanted?.Invoke());
@@ -227,7 +246,7 @@ public partial class LootPanel : Control
     void Show(bool on)
     {
         // Above whatever else is open - see Panels.ToFront.
-        if (on) Panels.ToFront(this);
+        if (on) { Panels.ToFront(this); Caption(); }
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
         _get.Visible = on; _getAll.Visible = on && ShowGetAll;
         _put.Visible = on && AllowPut; _close.Visible = on;
@@ -280,10 +299,29 @@ public partial class LootPanel : Control
 
         if (!IsOpen) Show(true);
 
+        // A tick belongs to its row, and the row belongs to its item:
+        // when the item has left the model its widget is destroyed and
+        // the selection goes with it (`UILootList.cpp:148-153`,
+        // `UIObjectContents.cpp:147-152`). Done on every pass, before
+        // the empty-list and signature exits, so neither can skip it.
+        if (_ticked.Count > 0)
+        {
+            var present = new HashSet<uint>();
+            if (items != null) foreach (ObjectBase o in items) if (o != null) present.Add(o.ID);
+            if (_ticked.RemoveWhere(id => !present.Contains(id)) > 0) Caption();
+        }
+
         if (items == null || items.Count == 0)
         {
-            if (_signature == "")
-            { _title.Text = $"{Heading} (0)"; return; }
+            // Always free the rows, even when `_signature` says there
+            // are none: Close() resets the signature without freeing
+            // them, so "" does NOT mean "already cleared" - it meant a
+            // reopen onto an empty list drew the previous list's rows,
+            // live and tickable, under a title saying (0). The
+            // reference destroys each widget as the model empties and
+            // keys visibility on IsVisible alone
+            // (`UILootList.cpp:53-59,148-163`,
+            // `UIObjectContents.cpp:147-163`). Both windows alike.
             _signature = "";
             foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
             _title.Text = $"{Heading} (0)";
@@ -323,7 +361,7 @@ public partial class LootPanel : Control
         var button = new CheckBox
         {
             CustomMinimumSize = new Vector2(0, RowHeight),
-            ButtonPressed = _ticked.ContainsKey(o.ID),
+            ButtonPressed = _ticked.Contains(o.ID),
             // Named so a scripted run can pick a row: the row's text
             // lives in child labels, so there is nothing to find it by.
             Name = $"loot{o.ID}",
@@ -346,7 +384,7 @@ public partial class LootPanel : Control
                 Look?.Invoke(captured.ID);
                 return;
             }
-            Pick(captured, on);
+            Pick(captured.ID, on);
         };
 
         var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
@@ -384,7 +422,13 @@ public partial class LootPanel : Control
         name.AddThemeConstantOverride("outline_size", 3);
         line.AddChild(name);
 
-        if (o.Count > 1)
+        // Every stack is counted, including a stack of one. The
+        // reference sets the box to Count and shows it on IsStackable
+        // (`UILootList.cpp:195-196`, `UIObjectContents.cpp:197-198`),
+        // and IsStackable is Count > 0 (`ObjectID.cs:202-205`); the
+        // two windows agree here. Same fix as the bag
+        // (`InventoryPanel.cs:483-491`).
+        if (o.Count > 0)
         {
             var amount = new Label
             {
@@ -408,16 +452,39 @@ public partial class LootPanel : Control
     /// are on them - and that is the difference between a sword you can
     /// take and one you cannot.
     /// </summary>
-    static string Named(ObjectBase o)
+    string Named(ObjectBase o)
     {
         string name = string.IsNullOrWhiteSpace(o.Name) ? "(unnamed)" : o.Name;
-        return o.Flags != null && o.Flags.IsEquipped ? name + " (in use)" : name;
+        // The two windows differ: only the container list appends the
+        // suffix (`UIObjectContents.cpp:191-194`); the loot list sets
+        // the bare name (`UILootList.cpp:192`). Which one this is, is
+        // which model it follows, not a flag somebody has to remember.
+        return _contents != null && o.Flags != null && o.Flags.IsEquipped
+            ? name + " (in use)" : name;
     }
 
-    void Pick(ObjectBase o, bool on)
+    /// <summary>
+    /// What Get sends: the ticked ids resolved against the model as it is
+    /// NOW, in list order, each with the count it has NOW - the
+    /// reference's index walk over the live list at click time
+    /// (`UILootList.cpp:270-277`, `UIObjectContents.cpp:272-279`).
+    /// </summary>
+    List<ObjectBase> TickedNow()
     {
-        if (o == null) return;
-        if (on) _ticked[o.ID] = o; else _ticked.Remove(o.ID);
+        var res = new List<ObjectBase>();
+        if (_ticked.Count == 0) return res;
+        System.Collections.Generic.IEnumerable<ObjectBase> live = null;
+        if (_contents != null) live = _contents.Items;
+        else if (_loot != null) live = _loot.Items;
+        if (live != null)
+            foreach (ObjectBase o in live)
+                if (o != null && _ticked.Contains(o.ID)) res.Add(o);
+        return res;
+    }
+
+    void Pick(uint id, bool on)
+    {
+        if (on) _ticked.Add(id); else _ticked.Remove(id);
         Caption();
     }
 
