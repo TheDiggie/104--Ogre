@@ -183,6 +183,8 @@ public partial class GameView : Node2D
     float _bright = 0f;
     GuildPanel _guild;
     GuildShieldPanel _shieldDesigner;
+    GuildHallBuyPanel _hallBuy;
+    GuildCreatePanel _guildCreate;
     ConfirmPopup _ask;
     StatsWizard _wizard;
     CreateCharacter _newChar;
@@ -944,6 +946,94 @@ public partial class GameView : Node2D
                 _ => Act(() => _client.SendUserCommandClaimShield(true)));
             _ui.AddChild(_shieldDesigner);
         });
+        Widget("guild hall buy", () =>
+        {
+            // No button opens this either: a GuildHalls UserCommand does.
+            // `DataController` fills GuildHallsInfo and raises IsVisible
+            // (`Meridian59/Data/DataController.cs:2820-2823`), the panel
+            // follows the flag, and the reference does the same through
+            // the model's PropertyChanged (`UIGuildHallBuy.cpp:25-29`,
+            // `:60-70`).
+            _hallBuy = new GuildHallBuyPanel();
+
+            // Renting spends the guild's money, and the reference sends
+            // it straight off the button (`UIGuildHallBuy.cpp:249`). The
+            // question in between is this client's own, the way the exile,
+            // disband and shield-claim buttons already ask - and it names
+            // the hall and the price, because the list scrolls and the
+            // row you meant is not always the row you hit.
+            _hallBuy.Buy += (id, password) =>
+            {
+                GuildHall hall = null;
+                var halls = _client.Data?.GuildHallsInfo?.GuildHalls;
+                if (halls != null)
+                    foreach (GuildHall h in halls)
+                        if (h != null && h.ID == id) { hall = h; break; }
+
+                string what = hall == null || string.IsNullOrWhiteSpace(hall.Name)
+                    ? "this hall" : hall.Name;
+                string price = hall == null ? "" : $" for {hall.Cost}, {hall.Rent} a day";
+
+                _ask?.Choice($"Rent {what}{price}?", id, confirmed => Act(() =>
+                {
+                    _client.SendUserCommandGuildRent(confirmed, password);
+                    // The reference's own tear-down after a successful
+                    // send: throw the offer away and lower the flag
+                    // (`UIGuildHallBuy.cpp:251-252`). Clear alone would
+                    // not close the window - GuildHallsInfo.Clear does
+                    // not touch IsVisible (`GuildHallsInfo.cs:171-181`).
+                    _client.Data?.GuildHallsInfo?.Clear(true);
+                    if (_client.Data != null) _client.Data.GuildHallsInfo.IsVisible = false;
+                }));
+            };
+
+            // Cancel, and the list running dry after a server save. Both
+            // are the same two lines in the reference (`:260-262`, and
+            // `:139-144` for the empty list), and neither sends anything.
+            _hallBuy.Cancelled += () =>
+            {
+                _client.Data?.GuildHallsInfo?.Clear(true);
+                if (_client.Data != null) _client.Data.GuildHallsInfo.IsVisible = false;
+            };
+            _ui.AddChild(_hallBuy);
+        });
+        Widget("guild create", () =>
+        {
+            // A GuildAsk UserCommand raises this one
+            // (`DataController.cs:2802-2804`); the reference listens for
+            // the same flag (`UIGuildCreate.cpp:42-43`, `:74-82`).
+            _guildCreate = new GuildCreatePanel();
+
+            // Twelve strings and a flag, in the order
+            // SendUserCommandGuildCreate takes them - all five male ranks,
+            // then all five female ones (`BaseClient.cs:1342-1360`), which
+            // is not the interleaved order they go on the wire in
+            // (`UserCommandGuildCreate.cs:59-120`). The reference reads
+            // them out of its edit boxes in exactly this order
+            // (`UIGuildCreate.cpp:123-135`).
+            //
+            // Asked first, with the price the panel quoted: the reference
+            // sends on the press with no question (`:118-143`), and
+            // founding a guild is not undoable.
+            _guildCreate.Found += f => _ask?.Choice(
+                $"Found {f.Name}{(f.Secret ? " as a secret guild" : "")} for {f.Cost}?", 0,
+                _ => Act(() =>
+                {
+                    _client.SendUserCommandGuildCreate(
+                        f.Name,
+                        f.Male[0], f.Male[1], f.Male[2], f.Male[3], f.Male[4],
+                        f.Female[0], f.Female[1], f.Female[2], f.Female[3], f.Female[4],
+                        f.Secret);
+                    // Hidden, and the costs left alone - which is all the
+                    // reference does after sending (`:138-140`).
+                    if (_client.Data != null) _client.Data.GuildAskData.IsVisible = false;
+                }));
+            _guildCreate.Closed += () =>
+            {
+                if (_client.Data != null) _client.Data.GuildAskData.IsVisible = false;
+            };
+            _ui.AddChild(_guildCreate);
+        });
         Widget("players", () =>
         {
             // Left of the character sheet button.
@@ -1641,6 +1731,8 @@ public partial class GameView : Node2D
         _guild?.Sync(_client.Data?.GuildInfo, _client.Data?.DiplomacyInfo,
                      _client.Data != null ? _client.Data.AvatarID : 0u);
         _shieldDesigner?.Sync(_client.Data?.GuildShieldInfo, _client.Data?.GuildInfo);
+        _hallBuy?.Sync(_client.Data?.GuildHallsInfo);
+        _guildCreate?.Sync(_client.Data?.GuildAskData);
         _wizard?.Sync(_client.Data?.StatChangeInfo);
         _newChar?.Sync();
         // The message of the day, on the screen that chooses a
@@ -2449,6 +2541,8 @@ public partial class GameView : Node2D
         || (_aliases != null && _aliases.IsOpen)
         || (_guild != null && _guild.IsOpen)
         || (_shieldDesigner != null && _shieldDesigner.IsOpen)
+        || (_hallBuy != null && _hallBuy.IsOpen)
+        || (_guildCreate != null && _guildCreate.IsOpen)
         || (_wizard != null && _wizard.IsOpen)
         || (_acts != null && _acts.IsOpen)
         || (_ask != null && _ask.IsOpen);
