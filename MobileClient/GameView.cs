@@ -49,7 +49,12 @@ public partial class GameView : Node2D
     /// which is 3 radians a second. It was 2.2 here, which is a guess.
     /// </summary>
     [Export] public float TurnSpeed = 3.0f;
-    [Export] public bool Run = false;
+    /// <summary>
+    /// Hold to WALK. The reference runs by default and slows you with
+    /// the walk key (ControllerInput.cpp:950, OISKeyBinding.cpp:44);
+    /// this used to be a run flag, which had it backwards.
+    /// </summary>
+    [Export] public bool Walk = false;
 
     /// <summary>
     /// Autorun: the reference's AutoMove, which is a key there
@@ -1743,14 +1748,45 @@ public partial class GameView : Node2D
         avatar.HorizontalSpeed = 0f;
     }
 
+    /// <summary>
+    /// Whether the walk modifier is held: the reference's KC_LSHIFT
+    /// (OISKeyBinding.cpp:44), read as `IsWalkKeyDown` at
+    /// ControllerInput.cpp:950 and :968. Running is what you do without
+    /// it. A phone has no shift key, so the on-screen walk toggle -
+    /// which is what the Run export now is, inverted - stands in.
+    /// </summary>
+    bool Walking() => Walk || Input.IsKeyPressed(Key.Shift);
+
     void ApplyInput(double delta)
     {
         RoomObject avatar = _client.Data?.AvatarObject;
         if (avatar == null || _world.Room == null) return;
         // Anything covering the screen or owning the keyboard stops
         // movement, so a drag meant for a list does not also walk you.
+        //
+        // TURNING is not stopped with it. The reference applies the
+        // avatar's yaw at ControllerInput.cpp:809-932, BEFORE the
+        // `if (ControllerUI::ProcessingInput) return;` at :957, so
+        // looking around keeps working with a window open - and its
+        // movement gate is only on the keyboard anyway, both-mouse-
+        // button movement carrying on through a window (:938-939).
+        //
+        // Here it was worse than merely stopped: the pitch was still
+        // being taken each frame while the yaw was not, so a drag made
+        // with a panel open piled up unspent and swung the view
+        // sideways in one lump the moment the panel closed. Only look
+        // input reaches this at all - _UnhandledInput means a drag a
+        // panel wanted never got here - so what is applied is a drag on
+        // the visible world, which is what the reference turns on too.
         if ((_chat != null && (_chat.Capturing || _chat.ShowingHistory)) || PanelUp)
-        { Settle(avatar); return; }
+        {
+            float look = _touch.TakeTurn();
+            if (look != 0f) _client.TryYaw(look);
+            if (_wasTurning && look == 0f) _client.SendReqTurnMessage(true);
+            _wasTurning = look != 0f;
+            Settle(avatar);
+            return;
+        }
 
         // While the server has you waiting - a save, a teleport - the
         // reference abandons input entirely (`ControllerInput.cpp:736`).
@@ -1792,14 +1828,18 @@ public partial class GameView : Node2D
             if (_autoMove && fwd == 0f) fwd += 1f;
         }
 
-        // The reference halves the keyboard turn rate while you are
-        // walking, so you can steer without spinning
-        // (`ControllerInput.cpp:963-971`). Its own rate is
+        // The reference halves the keyboard turn rate while the WALK
+        // MODIFIER is held - `if (IsWalkKeyDown) diff *= 0.5f`,
+        // ControllerInput.cpp:968-972 - not while you happen to be
+        // moving, which is what this used to test. Its own rate is
         // KEYROTATESPEED * KeyRotateSpeed * milliseconds
         // (ControllerInput.h:49, OgreClientConfig.h:61), which works out
-        // at 3 radians a second.
+        // at 3 radians a second, and running forward while turning keeps
+        // all of it. Halving it whenever you moved meant you could not
+        // swing a corner at speed, and doubled it for turning on the
+        // spot.
         bool moving = fwd != 0f || strafe != 0f;
-        float rate = TurnSpeed * (moving ? 0.5f : 1f);
+        float rate = TurnSpeed * (Walking() ? 0.5f : 1f);
         float dAngle = turn * rate * (float)delta + _touch.TakeTurn();
         if (dAngle != 0f) _client.TryYaw(dAngle);
 
@@ -1825,7 +1865,24 @@ public partial class GameView : Node2D
         float c = MathF.Cos(avatar.Angle), sn = MathF.Sin(avatar.Angle);
         var dir = new V2(c * fwd - sn * strafe, sn * fwd + c * strafe);
 
-        bool running = Run || Input.IsKeyPressed(Key.Shift) || stick.Length() > 0.75f;
+        // Running is the DEFAULT, and the modifier slows you down. The
+        // reference passes `!IsWalkKeyDown` (ControllerInput.cpp:950)
+        // and binds walk to left shift (OISKeyBinding.cpp:44), so plain
+        // WASD runs at 55 and holding shift walks at 25
+        // (MovementSpeed.cs:35, picked at BaseClient.cs:2846-2848).
+        //
+        // This had it inverted, and worse: autorun, which is how you
+        // cross a map on a phone, took its thumb off the stick and so
+        // could never reach the deflection threshold - so the one
+        // control built for travelling moved you at under half the
+        // speed the reference travels at, and told the server so.
+        //
+        // The deflection test is gone with it. The reference's speed is
+        // binary and changes only on a key edge; it normalises the
+        // direction (ControllerInput.cpp:712) so a partial push never
+        // scales anything. A speed that flipped at an invisible radius
+        // under your thumb was this client's invention.
+        bool running = !Walking();
         try { _client.TryMove(dir, running, 0f); }
         catch (Exception e) { _chat?.Local($"move: {e.GetType().Name}: {e.Message}"); }
     }
