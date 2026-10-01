@@ -360,6 +360,8 @@ public partial class GameView : Node2D
     /// draws above the rendered frame whatever order things were added in.
     /// </summary>
     CanvasLayer _ui;
+    /// <summary>The world's own overlay layer - no safe-area inset.</summary>
+    CanvasLayer _worldUi;
     ResourcePrompt _prompt;
     UnpackScreen _unpack;
     /// <summary>
@@ -498,6 +500,30 @@ public partial class GameView : Node2D
 
         _ui = new CanvasLayer();
         AddChild(_ui);
+
+        // A second layer for the things that belong to the WORLD rather
+        // than to the interface: name tags and quest marks. They are
+        // placed at a point the renderer projects, in the world's own
+        // screen coordinates, and the world is not inset - so they must
+        // not be either.
+        //
+        // On the UI layer they were: SafeArea scales that layer and
+        // shifts it, so every name was drawn at p*s + offset while the
+        // head it names was still at p. On a desktop, where the inset is
+        // zero and s is 1, that is the identity and nothing shows -
+        // which is why every screenshot ever taken of this looked right.
+        // On a phone with a cutout it is a drift that grows with
+        // distance from the layer's origin, and it reads exactly as a
+        // name that is not centred over anybody.
+        //
+        // The reference has no such problem to solve: there the name is
+        // a billboard IN the 3D scene (`RemoteNode::UpdateNamePosition`),
+        // so it is in the world by construction and CEGUI's own window
+        // never touches it. This layer is that, in the terms this client
+        // has. Under _ui's default layer 1 so a panel still covers a
+        // name, over the world at 0.
+        _worldUi = new CanvasLayer { Layer = 1 };
+        AddChild(_worldUi);
 
         // Where the player put their HUD. Read before any piece lays
         // itself out, so the first frame is already the layout they
@@ -2127,8 +2153,9 @@ public partial class GameView : Node2D
             _roomBuffs.Look += id => Act(() => _client.SendReqLookMessage(id));
             _ui.AddChild(_roomBuffs);
         });
-        Widget("names", () => { _names = new NameTags(); _ui.AddChild(_names); });
-        Widget("questmarks", () => { _questMarks = new QuestMarkers(); _ui.AddChild(_questMarks); });
+        // Both on the world's layer, not the interface's - see _worldUi.
+        Widget("names", () => { _names = new NameTags(); _worldUi.AddChild(_names); });
+        Widget("questmarks", () => { _questMarks = new QuestMarkers(); _worldUi.AddChild(_questMarks); });
         // Added before the panels so blindness darkens the world and not
         // the buttons - the reference's compositors run on the 3D
         // viewport, and CEGUI is drawn over the top of them.

@@ -107,9 +107,11 @@ public partial class QuestMarkers : Control
                 ((argb >> 8) & 0xFF) / 255f,
                 (argb & 0xFF) / 255f));
 
-            l.Size = Vector2.Zero;
-            Vector2 at = new Vector2(sx * scale.X, sy * scale.Y);
-            l.Position = at - new Vector2(l.GetMinimumSize().X * 0.5f, l.GetMinimumSize().Y);
+            // The same centring the names use. The mark is always "!",
+            // so the stale-minimum trap cannot bite here the way it does
+            // there - but two copies of a placement is two places for
+            // the next change to miss one. See NameTags.CentreOver.
+            NameTags.CentreOver(l, l.Text, new Vector2(sx * scale.X, sy * scale.Y));
             l.Visible = true;
         }
 

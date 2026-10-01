@@ -128,9 +128,7 @@ public partial class NameTags : Control
                 (argb & 0xFF) / 255f));
 
             // Centred over the head rather than starting there.
-            l.Size = Vector2.Zero;
-            Vector2 at = new Vector2(sx * scale.X, sy * scale.Y);
-            l.Position = at - new Vector2(l.GetMinimumSize().X * 0.5f, l.GetMinimumSize().Y);
+            CentreOver(l, o.Name, new Vector2(sx * scale.X, sy * scale.Y));
             l.Visible = true;
         }
 
@@ -164,6 +162,42 @@ public partial class NameTags : Control
             && o.Flags.Drawing != ObjectFlags.DrawingType.Invisible
             && !o.IsAvatar
             && !string.IsNullOrWhiteSpace(o.Name);
+    }
+
+    /// <summary>
+    /// Centres a pooled label over a point, measuring the FONT rather
+    /// than asking the control.
+    ///
+    /// `GetMinimumSize()` on a Label is served out of its cached text
+    /// shaping, and assigning Text does not reshape it there and then -
+    /// Godot defers that to the next layout pass. These labels are
+    /// POOLED, so slot 3 can hold "Alice" one frame and "a duskrat" the
+    /// next, and the centring was subtracting half of whatever the
+    /// label said BEFORE. Every name was off by half the difference
+    /// between its own width and the previous occupant's - which is
+    /// why it looked like a wobble rather than a constant offset, and
+    /// why a long name next to a short one looked worst.
+    ///
+    /// The font answers immediately and for the text actually given.
+    /// The box is then set to that size with the text centred inside
+    /// it, so the two agree even if the measurement is a pixel out.
+    /// </summary>
+    internal static void CentreOver(Label l, string text, Vector2 at)
+    {
+        Font f = l.GetThemeFont("font");
+        int fs = l.GetThemeFontSize("font_size");
+        Vector2 m = f != null
+            ? f.GetStringSize(text, HorizontalAlignment.Left, -1, fs)
+            : l.GetMinimumSize();
+        // The outline is drawn outside the glyphs, so it is part of what
+        // the eye centres on.
+        float pad = l.GetThemeConstant("outline_size");
+        m += new Vector2(pad, pad);
+
+        l.HorizontalAlignment = HorizontalAlignment.Center;
+        l.VerticalAlignment = VerticalAlignment.Center;
+        l.Size = m;
+        l.Position = at - new Vector2(m.X * 0.5f, m.Y);
     }
 
     Label Take(int index)

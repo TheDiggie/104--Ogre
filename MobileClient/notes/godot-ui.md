@@ -257,3 +257,33 @@ skipped - a filter that can reject every candidate has no answer at
 all for the case it rejects.
 
 See also: HudEditor.cs, M59Hud.cs | the HUD store -> mobile-client.md
+
+## A world overlay does not belong on the interface's layer
+
+Name tags and quest marks are placed at a point the renderer
+projects - the world's own screen coordinates. They were children of
+the UI CanvasLayer, and SafeArea scales and shifts that layer so the
+interface stays off a phone's cutouts and curve. The world
+underneath is deliberately NOT inset.
+
+So every name was drawn at `p * s + offset` while the head it names
+was still at `p`. At 1920x1080 with the 2.5% curve margin that is
+s = 0.95, offset = 48: exactly zero error at the centre of the
+screen, growing to 40 points at either edge and in OPPOSITE
+directions, so names are pulled toward the middle. The player in
+front of you looks right and everybody else looks wrong, which is
+why it reads as "not centred" rather than as an offset.
+
+It survived every screenshot because the error is zero where the
+harness usually looks, and because a Control's own Position - which
+is what a @state dump prints - is in LAYER coordinates and does not
+include the layer's transform. The dump said 960 and the screen
+said 912.
+
+Both now live on their own CanvasLayer with no inset, under the
+interface and over the world. The reference never has this problem:
+there the name is a billboard in the 3D scene
+(`RemoteNode::UpdateNamePosition`), so it is in the world by
+construction.
+
+See also: SafeArea.cs, NameTags.cs, QuestMarkers.cs

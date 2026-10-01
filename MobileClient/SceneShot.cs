@@ -638,7 +638,14 @@ public partial class SceneShot : Node
                     if (want != null && !c.Name.ToString().Contains(want)) continue;
                     Rect2 r = c.GetGlobalRect();
                     string disabled = c is BaseButton bb ? bb.Disabled.ToString() : "-";
-                    string text = c is Button tb ? $" text=\"{tb.Text}\"" : "";
+                    // Labels carry their text too. A name tag is a Label,
+                    // and a dump that gives a rectangle without saying
+                    // what is IN it cannot answer "is this name centred
+                    // over the right head" - which is the only question
+                    // worth asking about one.
+                    string text = c is Button tb ? $" text=\"{tb.Text}\""
+                                : c is Label tl  ? $" text=\"{tl.Text}\""
+                                : "";
                     GD.Print($"[SceneShot] state {c.Name} ({c.GetType().Name}) Visible={c.Visible} InTree={c.IsVisibleInTree()} " +
                              $"rect=({r.Position.X},{r.Position.Y},{r.Size.X},{r.Size.Y}) " +
                              $"modulate={c.Modulate} filter={c.MouseFilter} Disabled={disabled}{text}");
