@@ -72,8 +72,26 @@ public partial class ChatOverlay : Control
         _log = new RichTextLabel
         {
             BbcodeEnabled = true,
-            ScrollActive = false,
-            FitContent = true,
+            ScrollActive = true,
+            // Not FitContent, and clipped. The last eight MESSAGES are
+            // not eight rows: wrap two of them and the label grows
+            // downward past the block it was given, over the entry box
+            // and the button row below it. Everything else on screen
+            // reserves space from BlockHeight, which is computed from
+            // the same eight rows, so the overflow lands on widgets
+            // that had no way to know. The reference has no such
+            // problem - its log is a framed window with a scrollbar
+            // (`UIChat.cpp:20-21`) - and the honest equivalent here is
+            // to keep the block and let the oldest line fall off the
+            // top of it.
+            FitContent = false,
+            ClipContents = true,
+            // Scrolling, but with the bar hidden and always following
+            // the end: that is what keeps the NEWEST line against the
+            // bottom of the block when the last eight messages wrap to
+            // more than eight rows. Clipping alone cut the newest line
+            // in half, which is the wrong half to lose.
+            ScrollFollowing = true,
             MouseFilter = MouseFilterEnum.Ignore,
         };
         // No anchor preset: Layout() places this explicitly, and an anchor
@@ -221,6 +239,10 @@ public partial class ChatOverlay : Control
         float logH = (FontSize + 6) * Lines;
         _log.Position = new Vector2(pad, v.Y - entryH - pad * 2 - logH);
         _log.Size = new Vector2(blockW, logH);
+        // The scrollbar itself is not wanted on the HUD - the full log
+        // has its own screen - so it is given no width.
+        VScrollBar bar = _log.GetVScrollBar();
+        if (bar != null) { bar.CustomMinimumSize = Vector2.Zero; bar.Modulate = new Color(1, 1, 1, 0); }
     }
 
     /// <summary>True while the full log is covering the screen.</summary>
@@ -268,13 +290,19 @@ public partial class ChatOverlay : Control
     /// a soft keyboard costs a great deal more than retyping it on a
     /// real one.
     ///
-    /// One button rather than two: it walks back, and wraps to an empty
-    /// box at the end, which is where ArrowDown would have taken you.
+    /// One button rather than two, and it goes round. It walks back,
+    /// wraps to an empty box at the end - which is where ArrowDown
+    /// would have taken you - and then starts again at the newest.
+    /// Without the last step the library's index sits past the end and
+    /// every further press gives you the empty box again
+    /// (DataController.cs:1533-1560), so an overshoot meant closing the
+    /// box and reopening it.
     /// </summary>
     void Recall()
     {
         if (History == null) return;
         string line = History(true);
+        if (line == null) HistoryReset?.Invoke();
         _entry.Text = line ?? "";
         _entry.CaretColumn = _entry.Text.Length;
     }

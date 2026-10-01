@@ -541,7 +541,16 @@ public sealed class Renderer
                 // the sidedef's offsets.
                 // Animated wall textures are a different frame of the same
                 // file, and the library keeps the group on the sidedef.
+                // The animation frame belongs to the MIDDLE texture and
+                // nothing else. `RooSideDef.OnAnimationPropertyChanged`
+                // (:266-270) calls SetMiddleTexture alone when the group
+                // moves; the upper and lower keep whatever frame they
+                // were last given by a texture change or an ApplyChange.
+                // Feeding the group to all three made the strip above
+                // and below an animating door flicker where the game
+                // holds it still.
                 ushort texGroup = side?.Animation != null ? side.Animation.CurrentGroup : (ushort)1;
+                const ushort EdgeGroup = 1;
                 int xOff = h.Right ? h.Wall.RightXOffset : h.Wall.LeftXOffset;
                 int yOff = h.Right ? h.Wall.RightYOffset : h.Wall.LeftYOffset;
                 float fog = Falloff(perp) * Brightness;
@@ -575,7 +584,7 @@ public sealed class Renderer
                     // shows the room beyond, which the rest of this
                     // column walk will draw. Filling it here painted a
                     // band over the view through a doorway.
-                    Tex upper = side != null ? _tex.Get(side.UpperTexture, texGroup) : null;
+                    Tex upper = side != null ? _tex.Get(side.UpperTexture, EdgeGroup) : null;
                     if (upper != null)
                     DrawWall(px, W, H, sx, yTop, Math.Min(yBot, farCeilY - 1), ceilY, farCeilY, fc, nc,
                              upper,
@@ -589,7 +598,7 @@ public sealed class Renderer
                 if (ff > nf)
                 {
                     int farFloorY = ScreenY(ff, camZ, horizon, proj, perp);
-                    Tex lower = side != null ? _tex.Get(side.LowerTexture, texGroup) : null;
+                    Tex lower = side != null ? _tex.Get(side.LowerTexture, EdgeGroup) : null;
                     if (lower != null)
                     DrawWall(px, W, H, sx, Math.Max(yTop, farFloorY), yBot, farFloorY, floorY, nf, ff,
                              lower,

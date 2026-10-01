@@ -81,6 +81,52 @@ public partial class GameView : Node2D
     /// </summary>
     static readonly System.Collections.Generic.HashSet<string> ChatWords = BuildChatWords();
 
+    /// <summary>
+    /// Whether this text is meant as a command at all.
+    ///
+    /// The library's parser accepts one-letter keys - b, y, t, s, a, p
+    /// and more (ChatCommandBroadcast.cs:26, ChatCommandYell.cs:26 and
+    /// their siblings). On a desktop those are a fine thing, because
+    /// you chose to learn them. On a bar whose button says Say they are
+    /// a trap: "b right back" went to the entire server. So a first
+    /// word of one letter is speech here. Every long form still works,
+    /// which puts broadcast, yell, tell and guild one word away, and
+    /// the cost of the other choice is public and irreversible.
+    ///
+    /// The price is that a one-letter ALIAS stops being a command.
+    /// That is a real loss and a small one beside a private sentence
+    /// shouted at the world.
+    /// </summary>
+    bool IsCommand(string text)
+    {
+        string first = (text ?? "").TrimStart();
+        int cut = first.IndexOf(' ');
+        if (cut >= 0) first = first.Substring(0, cut);
+        return first.Length >= 2 && ChatWords.Contains(first);
+    }
+
+    /// <summary>
+    /// The text as the library's parser needs to see it.
+    ///
+    /// `ChatCommand.Parse` switches on the word exactly as typed
+    /// (ChatCommand.cs:60, :97), and an Android keyboard sentence-cases
+    /// the first word by default. So "Tell Alice hi" matched nothing,
+    /// was skipped by the say because the word IS a command word, and
+    /// vanished without a sound. The first word is lowered here; the
+    /// rest, which may be a player's name, is left exactly as typed.
+    /// </summary>
+    string Commandable(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        string trimmed = text.TrimStart();
+        int cut = trimmed.IndexOf(' ');
+        string first = cut < 0 ? trimmed : trimmed.Substring(0, cut);
+        if (first.Length < 2) return text;
+        string lower = first.ToLowerInvariant();
+        if (!ChatWords.Contains(lower) || lower == first) return text;
+        return lower + (cut < 0 ? "" : trimmed.Substring(cut));
+    }
+
     static System.Collections.Generic.HashSet<string> BuildChatWords()
     {
         var words = new System.Collections.Generic.HashSet<string>();
@@ -414,6 +460,10 @@ public partial class GameView : Node2D
             VersionMinor = (byte)Math.Clamp(VersionMinor, 0, 255),
         };
         _world = new WorldSync(_client.ResourceManager);
+        // Every arrival in a room, the same one included - see the note
+        // on _arrived.
+        _client.Arrived += () => _arrived = true;
+
         _client.Notice += s =>
         {
             _log.Add(s); GD.Print("[M59] " + s);
@@ -461,47 +511,46 @@ public partial class GameView : Node2D
             {
                 try
                 {
-                    // The game's own command parser, which knows tell,
-                    // cast, perform, rest, guild, invite, group, deposit,
-                    // appeal, time and twenty more, and keeps the command
-                    // history. Everything goes through it, because it is
-                    // what adds the line to that history - sending a say
-                    // directly kept ordinary talk out of it entirely.
-                    _client.ExecChatCommand(text);
-
-                    // And then, if it was not a command, say it.
+                    // Is this a command, or is it something to say?
                     //
-                    // This is a deliberate departure. The parser only
-                    // makes a say out of text that begins with the word
-                    // "say" (ChatCommand.cs:103), and the game's own chat
-                    // bar does no more than this call (`UIChat.cpp:279`),
-                    // so on a desktop typing "hello" and pressing enter
-                    // does nothing at all. My earlier comment here
-                    // claimed plain text fell through to a say. It does
-                    // not, and nothing was being sent.
+                    // The library's parser answers for itself on a
+                    // desktop: you type "broadcast x" or you type
+                    // nothing it understands, and plain text does
+                    // nothing at all - `UIChat.cpp:279` calls
+                    // ExecChatCommand and stops there, and the parser
+                    // only makes a say out of text beginning with the
+                    // word "say" (ChatCommand.cs:103).
                     //
-                    // Keeping that would be faithful and wrong. This bar
-                    // is opened by pressing a button labelled Say, so the
-                    // intent is already stated, and typing three more
-                    // letters before every sentence costs a great deal
-                    // more on a soft keyboard than on a real one. A
-                    // command still runs as a command: the say only
-                    // happens when the parser found none.
-                    // Only when the first word is not a command at all.
+                    // This bar is opened by pressing a button labelled
+                    // Say, so plain text is said. That is a departure
+                    // and it is the right one: three more letters
+                    // before every sentence costs far more on a soft
+                    // keyboard than on a real one.
                     //
-                    // "Parse found nothing" is not the same question. A
-                    // command with its arguments missing - "tell Alice"
-                    // with no message, a half-typed guild command -
-                    // parses to nothing as well, and the game's answer
-                    // is to do nothing. Saying it instead would put
-                    // "tell Alice" in front of the whole room, and the
-                    // next attempt would put the message there too. A
-                    // failed private word must not become a public one.
-                    string first = text.TrimStart().Split(' ')[0].ToLowerInvariant();
-                    if (!ChatWords.Contains(first) &&
-                        Meridian59.Data.Models.ChatCommand.Parse(text, _client.Data, _client.Config) == null)
+                    // It does mean the two have to be told apart here,
+                    // and Commandable explains the two things that make
+                    // that harder on a phone than on a desk.
+                    string sending = Commandable(text);
+                    if (IsCommand(sending))
+                    {
+                        // A command runs as a command, and does not
+                        // become speech when it fails. "tell Alice"
+                        // with the message missing parses to nothing;
+                        // saying it instead would put a private word in
+                        // front of the whole room, and the next attempt
+                        // would put the message there too.
+                        _client.ExecChatCommand(sending);
+                    }
+                    else
+                    {
+                        // Still through the parser first, because that
+                        // is what puts the line in the command history
+                        // (BaseClient.cs:3039) - and it will find
+                        // nothing, which is the point.
+                        _client.ExecChatCommand(sending);
                         _client.SendSayToMessage(
-                            Meridian59.Common.Enums.ChatTransmissionType.Normal, text);
+                            Meridian59.Common.Enums.ChatTransmissionType.Normal, sending);
+                    }
                 }
                 catch (Exception ex) { _chat.Local($"could not send: {ex.Message}"); }
             };
@@ -1993,9 +2042,26 @@ public partial class GameView : Node2D
     }
 
     /// <summary>Rebuilds the renderer when the server moves us to a new room.</summary>
+    /// <summary>
+    /// Set by the arrival event and spent by the next SyncRoom.
+    ///
+    /// Comparing room OBJECTS is not enough to notice a room change:
+    /// the library hands back the same RooFile for a room you have been
+    /// in before and resets it in place (BaseClient.cs:628-635). So
+    /// walking back through the door you just came out of looked to
+    /// this like nothing had happened - the room's sounds were never
+    /// stopped, and they piled up at every doorway. The reference
+    /// unloads and reloads on every PlayerMessage without asking
+    /// whether the room is the same (`ControllerRoom.cpp:1605-1612`).
+    /// </summary>
+    bool _arrived;
+
     void SyncRoom()
     {
-        if (!_world.SyncRoom(_client.Data?.RoomInformation?.ResourceRoom)) return;
+        bool fresh = _world.SyncRoom(_client.Data?.RoomInformation?.ResourceRoom);
+        if (!fresh && !_arrived) return;
+        _arrived = false;
+        if (_world.Room == null) return;
 
         // The room's sounds belong to the room. The reference stops and
         // drops every one of them when a Player message arrives
@@ -2003,6 +2069,10 @@ public partial class GameView : Node2D
         // three rooms back keeps running, and another joins it at every
         // doorway until the session is a swamp.
         _sound?.StopAll();
+        // Rebuilt even on a second visit: RooFile.Reset puts every
+        // sidedef's flags back to FlagsOrig (RooSideDef.cs:768-774), so
+        // which walls belong on the map can have changed since the
+        // first time.
         _map?.Build(_world.Room);
         _state = $"in room {_client.Data.RoomInformation.RoomID}";
         GD.Print($"[M59] room -> {_world.Room.Filename} " +

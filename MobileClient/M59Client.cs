@@ -89,6 +89,18 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
     /// </summary>
     public event Action<CharCreationInfo> CharacterPalette;
 
+    /// <summary>
+    /// The server has put you in a room - a login, a door, a teleport.
+    ///
+    /// Raised for every PlayerMessage, including one that puts you back
+    /// in a room you have been in before. The room OBJECT is the same
+    /// one then (BaseClient.cs:628-635 reuses a loaded room and resets
+    /// it), so a view that decides "did the room change?" by comparing
+    /// instances misses the second visit entirely - and with it the
+    /// stopping of the room's sounds and the rebuilding of the map.
+    /// </summary>
+    public event Action Arrived;
+
     void Say(string s) => Notice?.Invoke(s);
 
     /// <summary>
@@ -167,6 +179,13 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
     /// order is worth being deliberate about: the view should hear about
     /// a sound at the same tick the data model does.
     /// </summary>
+    protected override void HandlePlayerMessage(PlayerMessage Message)
+    {
+        base.HandlePlayerMessage(Message);
+        try { Arrived?.Invoke(); }
+        catch (Exception e) { Say($"arrived: {e.Message}"); }
+    }
+
     protected override void HandleGameModeMessage(GameModeMessage Message)
     {
         switch ((MessageTypeGameMode)Message.PI)
