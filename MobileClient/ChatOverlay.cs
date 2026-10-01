@@ -103,12 +103,22 @@ public partial class ChatOverlay : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;      // taps fall through to the view
 
-        // A dim strip behind the HUD log. The reference's chat is a
-        // framed window with its own background; here the lines sit on
-        // the world, and the server styles some of them red - which on
-        // the inn's red carpet was one colour on itself. An outline
-        // alone was not enough.
-        _logBack = new ColorRect { Color = new Color(0f, 0f, 0f, 0.45f), MouseFilter = MouseFilterEnum.Ignore };
+        // The strip behind the HUD log. The reference's chat is a framed
+        // window with its own background; here the lines sit on the
+        // world, and the server styles some of them red - which on the
+        // inn's red carpet was one colour on itself. An outline alone was
+        // not enough.
+        //
+        // Opaque, and in the skin's own sunken colour, which is the whole
+        // point: at 0.45 the backing was a different colour behind every
+        // step the player took, so the contrast of a chat colour was a
+        // function of the floor. The world's bright red carpet dragged
+        // the dark runs to nothing and its black ceiling dragged the pale
+        // ones. Now the two places chat appears - this strip and the full
+        // log's sunken page (<see cref="M59Skin.Sunken"/>, the same
+        // 0.055/0.051/0.045) - are the SAME surface, so one contrast
+        // measurement covers both and neither moves with the view.
+        _logBack = new ColorRect { Color = Back, MouseFilter = MouseFilterEnum.Ignore };
         AddChild(_logBack);
 
         _log = new RichTextLabel
@@ -140,7 +150,12 @@ public partial class ChatOverlay : Control
         // would fight it. The root Control is the anchored one.
         _log.AddThemeFontSizeOverride("normal_font_size", FontSize);
         _log.AddThemeColorOverride("default_color", new Color(1, 1, 1));
-        _log.AddThemeConstantOverride("outline_size", 4);
+        // A thin dark edge, not the old four. Four pixels of outline on a
+        // sixteen pixel glyph is most of the glyph: the counters of e, a
+        // and o filled in and every letter read as a blob, which is the
+        // other half of what "hard to read" meant. Two is enough to hold
+        // an edge now that the strip beneath is opaque.
+        _log.AddThemeConstantOverride("outline_size", 2);
         _log.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
         AddChild(_log);
 
@@ -863,28 +878,92 @@ public partial class ChatOverlay : Control
                              : Dressed(Tint(m.ChatMessageType), Escape(text));
     }
 
+    /// <summary>
+    /// The surface chat is read on, in both places it appears: this is
+    /// the HUD strip's colour and it is also `M59Skin.Sunken`'s fill,
+    /// which is the full log's page. Every contrast figure below is
+    /// against this one value.
+    /// </summary>
+    static readonly Color Back = new Color(0.055f, 0.051f, 0.045f);
+    const string BackHex = "0e0d0b";
+
+    /// <summary>
+    /// What a run too dark to sit on <see cref="Back"/> is given to sit
+    /// on instead: parchment, close to the skin's own body text colour so
+    /// it reads as ink on a page rather than as a highlighter.
+    /// </summary>
+    const string ChipHex = "ede7dc";
+
+    /// <summary>
+    /// Below this against the backing a run is unreadable and needs the
+    /// chip. Set at 3:1 - the large-text floor - deliberately low: it
+    /// takes exactly the fifteen colours that genuinely cannot be seen
+    /// (1.0:1 to 2.8:1) and leaves Fire at 3.9:1 and Magenta at 4.1:1
+    /// alone, which are the ladder's own floor and are WORSE on parchment
+    /// (3.8:1, 3.5:1) than on the dark. A chip is a visible thing; it is
+    /// given only where the alternative is nothing at all.
+    /// </summary>
+    const double Floor = 3.0;
+
     /// <summary>One coloured run.</summary>
     /// <remarks>
     /// The colours are the reference's, exactly (`Constants.h`, via
-    /// `Util.h:880-954`). What is mobile's own is the 4px black outline
-    /// (`_Ready`), and on a colour that is itself near black that
-    /// outline swallows the glyphs: Black, Blue, ImperialBlue, Gray1-5
-    /// and the dark chat red were seen unreadable over the world. A
-    /// dark run therefore gets a light outline instead; the fill is not
-    /// touched.
+    /// `Util.h:880-954`) and are not ours to change. Fifteen of them -
+    /// Black, Blue, Green, Purple, Red, Drab, ImperialBlue, Steel,
+    /// Violet, QuestRed and Gray1-5 - are under 3:1 against the surface
+    /// chat is read on, some of them at 1.0:1, so something of this
+    /// client's own has to carry them.
+    ///
+    /// What that used to be was a 2px #e6e6e6 OUTLINE, and it worked in
+    /// the sense that the letters were legible. But an outline surrounds
+    /// the glyph, so a pale one on a dark page is a halo: on a phone,
+    /// where a 16pt glyph stem is about two pixels wide, the ring is as
+    /// wide as the letter it rings and the eye reads the pale fringe
+    /// rather than the dark shape inside it. The owner's words were
+    /// "weird white around them". That is the halo.
+    ///
+    /// What replaces it is a solid parchment BACKGROUND behind the run -
+    /// one rectangle, not a ring - with the outline explicitly off so the
+    /// label's black edge does not blob the glyph on it. Nothing touches
+    /// the letterform: the edges are the font's own, the fringing has
+    /// nowhere to come from, and the dark colours go from 1.0-2.8:1 to
+    /// 5.2-17.1:1. A pale outline cannot be made to not surround the
+    /// letter; this does not surround it in the first place.
+    ///
+    /// A drop shadow was the other candidate and cannot work here: Godot
+    /// gives a RichTextLabel one shadow for the whole label, not one per
+    /// run, and a shadow dark enough to read as depth does nothing
+    /// whatever for text that is itself black.
     /// </remarks>
     static string Dressed(string hex, string part)
     {
-        int r = Convert.ToInt32(hex.Substring(0, 2), 16);
-        int g = Convert.ToInt32(hex.Substring(2, 2), 16);
-        int b = Convert.ToInt32(hex.Substring(4, 2), 16);
-        // Linear-light luminance, so 0000ff (0.07) counts as dark and
-        // 006400 (0.10) does too, while 8f26aa (0.10) and 004792 sit at
-        // the line.
-        static double Lin(int v) { double c = v / 255.0; return c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4); }
-        double lum = 0.2126 * Lin(r) + 0.7152 * Lin(g) + 0.0722 * Lin(b);
         string run = $"[color=#{hex}]{part}[/color]";
-        return lum < 0.11 ? $"[outline_size=2][outline_color=#e6e6e6]{run}[/outline_color][/outline_size]" : run;
+        return Contrast(hex, BackHex) < Floor
+            ? $"[bgcolor=#{ChipHex}][outline_size=0]{run}[/outline_size][/bgcolor]"
+            : run;
+    }
+
+    /// <summary>
+    /// WCAG 2.1 relative luminance, which is linear-light and so counts
+    /// 0000ff (0.07) as dark where a naive average would not.
+    /// </summary>
+    static double Luminance(string hex)
+    {
+        static double Lin(int v) { double c = v / 255.0; return c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4); }
+        return 0.2126 * Lin(Convert.ToInt32(hex.Substring(0, 2), 16))
+             + 0.7152 * Lin(Convert.ToInt32(hex.Substring(2, 2), 16))
+             + 0.0722 * Lin(Convert.ToInt32(hex.Substring(4, 2), 16));
+    }
+
+    /// <summary>
+    /// WCAG contrast ratio between two hex colours, 1:1 to 21:1. The
+    /// measure the audit used, and the one every figure in this file is
+    /// quoted in.
+    /// </summary>
+    static double Contrast(string a, string b)
+    {
+        double la = Luminance(a), lb = Luminance(b);
+        return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
     }
 
     /// <summary>The server's own text can contain [, which BBCode eats.</summary>
