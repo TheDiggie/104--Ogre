@@ -124,3 +124,13 @@ client-side before the command even goes out
 (`BaseClient.cs:1377`).
 
 See also: the notifier -> mobile-client.md
+
+## Unhandled messages are logged by name
+Tags: gotchas | "game-mode 100, ignored" was read as a ping once, and an evening went into believing the client could not walk
+
+The default case prints the enum's name where there is one: Ping (3),
+ReqMove (100), SendEnchantments (53). ReqCast and ReqPerform have cases
+of their own for the same reason - whether the message reached the wire
+is the first question every spell bug asks.
+
+See also: harness.md

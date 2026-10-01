@@ -843,7 +843,14 @@ static class FakeServer
                     break;
 
                 default:
-                    Console.WriteLine($"  <- game-mode {pi}, ignored");
+                    // By name where the enum knows one. "game-mode 100,
+                    // ignored" has been read as a ping more than once,
+                    // and miscounting pings for moves is how an evening
+                    // goes to believing the client cannot walk.
+                    Console.WriteLine(
+                        Enum.IsDefined(typeof(MessageTypeGameMode), (int)pi)
+                            ? $"  <- {(MessageTypeGameMode)pi} ({pi}), ignored"
+                            : $"  <- game-mode {pi}, ignored");
                     break;
             }
         }
