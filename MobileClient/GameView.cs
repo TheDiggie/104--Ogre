@@ -174,8 +174,10 @@ public partial class GameView : Node2D
     MailPanel _mail;
     NewsPanel _news;
     OptionsPanel _options;
+    AliasEditor _aliases;
     float _bright = 0f;
     GuildPanel _guild;
+    GuildShieldPanel _shieldDesigner;
     ConfirmPopup _ask;
     StatsWizard _wizard;
     CreateCharacter _newChar;
@@ -558,7 +560,27 @@ public partial class GameView : Node2D
                     // It does mean the two have to be told apart here,
                     // and Commandable explains the two things that make
                     // that harder on a phone than on a desk.
-                    string sending = Commandable(text);
+                    // An alias is resolved before any of that, which is
+                    // where the library resolves it too - the first
+                    // thing `ChatCommand.Parse` does with a line is swap
+                    // a leading alias for its value
+                    // (ChatCommand.cs:66-86). It has to happen HERE as
+                    // well, and not be left to the parser, because the
+                    // decision below is made on the text before the
+                    // parser ever sees it: "chuckle" is not a chat word,
+                    // so IsCommand said no, and the line was both
+                    // executed as the emote AND said out loud - the
+                    // emote, then "chuckle" in the room, every time.
+                    //
+                    // One consequence, stated rather than hidden: the
+                    // command history then holds the expanded line,
+                    // where the reference logs the line as typed and
+                    // expands afterwards (BaseClient.cs:3039 before
+                    // :3042). Arrow-up gives you "emote chuckles."
+                    // instead of "chuckle". That is the price of making
+                    // the say/command decision correctly, and it is a
+                    // line that still works when it is sent again.
+                    string sending = Commandable(AliasStore.Expand(_client.Config, text));
                     if (IsCommand(sending))
                     {
                         // A command runs as a command, and does not
@@ -751,7 +773,20 @@ public partial class GameView : Node2D
             _options.LookSpeed   += v => _touch.LookSensitivity = 0.006f * v;
             _options.InvertLook  += on => _touch.InvertLook = on;
             _options.Preferences += () => Act(() => _client.SendUserCommandSendPreferences());
+            // The aliases are a page of the Options window in the
+            // reference (`UIOptions.cpp:1241`); here they are their own
+            // panel, so Settings closes and it takes its place.
+            _options.EditAliases += () => { _options.Close(); _aliases?.Open(); };
             _ui.AddChild(_options);
+        });
+        Widget("aliases", () =>
+        {
+            // No button of its own: Settings is the way in, as it is in
+            // the reference. Closing it puts Settings back, so the trip
+            // is reversible with the button the player already found.
+            _aliases = new AliasEditor();
+            _aliases.Closed += () => _options?.Open();
+            _ui.AddChild(_aliases);
         });
         Widget("guild", () =>
         {
@@ -858,6 +893,41 @@ public partial class GameView : Node2D
             // and re-asks after each one rather than guessing.
             _guild.Reload += () => Act(Reask);
             _ui.AddChild(_guild);
+
+            // The shield designer. In the game it is the guild window's
+            // fourth tab (`UIGuild.cpp:15`); here it is its own panel, so
+            // the guild window has a button that opens it.
+            //
+            // Opening it asks for both shield things the reference asks
+            // for before showing that window (`UIGuild.cpp:618-619`,
+            // `UIMainButtonsRight.cpp:73-74`): the list of shield art,
+            // which is what the design stepper walks, and our own
+            // shield's colours and design.
+            _shieldDesigner = new GuildShieldPanel();
+            _guild.ShieldDesigner += () => _shieldDesigner.Open();
+            _shieldDesigner.Requested += () => Act(() =>
+            {
+                _client.SendUserCommandGuildShieldListReq();
+                _client.SendUserCommandGuildShieldInfoReq();
+            });
+            // Every change of colour or design asks the server about that
+            // design rather than taking it - ClaimShield with ReallyClaim
+            // false (`UIGuild.cpp:927-934`). It is the only way to learn
+            // whether a design is free, and the three bytes it carries
+            // are read off Data.GuildShieldInfo, which the panel has
+            // already written to (`BaseClient.cs:1312-1325`).
+            _shieldDesigner.Preview += () => Act(() => _client.SendUserCommandClaimShield(false));
+            // And the same command with the flag set takes it (:943).
+            //
+            // The reference sends this straight off the button with no
+            // question asked. This asks first, the way the exile and
+            // disband buttons here already do: claiming a shield is not
+            // undoable, and a stray tap on a phone is cheaper to make
+            // than a stray click on a desktop.
+            _shieldDesigner.Claim += () => _ask?.Choice(
+                "Claim this shield for your guild?", 0,
+                _ => Act(() => _client.SendUserCommandClaimShield(true)));
+            _ui.AddChild(_shieldDesigner);
         });
         Widget("players", () =>
         {
@@ -1335,6 +1405,13 @@ public partial class GameView : Node2D
         }
         catch (Exception e) { GD.Print($"[M59] no configuration loaded: {e.Message}"); }
 
+        // The player's own aliases, on top of whatever that file had.
+        // Nothing here ever calls Config.Save and a phone has no
+        // writable file beside the executable anyway, so they live in
+        // user:// - see AliasStore for the whole of why.
+        AliasStore.Load(_client.Config);
+        _aliases?.Follow(_client.Config);
+
         // ResourcesPath before Init, not after: Init is what reads it.
         _client.Config.ResourcesPath = _resDir;
         _client.Init();
@@ -1458,6 +1535,7 @@ public partial class GameView : Node2D
         FollowSounds();
         _guild?.Sync(_client.Data?.GuildInfo, _client.Data?.DiplomacyInfo,
                      _client.Data != null ? _client.Data.AvatarID : 0u);
+        _shieldDesigner?.Sync(_client.Data?.GuildShieldInfo, _client.Data?.GuildInfo);
         _wizard?.Sync(_client.Data?.StatChangeInfo);
         _newChar?.Sync();
 
@@ -1993,10 +2071,11 @@ public partial class GameView : Node2D
     ///
     /// GuildShieldInfo carries it as a ServerString and the reference
     /// puts it in an OK popup and clears it (`UIGuild.cpp:265-267`,
-    /// :643). This client has no shield designer, so nothing here ever
-    /// claims one - but a claim can still fail for a reason the server
-    /// wants to give, and dropping the message silently is the one
-    /// thing that should not happen to it.
+    /// :643). GuildShieldPanel is where a claim comes from now, and this
+    /// is where its refusal lands - but it stays outside that panel on
+    /// purpose, because a claim can fail after the panel has been closed
+    /// and dropping the server's reason silently is the one thing that
+    /// should not happen to it.
     /// </summary>
     void ShieldError()
     {
@@ -2133,7 +2212,9 @@ public partial class GameView : Node2D
         || (_mail != null && _mail.IsOpen)
         || (_news != null && _news.IsOpen)
         || (_options != null && _options.IsOpen)
+        || (_aliases != null && _aliases.IsOpen)
         || (_guild != null && _guild.IsOpen)
+        || (_shieldDesigner != null && _shieldDesigner.IsOpen)
         || (_wizard != null && _wizard.IsOpen)
         || (_acts != null && _acts.IsOpen)
         || (_ask != null && _ask.IsOpen);
