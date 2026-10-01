@@ -216,6 +216,13 @@ public partial class GuildPanel : Control
         // is ever actually clipped, because the card is measured to
         // hold the text.
         _none.ClipText = true;
+        // And wrapping, which ClipText is what makes safe: the notice is
+        // a sentence of prose, not a short line, and without this the
+        // second paragraph ran off the 760pt card and was elided mid-word
+        // ("Speak to him a..."), which loses the only instruction in it.
+        // The minimum stays 1x1 because of the ClipText above, so the
+        // size this is given in Layout is still the size it takes.
+        _none.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         AddChild(_none);
 
         _tabMembers = Push("Members", () =>
@@ -384,9 +391,9 @@ public partial class GuildPanel : Control
         _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
         _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
         _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
-        _x.Size = new Vector2(34, 34);
-        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
-                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
+        _x.Size = new Vector2(M59Skin.CloseSize, M59Skin.CloseSize);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - M59Skin.CloseSize - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - M59Skin.CloseSize) * 0.5f);
     }
 
     void Layout()
@@ -940,7 +947,7 @@ public partial class GuildPanel : Control
         pick.AddItem("Neutral", 1);
         pick.AddItem("Enemy", 2);
         pick.Selected = ours;
-        pick.CustomMinimumSize = new Vector2(ColPick, 38);
+        pick.CustomMinimumSize = new Vector2(ColPick, M59Skin.TapMin);
         pick.SizeFlagsVertical = SizeFlags.ShrinkCenter;
 
         // Dead on your own guild, and dead unless you hold at least one
@@ -1018,7 +1025,7 @@ public partial class GuildPanel : Control
         var rank = new OptionButton { Name = $"rank{index}" };
         M59Skin.Dress(rank, M59Skin.Kind.Secondary);
         rank.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize + 2);
-        rank.CustomMinimumSize = new Vector2(ColRank, 38);
+        rank.CustomMinimumSize = new Vector2(ColRank, M59Skin.TapMin);
         rank.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         for (byte r = 1; r <= 5; r++) rank.AddItem(RankName(info, m.Gender, r), r);
         rank.Selected = Mathf.Clamp(m.Rank - 1, 0, 4);
@@ -1080,7 +1087,7 @@ public partial class GuildPanel : Control
         // nobody, so every row of their roster is a dead button.
         M59Skin.Dress(kick, M59Skin.Kind.Danger);
         kick.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize + 2);
-        kick.CustomMinimumSize = new Vector2(ColExile, 38);
+        kick.CustomMinimumSize = new Vector2(ColExile, M59Skin.TapMin);
         kick.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         kick.Disabled = !CanExile(f, isMe, m.Rank);
         kick.Pressed += () =>

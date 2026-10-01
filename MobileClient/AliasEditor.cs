@@ -255,9 +255,9 @@ public partial class AliasEditor : Control
         _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
         _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
         _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
-        _x.Size = new Vector2(34, 34);
-        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
-                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
+        _x.Size = new Vector2(M59Skin.CloseSize, M59Skin.CloseSize);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - M59Skin.CloseSize - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - M59Skin.CloseSize) * 0.5f);
 
         float w = body.Size.X, x = body.Position.X, y = body.Position.Y;
 
@@ -382,7 +382,7 @@ public partial class AliasEditor : Control
         // of three things in the row that takes its own press, and the
         // row itself is not pressable.
         M59Skin.Dress(bind, M59Skin.Kind.Step);
-        bind.CustomMinimumSize = new Vector2(BindW, M59Skin.RowH - 16f);
+        bind.CustomMinimumSize = new Vector2(BindW, M59Skin.TapMin);
         bind.Pressed += () => Hotbar(index);
         line.AddChild(bind);
 
@@ -416,7 +416,7 @@ public partial class AliasEditor : Control
         {
             Text = "✕",
             TooltipText = "Remove this alias",
-            CustomMinimumSize = new Vector2(48, M59Skin.RowH - 16f),
+            CustomMinimumSize = new Vector2(48, M59Skin.TapMin),
             SizeFlagsVertical = SizeFlags.ShrinkCenter,
             Name = $"aliasDelete{index}",
         };

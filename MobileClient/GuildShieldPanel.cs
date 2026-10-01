@@ -374,9 +374,9 @@ public partial class GuildShieldPanel : Control
         _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
         _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
         _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
-        _x.Size = new Vector2(34, 34);
-        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
-                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
+        _x.Size = new Vector2(M59Skin.CloseSize, M59Skin.CloseSize);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - M59Skin.CloseSize - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - M59Skin.CloseSize) * 0.5f);
 
         // Two columns: the stage on the left, taking whatever squares up
         // inside the body's height, and the settings on the right.
@@ -569,8 +569,22 @@ public partial class GuildShieldPanel : Control
         // pair 9/9 is the one it labels "Design not available" instead
         // (:34-35, :188-190).
         string claimedBy = shield.GuildName ?? "";
-        _claimedBy.Text = string.IsNullOrEmpty(claimedBy) ? "nobody - it is free" : claimedBy;
-        _claim.Disabled = !string.IsNullOrEmpty(claimedBy) || count == 0;
+        // The 9/9 placeholder's name is a SENTENCE, not a guild, so it
+        // cannot go under "Claimed by" verbatim - the panel read
+        // "Claimed by / Design not available", which is a guild with an
+        // odd name. It is what the model sits on before any reply
+        // arrives, so this is the state the panel comes up in whenever
+        // the server is slow, not an edge case.
+        // Detected by the colour pair the library keys on rather than
+        // by the string it writes: DESIGNNOTAVAILABLE is `protected
+        // const` (`GuildShieldInfo.cs:35`) and the library is the
+        // specification, so it is not mine to open up - and the white-
+        // on-white pair IS the condition, set at `:188-190`.
+        bool placeholder = shield.Color1 == 9 && shield.Color2 == 9;
+        _claimedBy.Text = placeholder ? "no design yet"
+                        : string.IsNullOrEmpty(claimedBy) ? "nobody - it is free"
+                        : claimedBy;
+        _claim.Disabled = placeholder || !string.IsNullOrEmpty(claimedBy) || count == 0;
 
         Build(model);
         Show(true);

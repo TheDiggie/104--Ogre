@@ -209,7 +209,7 @@ public partial class ActionsPanel : Control
         };
         M59Skin.Dress(bind, M59Skin.Kind.Step);
         bind.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-        bind.CustomMinimumSize = new Vector2(M59Skin.RowH - 12f, M59Skin.RowH - 16f);
+        bind.CustomMinimumSize = new Vector2(M59Skin.RowH - 12f, M59Skin.TapMin);
         bind.Pressed += () => AssignGo?.Invoke();
         line.AddChild(bind);
 
@@ -264,7 +264,7 @@ public partial class ActionsPanel : Control
         // look like it takes its own press.
         M59Skin.Dress(bind, M59Skin.Kind.Step);
         bind.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-        bind.CustomMinimumSize = new Vector2(M59Skin.RowH - 12f, M59Skin.RowH - 16f);
+        bind.CustomMinimumSize = new Vector2(M59Skin.RowH - 12f, M59Skin.TapMin);
         bind.Pressed += () => Assign?.Invoke(a);
         line.AddChild(bind);
 
@@ -296,9 +296,9 @@ public partial class ActionsPanel : Control
         _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
         _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
         _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
-        _x.Size = new Vector2(34, 34);
-        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
-                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
+        _x.Size = new Vector2(M59Skin.CloseSize, M59Skin.CloseSize);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - M59Skin.CloseSize - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - M59Skin.CloseSize) * 0.5f);
 
         _scroll.Position = body.Position;
         _scroll.Size = body.Size;

@@ -452,9 +452,9 @@ public partial class OptionsPanel : Control
         _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
         _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
         _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
-        _x.Size = new Vector2(34, 34);
-        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
-                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
+        _x.Size = new Vector2(M59Skin.CloseSize, M59Skin.CloseSize);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - M59Skin.CloseSize - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - M59Skin.CloseSize) * 0.5f);
 
         float w = Mathf.Min(body.Size.X, ColumnW);
         _scroll.Position = new Vector2(body.Position.X + Mathf.Round((body.Size.X - w) * 0.5f),
@@ -857,7 +857,7 @@ public partial class OptionsPanel : Control
         {
             Text = text,
             Name = node,
-            CustomMinimumSize = new Vector2(52, M59Skin.RowH - 16f),
+            CustomMinimumSize = new Vector2(52, M59Skin.TapMin),
             SizeFlagsVertical = SizeFlags.ShrinkCenter,
         };
         M59Skin.Dress(b, M59Skin.Kind.Step);

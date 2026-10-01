@@ -189,9 +189,9 @@ public partial class SpellsPanel : Control
         _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
         _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
         _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
-        _x.Size = new Vector2(34, 34);
-        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
-                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
+        _x.Size = new Vector2(M59Skin.CloseSize, M59Skin.CloseSize);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - M59Skin.CloseSize - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - M59Skin.CloseSize) * 0.5f);
 
         // The tabs sit at the top of the BODY, inside the card, rather
         // than floating in the panel's dead space: they choose what the
@@ -473,7 +473,7 @@ public partial class SpellsPanel : Control
         // A square stepper rather than a second row-high slab: it is the
         // one thing in the row that takes its own press.
         M59Skin.Dress(bind, M59Skin.Kind.Step);
-        bind.CustomMinimumSize = new Vector2(M59Skin.RowH - 12f, M59Skin.RowH - 16f);
+        bind.CustomMinimumSize = new Vector2(M59Skin.RowH - 12f, M59Skin.TapMin);
         bind.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         bind.Pressed += () => Assign?.Invoke(id, spell);
         line.AddChild(bind);

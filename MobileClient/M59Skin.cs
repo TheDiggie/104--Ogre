@@ -91,6 +91,35 @@ public static class M59Skin
     public const float FootH = 68f;
     /// <summary>Inside the card, on every edge.</summary>
     public const float Pad = 18f;
+
+    /// <summary>
+    /// The title bar's close button, square.
+    ///
+    /// 34 for a long time, which is a mouse's number: it is the size the
+    /// glyph wanted, not the size a thumb needs, and the UI layer is
+    /// scaled a further ~0.95 inside the safe area, so it reached the
+    /// glass at about 32. Apple asks 44 points and Material 48 density
+    /// pixels, and the control that DISMISSES something is the one a
+    /// player reaches for in a hurry. The title bar is 58 tall, so 44
+    /// still sits centred in it with room on both sides.
+    ///
+    /// It lives here rather than in each panel because it was written
+    /// out by hand in twenty of them, which is twenty places for the
+    /// next change to miss one.
+    /// </summary>
+    public const float CloseSize = 44f;
+
+    /// <summary>
+    /// The smallest a control that is PRESSED may be, on either axis.
+    ///
+    /// Apple asks 44 points, Material 48 density pixels. Several things
+    /// here were written as RowH minus a margin, which came to 40 - near
+    /// enough to look right in a screenshot and not near enough for a
+    /// thumb while the other hand is holding the phone. The research is
+    /// clearer about separation than about size above about 40, so the
+    /// gaps are left alone; it is the targets that move.
+    /// </summary>
+    public const float TapMin = 44f;
     /// <summary>Between two things that belong together.</summary>
     public const float Gap = 10f;
     /// <summary>A list row. Comfortably over the 44px a thumb needs.</summary>
@@ -644,7 +673,7 @@ public static class M59Skin
         /// <summary>Lays the four out over <paramref name="card"/>. Returns it, for chaining.</summary>
         public Rect2 Place(Rect2 card)
         {
-            const float xs = 34f;
+            const float xs = CloseSize;
             Card.Position = card.Position;
             Card.Size = card.Size;
             Bar.Position = card.Position;
