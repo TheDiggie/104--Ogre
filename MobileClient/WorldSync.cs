@@ -89,13 +89,21 @@ public sealed class WorldSync
         string set = M59Sky.SetFor(bgfFile);
         if (set == _skySet) return;
         _skySet = set;
-        if (!_skyLooked) { _skyDir = M59Sky.FindDir(RootPath); _skyLooked = true; }
+        if (!_skyLooked) { _skyDir = SkyDir ?? M59Sky.FindDir(RootPath); _skyLooked = true; }
         _sky = set == null ? null : M59Sky.Load(_skyDir, set);
         if (Renderer != null) Renderer.Sky = _sky;
     }
 
     /// <summary>Where the game's resources were loaded from, for finding the sky.</summary>
     public string RootPath;
+
+    /// <summary>
+    /// The folder holding the skybox faces, when the caller knows it.
+    /// The game does - they ship with it, not with the player's resource
+    /// folder - and M59Paths.SkyDir has to unpack them on Android, which
+    /// needs Godot; the check tools leave this null and let M59Sky look.
+    /// </summary>
+    public string SkyDir;
 
     /// <summary>
     /// Mirrors the server's objects into the renderer, converting the

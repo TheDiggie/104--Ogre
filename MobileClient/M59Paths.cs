@@ -183,6 +183,57 @@ public static class M59Paths
         return written;
     }
 
+    /// <summary>Where the skybox faces sit inside the export.</summary>
+    public const string PackedSky = "res://sky";
+    /// <summary>Where they are copied to on a device that cannot read res:// as files.</summary>
+    public const string UserSky = "user://sky";
+
+    /// <summary>
+    /// A real directory holding the six-faces-per-set skybox art, or
+    /// null if there is none.
+    ///
+    /// The faces ship with the game rather than with the player's
+    /// resource folder: they are the Ogre client's own
+    /// Resources/sky/*.png (sky.material:1-89), which an installed
+    /// Meridian client does not have. They are marked importer="keep"
+    /// so Godot passes them through instead of turning them into
+    /// textures, because M59Sky decodes them itself - it is shared with
+    /// the headless check tools and cannot use Godot's image loader.
+    ///
+    /// On desktop res:// is a real folder and nothing needs copying. On
+    /// Android it lives inside the .pck, so the faces are copied out
+    /// once, the same way the bundled resource folder is.
+    /// </summary>
+    public static string SkyDir()
+    {
+        string here = ProjectSettings.GlobalizePath(PackedSky);
+        if (Directory.Exists(here) && File.Exists(Path.Combine(here, "skya_fr.png")))
+            return here;
+
+        string dest = ProjectSettings.GlobalizePath(UserSky);
+        if (Directory.Exists(dest) && File.Exists(Path.Combine(dest, "skya_fr.png")))
+            return dest;
+
+        using var src = DirAccess.Open(PackedSky);
+        if (src == null) return null;                 // no sky in this build
+
+        try { Directory.CreateDirectory(dest); }
+        catch (Exception e) { GD.PrintErr($"[M59Paths] {dest}: {e.Message}"); return null; }
+
+        int written = 0;
+        foreach (string name in src.GetFiles())
+        {
+            if (name.EndsWith(".import", StringComparison.OrdinalIgnoreCase)) continue;
+            using Godot.FileAccess f = Godot.FileAccess.Open(
+                $"{PackedSky}/{name}", Godot.FileAccess.ModeFlags.Read);
+            if (f == null) continue;
+            try { File.WriteAllBytes(Path.Combine(dest, name), f.GetBuffer((long)f.GetLength())); written++; }
+            catch (Exception e) { GD.PrintErr($"[M59Paths] {name}: {e.Message}"); }
+        }
+        GD.Print($"[M59Paths] unpacked {written} sky faces to {dest}");
+        return written > 0 ? dest : null;
+    }
+
     /// <summary>A sentence to show when nothing was found, naming the places looked.</summary>
     public static string NotFoundMessage()
     {

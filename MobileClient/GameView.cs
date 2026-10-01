@@ -476,6 +476,7 @@ public partial class GameView : Node2D
         };
         _world = new WorldSync(_client.ResourceManager);
         _world.RootPath = _resDir;
+        _world.SkyDir = M59Paths.SkyDir();
         // Every arrival in a room, the same one included - see the note
         // on _arrived.
         _client.Arrived += () => _arrived = true;
