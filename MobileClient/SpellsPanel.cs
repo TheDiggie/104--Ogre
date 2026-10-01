@@ -179,7 +179,10 @@ public partial class SpellsPanel : Control
         float rowH = Mathf.Max(RowHeight, M59Skin.RowH);
         int shown = Mathf.Max(1, _rows != null ? _rows.GetChildCount() : 1);
         float want = TabH + M59Skin.Gap + shown * (rowH + 4f);
-        Rect2 card = M59Skin.Frame(v, want);
+        // Narrow as well as short. A row here is a name and a percentage;
+        // across the whole screen the two ends of it stop reading as one
+        // line. See M59Skin.ListW.
+        Rect2 card = M59Skin.Frame(v, want, true, M59Skin.ListW);
         Rect2 body = M59Skin.Body(card);
         Rect2 foot = M59Skin.Foot(card);
 

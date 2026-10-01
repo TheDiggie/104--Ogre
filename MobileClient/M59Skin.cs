@@ -120,6 +120,21 @@ public static class M59Skin
     /// gaps are left alone; it is the targets that move.
     /// </summary>
     public const float TapMin = 44f;
+
+    /// <summary>
+    /// How wide a card holding a LIST of label-and-value rows should be.
+    ///
+    /// <see cref="Frame"/>'s default is the widest a card may ever be,
+    /// which on a landscape phone works out at about five sixths of the
+    /// screen. That is right for a grid - the pack, a roster - and wrong
+    /// for a column of short rows: a book with two spells in it became a
+    /// sixteen-hundred-point window with a name at one end of each row
+    /// and a number at the other, and the eye has to travel the whole
+    /// way to pair them up. Typography's own answer is a measure, which
+    /// is what <see cref="Measure"/> is; this is that plus the card's
+    /// padding, so the ROW is a measure wide rather than the card.
+    /// </summary>
+    public const float ListW = Measure + Pad * 2f;
     /// <summary>Between two things that belong together.</summary>
     public const float Gap = 10f;
     /// <summary>A list row. Comfortably over the 44px a thumb needs.</summary>

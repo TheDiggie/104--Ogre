@@ -148,7 +148,9 @@ public partial class AttributesPanel : Control
         // Close button alone at the bottom of it.
         float rowH = Mathf.Max(RowHeight, M59Skin.RowH);
         int shown = Mathf.Max(1, _rows != null ? _rows.GetChildCount() : 1);
-        Rect2 card = M59Skin.Frame(v, shown * (rowH + 6f));
+        // Narrow as well as short: a name, a bar and a number do not
+        // want the whole screen between them. See M59Skin.ListW.
+        Rect2 card = M59Skin.Frame(v, shown * (rowH + 6f), true, M59Skin.ListW);
         Rect2 body = M59Skin.Body(card);
         Rect2 foot = M59Skin.Foot(card);
 
