@@ -48,6 +48,13 @@ static class FakeServer
     const uint RID_ROOMFILE2 = 60005;
     const uint RID_ROOMNAME2 = 60006;
     const uint RID_ARROWBGF = 60007;
+    // M59_BADROOM: a room file the client does not have, and its name.
+    const uint RID_ROOMFILE3 = 60008;
+    const uint RID_ROOMNAME3 = 60009;
+    // M59_LOOKSKILL: the words on a skill's description.
+    const uint RID_SKILLDESC = 60115;
+    const uint RID_SKILLSCHOOL = 60116;
+    const uint RID_SKILLLEVEL = 60117;
     const uint RID_PLAYERNAME = 60003;
     const uint RID_RATNAME = 60004;
     const uint RID_PLAYERBGF = 60010;
@@ -93,6 +100,200 @@ static class FakeServer
     static int blindAfter, painAfter, whiteAfter, invertAfter;
     // M59_SHOOT=1: an arrow from the rat to you, over and over.
     static int shootAfter;
+
+    // ===================================================================
+    // THE TEST SURFACE. Everything from here to the end of this block is
+    // OFF unless its M59_* variable is set, so a run that sets none of
+    // them is byte-for-byte the run it was before. Each switch names the
+    // real-server behaviour it stands in for; notes/fake-server.md has the
+    // recipes and what was verified. The messages are the library's own
+    // classes (Meridian59/Protocol/GameMessages/GameMode/), and where the
+    // server's own behaviour decides the content it is cited to Server-104.
+    // ===================================================================
+    static int EnvInt(string name, int dflt)
+        => int.TryParse(Environment.GetEnvironmentVariable(name), out int v) ? v : dflt;
+    static bool EnvOn(string name) => Environment.GetEnvironmentVariable(name) == "1";
+    static string EnvStr(string name) => Environment.GetEnvironmentVariable(name);
+
+    // --- Doors and animating geometry -------------------------------------
+    // One opening at M59_GEOM_AFTER messages after every room entry (default
+    // 6, counted in client messages like M59_SHOOT), and one closing
+    // M59_GEOM_PERIOD messages after that (default 24). Targets are the
+    // SERVER ids the .roo carries, not array indices: RooFile matches on
+    // RooSector.ServerID / RooSideDef.ServerID (`RooFile.cs:2250-2284`), so
+    // id 0 - what every untagged sector has, and every sector of barinn -
+    // would move ALL of them. The recipes in fake-server.md name rooms
+    // whose doors are tagged.
+    //
+    // M59_SECTOR=<id>  SectorMoveMessage (PI 223): a door or a lift. The
+    //   server's `User.SectorSendUser` (`kod/object/active/holder/nomoveon/battler/player/user.kod:4680-4689`) writes
+    //   [type 1][sector 2][height 2][speed 1]; the room calls it for every
+    //   player in the room when a sector moves (`kod/object/active/holder/room.kod:2988-3010`, `SetSector`), and replays
+    //   every recorded move to a player entering the room at speed 0 (`room.kod:2196-2204`).
+    //   M59_SECTOR_PLANE=ceiling|floor  which plane moves: ANIMATE_CEILING_LIFT
+    //     / ANIMATE_FLOOR_LIFT (`include/proto.h:309-310`), default ceiling
+    //   M59_SECTOR_TO=<h>     target height, in the .roo's own units (default 400)
+    //   M59_SECTOR_BACK=<h>   height to go back to at the closing step
+    //   M59_SECTOR_SPEED=<n>  0 is an instant jump (`RooSector.Tick`), default 16
+    static readonly int geomAfter = EnvInt("M59_GEOM_AFTER", 6);
+    static readonly int geomPeriod = EnvInt("M59_GEOM_PERIOD", 24);
+    static readonly int sectorId = EnvInt("M59_SECTOR", -1);
+    static readonly bool sectorFloor = EnvStr("M59_SECTOR_PLANE") == "floor";
+    static readonly int sectorTo = EnvInt("M59_SECTOR_TO", 400);
+    static readonly int sectorBack = EnvInt("M59_SECTOR_BACK", -1);
+    static readonly int sectorSpeed = EnvInt("M59_SECTOR_SPEED", 16);
+    // M59_SECTOR_CHANGE=<id>  SectorChangeMessage (PI 239): depth and
+    //   texture scroll of a sector, the server's `SectorChangeSendUser`
+    //   (`user.kod:4757-4766`: [sector 2][depth 1][scrollSpeed 1]).
+    //   M59_SECTOR_DEPTH=0..3   (default 4 = "leave it": ChangeOverride,
+    //     `RooSectorFlags.cs:40`), M59_SECTOR_SCROLL=0..3 (default 4 =
+    //     "leave it": `TextureScrollSpeed.CHANGE_OVERRIDE`). The closing
+    //     step sends M59_SECTOR_DEPTH_BACK / M59_SECTOR_SCROLL_BACK (default
+    //     0 and 0) for whichever of the two was changed.
+    static readonly int sectorChangeId = EnvInt("M59_SECTOR_CHANGE", -1);
+    static readonly int sectorDepth = EnvInt("M59_SECTOR_DEPTH", 4);
+    static readonly int sectorScroll = EnvInt("M59_SECTOR_SCROLL", 4);
+    static readonly int sectorDepthBack = EnvInt("M59_SECTOR_DEPTH_BACK", 0);
+    static readonly int sectorScrollBack = EnvInt("M59_SECTOR_SCROLL_BACK", 0);
+    // M59_WALL=<sidedef id>  WallAnimateMessage (PI 225): a wall whose
+    //   texture animates, the server's `WallSendUser` (`user.kod:4704-4742`:
+    //   [wall 2][animation 1] then, per animation, none: [group 2], once:
+    //   [period 4][low 2][high 2][final 2], cycle: [period 4][low 2][high 2],
+    //   then [passable 1] - 0 leave alone, 1 passable, 2 impassable).
+    //   M59_WALL_ANIM=cycle|once|none   default cycle
+    //   M59_WALL_PERIOD=<ms>            default 500
+    //   M59_WALL_GROUPS=<low>,<high>[,<final>]   bitmap groups, default 1,2
+    //   M59_WALL_ACTION=none|passable|impassable  the trailing byte; the
+    //     closing step sends the opposite of passable/impassable.
+    //   The closing step stops the animation (`none`, first group).
+    static readonly int wallId = EnvInt("M59_WALL", -1);
+    static readonly string wallAnim = EnvStr("M59_WALL_ANIM") ?? "cycle";
+    static readonly int wallPeriod = EnvInt("M59_WALL_PERIOD", 500);
+    static readonly string wallGroups = EnvStr("M59_WALL_GROUPS") ?? "1,2";
+    static readonly string wallAction = EnvStr("M59_WALL_ACTION") ?? "none";
+    // M59_WALLTEX=<server id>  ChangeTextureMessage (PI 227): a texture
+    //   swap, the server's `TextureSendUser` (`user.kod:4744-4753`:
+    //   [id 2][new texture 2][flags 1]); flags are `CTF_*`
+    //   (`include/proto.h:557-565`). The id names a SIDEDEF for the wall
+    //   parts and a SECTOR for floor/ceiling.
+    //   M59_WALLTEX_PART=above|normal|below|floor|ceiling   default normal
+    //   M59_WALLTEX_TO=<n>     the new texture, a grdNNNNN.bgf number
+    //   M59_WALLTEX_BACK=<n>   texture to restore at the closing step
+    //     (CTF_RESET, 0x20, exists on the wire but RooFile ignores it -
+    //     see fake-server.md - so the original is sent by number instead)
+    static readonly int texId = EnvInt("M59_WALLTEX", -1);
+    static readonly string texPart = EnvStr("M59_WALLTEX_PART") ?? "normal";
+    static readonly int texTo = EnvInt("M59_WALLTEX_TO", 1018);
+    static readonly int texBack = EnvInt("M59_WALLTEX_BACK", -1);
+    static int geomCount = -1;       // -1: not running
+
+    // --- A server verdict on the avatar's move ---------------------------
+    // M59_YANK=<n>: every nth ReqMove is refused and the avatar is sent
+    //   back. The server's own refusal is `UtilGoNearSquare` with the
+    //   last legal square (`User.UserMove`, `user.kod:3982`: no-move flag
+    //   or a destination outside the map `:4020-4027`, running with no
+    //   vigor `:4154`, a room's own `IsMoveOK` `:4202`), which goes
+    //   through `UtilGoToSquare` (`kod/util.kod:124-141`) to room
+    //   `SomethingMoved` with no cause, and `User.SomethingMoved`
+    //   answers EVERY move whose cause is not CAUSE_USER_INPUT - your
+    //   own included - with BP_MOVE for yourself (`user.kod:8286-8311`,
+    //   the packet at `:8302`), then `SomethingTurned` for the angle. So: a MoveMessage for the
+    //   avatar, then a TurnMessage. Accepted moves are not answered at
+    //   all (`user.kod:8300`), which is why the client predicts.
+    //   M59_YANK_TO=<x>,<y>  always send it there instead of the last
+    //     accepted position (a teleport-style yank)
+    //   M59_YANK_SPEED=<n>   MovementSpeed byte, default 0 (what
+    //     `UtilGoToSquare` sends: SomethingMoved's speed default)
+    static readonly int yankEvery = EnvInt("M59_YANK", 0);
+    static readonly string yankTo = EnvStr("M59_YANK_TO");
+    static readonly int yankSpeed = EnvInt("M59_YANK_SPEED", 0);
+    static int reqMoves;
+    static ushort okX, okY, okAngle;      // last move the server "accepted"
+
+    // --- A room change with a gap ---------------------------------------
+    // M59_ROOMGAP_MS=<ms>: on a Go (not on first entry), PlayerMessage goes
+    //   out at once and everything after it - RoomContents, and with it the
+    //   sounds and enchantments that follow the contents - is held back
+    //   that long. The real server sends BP_PLAYER and BP_ROOM_CONTENTS as
+    //   two packets (`clientd3d/server.c:81-82`) and the contents have to be
+    //   collected and encoded; over a real link the client sits in the gap
+    //   with a new room and no avatar. The library has no avatar until
+    //   RoomContents lands, which is the window this opens.
+    static readonly int roomGapMs = EnvInt("M59_ROOMGAP_MS", 0);
+    static int roomsEntered;
+    static readonly List<Timer> gapTimers = new List<Timer>();
+    static readonly object sendLock = new object();
+
+    // --- Room light ----------------------------------------------------
+    // M59_AMBIENT=<0-255>: RoomInfo.AmbientLight for both rooms (default
+    //   160, what the fixture always sent). Not a stand-in for anything the
+    //   server does differently - it is `PlayerMessage`'s own field - but
+    //   most .roo files other than barinn and barlmarket render near-black
+    //   at 160, and a door that opens in the dark proves nothing to the eye.
+    static readonly byte ambient = (byte)EnvInt("M59_AMBIENT", 160);
+
+    // --- Another room, another spawn, a room the client lacks ----------
+    // M59_ROOM2=<file.roo>   the room a Go leads to (default barlmarket.roo)
+    // M59_SPAWN=<x>,<y>[,<angle>]   room 1's avatar, in server units (kod =
+    //   room/16 + 64), angle in whole radians as `Obj` takes it. Default:
+    //   the computed spawn (barinn gives 752,672, the coordinate this
+    //   fixture always used). M59_SPAWN2= the same for the second room.
+    // M59_BADROOM=1   the second room names "zzmissing.roo", which the
+    //   client's resource folder does not have: a client on an old resource
+    //   set or a server with a newer map. PlayerMessage and RoomContents go
+    //   out exactly as for a good room, so the failed load is the client's
+    //   alone. (The real server cannot know what files a client has.)
+    static readonly string room2Env = EnvStr("M59_ROOM2");
+    static readonly bool badRoom = EnvOn("M59_BADROOM");
+
+    // --- Icons on the spell and skill rows ------------------------------
+    // M59_STATICONS=1: StatList rows carry a ResourceIconID. The server
+    //   sends `4,Send(oSpell,@GetIcon)` / `4,Send(oSkill,@GetIcon)` as the
+    //   last field of every row (`user.kod:9409-9420`, `:9436-9447`). The
+    //   fixture sent 0. The icons here are deliberately NOT the ones the
+    //   spell/skill objects carry, so a window that drew the object's art
+    //   instead of the row's would show the wrong picture.
+    static readonly bool wantStatIcons = EnvOn("M59_STATICONS");
+
+    // --- ReqLook on a skill ---------------------------------------------
+    // M59_LOOKSKILL=1: ReqLook with a skill id (5101, 5102) is answered
+    //   with LookSkillMessage (PI 192) instead of the rat's Look. Content
+    //   follows `Skill.ShowDesc` (`kod/object/passive/skill.kod:141-163`):
+    //   a description, the school and the level, as server strings.
+    static readonly bool wantLookSkill = EnvOn("M59_LOOKSKILL");
+
+    // --- The second room's enchantments ----------------------------------
+    // M59_ROOM2BUFFS=1: the second room sends one room enchantment. Room
+    //   buffs are the room's, re-sent on every entry - the library clears
+    //   RoomBuffs on both RoomContents and Player for that reason
+    //   (`DataController.cs:2225`, `:2346`); `EnterSecondRoom` used to
+    //   return before any were sent, so the list could only ever be
+    //   emptied, never refilled, after a Go. It sends ONE where room 1
+    //   sends two, so a stale list shows as the wrong count.
+    static readonly bool wantRoom2Buffs = EnvOn("M59_ROOM2BUFFS");
+
+    // --- A stack that changes under the client -------------------------
+    // M59_STACK=shrink|replace: the coins (8003, 25 of them) change
+    //   M59_STACK_AFTER messages into the session (default 12), to
+    //   M59_STACK_TO (default 5).
+    //   shrink:  ChangeMessage (PI 219) for the stack. This is what the
+    //     server does when a NumberItem's count changes:
+    //     `SubtractNumber` -> `NewNumber` -> `User.SomethingChanged`
+    //     (`kod/object/item/passitem/numbitem.kod:259-297`,
+    //     `user.kod:8678-8706`), which sends BP_CHANGE with the object in
+    //     its inventory form, count included (`ToCliObject`, `user.kod:3095-3108`).
+    //   replace: InventoryRemove of the stack and InventoryAdd of a new
+    //     one (id 8004) - what a stack running out and another arriving
+    //     looks like (`numbitem.kod:265-271` deletes at <= 0).
+    // The fixture's own bag (ReqInventory) follows the change, so a later
+    // reopen agrees with the wire.
+    static readonly string stackMode = EnvStr("M59_STACK");
+    static readonly int stackAfter = EnvInt("M59_STACK_AFTER", 12);
+    static readonly int stackTo = EnvInt("M59_STACK_TO", 5);
+    static int stackCount = -1;      // -1: not running
+    static uint coinId = 8003;
+    static uint coinNow = 25;
+    // ===================================================================
     const uint RID_SPELLDESC = 60110;
     const uint RID_SCHOOL = 60111;
     const uint RID_LEVEL = 60112;
@@ -137,6 +338,7 @@ static class FakeServer
         int port = args.Length > 0 && int.TryParse(args[0], out int p) ? p : 15999;
         if (args.Length > 1) dir = args[1];
         if (args.Length > 2) room = args[2];
+        if (room2Env != null) room2 = room2Env;
 
         EnsureStrings();
 
@@ -170,6 +372,12 @@ static class FakeServer
             new RsbResourceID(RID_ROOMFILE2,  room2,         4),
             new RsbResourceID(RID_ROOMNAME2,  "Elsewhere",   4),
             new RsbResourceID(RID_ARROWBGF,   "arrowsil.bgf", 4),
+            new RsbResourceID(RID_ROOMFILE3,  "zzmissing.roo", 4),
+            new RsbResourceID(RID_ROOMNAME3,  "Nowhere",     4),
+            new RsbResourceID(RID_SKILLDESC,
+                "A quick cut that opens a guard, at the price of your footing.", 4),
+            new RsbResourceID(RID_SKILLSCHOOL, "School: Fencing", 4),
+            new RsbResourceID(RID_SKILLLEVEL,  "Level 1", 4),
             new RsbResourceID(RID_PLAYERNAME, "Tester",      4),
             new RsbResourceID(RID_RATNAME,    "a duskrat",   4),
             new RsbResourceID(RID_PLAYERBGF,  "bri.bgf",     4),
@@ -435,6 +643,10 @@ static class FakeServer
             if (statChangeAfter > 0 && --statChangeAfter == 0)
                 SendStatChange(ns, ctrl);
 
+            // The test-surface switches that run on a message count.
+            Geometry(ns, ctrl);
+            StackChange(ns, ctrl);
+
             switch ((MessageTypeGameMode)pi)
             {
                 case MessageTypeGameMode.SendCharacters:
@@ -490,6 +702,8 @@ static class FakeServer
                     uint lookAt = body.Length >= 5 ? BitConverter.ToUInt32(body, 1) : 0;
                     Console.WriteLine($"  <- ReqLook {lookAt}");
                     if (lookAt == 5001 || lookAt == 5002) SendLookSpell(ns, ctrl);
+                    else if (wantLookSkill && (lookAt == 5101 || lookAt == 5102))
+                        SendLookSkill(ns, ctrl, lookAt);
                     // A news globe answers with LookNewsGroup rather
                     // than Look - the same request, a different reply,
                     // exactly as with a spell.
@@ -571,6 +785,12 @@ static class FakeServer
                     Console.WriteLine("  <- ReqGo");
                     inRoom2 = !inRoom2;
                     EnterRoom(ns, ctrl);
+                    break;
+
+                case MessageTypeGameMode.ReqMove when yankEvery > 0:
+                    // M59_YANK: see the block of statics. Everything else
+                    // falls to the default below and is logged by name.
+                    ServerVerdict(ns, ctrl, body);
                     break;
 
                 case MessageTypeGameMode.ReqCast:
@@ -1011,7 +1231,7 @@ static class FakeServer
         {
             Carry(8001, RID_AXEBGF,  RID_AXE,   0, true),
             Carry(8002, RID_BOOKBGF, RID_BOOK,  0, false),
-            Carry(8003, RID_COINBGF, RID_COIN, 25, false),
+            Carry(coinId, RID_COINBGF, RID_COIN, coinNow, false),
         };
 
         var all = new List<InventoryObject>(bag);
@@ -1091,8 +1311,8 @@ static class FakeServer
 
         var stats = new Stat[]
         {
-            new StatList(1, RID_SPELL1, 5001, 63, 0),
-            new StatList(2, RID_SPELL2, 5002, 21, 0),
+            new StatList(1, RID_SPELL1, 5001, 63, wantStatIcons ? RID_COINBGF : 0),
+            new StatList(2, RID_SPELL2, 5002, 21, wantStatIcons ? RID_BOOKBGF : 0),
         };
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Spells, stats));
     }
@@ -1108,8 +1328,8 @@ static class FakeServer
 
         var stats = new Stat[]
         {
-            new StatList(1, RID_SKILL1, 5101, 88, 0),
-            new StatList(2, RID_SKILL2, 5102, 40, 0),
+            new StatList(1, RID_SKILL1, 5101, 88, wantStatIcons ? RID_AXEBGF : 0),
+            new StatList(2, RID_SKILL2, 5102, 40, wantStatIcons ? RID_COINBGF : 0),
         };
         Send(ns, ctrl, new StatGroupMessage(StatGroup.Skills, stats));
     }
@@ -1697,17 +1917,20 @@ static class FakeServer
     /// </summary>
     static void EnterSecondRoom(NetworkStream ns, MessageControllerClient ctrl, uint avatarId)
     {
-        (ushort sx, ushort sy) = Spawn(room2, 752, 672);
+        // M59_BADROOM names a file the client does not have; there is
+        // nothing to read a spawn from then, so the old fixed one is used.
+        (ushort sx, ushort sy, float sa) = SpawnFor(room2, EnvStr("M59_SPAWN2"), !badRoom);
+        okX = sx; okY = sy; okAngle = 0;
 
         var info = new RoomInfo(
             AvatarID: avatarId,
             AvatarOverlayRID: RID_PLAYERBGF,
             AvatarNameRID: RID_PLAYERNAME,
-            RoomID: 2,
-            RoomFileRID: RID_ROOMFILE2,
-            RoomNameRID: RID_ROOMNAME2,
+            RoomID: badRoom ? 3u : 2u,
+            RoomFileRID: badRoom ? RID_ROOMFILE3 : RID_ROOMFILE2,
+            RoomNameRID: badRoom ? RID_ROOMNAME3 : RID_ROOMNAME2,
             RoomSecurity: 0,
-            AmbientLight: 160,
+            AmbientLight: ambient,
             AvatarLight: 0,
             BackgroundFileRID: 0,
             WadingSoundFileRID: 0,
@@ -1716,28 +1939,251 @@ static class FakeServer
 
         Send(ns, ctrl, new PlayerMessage(info));
 
-        var objects = new[]
+        // Everything after the Player message can be held back by
+        // M59_ROOMGAP_MS; with the switch off this runs at once.
+        AfterGap(() =>
         {
-            Obj(avatarId, RID_PLAYERBGF, RID_PLAYERNAME, sx, sy, 0f, OF_PLAYER),
-            // A grid square away, not four units: the README already
-            // records what four looks like - one duskrat filling the
-            // screen - and the first cut of this room reproduced it,
-            // brown blocks and all.
-            Obj(2004, RID_RATBGF, RID_RATNAME, (ushort)(sx + 64), sy, 2f,
-                OF_ATTACKABLE, MM_MONSTER),
-        };
-        Send(ns, ctrl, new RoomContentsMessage(new ObjectID(2, 0), objects));
-        Console.WriteLine($"  -> room {room2} at {sx},{sy} with {objects.Length} objects");
+            var objects = new[]
+            {
+                Obj(avatarId, RID_PLAYERBGF, RID_PLAYERNAME, sx, sy, sa, OF_PLAYER),
+                // A grid square away, not four units: the README already
+                // records what four looks like - one duskrat filling the
+                // screen - and the first cut of this room reproduced it,
+                // brown blocks and all.
+                Obj(2004, RID_RATBGF, RID_RATNAME, (ushort)(sx + 64), sy, 2f,
+                    OF_ATTACKABLE, MM_MONSTER),
+            };
+            Send(ns, ctrl, new RoomContentsMessage(new ObjectID(2, 0), objects));
+            Console.WriteLine($"  -> room {(badRoom ? "zzmissing.roo" : room2)} at {sx},{sy} with {objects.Length} objects");
 
-        // Nothing carried over from the other room.
-        lootLeft = 0;
-        lootOpen = false;
-        takenSoFar.Clear();
+            // Nothing carried over from the other room.
+            lootLeft = 0;
+            lootOpen = false;
+            takenSoFar.Clear();
+
+            // M59_ROOM2BUFFS: the room's own enchantments, re-sent on
+            // every entry as the library expects (see the statics).
+            if (wantRoom2Buffs)
+                Send(ns, ctrl, new AddEnchantmentMessage(BuffType.RoomBuff,
+                    Item(6111, RID_COINBGF, RID_ROOMBUFF2, 1)));
+        });
+    }
+
+    /// <summary>
+    /// The count-driven door/wall/texture switches: opens once
+    /// M59_GEOM_AFTER messages after a room entry, closes M59_GEOM_PERIOD
+    /// later. Off (geomCount stays -1) unless a target was named.
+    /// </summary>
+    static void Geometry(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        if (geomCount < 0) return;
+        geomCount++;
+        if (geomCount == geomAfter) GeometryStep(ns, ctrl, true);
+        else if (geomPeriod > 0 && geomCount == geomAfter + geomPeriod)
+        {
+            GeometryStep(ns, ctrl, false);
+            geomCount = -1;
+        }
+    }
+
+    static void GeometryStep(NetworkStream ns, MessageControllerClient ctrl, bool open)
+    {
+        string step = open ? "open" : "close";
+
+        if (sectorId >= 0 && (open || sectorBack >= 0))
+        {
+            ushort h = (ushort)(open ? sectorTo : sectorBack);
+            Console.WriteLine($"  -> SectorMove ({step}) sector {sectorId} {(sectorFloor ? "floor" : "ceiling")} to {h} speed {sectorSpeed}");
+            Send(ns, ctrl, new SectorMoveMessage(new SectorMove(
+                sectorFloor ? AnimationType.FLOORLIFT : AnimationType.CEILINGLIFT,
+                (ushort)sectorId, h, (byte)sectorSpeed)));
+        }
+
+        if (sectorChangeId >= 0)
+        {
+            // 4 is the "leave it" value for both fields; closing puts back
+            // whatever opening changed.
+            int depth = open ? sectorDepth : (sectorDepth == 4 ? 4 : sectorDepthBack);
+            int scroll = open ? sectorScroll : (sectorScroll == 4 ? 4 : sectorScrollBack);
+            Console.WriteLine($"  -> SectorChange ({step}) sector {sectorChangeId} depth {depth} scroll {scroll}");
+            Send(ns, ctrl, new SectorChangeMessage(new SectorChange(
+                (ushort)sectorChangeId, (RooSectorFlags.DepthType)depth, (TextureScrollSpeed)scroll)));
+        }
+
+        if (wallId >= 0)
+        {
+            string[] g = wallGroups.Split(',');
+            ushort lo = ushort.Parse(g[0]);
+            ushort hi = g.Length > 1 ? ushort.Parse(g[1]) : lo;
+            ushort fin = g.Length > 2 ? ushort.Parse(g[2]) : hi;
+
+            Animation anim =
+                !open || wallAnim == "none" ? new AnimationNone(lo)
+                : wallAnim == "once" ? (Animation)new AnimationOnce((uint)wallPeriod, lo, hi, fin)
+                : new AnimationCycle((uint)wallPeriod, lo, hi);
+
+            RoomAnimationAction act = RoomAnimationAction.RA_NONE;
+            if (wallAction == "passable")
+                act = open ? RoomAnimationAction.RA_PASSABLE_END : RoomAnimationAction.RA_IMPASSABLE_END;
+            else if (wallAction == "impassable")
+                act = open ? RoomAnimationAction.RA_IMPASSABLE_END : RoomAnimationAction.RA_PASSABLE_END;
+
+            Console.WriteLine($"  -> WallAnimate ({step}) sidedef {wallId} {anim.AnimationType} action {act}");
+            Send(ns, ctrl, new WallAnimateMessage((ushort)wallId,
+                new WallAnimationChange((ushort)wallId, anim, act)));
+        }
+
+        if (texId >= 0 && (open || texBack >= 0))
+        {
+            byte flags = texPart switch
+            {
+                "above" => 0x01, "below" => 0x04, "floor" => 0x08, "ceiling" => 0x10,
+                _ => (byte)0x02,
+            };
+            ushort tex = (ushort)(open ? texTo : texBack);
+            Console.WriteLine($"  -> ChangeTexture ({step}) id {texId} {texPart} to {tex}");
+            Send(ns, ctrl, new ChangeTextureMessage(new TextureChangeInfo((ushort)texId, tex, flags)));
+        }
+    }
+
+    /// <summary>
+    /// M59_STACK: the coin stack changes once, M59_STACK_AFTER messages
+    /// into the session. See the statics for what the real server does.
+    /// </summary>
+    static void StackChange(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        if (stackCount < 0) return;
+        if (++stackCount != stackAfter) return;
+        stackCount = -1;
+
+        if (stackMode == "shrink")
+        {
+            coinNow = (uint)stackTo;
+            // The inventory form of the object: its id carries the count
+            // (ObjectID sets the MULTIOBJ flag when count > 0), then icon,
+            // name, flags, lighting, animation and overlays - the same
+            // fields InventoryAdd carries - then the motion animation and
+            // overlays `SendMoveAnimation`/`SendMoveOverlays` append.
+            var upd = new ObjectUpdate(
+                coinId, coinNow, RID_COINBGF, RID_COIN, 0,
+                new LightingInfo(),
+                AnimationType.NONE, 0, 0, new AnimationNone(), new List<SubOverlay>(),
+                AnimationType.NONE, 0, 0, new AnimationNone(), new List<SubOverlay>());
+            Console.WriteLine($"  -> Change: stack {coinId} is now {coinNow}");
+            Send(ns, ctrl, new ChangeMessage(upd));
+        }
+        else
+        {
+            Console.WriteLine($"  -> replacing stack {coinId} with a new one of {stackTo}");
+            Send(ns, ctrl, new InventoryRemoveMessage(new ObjectID(coinId)));
+            coinId = 8004;
+            coinNow = (uint)stackTo;
+            Send(ns, ctrl, new InventoryAddMessage(
+                Carry(coinId, RID_COINBGF, RID_COIN, coinNow, false)));
+        }
+    }
+
+    /// <summary>
+    /// M59_YANK: decides a ReqMove. The body is [PI][Y 2][X 2][mode 1]
+    /// [map 4][angle 2] (`ReqMoveMessage.WriteTo`, the library's flavour
+    /// carries the angle). Every nth is refused and answered with the
+    /// avatar's last accepted position.
+    /// </summary>
+    static void ServerVerdict(NetworkStream ns, MessageControllerClient ctrl, byte[] body)
+    {
+        if (body.Length < 12) { Console.WriteLine($"  <- ReqMove ({body.Length} bytes) unparsed"); return; }
+
+        ushort y = BitConverter.ToUInt16(body, 1);
+        ushort x = BitConverter.ToUInt16(body, 3);
+        ushort ang = BitConverter.ToUInt16(body, 10);
+        reqMoves++;
+
+        if (reqMoves % yankEvery != 0)
+        {
+            okX = x; okY = y; okAngle = ang;
+            Console.WriteLine($"  <- ReqMove #{reqMoves} to {x},{y} accepted");
+            return;
+        }
+
+        ushort tx = okX, ty = okY;
+        if (!string.IsNullOrEmpty(yankTo))
+        {
+            string[] f = yankTo.Split(',');
+            if (f.Length >= 2 && ushort.TryParse(f[0], out ushort ux) && ushort.TryParse(f[1], out ushort uy))
+            { tx = ux; ty = uy; }
+        }
+        Console.WriteLine($"  <- ReqMove #{reqMoves} to {x},{y} REFUSED, avatar goes back to {tx},{ty}");
+        Send(ns, ctrl, new MoveMessage(1001, tx, ty, (MovementSpeed)yankSpeed, okAngle));
+        Send(ns, ctrl, new TurnMessage(1001, okAngle));
+    }
+
+    /// <summary>
+    /// A skill's description (LookSkill, PI 192), the skill's twin of
+    /// SendLookSpell: object, then school, level and description as
+    /// server strings (`SkillInfo.WriteTo`: school, level, message).
+    /// </summary>
+    static void SendLookSkill(NetworkStream ns, MessageControllerClient ctrl, uint id)
+    {
+        ObjectBase skill = id == 5101
+            ? Item(5101, RID_COINBGF, RID_SKILL1, 0)
+            : Item(5102, RID_BOOKBGF, RID_SKILL2, 0);
+
+        var info = new SkillInfo(
+            skill,
+            Line(RID_SKILLDESC),
+            Line(RID_SKILLSCHOOL),
+            Line(RID_SKILLLEVEL),
+            Line(RID_MANA),
+            Line(RID_VIGOR));
+
+        Send(ns, ctrl, new LookSkillMessage(info, strings));
+    }
+
+    /// <summary>
+    /// Holds the rest of a room change back by M59_ROOMGAP_MS, on a Go
+    /// only: the first entry has nothing to be in the gap OF.
+    /// </summary>
+    static void AfterGap(Action rest)
+    {
+        if (roomGapMs <= 0 || roomsEntered <= 1) { rest(); return; }
+
+        Console.WriteLine($"  .. holding RoomContents for {roomGapMs} ms");
+        var t = new Timer(_ =>
+        {
+            try { rest(); }
+            catch (Exception e) { Console.WriteLine($"  !! held room contents not sent: {e.GetType().Name}"); }
+        }, null, roomGapMs, Timeout.Infinite);
+        lock (gapTimers) gapTimers.Add(t);       // keep it alive
+    }
+
+    /// <summary>
+    /// Where the avatar starts. M59_SPAWN / M59_SPAWN2 (x,y[,angle]) win;
+    /// otherwise the roomiest BSP leaf of the room (see Spawn), which for
+    /// barinn is 752,672 - the coordinate this fixture used by hand for
+    /// room 1 before it could be pointed at another .roo.
+    /// </summary>
+    static (ushort X, ushort Y, float Angle) SpawnFor(string file, string env, bool compute)
+    {
+        if (!string.IsNullOrEmpty(env))
+        {
+            string[] f = env.Split(',');
+            if (f.Length >= 2 && ushort.TryParse(f[0], out ushort ex) && ushort.TryParse(f[1], out ushort ey))
+            {
+                float ea = f.Length > 2 && float.TryParse(f[2], out float a) ? a : 0f;
+                Console.WriteLine($"  (spawn {ex},{ey} angle {ea} from the environment)");
+                return (ex, ey, ea);
+            }
+        }
+        (ushort x, ushort y) = compute ? Spawn(file, 752, 672) : ((ushort)752, (ushort)672);
+        return (x, y, 0f);
     }
 
     static void EnterRoom(NetworkStream ns, MessageControllerClient ctrl)
     {
         const uint avatarId = 1001;
+        roomsEntered++;
+        if (sectorId >= 0 || sectorChangeId >= 0 || wallId >= 0 || texId >= 0)
+            geomCount = 0;       // the opening comes M59_GEOM_AFTER messages from now
 
         // The second room is deliberately barer than the first: a room
         // change that only moved the walls could be a redraw, while one
@@ -1755,7 +2201,7 @@ static class FakeServer
             // A dim-ish room, so the ambient actually does something
             // visible: the client takes the larger of these two over 255
             // and shades everything by it.
-            AmbientLight: 160,
+            AmbientLight: ambient,
             AvatarLight: 0,
             BackgroundFileRID: 0,
             WadingSoundFileRID: 0,
@@ -1764,6 +2210,18 @@ static class FakeServer
 
         Send(ns, ctrl, new PlayerMessage(info));
 
+        // Room 1's spawn used to be 752,672, barinn's roomiest leaf, written
+        // in by hand - so pointing the fixture at any other .roo stood the
+        // avatar in rock. Every object below is now placed relative to it
+        // (the offsets are what the absolute coordinates were, minus
+        // 752,672), so barinn is unchanged and another room is usable.
+        (ushort sx, ushort sy, float sa) = SpawnFor(room, EnvStr("M59_SPAWN"), true);
+        okX = sx; okY = sy; okAngle = 0;
+
+        // Everything from here is what the client gets AFTER Player, and
+        // M59_ROOMGAP_MS can hold all of it back (a Go only).
+        AfterGap(() =>
+        {
         // The avatar itself plus something to look at. Positions are in
         // the server's own units, where one unit is sixteen room units
         // and the origin is 64: kod = room/16 + 64. A grid square is 1024
@@ -1773,30 +2231,30 @@ static class FakeServer
         // one duskrat.
         var objects = new[]
         {
-            Obj(avatarId, RID_PLAYERBGF, RID_PLAYERNAME, 752, 672, 0f, OF_PLAYER),
+            Obj(avatarId, RID_PLAYERBGF, RID_PLAYERNAME, sx, sy, sa, OF_PLAYER),
             // OF_ATTACKABLE, so the minimap has something to colour: the
             // game only puts a dot on things you could fight, players and
             // guildmates. An ordinary item on the floor gets none.
-            Obj(2001, RID_RATBGF, RID_RATNAME, 816, 672, 1f, OF_ATTACKABLE, MM_MONSTER),
+            Obj(2001, RID_RATBGF, RID_RATNAME, sx + 64, sy + 0, 1f, OF_ATTACKABLE, MM_MONSTER),
             // Two of the three rats are here to exercise the drawing
             // types RemoteNode2D switches materials on: one half
             // translucent, one a shadowform. Like PlayerType, Drawing is
             // its own byte on the wire rather than a bit in the flags
             // integer, so it is set on the object afterwards.
-            Drawn(Obj(2002, RID_RATBGF, RID_RATNAME, 848, 688, 3f, OF_ATTACKABLE, MM_MONSTER),
+            Drawn(Obj(2002, RID_RATBGF, RID_RATNAME, sx + 96, sy + 16, 3f, OF_ATTACKABLE, MM_MONSTER),
                   ObjectFlags.DrawingType.Translucent50),
-            Drawn(Obj(2003, RID_RATBGF, RID_RATNAME, 880, 656, 2f, OF_ATTACKABLE, MM_MONSTER),
+            Drawn(Obj(2003, RID_RATBGF, RID_RATNAME, sx + 128, sy - 16, 2f, OF_ATTACKABLE, MM_MONSTER),
                   ObjectFlags.DrawingType.Black),
             // Something to open and something to pick up, so the Activate
             // and Loot actions have a target: the library looks for a
             // container or an activatable object near you for the first,
             // and fills its loot list from gettable ones for the second.
-            Obj(3101, RID_BOOKBGF, RID_BOOK, 768, 688, 0f, OF_CONTAINER | OF_DISPLAY_NAME),
-            Obj(3102, RID_COINBGF, RID_COIN, 736, 688, 0f, OF_GETTABLE | OF_DISPLAY_NAME),
+            Obj(3101, RID_BOOKBGF, RID_BOOK, sx + 16, sy + 16, 0f, OF_CONTAINER | OF_DISPLAY_NAME),
+            Obj(3102, RID_COINBGF, RID_COIN, sx - 16, sy + 16, 0f, OF_GETTABLE | OF_DISPLAY_NAME),
             // Somebody to buy from: AvatarAction.Buy looks for a nearby
             // object flagged OF_BUYABLE and asks it for a stock list.
-            Obj(3104, RID_BOOKBGF, RID_GLOBE, 780, 656, 0f, OF_DISPLAY_NAME),
-            Obj(3103, RID_PLAYERBGF, RID_ALICE, 800, 672, 3f,
+            Obj(3104, RID_BOOKBGF, RID_GLOBE, sx + 28, sy - 16, 0f, OF_DISPLAY_NAME),
+            Obj(3103, RID_PLAYERBGF, RID_ALICE, sx + 48, sy + 0, 3f,
                 OF_BUYABLE | OF_DISPLAY_NAME, MM_PLAYER, NC_PLAYER),
 
             // Two other players, so the name labels have something to
@@ -1804,9 +2262,9 @@ static class FakeServer
             // when OF_DISPLAY_NAME is set and takes the colour from a
             // separate field the server sends, rather than working it out
             // from a player type. MM_PLAYER is what puts them on the map.
-            Obj(4001, RID_PLAYERBGF, RID_ALICE, 800, 704, 3f,
+            Obj(4001, RID_PLAYERBGF, RID_ALICE, sx + 48, sy + 32, 3f,
                 OF_PLAYER | OF_DISPLAY_NAME, MM_PLAYER, NC_PLAYER),
-            Obj(4002, RID_PLAYERBGF, RID_BORIS, 800, 640, 3f,
+            Obj(4002, RID_PLAYERBGF, RID_BORIS, sx + 48, sy - 32, 3f,
                 OF_PLAYER | OF_DISPLAY_NAME, MM_ENEMY, NC_OUTLAW),
         };
 
@@ -1878,6 +2336,7 @@ static class FakeServer
                 Say(ns, ctrl, RID_HEADLINE);
             }
             statChangeAfter = wantStatChange ? 12 : 0;
+            if (stackMode == "shrink" || stackMode == "replace") stackCount = 0;
 
             if (Environment.GetEnvironmentVariable("M59_PARALYZE") == "1")
             { paralyzeAfter = 6; releaseAfter = 30; }
@@ -1917,6 +2376,7 @@ static class FakeServer
             Item(6101, RID_BOOKBGF, RID_ROOMBUFF1, 1)));
         Send(ns, ctrl, new AddEnchantmentMessage(BuffType.RoomBuff,
             Item(6102, RID_COINBGF, RID_ROOMBUFF2, 1)));
+        });
     }
 
     /// <summary>
@@ -2019,13 +2479,17 @@ static class FakeServer
 
     static void Send(NetworkStream ns, MessageControllerClient ctrl, GameMessage m)
     {
-        m.TransferDirection = MessageDirection.ServerToClient;
-        ctrl.SignMessage(m);
-        var b = new byte[m.ByteLength];
-        m.WriteTo(b, 0);
-        ns.Write(b, 0, b.Length);
-        ns.Flush();
-        Console.WriteLine($"  -> {m.GetType().Name} ({b.Length} bytes)");
+        // One writer at a time: M59_ROOMGAP_MS sends from a timer thread.
+        lock (sendLock)
+        {
+            m.TransferDirection = MessageDirection.ServerToClient;
+            ctrl.SignMessage(m);
+            var b = new byte[m.ByteLength];
+            m.WriteTo(b, 0);
+            ns.Write(b, 0, b.Length);
+            ns.Flush();
+            Console.WriteLine($"  -> {m.GetType().Name} ({b.Length} bytes)");
+        }
     }
 
     /// <summary>

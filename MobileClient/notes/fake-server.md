@@ -144,3 +144,98 @@ arrives in one tick and exists for a single frame. With speed 8 the
 flight is about a dozen frames, which is long enough to photograph.
 
 See also: the client -> mobile-client.md
+
+## The test surface: switches for what the client could not reach
+Tags: process | Door and lift geometry, a server move refusal, a room-change gap, a missing room, stat icons, skill look, room buffs, a shrinking stack - each an off-by-default env var; unset, the fixture behaves exactly as before
+
+Two audits found whole client areas unreachable because the fixture
+could not produce the message. Every switch below is read once at start
+(M59_* env vars, like the rest), is off unless set, and was checked
+against the original build: scenes entry, Go/Go, Book/Bag/Me and a walk
+drag give identical server logs and identical world pixels. Every
+message is built from the Meridian59 library's own class, and each
+switch carries a comment in Program.cs naming the real-server behaviour
+it stands in for and the kod/class line.
+
+Timing is counted in client messages, not milliseconds (as M59_SHOOT
+is). Geometry starts M59_GEOM_AFTER messages after a room entry
+(default 6) and repeats every M59_GEOM_PERIOD (default 24, open then
+close on alternate beats). Pings outpace frames under load, so a screenshot run
+needs a long list of dummy --press steps (names that match nothing) or
+the message fires before frame 1 and every shot looks unchanged.
+
+- Doors and lifts. M59_SECTOR=<id> moves a sector (SectorMoveMessage,
+  user.kod SectorSendUser): M59_SECTOR_PLANE floor|ceiling,
+  M59_SECTOR_TO height (400), M59_SECTOR_BACK height to return to,
+  M59_SECTOR_SPEED (16). M59_SECTOR_CHANGE=<id> sends SectorChange
+  (depth M59_SECTOR_DEPTH, scroll M59_SECTOR_SCROLL, 4 = leave;
+  ..._BACK values restore; user.kod SectorChangeSendUser).
+  M59_WALL=<sidedef> sends WallAnimate (M59_WALL_ANIM, _PERIOD, _GROUPS,
+  _ACTION; proto.h ANIMATE_*, user.kod WallSendUser).
+  M59_WALLTEX=<sidedef> sends ChangeTexture (M59_WALLTEX_PART, _TO 1018,
+  _BACK; proto.h CTF_*, user.kod TextureSendUser).
+  Verified recipes: barinn.roo with M59_SPAWN=800,1060,2 M59_WALLTEX=32
+  M59_WALLTEX_TO=102 M59_WALLTEX_BACK=11065 M59_WALL=32 M59_WALL_GROUPS=1,3
+  M59_WALL_PERIOD=300 M59_GEOM_AFTER=10 M59_GEOM_PERIOD=40 - the door wall
+  turns to texture 102, animates, and is restored. Ceiling: barinn,
+  M59_SECTOR=0 M59_SECTOR_PLANE=ceiling M59_SECTOR_TO=150 M59_SECTOR_BACK=272.
+  Lift: barrent.roo, M59_SECTOR=8, floor. A target of 0 matches every
+  sector with no ServerID (RooFile.cs:2250-2284 matches by ServerID) -
+  that is the client's rule, not a bug in the switch.
+- M59_YANK=N refuses every Nth ReqMove: MoveMessage to the last good
+  square plus TurnMessage, as user.kod UserMove does through
+  UtilGoNearSquare (util.kod UtilGoToSquare). M59_YANK_TO=x,y,
+  M59_YANK_SPEED. Seen: the drag walks the avatar away without it and
+  back to the start with it.
+- M59_ROOMGAP_MS=N holds RoomContents back N ms after a Go (Player is
+  sent at once), the window the real server leaves while it builds the
+  room. Applies to a Go, not the first entry. Seen: one frame with
+  "0 objects" and no avatar, then the contents.
+- M59_BADROOM=1 makes room 2 a file the client lacks (zzmissing.roo,
+  RoomID 3). The client logs "has no .roo - nothing loaded" and shows
+  the failed-entry report.
+- M59_ROOM2=<file>, M59_SPAWN=x,y[,angle], M59_SPAWN2=x,y[,angle]: room
+  2's file, and where each room puts the avatar. Room-1 objects are now
+  placed relative to the spawn; unset, the spawn is barinn's 752,672 as
+  before (barlmarket as room 1 was run and works).
+- M59_STATICONS=1 gives stat rows a ResourceIconID (user.kod 9409-9447);
+  spells get coin/book art and skills axe/coin, deliberately different from
+  the object's own art so the row icon is what is seen.
+  M59_LOOKSKILL=1 answers ReqLook on skill 5101/5102 with a
+  LookSkillMessage (skill.kod ShowDesc): school, level, description.
+- M59_ROOM2BUFFS=1 sends a RoomBuff in room 2 (room 1 has two).
+- M59_STACK=shrink|replace, M59_STACK_AFTER (12 messages), M59_STACK_TO (5)
+  changes the 25-coin stack mid-session. shrink is a ChangeMessage with a
+  full ObjectUpdate (numbitem.kod SubtractNumber -> NewNumber ->
+  SomethingChanged); replace is InventoryRemove then InventoryAdd.
+  Seen: the Bag shows 25, then 5, with no ReqInventory in between.
+- M59_AMBIENT=n sets the rooms' ambient light. See the gaps.
+
+The "client ignores a hand-built ChangeMessage" report: not a client
+ignore. A well-formed one is applied (DataController.HandleChange stores
+NextUpdate and applies it on Tick). The ObjectUpdate constructor leaves
+LightingInfo and Animation null, so a message built without them is
+malformed; give it LightingInfo, AnimationNone and empty overlay lists.
+I did not reproduce the auditor's exact bytes.
+
+Gotcha: each server rewrites rsc0000.rsb, which carries the room's file
+name, so two servers sharing one resource dir clobber each other (every
+run loaded the same room). Give each run a private dir of symlinks with
+its own rsb.
+
+Not closed:
+- CTF_RESET: RooFile.HandleChangeTexture ignores it, so the switch
+  restores by sending the original texture id instead.
+- SectorChange has no visible effect to show: the client does not render
+  sector scroll, and depth acts on the avatar only when it moves. The
+  wire bytes were checked; the client effect was not seen.
+- The library's MoveMessage carries an angle, Server-104's BP_MOVE does
+  not; the yank sends what the library class writes.
+- Kod has no separate LookSkill packet; the switch uses the library's
+  LookSkillMessage, which has no kod twin to cite.
+- The door-state replay on room entry (room.kod:2196-2204, speed 0) is
+  not implemented; geometry starts from the geometry timer.
+- M59_AMBIENT is sent but no visible brightening was seen on barrent at
+  255; treat it as unverified.
+
+See also: the client -> mobile-client.md | harness.md | wire-format.md
