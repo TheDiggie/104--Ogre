@@ -93,7 +93,20 @@ public partial class ConfirmPopup : Control
         _shade.Size = v;
 
         float w = Mathf.Min(v.X * 0.86f, 620f);
-        float h = Mathf.Min(v.Y * 0.34f, 300f);
+        // Tall enough for what is in it. A confirmation is one line and
+        // 300 was plenty; the quest window's help is fifteen, and a box
+        // that does not grow simply spills its text across the screen
+        // behind it. The reference has a second, larger popup for
+        // exactly this case - ShowOKLarge (`UINPCQuestList.cpp:357`) -
+        // and measuring is the same thing without a second box.
+        float wrap = w - 40f;
+        float textH = _text != null
+            ? _text.GetThemeFont("font").GetMultilineStringSize(
+                  _text.Text ?? "", HorizontalAlignment.Left, wrap,
+                  _text.GetThemeFontSize("font_size")).Y
+            : 0f;
+        float h = Mathf.Clamp(textH * 1.15f + FontSize * 2.6f + 76f, v.Y * 0.34f, v.Y * 0.86f);
+        h = Mathf.Min(h, v.Y - 24f);
         float x = (v.X - w) * 0.5f, y = (v.Y - h) * 0.5f;
         float rowH = FontSize * 2.6f;
 

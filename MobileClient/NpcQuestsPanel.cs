@@ -52,7 +52,29 @@ public partial class NpcQuestsPanel : Control
     RichTextLabel _desc, _req;
     ScrollContainer _scroll;
     VBoxContainer _rows;
-    Button _accept, _close;
+    Button _accept, _close, _help;
+
+    /// <summary>Show this text to the player. Raised by Help.</summary>
+    public event System.Action<string> Helped;
+
+    /// <summary>
+    /// The quest window's help, EN_NPCQUESTUI[7] (Language.cpp:109-115),
+    /// less its last paragraph: that one explains right-clicking a box
+    /// to copy out of it, which this client has no equivalent of.
+    /// </summary>
+    const string HelpText =
+        "Click on a quest in the quest list to view its description.\n\n" +
+        "If you meet the requirements to start a quest, it will be shown in " +
+        "yellow in the quest list. Currently active Quests are shown in green " +
+        "if this NPC is the destination for the quest. Quests are shown in " +
+        "white if you do not meet all the requirements.\n\n" +
+        "Requirements are shown under the description, with met requirements " +
+        "shown in green and unmet ones in red.\n\n" +
+        "Tap 'Accept'/'Continue' to start a new quest or progress an existing " +
+        "one. Completing a Quest where the NPC requires an item will give that " +
+        "item to the NPC. If you have multiple copies of an item, the last one " +
+        "in your inventory will be given.\n\n" +
+        "Check your own Quest Log for information on current and completed quests.";
 
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
     readonly List<QuestObjectInfo> _quests = new List<QuestObjectInfo>();
@@ -92,6 +114,14 @@ public partial class NpcQuestsPanel : Control
             Accept?.Invoke(_giver, id);
             Dismiss();
         });
+        // The game has a Help button on this window and it is the only
+        // place a new player is told how quests read
+        // (`UINPCQuestList.cpp:353-360`). The text is the client's own,
+        // not the server's - EN_NPCQUESTUI[7] in Language.cpp:109-115 -
+        // so it is carried here word for word rather than paraphrased,
+        // less the last paragraph about right-clicking a text box to
+        // copy from it, which is a thing this client does not do.
+        _help = Push("Help", () => Helped?.Invoke(HelpText));
         _close = Push("Close", Dismiss);
 
         GetViewport().SizeChanged += Layout;
@@ -167,7 +197,7 @@ public partial class NpcQuestsPanel : Control
         _req.Size = new Vector2(w, textH);
 
         float by = top + height - rowH;
-        Button[] row = { _accept, _close };
+        Button[] row = { _accept, _help, _close };
         float bw = (w - 8f) / row.Length;
         for (int i = 0; i < row.Length; i++)
         {
@@ -183,7 +213,7 @@ public partial class NpcQuestsPanel : Control
         _panel.Visible = on; _title.Visible = on; _who.Visible = on;
         _scroll.Visible = on; _descLabel.Visible = on; _desc.Visible = on;
         _reqLabel.Visible = on; _req.Visible = on;
-        _accept.Visible = on; _close.Visible = on;
+        _accept.Visible = on; _help.Visible = on; _close.Visible = on;
         if (on) GetParent()?.MoveChild(this, -1);
     }
 
@@ -278,11 +308,17 @@ public partial class NpcQuestsPanel : Control
         if (index < 0 || index >= _quests.Count)
         {
             _desc.Text = ""; _req.Text = "";
+            _title.Text = $"Quests ({_quests.Count})";
             _accept.Disabled = true;
             return;
         }
 
         QuestObjectInfo q = _quests[index];
+        // The window is titled with the quest you are reading, as the
+        // reference titles it (`UINPCQuestList.cpp:251`). "Quests (n)"
+        // is what it says while nothing is picked.
+        _title.Text = string.IsNullOrWhiteSpace(q.ObjectBase?.Name)
+            ? $"Quests ({_quests.Count})" : q.ObjectBase.Name;
         // The two fields are not drawn alike, and that is the file's
         // choice rather than an oversight: `SetQuestText` sets the
         // description from `FullString` - plain, styling stripped,

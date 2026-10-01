@@ -598,6 +598,10 @@ public partial class GameView : Node2D
             // layer, not by hiding the widget - so the next Sync agrees
             // with it instead of reopening it.
             _npcQuests.Dismissed += () => _client.Data?.QuestUIInfo?.Clear(true);
+            // The reference puts the help in its own OK popup
+            // (`UINPCQuestList.cpp:353-360`); this client already has
+            // the in-page equivalent.
+            _npcQuests.Helped += text => _ask?.Tell(text);
             _ui.AddChild(_npcQuests);
         });
         Widget("mail", () =>
