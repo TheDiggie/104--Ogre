@@ -1747,6 +1747,21 @@ public partial class GameView : Node2D
         // The flashing material runs off the clock, so the clock has to
         // reach it; everything else here is a constant.
         _world.Seconds = Time.GetTicksMsec() / 1000.0;
+
+        // Where the eye is, told to the data layer. The reference writes
+        // it on every camera move (`OgreListeners.cpp:113`) and the
+        // library uses it in ProcessViewerAngle (DataController.cs:1717)
+        // to work out which way round each object is being seen and how
+        // far away it is. Nothing here was setting it, so it stayed at
+        // the origin. Room objects escaped the consequences because the
+        // compose cache overrides the viewer angle per frame, but the
+        // avatar does not go through that path, so its own facing was
+        // measured from the corner of the room - which is what the
+        // portrait in the avatar panel is composed from.
+        RoomObject self = _client.Data?.AvatarObject;
+        if (self != null && _client.Data != null)
+            _client.Data.ViewerPosition = self.Position3D;
+
         _world.SyncSprites(_client.Data?.RoomObjects, _client.Data?.AvatarObject,
                            _client.Data?.Projectiles);
     }

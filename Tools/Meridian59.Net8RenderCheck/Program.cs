@@ -529,7 +529,7 @@ static class RenderCheck
     {
         var rm = new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
         const int W = 320, H = 180;
-        int roomsWith = 0, roomsWithArt = 0, roomsMoving = 0;
+        int roomsWith = 0, roomsWithArt = 0, roomsMoving = 0, roomsLibraryBound = 0;
 
         foreach (string path in Directory.GetFiles(dir, "*.roo").OrderBy(x=>x))
         {
@@ -541,15 +541,43 @@ static class RenderCheck
             roomsWith++;
 
             var tcx = new TexCache(rm);
-            bool haveArt = false;
+            // Only a MIDDLE texture can actually animate, and that is the
+            // library's doing, not this renderer's: RooSideDef.ResolveResources
+            // sets the animation's GroupMax from ResourceMiddle alone
+            // (RooSideDef.cs:357-358), and the two branches that would set it
+            // from the lower or upper texture are commented out in the library
+            // (:361-365). With GroupMax left at 0 the cycle never wraps - it
+            // only resets when CurrentGroup reaches GroupMax
+            // (AnimationCycle.cs:281-284) - so the group runs away to 20, 40,
+            // 60, GetFrameIndex returns -1 for all of them, and the wall shows
+            // frame 0 for ever. The Ogre client reads the same animation off
+            // the same sidedef, so its torches sit just as still. Counting
+            // those rooms as failures here would be asking this port to be
+            // better than the thing it is a port of.
+            bool haveArt = false, haveLowerUpperOnly = false;
             foreach (var sd in animated)
-                foreach (ushort n in new[]{ sd.MiddleTexture, sd.UpperTexture, sd.LowerTexture })
+            {
+                bool midMoves = false, edgeMoves = false;
+                try
                 {
-                    if (n == 0) continue;
-                    try { var b = rm.GetRoomTexture(n); if (b != null && b.Frames.Count > 1) haveArt = true; }
-                    catch { }
+                    if (sd.MiddleTexture != 0)
+                    {
+                        var b = rm.GetRoomTexture(sd.MiddleTexture);
+                        if (b != null && b.FrameSets.Count > 1) midMoves = true;
+                    }
+                    foreach (ushort n in new[]{ sd.UpperTexture, sd.LowerTexture })
+                    {
+                        if (n == 0) continue;
+                        var b = rm.GetRoomTexture(n);
+                        if (b != null && b.FrameSets.Count > 1) edgeMoves = true;
+                    }
                 }
+                catch { }
+                if (midMoves) haveArt = true;
+                else if (edgeMoves) haveLowerUpperOnly = true;
+            }
             if (haveArt) roomsWithArt++;
+            else if (haveLowerUpperOnly) roomsLibraryBound++;
 
             var r = new Renderer(roo, tcx);
             bool moved = false;
@@ -612,7 +640,8 @@ static class RenderCheck
         Console.WriteLine($"  multi-frame textures present       : {multi}, of which {distinct} give a different picture per group");
 
         Console.WriteLine($"  rooms with an animated sidedef     : {roomsWith}");
-        Console.WriteLine($"  of those, whose art has frames here: {roomsWithArt}");
+        Console.WriteLine($"  of those, with an animated MIDDLE  : {roomsWithArt}");
+        Console.WriteLine($"  only lower/upper, which the library cannot drive: {roomsLibraryBound}");
         Console.WriteLine($"  rooms where the picture changes    : {roomsMoving}");
         bool roomsOk = roomsWithArt == 0 || roomsMoving > 0;
         bool mechOk = multi == 0 || distinct > 0;

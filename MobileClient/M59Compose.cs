@@ -68,15 +68,39 @@ public static class M59Compose
     {
         if (o == null || o.Resource == null || size < 1) return null;
 
-        var ri = new RenderInfo(
-            o,
-            false,                 // ApplyYOffset
-            rootHotspot,           // compose from this hotspot down
-            RenderInfo.DEFAULTQUALITY,
-            false,                 // ScalePow2
-            (uint)size, (uint)size,
-            true,                  // CenterVertical
-            true);                 // CenterHorizontal
+        // A RoomObject has two sets of frames and hotspots: the viewer
+        // pair, which is the thing seen from where you are standing, and
+        // the front pair, which is the thing seen face on. An icon or a
+        // portrait wants the front one, and the game says so -
+        // `UIAvatar.cpp:39-47` composes the portrait with UseViewerFrame
+        // false.
+        //
+        // The ObjectBase constructor cannot express that: its Refresh
+        // hardcodes UseViewerFrame true (RenderInfo.cs:217), and since
+        // RoomObject derives from ObjectBase, calling it with a
+        // RoomObject silently took that path. The portrait was the
+        // avatar seen from wherever the camera happened to be - from
+        // behind, most of the time, because that is where you are
+        // standing relative to yourself.
+        RenderInfo ri = o is RoomObject ro
+            ? new RenderInfo(
+                ro,
+                false,                 // UseViewerFrame: face on
+                false,                 // ApplyYOffset
+                rootHotspot,
+                RenderInfo.DEFAULTQUALITY,
+                false,                 // ScalePow2
+                (uint)size, (uint)size,
+                true, true)            // centred both ways
+            : new RenderInfo(
+                o,
+                false,                 // ApplyYOffset
+                rootHotspot,           // compose from this hotspot down
+                RenderInfo.DEFAULTQUALITY,
+                false,                 // ScalePow2
+                (uint)size, (uint)size,
+                true,                  // CenterVertical
+                true);                 // CenterHorizontal
         return Raster(ri);
     }
 

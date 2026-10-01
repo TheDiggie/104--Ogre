@@ -72,6 +72,7 @@ static class Oracle{ static void Main(string[] a){
  foreach(var kv in vBadBy.OrderByDescending(x=>x.Value).Take(6))
   Console.WriteLine($"   {kv.Value,6}  vertical {kv.Key}");
 
+ AnimProbe(dir,rm);
  Slopes(dir,rm);
  Sides(dir,rm);
  Flats(dir);
@@ -132,6 +133,25 @@ static void Sides(string dir, ResourceManager rm){
  Console.WriteLine($"  left side agrees        : {lOk}   disagrees: {lBad}");
  Console.WriteLine($"  left side before the fix disagreed: {lWouldFail}");
  if(worst>0) Console.WriteLine($"  worst: {worstWhere} off by {worst:F4} of a texture");
+}
+static void AnimProbe(string dir, ResourceManager rm){
+ foreach(string path in Directory.GetFiles(dir,"*.roo").OrderBy(x=>x)){
+  RooFile roo; try{ roo=new RooFile(path); roo.ResolveResources(rm);}catch{continue;}
+  var an = roo.SideDefs.Where(sd=>sd.Animation!=null).ToList(); if(an.Count==0) continue;
+  bool art=false; foreach(var sd in an) foreach(ushort n in new[]{sd.MiddleTexture,sd.UpperTexture,sd.LowerTexture}){
+    if(n==0) continue; try{ var b=rm.GetRoomTexture(n); if(b!=null&&b.Frames.Count>1) art=true;}catch{} }
+  if(!art) continue;
+  Console.WriteLine($"ANIM {Path.GetFileName(path)}: {an.Count} animated sidedefs");
+  foreach(var sd in an.Take(4)){
+   var g0 = sd.Animation.CurrentGroup;
+   for(int step=1;step<=40;step++) try{ roo.Tick(step*250.0,250.0);}catch{}
+   Console.WriteLine($"   type {sd.Animation.GetType().Name} group {g0} -> {sd.Animation.CurrentGroup}  tex {sd.MiddleTexture}/{sd.UpperTexture}/{sd.LowerTexture}");
+   foreach(ushort n in new[]{sd.MiddleTexture,sd.UpperTexture,sd.LowerTexture}){
+     if(n==0) continue; var b=rm.GetRoomTexture(n); if(b==null) continue;
+     Console.WriteLine($"     grd{n}: {b.Frames.Count} frames, {b.FrameSets.Count} sets; idx(g1)={b.GetFrameIndex(1,0)} idx(g{sd.Animation.CurrentGroup})={b.GetFrameIndex(sd.Animation.CurrentGroup,0)}");
+   }
+  }
+ }
 }
 static void Slopes(string dir, ResourceManager rm){
  int sectors=0, sloped=0, verts=0, ok=0, bad=0, oldBad=0;

@@ -170,11 +170,22 @@ public sealed class WorldSync
             int group = p.Animation != null && p.Animation.CurrentGroup > 0
                 ? p.Animation.CurrentGroup : 1;
 
+            // The frame's own vertical offset. `ProjectileNode2D.cpp:122`
+            // lifts the billboard by -YOffset/shrink on top of the
+            // bottom-centre origin, which is what puts an arrow at the
+            // height it was loosed from rather than at its feet. Ignoring
+            // it had bolts skimming the floor.
+            float lift = 0f;
+            int fi = p.Resource.GetFrameIndex(group, p.ViewerAngle);
+            if (fi >= 0 && fi < p.Resource.Frames.Count)
+                lift = -p.Resource.Frames[fi].YOffset
+                     / MathF.Max(1f, p.Resource.ShrinkFactor) * M59Geo.HeightToXY;
+
             var sp = new Renderer.Sprite
             {
                 X = M59Geo.KodToWorld(p.Position3D.X),
                 Y = M59Geo.KodToWorld(p.Position3D.Z),
-                BaseZ = M59Geo.KodHeightToXY(p.Position3D.Y),
+                BaseZ = M59Geo.KodHeightToXY(p.Position3D.Y) + lift,
                 // From the art, like any other sprite: an arrow is not
                 // a person-sized thing and must not be drawn as one.
                 Height = 0f,
