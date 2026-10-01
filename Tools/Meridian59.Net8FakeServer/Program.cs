@@ -446,6 +446,178 @@ static class FakeServer
     const uint RID_FXGONE = 60180;
     const uint RID_FXGONEMUSIC = 60181;
 
+    // --- Guilds, using things, lists under an open window, preferences ------
+    // Five audits in a row found player-visible bugs in areas this fixture
+    // could not reach, and each one built these switches in a throwaway copy.
+    // They are folded in here. Everything below is OFF unless its M59_* var
+    // is set; unset, the server says exactly what it said before.
+    //
+    // These knobs are read when they are USED rather than once at start, so
+    // the trigger's `env NAME=VALUE` can change a rank, a hall or a flag word
+    // in the middle of a session and the next `info` sends the new one. The
+    // older switches above are `static readonly` on purpose and are not
+    // settable that way.
+    //
+    // THE GUILD SURFACE. The stock fixture answered ReqGuildInfo and
+    // ReqGuildList and nothing else, always as a guildmaster, with a flag
+    // word that set RENOUNCE and DISBAND at once - which no real player ever
+    // holds (`guildcmd/gcrennce.kod:57-69`: a master has RENOUNCE REMOVED,
+    // everyone else has it added; `guildcmd.kod:81-91`: every other command
+    // is added only at or above its own viRank_needed). So every flow past
+    // reading the roster was unreachable.
+    //
+    // M59_GUILD=member|lieutenant|master|solo|none|both  who you are in the
+    //   guild the roster describes. The flag word is built from the real
+    //   GCID_* bits (`kod/include/blakston.khd:2956-2971`) at the rank's own
+    //   thresholds, so:
+    //     member     (RANK_APPRENTICE 1): RENOUNCE | VOTE
+    //     lieutenant (RANK_LIEUTENANT 4): the above plus EXILE, SET_RANK,
+    //                 ABANDON_HALL, the four diplomacy rights
+    //     master     (RANK_MASTER 5): everything a lieutenant has EXCEPT
+    //                 RENOUNCE, plus ABDICATE, DISBAND, SET_PASSWORD, INVITE,
+    //                 ROSTER
+    //     solo       master of a guild whose roster is one name
+    //     none       no guild: the server answers ReqGuildInfo with a
+    //                 MsgSendUser line and no GuildInfo at all
+    //                 (`user.kod:2749-2753`, user_no_guild)
+    //     both       the old unrealistic word, kept so a run can show what
+    //                 the fixture used to say
+    //   Unset behaves as `both`, which is what this server always sent.
+    // M59_GUILD_HALL=0|1  whether the guild owns a hall. The hall is NOT a
+    //   field on the wire: the server sends the password byte and the chest
+    //   password only to a RANK_MASTER of a guild that HAS a hall, and 0 for
+    //   everyone else (`user.kod:2756-2765`) - which is the whole of the
+    //   client's evidence. Unset is 1, as before.
+    // M59_GUILD_FLAGS=<n>  the flag word verbatim (0x... or decimal), after
+    //   the rank has chosen one. For the four diplomacy rights on their own,
+    //   and for a word with VOTE clear while a vote is on the wire.
+    // M59_GUILD_VOTE=<name|none>  which member the supported-member field
+    //   names (`user.kod:2775-2790`: the server writes YOUR row's third
+    //   element, 0 for nobody). Names are matched case-insensitively against
+    //   the roster; unset is Alice, as before.
+    // M59_GUILD_HALLS=<n>  ReqGuildList answers with a GuildHalls list of n
+    //   halls instead of the diplomacy list. There is no client request for
+    //   this list at all - the real one comes from SendBuyGuildHall when you
+    //   talk to a guild broker (`user.kod:7670-7700`) - so a request the
+    //   client does send has to carry it. n=0 is the legitimate empty list
+    //   that SendBuyGuildHall sends when nothing is affordable, and silently
+    //   closing on it was itself a bug (fa28d39).
+    // M59_GUILD_ASK=<n>  pushes a GuildAsk n client messages into the
+    //   session: the two prices a guild costs (`user.kod:7703-7712`,
+    //   SendCreateGuild, which a broker sends unasked). `ask` on the trigger
+    //   sends one at a chosen moment instead.
+    // M59_GUILD_SHIELD=1  answers the shield designer's two requests, the
+    //   sample list and the shield itself - but the shield reply ONCE only,
+    //   so a second open with no reply shows whatever the panel kept.
+    //   (`user.kod:2860-2881` samples, `:2883-2925` the shield.)
+    // M59_SHIELD_ERROR=1  a ClaimShield is answered with GuildShieldError
+    //   rather than a shield. The real server has no error packet on this
+    //   path - UserCommandClaimShield always answers with
+    //   UserGuildSendShieldInfo (`user.kod:2627-2659`) - so this stands in
+    //   for the reference's own error case and is the library's class.
+    // M59_UCLOG=1  every UserCommand body as hex, so the ids a flow puts on
+    //   the wire can be read off without a packet capture.
+    //
+    // USING THINGS. The fixture answered no ReqUse, no ReqUnuse and no
+    // ReqApply and sent no UseList, so IsInUse was false client-side for the
+    // whole session and the `inUse` argument to Carry was lost on the wire.
+    // M59_USE=1  ReqUse is answered with Use and ReqUnuse with Unuse, the
+    //   way `user.kod` does through UserUse/UserUnuse, and ReqInventory
+    //   carries a UseList of what is already worn.
+    // M59_USE_LIST=<ids|none>  what that UseList names (default 8001, the
+    //   axe, which is the item Carry already marks inUse).
+    // M59_USE_CHANGE=rename|applyable|flags  after a successful use, an
+    //   in-place change to the same item: a new name, the APPLYABLE flag set
+    //   through a full ObjectUpdate, or the same flag through
+    //   ChangeObjectFlags. All three are what the caption depends on
+    //   (`DataController.cs:2288-2292`, `:2139-2143`), and the third is a
+    //   Server-104-flavour packet the client only compiles outside VANILLA
+    //   and OPENMERIDIAN.
+    //
+    // LISTS CHANGING UNDER AN OPEN WINDOW. M59_LOOT=counts|shrink|empty|remove
+    //   re-sends the container's contents, changed, when the trigger fires
+    //   (`loot` on the trigger file) or M59_LOOT_AFTER messages in: the same
+    //   counts at new values, a shorter list, an empty list, or one named
+    //   item gone. A real server re-sends the whole list on any change
+    //   (`user.kod` SendObjectContents is the only shape there is), which is
+    //   why a window that keeps its own widgets goes stale.
+    // M59_FLOOREQUIP=1  the floor coin and the axe inside the container carry
+    //   OF_EQUIPPED. Server-104 does not send that bit at all - kod keeps
+    //   0x8000 free (`kod/include/blakston.khd:2739`) - it is the library's
+    //   and the other flavours' (`ObjectFlags.cs:65`), and it is what the
+    //   loot list reads to append " (in use)".
+    //
+    // PREFERENCES AND PASSWORDS. Neither UC_REQ_PREFERENCES nor
+    // UC_SEND_PREFERENCES was answered, so PreferencesFlags.Enabled stayed
+    // false and all seven server preferences were disabled every session;
+    // BP_CHANGE_PASSWORD was not answered either.
+    // M59_PREFS=1  both are answered with ReceivePreferences carrying the
+    //   stored word - the server echoes it after a set so the client can see
+    //   a bit it refused (`user.kod:2405-2409`, UserCommandSetPreferences
+    //   ends in UserSendPreferences; `:2411-2418` is the reply itself).
+    // M59_PREFS_WORD=<n>  the word the session starts with (default 0x7E,
+    //   CF_DEFAULT_PREF, `blakston.khd:80`).
+    // M59_PREFS_REFUSE=<n>  bits the server will not let you set: they are
+    //   masked out of what you send before the echo, which is exactly the
+    //   case the echo exists for.
+    // M59_PREFS_DELAY=<ms>  how long the FIRST answer is held back. The
+    //   client asks for preferences the moment the character is accepted
+    //   (`BaseClient.cs:565-572`) and again in RequestInfoAfterLogin
+    //   (`:2765-2772`), so a slow server is what the status bar's safety
+    //   control races.
+    // M59_PASSWORD=ok|bad  BP_CHANGE_PASSWORD is answered with BP_PASSWORD_OK
+    //   or BP_PASSWORD_NOT_OK; the real server compares the old hash and
+    //   sends one or the other and nothing else (`blakserv/game.c:536-566`).
+    //
+    // THE TRIGGER. Several of these have to happen at a MOMENT - while a
+    // panel is open, while a popup is armed, between two messages - and two
+    // audits each built their own timing hack. There is one mechanism now:
+    // M59_FIRE=<n>:<cmd>[,<n>:<cmd>...]  runs cmd after n client messages,
+    //   counted in CLIENT MESSAGES like every timed switch here, because
+    //   pings outpace frames under load (the convention is kept, not
+    //   replaced).
+    // M59_TRIGGER=<path>  a file polled every 200 ms; each line appended to
+    //   it is one command, run at the next client message so it is sent on
+    //   the session's own thread, in order with everything else. The
+    //   log-watcher half lives in `watch.sh`, which appends a line when a
+    //   pattern appears in the client's log - so "when the panel is open" is
+    //   expressed once, in one place, for every switch.
+    // The commands: info, list, halls [n], ask, shield, shielderr [text],
+    //   prefs, bag, loot [mode], use <id>, unuse <id>, uselist [ids|none],
+    //   change [mode] [id], say, env NAME=VALUE.
+    static string GuildMode => EnvStr("M59_GUILD") ?? "both";
+    static readonly string guildFire = EnvStr("M59_FIRE");
+    static readonly string triggerPath = EnvStr("M59_TRIGGER");
+    static readonly bool wantUse = EnvOn("M59_USE");
+    static readonly bool wantUcLog = EnvOn("M59_UCLOG");
+    static readonly bool wantShieldReply = EnvOn("M59_GUILD_SHIELD");
+    static readonly bool wantFloorEquip = EnvOn("M59_FLOOREQUIP");
+    static readonly bool wantPrefs = EnvOn("M59_PREFS");
+    static readonly int prefsDelayMs = EnvInt("M59_PREFS_DELAY", 0);
+    static readonly string passwordMode = EnvStr("M59_PASSWORD");
+    static readonly int guildAskAfter = EnvInt("M59_GUILD_ASK", 0);
+    static readonly int lootAfter = EnvInt("M59_LOOT_AFTER", 0);
+    /// <summary>The preference word the server is holding for this player.</summary>
+    static uint prefsWord = ParseWord(EnvStr("M59_PREFS_WORD"), 0x7E);
+    /// <summary>Set once the shield reply has gone out, so the second ask is met with silence.</summary>
+    static bool shieldSent;
+    /// <summary>True once the first preference answer has been sent, which is the only one M59_PREFS_DELAY holds.</summary>
+    static bool prefsAnswered;
+    /// <summary>Client messages seen in game mode; what every timed switch counts.</summary>
+    static int clientMsgs;
+    /// <summary>Commands the trigger file has handed over and the loop has not run yet.</summary>
+    static readonly Queue<string> fired = new Queue<string>();
+    /// <summary>M59_FIRE, parsed: message count -> command.</summary>
+    static readonly List<(int At, string Cmd)> firePlan = new List<(int, string)>();
+
+    // The guild hall names and the two strings only these switches need.
+    const uint RID_HALL1 = 60200;
+    const uint RID_HALL2 = 60201;
+    const uint RID_HALL3 = 60202;
+    const uint RID_SHIELDERR = 60203;
+    const uint RID_AXEBLESSED = 60204;
+    const uint RID_NOGUILD = 60205;
+
     /// <summary>The server's own copy of what it wrote to the string file.</summary>
     /// <summary>How many times each object has been attacked this run.</summary>
     static readonly Dictionary<uint, int> hitsOn = new Dictionary<uint, int>();
@@ -613,6 +785,16 @@ static class FakeServer
             // Names with no file behind them at all.
             new RsbResourceID(RID_FXGONE,     "FXGone.wav",       4),
             new RsbResourceID(RID_FXGONEMUSIC, "FXGoneMusic.wav", 4),
+            // The guild halls a broker offers (`user.kod:7686-7694` sends each
+            // name as a resource id), the shield designer's error line, and
+            // the name M59_USE_CHANGE=rename renames the axe to.
+            new RsbResourceID(RID_HALL1,      "Hall of the Broken Wheel", 4),
+            new RsbResourceID(RID_HALL2,      "Marion Guild House", 4),
+            new RsbResourceID(RID_HALL3,      "Tos Guild Tower",   4),
+            new RsbResourceID(RID_SHIELDERR,
+                "That shield is already claimed by another guild.", 4),
+            new RsbResourceID(RID_AXEBLESSED, "a blessed nerudite axe", 4),
+            new RsbResourceID(RID_NOGUILD,    "You do not belong to a guild.", 4),
             new RsbResourceID(RID_RATLOOK,
                 "A duskrat, grey-brown and unbothered. Its tail is longer than the rest of it.", 4),
         };
@@ -695,6 +877,7 @@ static class FakeServer
                         Console.WriteLine("  <- ReqGameState");
                         Send(ns, ctrl, new GameStateMessage());
                         inGame = true;
+                        StartTrigger();
                         Console.WriteLine("  (client is in game mode now)");
                         SendCharacters(ns, ctrl);
                         break;
@@ -789,6 +972,7 @@ static class FakeServer
                 SendStatChange(ns, ctrl);
 
             // The test-surface switches that run on a message count.
+            Triggers(ns, ctrl);
             Geometry(ns, ctrl);
             StackChange(ns, ctrl);
             SoundPlan(ns, ctrl);
@@ -939,6 +1123,40 @@ static class FakeServer
                     ServerVerdict(ns, ctrl, body);
                     break;
 
+                case MessageTypeGameMode.ReqUse:
+                case MessageTypeGameMode.ReqUnuse:
+                case MessageTypeGameMode.ReqApply:
+                {
+                    // The id is the four bytes after the PI, as ReqLook's is
+                    // (`ReqUseMessage.WriteTo`): these carry a bare ObjectID
+                    // with no count, so there is no ReqGet-style flag byte in
+                    // the way. Logged whether or not M59_USE is set, because
+                    // "did the press reach the wire" is the first question a
+                    // use bug asks and "game-mode 102, ignored" is a poor
+                    // answer to it.
+                    uint item = body.Length >= 5 ? BitConverter.ToUInt32(body, 1) : 0;
+                    Console.WriteLine($"  <- {(MessageTypeGameMode)pi} {item}");
+                    if (!wantUse) break;
+                    if (pi == (byte)MessageTypeGameMode.ReqUse) UseItem(ns, ctrl, item, true);
+                    else if (pi == (byte)MessageTypeGameMode.ReqUnuse) UseItem(ns, ctrl, item, false);
+                    // ReqApply is logged and not answered: the real server
+                    // applies the item to a target and the result is whatever
+                    // the item does, which is not a protocol reply at all.
+                    break;
+                }
+
+                case MessageTypeGameMode.ChangePassword:
+                    // M59_PASSWORD: the account server compares the old hash
+                    // and answers with one byte either way and nothing else
+                    // (`blakserv/game.c:536-566`). Unset, the request is only
+                    // logged - which is where the password flow used to stop.
+                    Console.WriteLine($"  <- ChangePassword ({body.Length} bytes)");
+                    if (passwordMode == "ok")
+                        Send(ns, ctrl, new PasswordOKMessage());
+                    else if (passwordMode == "bad")
+                        Send(ns, ctrl, new PasswordNotOKMessage());
+                    break;
+
                 case MessageTypeGameMode.ReqCast:
                 case MessageTypeGameMode.ReqPerform:
                     // Named rather than left as "game-mode 105,
@@ -958,8 +1176,44 @@ static class FakeServer
                     // is without parsing the rest.
                     byte cmd = body.Length > 1 ? body[1] : (byte)0;
                     Console.WriteLine($"  <- UserCommand {(UserCommandType)cmd}");
+                    // M59_UCLOG=1: the body as hex. Every guild flow past the
+                    // roster is a UserCommand carrying an id - the member
+                    // being exiled, the guild being declared on - and reading
+                    // those off the wire needed a packet capture before.
+                    if (wantUcLog)
+                        Console.WriteLine("     body " + BitConverter.ToString(body));
+
                     if (cmd == (byte)UserCommandType.ReqGuildInfo) SendGuild(ns, ctrl);
-                    if (cmd == (byte)UserCommandType.ReqGuildList) SendGuildList(ns, ctrl);
+                    if (cmd == (byte)UserCommandType.ReqGuildList)
+                    {
+                        // M59_GUILD_HALLS: nothing the client sends asks for
+                        // the hall list (the real one comes unasked from a
+                        // broker, `user.kod:7670-7700`), so the request it
+                        // does send carries it when the switch is set.
+                        string halls = EnvStr("M59_GUILD_HALLS");
+                        if (halls != null) SendGuildHalls(ns, ctrl, EnvInt("M59_GUILD_HALLS", 3));
+                        else SendGuildList(ns, ctrl);
+                    }
+                    // UC 7 is BOTH Safety and ReqPreferences in the enum, and
+                    // on the wire they differ only in length: the request is
+                    // the command byte alone, Safety carries a value.
+                    if (cmd == (byte)UserCommandType.ReqPreferences && wantPrefs)
+                        AnswerPrefsRequest(ns, ctrl);
+                    if (cmd == (byte)UserCommandType.SendPreferences && wantPrefs)
+                        SetPrefs(ns, ctrl, body);
+                    if (cmd == (byte)UserCommandType.GuildShields && wantShieldReply)
+                        SendShieldSamples(ns, ctrl);
+                    if (cmd == (byte)UserCommandType.GuildShield && wantShieldReply)
+                    {
+                        // Once only. The reply is what fills the designer, so
+                        // a second open with no answer shows whatever the
+                        // panel kept from the first - which is the whole
+                        // point of sending it once.
+                        if (shieldSent) Console.WriteLine("     (shield already sent once; silence)");
+                        else { shieldSent = true; SendShield(ns, ctrl, 10, 20, 2, 9001); }
+                    }
+                    if (cmd == (byte)UserCommandType.ClaimShield && wantShieldReply)
+                        ClaimShield(ns, ctrl, body);
                     break;
                 }
 
@@ -1195,6 +1449,11 @@ static class FakeServer
                 case MessageTypeGameMode.ReqInventory:
                     Console.WriteLine("  <- ReqInventory");
                     SendBag(ns, ctrl);
+                    // M59_USE: and what of it is already worn. The pack's
+                    // inUse argument never reached the wire, so without this
+                    // nothing is ever in use client-side and the whole
+                    // unwield half of the window is unreachable.
+                    if (wantUse) SendUseList(ns, ctrl);
                     break;
 
                 case MessageTypeGameMode.ReqDrop:
@@ -1593,11 +1852,13 @@ static class FakeServer
     /// </summary>
     static void SendLoot(NetworkStream ns, MessageControllerClient ctrl, int count)
     {
+        // Through LootItem, so M59_FLOOREQUIP reaches the FIRST list the
+        // window is built from and not only the re-sends.
         var all = new[]
         {
-            Item(3001, RID_COINBGF, RID_COIN, 17),
-            Item(3002, RID_BOOKBGF, RID_BOOK, 1),
-            Item(3003, RID_AXEBGF,  RID_AXE,  1),
+            LootItem(3001, RID_COINBGF, RID_COIN, 17),
+            LootItem(3002, RID_BOOKBGF, RID_BOOK, 1),
+            LootItem(3003, RID_AXEBGF,  RID_AXE,  1),
         };
 
         var left = new List<ObjectBase>();
@@ -1741,10 +2002,12 @@ static class FakeServer
 
     /// <summary>
     /// Your guild. Everything the members tab can do is decided by the
-    /// flag word, so this hands over a guildmaster's set - exile, vote,
-    /// set rank, abdicate, disband, abandon - which is the only way to
-    /// see the row controls enabled at all. A member's set would leave
-    /// every one of them greyed, which is correct and untestable.
+    /// flag word, and the fixture used to hand over one impossible set -
+    /// a guildmaster's, with RENOUNCE as well as DISBAND - so every rank
+    /// but that one was untestable and the panel was only ever seen in a
+    /// state no player can be in. M59_GUILD picks the rank now and the
+    /// word is built from the real thresholds; see FlagsForRank and the
+    /// switch block at the top of the file.
     ///
     /// The ranks are the guild's own strings, five per gender, and a
     /// member's gender picks the column - so Alice reads as a Sister
@@ -1752,37 +2015,289 @@ static class FakeServer
     /// </summary>
     static void SendGuild(NetworkStream ns, MessageControllerClient ctrl)
     {
-        const uint GUILDMASTER =
-            0x00000002 |   // exile
-            0x00000004 |   // renounce
-            0x00000020 |   // vote
-            0x00000040 |   // abdicate
-            0x00001000 |   // set rank
-            0x00002000 |   // disband
-            0x00004000;    // abandon hall
+        // The flag word the fixture always sent: RENOUNCE and DISBAND at
+        // once, which no rank ever holds. Kept, as M59_GUILD=both, so a
+        // run can show what every earlier audit was looking at.
+        const uint GUILDBOTH =
+            GCID_EXILE |
+            GCID_RENOUNCE |
+            GCID_VOTE |
+            GCID_ABDICATE |
+            GCID_SET_RANK |
+            GCID_DISBAND |
+            GCID_ABANDON_HALL;
 
-        var members = new[]
+        string mode = GuildMode;
+
+        // No guild at all: the server says so in a line and sends no
+        // GuildInfo (`user.kod:2749-2753`). Every panel that reads
+        // GuildInfo is then reading an empty model, which is the state a
+        // guildless player is in for the whole session.
+        if (mode == "none")
         {
-            new GuildMemberEntry(1001, 0, "Tester", 5, Gender.Male),
-            new GuildMemberEntry(4001, 0, "Alice", 3, Gender.Female),
-            new GuildMemberEntry(4002, 0, "Boris the Outlaw", 1, Gender.Male),
+            Console.WriteLine("  -> (no guild: MsgSendUser, no GuildInfo)");
+            Say(ns, ctrl, RID_NOGUILD);
+            return;
+        }
+
+        int rank = mode switch
+        {
+            "member" => 1,
+            "lieutenant" => 4,
+            _ => 5,            // master, solo, both
         };
+
+        var members = new List<GuildMemberEntry>
+        {
+            new GuildMemberEntry(1001, 0, "Tester", (byte)rank, Gender.Male),
+        };
+        if (mode != "solo")
+        {
+            members.Add(new GuildMemberEntry(4001, 0, "Alice", 3, Gender.Female));
+            members.Add(new GuildMemberEntry(4002, 0, "Boris the Outlaw", 1, Gender.Male));
+        }
+
+        uint flags = mode == "both" ? GUILDBOTH : FlagsForRank(rank);
+        string raw = EnvStr("M59_GUILD_FLAGS");
+        if (raw != null) flags = ParseWord(raw, flags);
+
+        // The hall is not on the wire. The password byte and the chest
+        // password go out only to a RANK_MASTER of a guild that has one
+        // (`user.kod:2756-2765`); everyone else gets a 0 whether the
+        // guild owns a hall or not, so that byte is the client's whole
+        // evidence and a member can never be told the truth.
+        bool hall = EnvInt("M59_GUILD_HALL", 1) != 0;
+        byte passwordFlag = (byte)(hall && rank == 5 ? 1 : 0);
+
+        // Whose row the supported-member field names. The server writes
+        // the third element of YOUR OWN row, and 0 when you support
+        // nobody (`user.kod:2775-2790`).
+        var supported = new ObjectID(VotedFor(members), 0);
 
         var info = new GuildInfo(
             "The Quiet Hand",
-            1,                       // has a hall, so the password box is there
-            "rats",
-            new GuildFlags(GUILDMASTER),
+            passwordFlag,
+            passwordFlag == 1 ? "rats" : "",
+            new GuildFlags(flags),
             new ObjectID(9001, 0),
             "Novice",  "Novice",
             "Brother", "Sister",
             "Elder",   "Matron",
             "Warden",  "Warden",
             "Master",  "Mistress",
-            new ObjectID(4001, 0),   // Alice is the supported member
-            members);
+            supported,
+            members.ToArray());
 
+        Console.WriteLine($"  -> GuildInfo as {mode} (rank {rank}), flags 0x{flags:X4}, " +
+                          $"password byte {passwordFlag}, supporting {supported.ID}, " +
+                          $"{members.Count} member(s)");
         Send(ns, ctrl, new UserCommandMessage(new UserCommandGuildInfo(info), strings));
+    }
+
+    // The guild command bits, as the server names them
+    // (`kod/include/blakston.khd:2956-2971`). PROMOTE and DEMOTE have no
+    // command object in Server-104's guildcmd/ at all, so no rank ever
+    // holds them and they are not here.
+    const uint GCID_INVITE = 0x0001;
+    const uint GCID_EXILE = 0x0002;
+    const uint GCID_RENOUNCE = 0x0004;
+    const uint GCID_VOTE = 0x0020;
+    const uint GCID_ABDICATE = 0x0040;
+    const uint GCID_ROSTER = 0x0080;
+    const uint GCID_FORGE_ALLIANCE = 0x0100;
+    const uint GCID_END_ALLIANCE = 0x0200;
+    const uint GCID_DECLARE_ENEMY = 0x0400;
+    const uint GCID_PEACE = 0x0800;
+    const uint GCID_SET_RANK = 0x1000;
+    const uint GCID_DISBAND = 0x2000;
+    const uint GCID_ABANDON_HALL = 0x4000;
+    const uint GCID_SET_PASSWORD = 0x8000;
+
+    /// <summary>
+    /// The flag word a player of that rank really holds.
+    ///
+    /// Every guild command is an object with a viRank_needed, and
+    /// ResetCommand adds its bit at or above that rank and removes it
+    /// below (`kod/object/passive/guildcmd.kod:72-95`). The thresholds
+    /// are each command's own classvar: VOTE at RANK_APPRENTICE,
+    /// INVITE and ROSTER at RANK_LORD, EXILE / SET_RANK / ABANDON_HALL
+    /// and the four diplomacy rights at RANK_LIEUTENANT, ABDICATE /
+    /// DISBAND / SET_PASSWORD at RANK_MASTER (gcpword.kod sets no
+    /// viRank_needed and so inherits guildcmd.kod's RANK_MASTER).
+    ///
+    /// RENOUNCE is the exception and the reason the old fixture word was
+    /// impossible: gcrennce.kod overrides ResetCommand to REMOVE the bit
+    /// at RANK_MASTER and add it at every other rank
+    /// (`guildcmd/gcrennce.kod:57-69`), so RENOUNCE and DISBAND are
+    /// mutually exclusive on a real player.
+    /// </summary>
+    static uint FlagsForRank(int rank)
+    {
+        uint f = 0;
+        if (rank >= 1) f |= GCID_VOTE;
+        if (rank >= 3) f |= GCID_INVITE | GCID_ROSTER;
+        if (rank >= 4) f |= GCID_EXILE | GCID_SET_RANK | GCID_ABANDON_HALL
+                          | GCID_FORGE_ALLIANCE | GCID_END_ALLIANCE
+                          | GCID_DECLARE_ENEMY | GCID_PEACE;
+        if (rank >= 5) f |= GCID_ABDICATE | GCID_DISBAND | GCID_SET_PASSWORD;
+        if (rank != 5) f |= GCID_RENOUNCE;
+        return f;
+    }
+
+    /// <summary>0x-prefixed hex or plain decimal; anything else keeps the default.</summary>
+    static uint ParseWord(string text, uint dflt)
+    {
+        if (text == null) return dflt;
+        text = text.Trim();
+        try
+        {
+            if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                return Convert.ToUInt32(text.Substring(2), 16);
+            return uint.Parse(text);
+        }
+        catch { return dflt; }
+    }
+
+    /// <summary>
+    /// M59_GUILD_VOTE: which member's id goes in the supported-member
+    /// field. A name, matched against the roster, or "none" for the 0 the
+    /// server writes when you support nobody (`user.kod:2779-2783`).
+    /// </summary>
+    static uint VotedFor(List<GuildMemberEntry> members)
+    {
+        // Unset is Alice, as before - but only while she is on the roster:
+        // a solo guild has nobody else, and the server can only name a row
+        // it actually sent.
+        string want = EnvStr("M59_GUILD_VOTE") ?? "Alice";
+        if (want.Equals("none", StringComparison.OrdinalIgnoreCase)) return 0;
+
+        foreach (GuildMemberEntry m in members)
+            if (m.Name != null && m.Name.Equals(want, StringComparison.OrdinalIgnoreCase))
+                return m.ID;
+
+        if (EnvStr("M59_GUILD_VOTE") != null)
+            Console.WriteLine($"     (M59_GUILD_VOTE=\"{want}\" is not on the roster; supporting nobody)");
+        return 0;
+    }
+
+    /// <summary>
+    /// M59_GUILD_HALLS: the halls a broker has on offer.
+    ///
+    /// `SendBuyGuildHall` counts the halls this player could afford and
+    /// writes that count and then one row each - id, name resource,
+    /// purchase value, and the rent times 24 (`user.kod:7670-7700`). A
+    /// count of 0 is a legitimate answer: every hall is taken, or none is
+    /// affordable. Nothing the client sends asks for this list, so
+    /// ReqGuildList carries it when the switch is set.
+    /// </summary>
+    static void SendGuildHalls(NetworkStream ns, MessageControllerClient ctrl, int count)
+    {
+        var all = new[]
+        {
+            Hall(11, RID_HALL1, "Hall of the Broken Wheel", 15000, 250),
+            Hall(12, RID_HALL2, "Marion Guild House", 40000, 900),
+            Hall(13, RID_HALL3, "Tos Guild Tower", 125000, 2400),
+        };
+
+        var info = new GuildHallsInfo();
+        for (int i = 0; i < Math.Clamp(count, 0, all.Length); i++) info.GuildHalls.Add(all[i]);
+
+        Console.WriteLine($"  -> GuildHalls ({info.GuildHalls.Count} halls)");
+        Send(ns, ctrl, new UserCommandMessage(new UserCommandGuildHalls(info), strings));
+    }
+
+    static GuildHall Hall(uint id, uint nameRid, string name, uint cost, uint rentPerHour)
+    {
+        // The name travels as a resource id and the client resolves it
+        // (`DataController.ResolveStringResources` :1308-1309); Name is
+        // set as well so the server's own log line reads.
+        return new GuildHall(name, id)
+        {
+            NameRID = nameRid,
+            Cost = cost,
+            // What the server writes is 24 * the hall's rent value.
+            Rent = rentPerHour * 24,
+        };
+    }
+
+    /// <summary>
+    /// M59_GUILD_ASK / the trigger's `ask`: the two prices founding a
+    /// guild costs. A broker sends this unasked (`user.kod:7703-7712`,
+    /// SendCreateGuild), so there is no request to answer and it can only
+    /// arrive on a timer or a trigger - which is exactly the push that
+    /// lands on top of an open popup.
+    /// </summary>
+    static void SendGuildAsk(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        Console.WriteLine("  -> GuildAsk (25000 / 75000)");
+        Send(ns, ctrl, new UserCommandMessage(
+            new UserCommandGuildAsk(new GuildAskData(25000, 75000)), strings));
+    }
+
+    /// <summary>
+    /// M59_GUILD_SHIELD: the designer's two requests answered.
+    ///
+    /// The sample list is every shield design the server knows
+    /// (`user.kod:2860-2881`, one resource id each) and is sent every
+    /// time it is asked for. The shield itself (`:2883-2925`) carries the
+    /// owning guild's id - 0 when the design is unclaimed - its name and
+    /// the three bytes of the design, and is sent ONCE here: the second
+    /// open gets no reply, so whatever the panel kept from the first is
+    /// what is on screen, which is how a stale designer shows up.
+    /// </summary>
+    static void SendShieldSamples(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        var samples = new[]
+        {
+            new ResourceIDBGF(RID_BOOKBGF),
+            new ResourceIDBGF(RID_COINBGF),
+            new ResourceIDBGF(RID_AXEBGF),
+            new ResourceIDBGF(RID_RATBGF),
+        };
+        Console.WriteLine($"  -> GuildShieldList ({samples.Length} designs)");
+        Send(ns, ctrl, new UserCommandMessage(
+            new UserCommandGuildShieldList(samples), strings));
+    }
+
+    static void SendShield(NetworkStream ns, MessageControllerClient ctrl,
+                           byte c1, byte c2, byte design, uint owner)
+    {
+        Console.WriteLine($"  -> GuildShield owner {owner} colours {c1}/{c2} design {design}");
+        Send(ns, ctrl, new UserCommandMessage(
+            new UserCommandGuildShieldInfo(new GuildShieldInfo(
+                new ObjectID(owner, 0), "The Quiet Hand", c1, c2, design)), strings));
+    }
+
+    static void SendShieldError(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        Console.WriteLine("  -> GuildShieldError");
+        Send(ns, ctrl, new UserCommandMessage(
+            new UserCommandGuildShieldError(Line(RID_SHIELDERR), strings), strings));
+    }
+
+    /// <summary>
+    /// M59_SHIELD_ERROR / a ClaimShield. The body is the command byte and
+    /// then colour, colour, design and the really-claim byte
+    /// (`UserCommandClaimShield.ReadFrom`); the server looks the design up
+    /// and answers with the shield, naming the guild that owns it or 0 if
+    /// nobody does (`user.kod:2627-2659`). A claim with really-claim set,
+    /// by a master, of an unclaimed design takes it - so the answer names
+    /// your own guild from then on.
+    /// </summary>
+    static void ClaimShield(NetworkStream ns, MessageControllerClient ctrl, byte[] body)
+    {
+        byte c1 = body.Length > 2 ? body[2] : (byte)0;
+        byte c2 = body.Length > 3 ? body[3] : (byte)0;
+        byte design = body.Length > 4 ? body[4] : (byte)0;
+        byte really = body.Length > 5 ? body[5] : (byte)0;
+        Console.WriteLine($"  <- ClaimShield {c1}/{c2} design {design} really {really}");
+
+        if (EnvOn("M59_SHIELD_ERROR")) { SendShieldError(ns, ctrl); return; }
+
+        // Design 1 is already somebody else's, which is what makes the
+        // claimed and unclaimed branches both reachable in one run.
+        uint owner = design == 1 ? 9002u : (really != 0 ? 9001u : 0u);
+        SendShield(ns, ctrl, c1, c2, design, owner);
     }
 
     /// <summary>
@@ -1815,6 +2330,352 @@ static class FakeServer
 
         Send(ns, ctrl, new UserCommandMessage(new UserCommandGuildGuildList(info), strings));
         Console.WriteLine($"  -> GuildGuildList ({guilds.Length} guilds)");
+    }
+
+    // ===================================================================
+    // USING THINGS, LISTS THAT CHANGE, PREFERENCES, PASSWORDS, AND THE
+    // ONE TRIGGER THEY ALL HANG OFF. See the switch block at the top for
+    // what each of these stands in for.
+    // ===================================================================
+
+    /// <summary>OF_APPLYABLE (`blakston.khd:71`), the bit that turns the bag's Use button into Apply.</summary>
+    const uint OF_APPLYABLE = 0x00001000;
+
+    /// <summary>What the pack is currently wearing, so Use and Unuse answer honestly.</summary>
+    static readonly HashSet<uint> inUseNow = new HashSet<uint>();
+
+    /// <summary>
+    /// M59_USE_LIST: the ids the UseList on a ReqInventory names. The
+    /// client has no other way to learn that something is already worn -
+    /// `Carry`'s inUse argument is not on the wire at all, only the
+    /// EQUIPPED flag is - so without this message IsInUse is false for
+    /// everything, all session (`DataController.cs:2477-2490`).
+    /// </summary>
+    static void SendUseList(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        string spec = EnvStr("M59_USE_LIST") ?? "8001";
+        var ids = new List<ObjectID>();
+        if (!spec.Equals("none", StringComparison.OrdinalIgnoreCase))
+            foreach (string part in spec.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                if (uint.TryParse(part.Trim(), out uint id)) { ids.Add(new ObjectID(id)); inUseNow.Add(id); }
+
+        Console.WriteLine($"  -> UseList ({ids.Count}: {string.Join(" ", ids.ConvertAll(o => o.ID.ToString()))})");
+        Send(ns, ctrl, new UseListMessage(ids.ToArray()));
+    }
+
+    /// <summary>
+    /// A use or an unuse, confirmed. The real server answers a ReqUse by
+    /// wielding the item and sending BP_USE back with the id it equipped
+    /// (and nothing at all when it refuses), and a ReqUnuse with BP_UNUSE.
+    /// Everything downstream of that - the gold border on the slot, the
+    /// caption the button carries, a hotbar button that follows a worn
+    /// item - hangs on the reply, and the fixture sent neither.
+    /// </summary>
+    static void UseItem(NetworkStream ns, MessageControllerClient ctrl, uint id, bool on)
+    {
+        if (on) inUseNow.Add(id); else inUseNow.Remove(id);
+        Console.WriteLine($"  -> {(on ? "Use" : "Unuse")} {id}");
+        if (on) Send(ns, ctrl, new UseMessage(new ObjectID(id)));
+        else Send(ns, ctrl, new UnuseMessage(new ObjectID(id)));
+
+        if (on) UseChange(ns, ctrl, id, EnvStr("M59_USE_CHANGE"));
+    }
+
+    /// <summary>
+    /// M59_USE_CHANGE: the item changes UNDER the open bag, in place, the
+    /// moment it is worn. A real server does this constantly - a magic
+    /// item identifies itself on use and comes back with a new name, and
+    /// what an item can do changes with what is in your hand - and the
+    /// library applies all three forms to the SAME InventoryObject rather
+    /// than replacing it (`DataController.cs:2288-2292` through
+    /// NextUpdate, `:2139-2143`). A panel that only re-reads on a new
+    /// instance therefore keeps the old caption, which is 07f2920.
+    /// </summary>
+    static void UseChange(NetworkStream ns, MessageControllerClient ctrl, uint id, string mode)
+    {
+        if (mode == null) return;
+
+        uint name = mode == "rename" ? RID_AXEBLESSED : RID_AXE;
+        uint flags = OF_EQUIPPED | (mode == "rename" ? 0u : OF_APPLYABLE);
+
+        if (mode == "flags")
+        {
+            // Server-104's own flags-only packet. The client's handler for
+            // it is compiled out under VANILLA and OPENMERIDIAN
+            // (`DataController.cs:2125-2143`); this build defines neither.
+            Console.WriteLine($"  -> ChangeObjectFlags {id} flags 0x{flags:X4}");
+            Send(ns, ctrl, new ChangeObjectFlagsMessage(new ObjectFlagsUpdate(id, flags)));
+            return;
+        }
+
+        // A full ObjectUpdate, which is what a Change carries. The
+        // constructor leaves LightingInfo and Animation null, and a
+        // message built without them is malformed and silently dropped -
+        // that cost an audit a day once, and the note in fake-server.md
+        // about "the client ignores a hand-built ChangeMessage" is this.
+        var upd = new ObjectUpdate(
+            id, 0, RID_AXEBGF, name, flags,
+            new LightingInfo(),
+            AnimationType.NONE, 0, 0, new AnimationNone(), new List<SubOverlay>(),
+            AnimationType.NONE, 0, 0, new AnimationNone(), new List<SubOverlay>());
+        Console.WriteLine($"  -> Change {id}: name {name}, flags 0x{flags:X4} ({mode})");
+        Send(ns, ctrl, new ChangeMessage(upd));
+    }
+
+    /// <summary>
+    /// M59_LOOT: the container's list changes while its window is open.
+    ///
+    /// counts  the same three items at new counts - including a stack of
+    ///         one, which the reference still labels (`ObjectID.cs:202-205`)
+    /// shrink  two items instead of three
+    /// empty   no items at all, the state the window is meant to close on
+    /// remove  the middle item gone, the others unchanged - which is what
+    ///         leaves a tick pointing at an object that has left the room
+    /// A real server has only one shape for any of this: the whole list,
+    /// re-sent. Both loot bugs in 6970025 need exactly that.
+    /// </summary>
+    static void LootChange(NetworkStream ns, MessageControllerClient ctrl, string mode)
+    {
+        mode ??= "counts";
+        var items = new List<ObjectBase>();
+        switch (mode)
+        {
+            case "shrink":
+                items.Add(LootItem(3001, RID_COINBGF, RID_COIN, 9));
+                items.Add(LootItem(3002, RID_BOOKBGF, RID_BOOK, 1));
+                break;
+            case "empty":
+                break;
+            case "remove":
+                items.Add(LootItem(3001, RID_COINBGF, RID_COIN, 17));
+                items.Add(LootItem(3003, RID_AXEBGF, RID_AXE, 1));
+                break;
+            default:
+                items.Add(LootItem(3001, RID_COINBGF, RID_COIN, 9));
+                items.Add(LootItem(3002, RID_BOOKBGF, RID_BOOK, 1));
+                items.Add(LootItem(3003, RID_AXEBGF, RID_AXE, 1));
+                break;
+        }
+
+        Console.WriteLine($"  -> ObjectContents ({mode}): {items.Count} items " +
+                          string.Join(" ", items.ConvertAll(o => $"{o.ID}x{o.Count}")));
+        Send(ns, ctrl, new ObjectContentsMessage(new ObjectID(3101, 0), items.ToArray()));
+    }
+
+    /// <summary>
+    /// A loot row, with M59_FLOOREQUIP putting the EQUIPPED bit on the
+    /// axe. Server-104 never sends that bit - kod keeps 0x8000 free
+    /// (`blakston.khd:2739`) - but the library and the other flavours do
+    /// (`ObjectFlags.cs:65`), and the contents window is where it reads
+    /// as " (in use)" after a name.
+    /// </summary>
+    static ObjectBase LootItem(uint id, uint bgfRid, uint nameRid, uint count)
+    {
+        uint flags = wantFloorEquip && id == 3003 ? OF_EQUIPPED : 0u;
+        return new ObjectBase(
+            id, count, bgfRid, nameRid, flags,
+            new LightingInfo(),
+            AnimationType.NONE, 0, 0,
+            new AnimationNone(),
+            new List<SubOverlay>());
+    }
+
+    /// <summary>
+    /// M59_PREFS: the preference word, answered.
+    ///
+    /// Until it is, `PreferencesFlags.Enabled` is false for the whole
+    /// session and every server-side option is disabled - the client has
+    /// no word to toggle a bit in. The server answers both the request
+    /// and a set, because a set ENDS in the same reply
+    /// (`user.kod:2405-2409`): the echo is how the client learns which
+    /// bits were refused, and M59_PREFS_REFUSE is a server that refuses
+    /// some.
+    /// </summary>
+    static void SendPrefs(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        Console.WriteLine($"  -> ReceivePreferences 0x{prefsWord:X2}");
+        Send(ns, ctrl, new UserCommandMessage(
+            new UserCommandReceivePreferences(new PreferencesFlags(prefsWord)), strings));
+    }
+
+    /// <summary>
+    /// A set: the word the client sent, less the bits this server will
+    /// not grant, then the echo. The body is the command byte and four
+    /// bytes of flags (`UserCommandSendPreferences`), which kod reads as
+    /// Nth(client_msg,2) (`user.kod:2435-2437`).
+    /// </summary>
+    static void SetPrefs(NetworkStream ns, MessageControllerClient ctrl, byte[] body)
+    {
+        uint asked = body.Length >= 6 ? BitConverter.ToUInt32(body, 2) : prefsWord;
+        uint refuse = ParseWord(EnvStr("M59_PREFS_REFUSE") ?? "0", 0);
+        prefsWord = asked & ~refuse;
+        Console.WriteLine($"  <- SendPreferences 0x{asked:X2}" +
+                          (refuse != 0 ? $", refusing 0x{refuse:X2} -> 0x{prefsWord:X2}" : ""));
+        SendPrefs(ns, ctrl);
+    }
+
+    /// <summary>
+    /// M59_PREFS_DELAY: the FIRST answer, held back. The client asks the
+    /// moment the character is accepted and again after login
+    /// (`BaseClient.cs:565-572`, `:2765-2772`), so the window where the
+    /// status bar has no preference word to read is a real one and this
+    /// is how wide it gets.
+    /// </summary>
+    static void AnswerPrefsRequest(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        if (prefsAnswered || prefsDelayMs <= 0) { prefsAnswered = true; SendPrefs(ns, ctrl); return; }
+
+        prefsAnswered = true;
+        Console.WriteLine($"     (holding the preference word back {prefsDelayMs} ms)");
+        var t = new Timer(_ => { try { SendPrefs(ns, ctrl); } catch { } },
+                          null, prefsDelayMs, Timeout.Infinite);
+        gapTimers.Add(t);
+    }
+
+    // --- The trigger ----------------------------------------------------
+
+    /// <summary>
+    /// Reads M59_FIRE and starts the M59_TRIGGER poller. Called once, when
+    /// the first client reaches game mode.
+    /// </summary>
+    static void StartTrigger()
+    {
+        if (guildFire != null)
+            foreach (string part in guildFire.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int colon = part.IndexOf(':');
+                if (colon > 0 && int.TryParse(part.Substring(0, colon).Trim(), out int at))
+                    firePlan.Add((at, part.Substring(colon + 1).Trim()));
+                else Console.WriteLine($"     (M59_FIRE: cannot read \"{part}\")");
+            }
+        // The two switches that name their own moment in messages go into
+        // the same plan, so there is one timer and one place that fires.
+        if (guildAskAfter > 0) firePlan.Add((guildAskAfter, "ask"));
+        if (lootAfter > 0) firePlan.Add((lootAfter, "loot"));
+
+        if (firePlan.Count > 0)
+            Console.WriteLine($"M59_FIRE: {firePlan.Count} timed commands, counted in client messages");
+
+        if (triggerPath == null) return;
+
+        // Polled rather than watched: a FileSystemWatcher misses an append
+        // that lands in the same tick as the one before it, and the whole
+        // point of this is that the moment matters. The lines are queued
+        // and run on the session thread, so the trigger never writes to
+        // the socket itself.
+        try { File.WriteAllText(triggerPath, ""); } catch { }
+        Console.WriteLine($"M59_TRIGGER: polling {triggerPath} every 200 ms");
+        long seen = 0;
+        var poll = new Timer(_ =>
+        {
+            try
+            {
+                var fi = new FileInfo(triggerPath);
+                if (!fi.Exists || fi.Length <= seen) return;
+                using var fs = new FileStream(triggerPath, FileMode.Open,
+                                              FileAccess.Read, FileShare.ReadWrite);
+                fs.Seek(seen, SeekOrigin.Begin);
+                using var sr = new StreamReader(fs);
+                string rest = sr.ReadToEnd();
+                seen = fs.Position;
+                foreach (string line in rest.Split('\n'))
+                {
+                    string cmd = line.Trim();
+                    if (cmd.Length == 0 || cmd.StartsWith("#")) continue;
+                    lock (fired) fired.Enqueue(cmd);
+                    Console.WriteLine($"  trigger: {cmd}");
+                }
+            }
+            catch { }
+        }, null, 200, 200);
+        gapTimers.Add(poll);
+    }
+
+    /// <summary>
+    /// Runs whatever the trigger has handed over and whatever M59_FIRE has
+    /// reached, once per client message. Counted in CLIENT MESSAGES, which
+    /// is the convention every timed switch in this file uses: pings
+    /// outpace frames under load, so a millisecond deadline fires before
+    /// the frame that was supposed to show the result.
+    /// </summary>
+    static void Triggers(NetworkStream ns, MessageControllerClient ctrl)
+    {
+        clientMsgs++;
+
+        for (int i = firePlan.Count - 1; i >= 0; i--)
+            if (firePlan[i].At == clientMsgs)
+            {
+                string cmd = firePlan[i].Cmd;
+                firePlan.RemoveAt(i);
+                Console.WriteLine($"  fire ({clientMsgs}): {cmd}");
+                RunTrigger(ns, ctrl, cmd);
+            }
+
+        while (true)
+        {
+            string cmd;
+            lock (fired) { if (fired.Count == 0) break; cmd = fired.Dequeue(); }
+            RunTrigger(ns, ctrl, cmd);
+        }
+    }
+
+    /// <summary>
+    /// One trigger command. The vocabulary is deliberately small and the
+    /// same for the file and for M59_FIRE, so "at this moment, do that"
+    /// is written once however the moment is chosen.
+    /// </summary>
+    static void RunTrigger(NetworkStream ns, MessageControllerClient ctrl, string line)
+    {
+        string[] parts = line.Split(' ', 2, StringSplitOptions.TrimEntries);
+        string verb = parts[0].ToLowerInvariant();
+        string arg = parts.Length > 1 ? parts[1] : null;
+
+        switch (verb)
+        {
+            case "info": SendGuild(ns, ctrl); break;
+            case "list": SendGuildList(ns, ctrl); break;
+            case "halls":
+                SendGuildHalls(ns, ctrl,
+                    int.TryParse(arg, out int n) ? n : EnvInt("M59_GUILD_HALLS", 3));
+                break;
+            case "ask": SendGuildAsk(ns, ctrl); break;
+            case "shield": SendShield(ns, ctrl, 10, 20, 2, 9001); break;
+            case "shielderr": SendShieldError(ns, ctrl); break;
+            case "samples": SendShieldSamples(ns, ctrl); break;
+            case "prefs": SendPrefs(ns, ctrl); break;
+            case "bag": SendBag(ns, ctrl); break;
+            case "loot": LootChange(ns, ctrl, arg ?? EnvStr("M59_LOOT")); break;
+            case "uselist": SendUseList(ns, ctrl); break;
+            case "use":
+                if (uint.TryParse(arg, out uint uid)) UseItem(ns, ctrl, uid, true);
+                break;
+            case "unuse":
+                if (uint.TryParse(arg, out uint xid)) UseItem(ns, ctrl, xid, false);
+                break;
+            case "change":
+            {
+                string[] a = (arg ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                string mode = a.Length > 0 ? a[0] : EnvStr("M59_USE_CHANGE") ?? "rename";
+                uint id = a.Length > 1 && uint.TryParse(a[1], out uint cid) ? cid : 8001;
+                UseChange(ns, ctrl, id, mode);
+                break;
+            }
+            case "say": Say(ns, ctrl, RID_ECHO); break;
+            case "env":
+            {
+                // Only the switches in this block are read at use time, so
+                // only they can be changed mid-session; the older
+                // `static readonly` ones cannot and are not pretended to be.
+                int eq = (arg ?? "").IndexOf('=');
+                if (eq <= 0) { Console.WriteLine("     (env wants NAME=VALUE)"); break; }
+                Environment.SetEnvironmentVariable(arg.Substring(0, eq), arg.Substring(eq + 1));
+                Console.WriteLine($"     (env {arg})");
+                break;
+            }
+            default:
+                Console.WriteLine($"     (trigger: no command \"{verb}\")");
+                break;
+        }
     }
 
     /// <summary>
@@ -2533,7 +3394,14 @@ static class FakeServer
             // container or an activatable object near you for the first,
             // and fills its loot list from gettable ones for the second.
             Obj(3101, RID_BOOKBGF, RID_BOOK, sx + 16, sy + 16, 0f, OF_CONTAINER | OF_DISPLAY_NAME),
-            Obj(3102, RID_COINBGF, RID_COIN, sx - 16, sy + 16, 0f, OF_GETTABLE | OF_DISPLAY_NAME),
+            // M59_FLOOREQUIP=1 puts the EQUIPPED bit on this one. A thing
+            // lying on the floor that something is wearing is a corpse's
+            // weapon; Server-104 never sends the bit (`blakston.khd:2739`
+            // keeps 0x8000 free) but the library and the other flavours do
+            // (`ObjectFlags.cs:65`), and it is what a name gets " (in use)"
+            // appended from.
+            Obj(3102, RID_COINBGF, RID_COIN, sx - 16, sy + 16, 0f,
+                OF_GETTABLE | OF_DISPLAY_NAME | (wantFloorEquip ? OF_EQUIPPED : 0u)),
             // Somebody to buy from: AvatarAction.Buy looks for a nearby
             // object flagged OF_BUYABLE and asks it for a stock list.
             Obj(3104, RID_BOOKBGF, RID_GLOBE, sx + 28, sy - 16, 0f, OF_DISPLAY_NAME),

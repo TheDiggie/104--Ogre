@@ -345,3 +345,179 @@ Not closed:
   `Protocol/DownloadHandler.cs:74`; the fake server project has none.
 
 See also: the client -> ../M59Sound.cs | harness.md | parsing notes above
+
+## One trigger, instead of a timing hack per switch
+Tags: process | Several of these have to land at a MOMENT - while a panel is open, while a popup is armed - and two audits each built their own; there is one mechanism now, and it still counts CLIENT MESSAGES
+
+`M59_FIRE=<n>:<cmd>[,<n>:<cmd>...]` runs a command n client messages in.
+`M59_TRIGGER=<path>` polls a file every 200 ms and runs each line appended
+to it at the next client message, so the send happens on the session's own
+thread, in order with everything else. `watch.sh <clientlog> <triggerfile>
+<pattern> <command> [...]` is the log-watching half: it appends a line the
+moment a pattern appears in the client's log, so "while the loot window is
+open" is `"pressed Activate" "loot remove"` and nothing else.
+
+The counting convention is KEPT, not replaced: pings outpace frames under
+load, so a millisecond deadline fires before the frame that was supposed to
+show the result. `M59_GUILD_ASK=n` and `M59_LOOT_AFTER=n` are folded into the
+same plan rather than carrying their own timers.
+
+Commands: `info`, `list`, `halls [n]`, `ask`, `shield`, `shielderr`,
+`samples`, `prefs`, `bag`, `loot [mode]`, `uselist`, `use <id>`,
+`unuse <id>`, `change [mode] [id]`, `say`, `env NAME=VALUE`.
+
+`env` works because the switches in this block are read when they are USED,
+not once at start - so `env M59_GUILD=member` then `info` changes rank
+mid-session. The older switches above are `static readonly` on purpose and
+`env` cannot touch them.
+
+Seen: `watch.sh` + `Activate` + `loot remove` took the contents window from
+three rows to two while it was open; `M59_FIRE="30:env M59_GUILD=member,48:info"`
+sent a master's word and then a member's in one session.
+
+See also: harness.md | the client -> mobile-client.md
+
+## The guild surface: everything past reading the roster was unreachable
+Tags: process, lessons | The fixture answered ReqGuildInfo and ReqGuildList and nothing else, always as a guildmaster, with a flag word that set RENOUNCE and DISBAND at once - which no rank ever holds, and which hid all five bugs in fa28d39
+
+Confirmed in Program.cs before building: no GuildAsk, no GuildHalls, no
+shield of any kind, no answer to ClaimShield, one hard-coded flag word, one
+hard-coded roster, one hard-coded vote.
+
+The flag word is the heart of it. Every guild command is an object with a
+`viRank_needed`, and `ResetCommand` adds its bit at or above that rank and
+removes it below (`guildcmd.kod:72-95`); RENOUNCE is the exception, and
+`gcrennce.kod:57-69` REMOVES it at RANK_MASTER and adds it at every other
+rank. So a master has DISBAND and never RENOUNCE, and everybody else the
+reverse - the old word was impossible, and a panel tested against it is a
+panel tested against nothing.
+
+- M59_GUILD=member|lieutenant|master|solo|none|both. The word is built from
+  the real GCID_* bits (`blakston.khd:2956-2971`) at each command's own
+  threshold: member 0x0024 (VOTE|RENOUNCE), lieutenant adds EXILE, SET_RANK,
+  ABANDON_HALL and the four diplomacy rights, master 0xFFE3 - everything but
+  RENOUNCE. `solo` is a master whose roster is one name; `none` sends no
+  GuildInfo at all, only the line the server sends instead
+  (`user.kod:2749-2753`). `both` is the old word, kept so a run can show what
+  the earlier audits were looking at; unset behaves as `both`.
+- M59_GUILD_HALL=0|1. The hall is NOT a field on the wire: the password byte
+  and the chest password go out only to a RANK_MASTER of a guild that has one
+  (`user.kod:2756-2765`), and that byte is the client's whole evidence - which
+  is why every other rank was told the guild had no hall (fa28d39).
+- M59_GUILD_FLAGS=<0x..|n> overrides the word after the rank has chosen one:
+  the four diplomacy rights alone, or a set with VOTE clear.
+- M59_GUILD_VOTE=<name|none> names the supported member (`user.kod:2775-2790`).
+  Unset is Alice, and nobody when she is not on the roster.
+- M59_GUILD_HALLS=<n>: ReqGuildList answers with a GuildHalls list of n halls
+  instead of the diplomacy list. Nothing the client sends asks for this list -
+  the real one comes unasked from a broker (`user.kod:7670-7700`) - and n=0 is
+  the legitimate empty answer that used to close the window in silence.
+- M59_GUILD_ASK=<n> pushes the two prices a guild costs
+  (`user.kod:7703-7712`), which is the unasked arrival that lands on top of
+  whatever is open.
+- M59_GUILD_SHIELD=1 answers the designer's sample list every time and the
+  shield itself ONCE, so a second open shows what the panel kept.
+- A ClaimShield (9B-21) is answered with a GuildShield naming the owning
+  guild, or 0 for an unclaimed design, and really-claim takes it
+  (`user.kod:2627-2659`). M59_SHIELD_ERROR=1 answers with GuildShieldError
+  instead - the real server has no error on this path, so that one is the
+  library's class and the reference's case, not kod's.
+- M59_UCLOG=1 prints every UserCommand body as hex, so the ids a flow puts on
+  the wire are readable without a capture.
+
+Seen, each on a real client: member - roster, Renounce, no hall label, no
+password UI; master with a hall - the chest password box filled with "rats",
+Set password, Abandon hall, Disband; master without - "No guild hall." and
+neither. `none` prints the line in chat and never opens the panel. Halls 3
+lists three named halls with cost and daily rent (the server writes 24x the
+rent value); halls 0 opens the window saying none are on offer with Buy
+disabled. A solo master's Disband put 9B-14 on the wire. The shield designer
+claimed a design (owner 0, then 9001 after really=1) and met silence on the
+second ask. The GuildAsk push opened Create Guild over the say box - which is
+the one divergence fa28d39 left open.
+
+See also: the panels -> mobile-client.md | harness.md
+
+## Using things, and lists that change under an open window
+Tags: process, lessons | No ReqUse, no ReqUnuse, no UseList, so IsInUse was false client-side for the whole session - the single biggest hole in the pack fixture, and the whole wield/unwield half of the inventory sat behind it
+
+`Carry`'s `inUse` argument is not on the wire at all; only the EQUIPPED flag
+is, and that is a different thing. Without a UseList nothing is ever in use,
+so the button said Use forever and the bug in 07f2920 could not be reached.
+
+- M59_USE=1: ReqUse is answered with Use, ReqUnuse with Unuse, and
+  ReqInventory carries a UseList of what is already worn. ReqUse, ReqUnuse
+  and ReqApply are LOGGED with their ids whether or not the switch is set -
+  "did the press reach the wire" is the first question a use bug asks, and
+  "game-mode 106, ignored" is a poor answer. ReqApply is not answered: the
+  real server applies the item and the result is whatever the item does, not
+  a protocol reply.
+- M59_USE_LIST=<ids|none>, default 8001 (the axe).
+- M59_USE_CHANGE=rename|applyable|flags: the item changes IN PLACE the moment
+  it is worn - a new name, the APPLYABLE bit through a full ObjectUpdate, or
+  the same bit through ChangeObjectFlags. The library mutates the same
+  InventoryObject for all three (`DataController.cs:2288-2292`, `:2139-2143`),
+  which is exactly what the caption depends on. The third is a Server-104
+  packet the client compiles only outside VANILLA and OPENMERIDIAN; this build
+  defines neither, and it was seen working.
+- M59_LOOT=counts|shrink|empty|remove, on the trigger or M59_LOOT_AFTER
+  messages in: the container's whole list, re-sent changed. Both loot bugs in
+  6970025 need that.
+- M59_FLOOREQUIP=1 puts OF_EQUIPPED on the floor coin and on the axe inside
+  the container. Server-104 never sends the bit - kod keeps 0x8000 free
+  (`blakston.khd:2739`) - it is the library's and the other flavours'
+  (`ObjectFlags.cs:65`).
+
+Seen: with USE_LIST=8001 the bag opens with the axe already reading "Unuse";
+with USE_LIST=none a press sends ReqUse 8001, the server answers Use and a
+Change, and the slot reads "a blessed nerudite axe" / "Unuse" - the whole
+chain. `flags` turned the caption to "Apply" through ChangeObjectFlags alone.
+The contents window reads "a nerudite axe (in use)" with FLOOREQUIP set and
+not without. The floor LIST shows no suffix either way, which is right:
+`UILootList.cpp:192` sets the plain name where `UIObjectContents.cpp:191-194`
+appends it.
+
+See also: the bag -> mobile-client.md | the loot window -> mobile-client.md
+
+## Preferences and passwords: the seven switches were dead every session
+Tags: process, lessons | UC_REQ_PREFERENCES was never answered, so PreferencesFlags.Enabled stayed false and all seven server preferences were disabled all session; BP_CHANGE_PASSWORD stopped at the wire
+
+- M59_PREFS=1 answers both the request and a set with ReceivePreferences
+  carrying the stored word. A set ENDS in the same reply on the real server
+  (`user.kod:2405-2409`), which is how the client learns a bit was refused.
+- M59_PREFS_WORD=<0x..|n>, default 0x7E - CF_DEFAULT_PREF (`blakston.khd:80`).
+- M59_PREFS_REFUSE=<mask>: bits masked out of what you send before the echo.
+- M59_PREFS_DELAY=<ms> holds the FIRST answer back. The client asks the moment
+  the character is accepted and again after login (`BaseClient.cs:565-572`,
+  `:2765-2772`), so the window where the status bar has no word to read is a
+  real one and this is how wide it gets.
+- M59_PASSWORD=ok|bad answers BP_CHANGE_PASSWORD with BP_PASSWORD_OK or
+  BP_PASSWORD_NOT_OK and nothing else, as `blakserv/game.c:536-566` does.
+
+Seen: with M59_PREFS=1 the Settings panel's seven boxes are live and the
+status bar reads "safety on" from the word; starting at 0x3E and refusing
+0x40, the client asked for 0x7E, the server granted 0x3E and echoed it. The
+password pair was driven on raw bytes rather than through the client -
+SceneShot's `@type` fills only the FIRST visible box and the panel has three,
+so the form cannot be filled from a scripted run - and 160/161 came back for
+ok/bad.
+
+Not closed:
+- The password form itself is still undriveable by the harness; only the wire
+  was exercised. A `@name:<LineEdit>=text` step in SceneShot would close it.
+- M59_PREFS_DELAY's race was not photographed inside its own window: the shot
+  comes 150 frames in, long after a 4 s delay has passed. The server line
+  "(holding the preference word back N ms)" and the disabled/enabled boxes are
+  the evidence; a shot inside the window needs `--shots` and a step count.
+- The member view still shows an Exile control per row with EXILE clear in the
+  word. Whether it is merely disabled was not established - it is a client
+  question, and the switch is what makes it askable.
+- M59_GUILD=none leaves the Guild button on the bottom row, which now opens
+  nothing. Also a client question the switch newly exposes.
+
+Every switch here is off unless set. Control: scenes entry plus
+Book/Close/Bag/Close/Me/Close against the build before and after gives an
+identical server log (47 non-ping lines, byte-for-byte) and an identical
+frame apart from the debug overlay's clock and frame counter.
+
+See also: the options panel -> mobile-client.md | harness.md
