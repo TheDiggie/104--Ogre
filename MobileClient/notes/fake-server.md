@@ -75,3 +75,24 @@ used by hand since the beginning, which is the check that the
 conversion is right.
 
 See also: the client -> mobile-client.md | harness.md
+
+## Once per session is not once per room any more
+Tags: gotchas, lessons | The avatar's buff icons doubled after a Go out and back - the fixture was re-sending session things from EnterRoom, which used to run exactly once
+
+Making Go change rooms made `EnterRoom` run again, and its tail carried
+everything a session needs, not everything a room needs: the trade
+offer, the chat flood, the stat-change timer and the avatar's two
+enchantments all went out a second time. `AvatarBuffs.Add` appends and
+nothing clears it, so the icon strip showed the same buff twice.
+
+The client is right. `DataController` clears `RoomBuffs` on both
+RoomContents and Player (`:2225`, `:2346`) with a comment saying the
+server re-sends those - and says nothing of the sort about avatar
+buffs, because a real server does not re-send them for a door.
+
+So the tail is now split: sounds, music and the room's own two
+enchantments per room, everything else behind a `sessionExtrasSent`
+guard. Found by stacking the same 200x30 crop from before and after and
+counting icons, not by reading code.
+
+See also: harness.md | the client -> mobile-client.md

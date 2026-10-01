@@ -121,6 +121,8 @@ static class FakeServer
     /// <summary>Where a Go takes you, and a second Go brings you back.</summary>
     static string room2 = "a1.roo";
     static bool inRoom2;
+    /// <summary>Session-scoped things are sent once, not once per room.</summary>
+    static bool sessionExtrasSent;
     static string dir = "/tmp/res";
 
     static int Main(string[] args)
@@ -1658,38 +1660,53 @@ static class FakeServer
             new PlaySound(RID_RATSOUND, 0, new PlaySound.Flags(1), 11, 12, 0, 100)));
         stopAfter = 8;
 
-        // M59_CHATFLOOD=1 sends more chat than the client's log holds.
-        // DataController caps ChatMessages at 200 by removing the
-        // oldest before adding, so past that the count never changes
-        // again - which is exactly the state a view that polls the
-        // count stops redrawing in. The last line is a different
-        // string from all the rest, so a screenshot says plainly
-        // whether the log is still alive.
-        if (Environment.GetEnvironmentVariable("M59_CHATFLOOD") == "1")
+        // Once per session, not once per room. Everything below used
+        // to run on every EnterRoom, which was the same thing until Go
+        // made EnterRoom happen again: coming back to this room then
+        // re-offered the trade, replayed the flood, and re-sent the
+        // avatar's enchantments - and the client is right not to clear
+        // those, so the icons doubled. The library clears RoomBuffs on
+        // both RoomContents and Player (`DataController.cs:2225`,
+        // `:2346`) precisely because the server DOES re-send those, so
+        // the room's two stay below the guard.
+        if (!sessionExtrasSent)
         {
-            for (int i = 0; i < 205; i++)
-                Say(ns, ctrl, (i % 2 == 0) ? RID_GREETING : RID_ECHO);
-            Say(ns, ctrl, RID_HEADLINE);
-        }
-        statChangeAfter = wantStatChange ? 12 : 0;
+            sessionExtrasSent = true;
 
-        // Somebody offering you a trade. OfferMessage carries the
-        // partner and what they are putting up, and the client's
-        // TradeInfo.IsVisible goes up on it - the window is the
-        // server's decision, not the view's.
-        Send(ns, ctrl, new OfferMessage(
-            Item(3103, RID_PLAYERBGF, RID_ALICE, 0),
-            new ObjectBase[]
+            // M59_CHATFLOOD=1 sends more chat than the client's log holds.
+            // DataController caps ChatMessages at 200 by removing the
+            // oldest before adding, so past that the count never changes
+            // again - which is exactly the state a view that polls the
+            // count stops redrawing in. The last line is a different
+            // string from all the rest, so a screenshot says plainly
+            // whether the log is still alive.
+            if (Environment.GetEnvironmentVariable("M59_CHATFLOOD") == "1")
             {
-                Item(9101, RID_AXEBGF,  RID_AXE,  0),
-                Item(9102, RID_COINBGF, RID_COIN, 7),
-            }));
+                for (int i = 0; i < 205; i++)
+                    Say(ns, ctrl, (i % 2 == 0) ? RID_GREETING : RID_ECHO);
+                Say(ns, ctrl, RID_HEADLINE);
+            }
+            statChangeAfter = wantStatChange ? 12 : 0;
 
-        // A couple of enchantments, so the avatar panel has icons to show.
-        Send(ns, ctrl, new AddEnchantmentMessage(BuffType.AvatarBuff,
-            Item(6001, RID_COINBGF, RID_BUFF1, 1)));
-        Send(ns, ctrl, new AddEnchantmentMessage(BuffType.AvatarBuff,
-            Item(6002, RID_AXEBGF, RID_BUFF2, 1)));
+            // Somebody offering you a trade. OfferMessage carries the
+            // partner and what they are putting up, and the client's
+            // TradeInfo.IsVisible goes up on it - the window is the
+            // server's decision, not the view's.
+            Send(ns, ctrl, new OfferMessage(
+                Item(3103, RID_PLAYERBGF, RID_ALICE, 0),
+                new ObjectBase[]
+                {
+                    Item(9101, RID_AXEBGF,  RID_AXE,  0),
+                    Item(9102, RID_COINBGF, RID_COIN, 7),
+                }));
+
+            // A couple of enchantments, so the avatar panel has icons to show.
+            Send(ns, ctrl, new AddEnchantmentMessage(BuffType.AvatarBuff,
+                Item(6001, RID_COINBGF, RID_BUFF1, 1)));
+            Send(ns, ctrl, new AddEnchantmentMessage(BuffType.AvatarBuff,
+                Item(6002, RID_AXEBGF, RID_BUFF2, 1)));
+        }
+
 
         // And two on the room. Same message, different type byte: the
         // data layer files these in RoomBuffs rather than AvatarBuffs,
