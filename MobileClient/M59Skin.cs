@@ -1,0 +1,529 @@
+using System;
+using Godot;
+
+/// <summary>
+/// The look of every panel in this client, in one place.
+///
+/// WHY THIS EXISTS. Each panel had grown its own chrome: a full-screen
+/// <c>ColorRect</c> of its own near-black, a title Label dropped at
+/// `side, side`, rows that were bare Buttons, and a Close stretched
+/// across the bottom edge. Nothing was wrong with any one of them and
+/// the result read as a debug screen - no frame, no title bar, content
+/// hugging the top with six hundred pixels of nothing under it, and the
+/// most prominent thing on screen being the button that dismisses it.
+/// Worse, "near-black" was a different near-black in nearly every file,
+/// and several were translucent, so the chat log and the room showed
+/// through the text.
+///
+/// WHAT IT IS NOT. It is not a theme resource and not a Control
+/// subclass, because adopting either would mean rebuilding every
+/// panel's node tree. It is a bag of styleboxes and three geometry
+/// helpers, so a panel adopts it by changing how it BUILDS its chrome
+/// and where it PUTS things, and keeps its own logic untouched.
+///
+/// THE SHAPE. A panel is a centred card over a scrim, never a
+/// full-bleed rectangle: a title bar with the name and a round close,
+/// a body, and a footer that holds the actions. The card is bounded on
+/// both axes so a sideways phone does not stretch a two-column row two
+/// thousand pixels wide - the same reasoning as <see cref="Panels.Band"/>,
+/// which this replaces for panels that adopt it.
+///
+/// THE COLOURS are warm rather than blue-black, because everything
+/// behind them is torchlight on stone and wood. The gold is the one the
+/// panels were already reaching for by hand (1, 0.92, 0.6) with the
+/// greys built around it rather than against it.
+/// </summary>
+public static class M59Skin
+{
+    // ---- palette ---------------------------------------------------
+
+    /// <summary>Behind everything, over the world. Dark enough to read on.</summary>
+    public static readonly Color Scrim = new Color(0.02f, 0.018f, 0.015f, 0.72f);
+    /// <summary>The card itself.</summary>
+    public static readonly Color Card = new Color(0.086f, 0.078f, 0.067f);
+    /// <summary>The title bar and footer bands, a shade above the card.</summary>
+    public static readonly Color Band = new Color(0.125f, 0.113f, 0.094f);
+    /// <summary>A list row.</summary>
+    public static readonly Color Row = new Color(0.110f, 0.100f, 0.086f);
+    /// <summary>Every other list row, so a long list keeps its place.</summary>
+    public static readonly Color RowAlt = new Color(0.137f, 0.125f, 0.106f);
+    /// <summary>A row under the finger.</summary>
+    public static readonly Color RowHot = new Color(0.180f, 0.161f, 0.129f);
+    /// <summary>The chosen row.</summary>
+    public static readonly Color RowPick = new Color(0.216f, 0.184f, 0.129f);
+
+    /// <summary>The dark outside edge of the card.</summary>
+    public static readonly Color Edge = new Color(0.035f, 0.031f, 0.027f);
+    /// <summary>The lit inside edge, which is what makes it read as raised.</summary>
+    public static readonly Color EdgeLit = new Color(0.290f, 0.251f, 0.196f);
+    /// <summary>A hairline between rows and under the title.</summary>
+    public static readonly Color Rule = new Color(0.216f, 0.188f, 0.149f);
+
+    public static readonly Color Gold = new Color(0.910f, 0.753f, 0.416f);
+    public static readonly Color GoldBright = new Color(1.000f, 0.871f, 0.608f);
+    public static readonly Color GoldDim = new Color(0.549f, 0.459f, 0.267f);
+
+    public static readonly Color Text = new Color(0.902f, 0.871f, 0.824f);
+    public static readonly Color TextDim = new Color(0.604f, 0.565f, 0.514f);
+    public static readonly Color TextOff = new Color(0.400f, 0.376f, 0.345f);
+    /// <summary>Destructive and refusals. Not the target red, which is the ruling's.</summary>
+    public static readonly Color Danger = new Color(0.710f, 0.278f, 0.220f);
+
+    // ---- metrics ---------------------------------------------------
+
+    public const float TitleH = 58f;
+    public const float FootH = 68f;
+    /// <summary>Inside the card, on every edge.</summary>
+    public const float Pad = 18f;
+    /// <summary>Between two things that belong together.</summary>
+    public const float Gap = 10f;
+    /// <summary>A list row. Comfortably over the 44px a thumb needs.</summary>
+    public const float RowH = 56f;
+    public const float Radius = 10f;
+    /// <summary>Title text, body text, and the small print.</summary>
+    public const int TitleSize = 26, BodySize = 20, SmallSize = 16;
+
+    // ---- geometry --------------------------------------------------
+
+    /// <summary>
+    /// Where the card goes, given the screen.
+    ///
+    /// Bounded on both axes and centred. The width cap is the reason
+    /// this exists: a sideways phone is over 2300 points wide and a row
+    /// with a name at one end and a number at the other is unreadable
+    /// across it. The height cap keeps a short panel from becoming a
+    /// tall empty box - pass the content height and a panel with three
+    /// rows in it is three rows tall.
+    /// </summary>
+    /// <param name="v">Viewport size.</param>
+    /// <param name="wantH">
+    /// Content height the panel would like, excluding the title bar and
+    /// footer. Zero or less means "as tall as allowed".
+    /// </param>
+    /// <param name="foot">Whether a footer band is wanted.</param>
+    /// <param name="wantW">
+    /// Width the panel would like. Zero means "as wide as allowed",
+    /// which is what a list wants. A PROMPT does not: four words of
+    /// question in a 1620-point card is a sentence lost in a field, so
+    /// every prompt asked for this and four of them grew the same three
+    /// lines of local arithmetic before it existed.
+    /// </param>
+    public static Rect2 Frame(Vector2 v, float wantH = 0f, bool foot = true, float wantW = 0f)
+    {
+        float margin = Mathf.Max(16f, Mathf.Min(v.X, v.Y) * 0.04f);
+        float maxW = Mathf.Min(v.X - margin * 2f, Mathf.Max(820f, v.Y * 1.5f));
+        if (wantW > 0f) maxW = Mathf.Min(maxW, Mathf.Max(360f, wantW));
+        float maxH = v.Y - margin * 2f;
+
+        float chrome = TitleH + (foot ? FootH : 0f);
+        float h = wantH > 0f ? Mathf.Min(maxH, wantH + chrome + Pad * 2f) : maxH;
+        // Never so short that the chrome is the whole window.
+        h = Mathf.Max(h, chrome + RowH + Pad * 2f);
+        h = Mathf.Min(h, maxH);
+
+        return new Rect2(Mathf.Round((v.X - maxW) * 0.5f), Mathf.Round((v.Y - h) * 0.5f),
+                         Mathf.Round(maxW), Mathf.Round(h));
+    }
+
+    /// <summary>The body rectangle inside a card: under the title, over the footer.</summary>
+    public static Rect2 Body(Rect2 card, bool foot = true)
+        => new Rect2(card.Position.X + Pad,
+                     card.Position.Y + TitleH + Pad,
+                     card.Size.X - Pad * 2f,
+                     card.Size.Y - TitleH - (foot ? FootH : 0f) - Pad * 2f);
+
+    /// <summary>The footer band of a card, inset by the padding.</summary>
+    public static Rect2 Foot(Rect2 card)
+        => new Rect2(card.Position.X + Pad,
+                     card.Position.Y + card.Size.Y - FootH + (FootH - 48f) * 0.5f,
+                     card.Size.X - Pad * 2f, 48f);
+
+    // ---- pieces ----------------------------------------------------
+
+    static StyleBoxFlat Flat(Color bg, float radius = 0f)
+    {
+        var s = new StyleBoxFlat { BgColor = bg };
+        if (radius > 0f)
+        {
+            s.CornerRadiusTopLeft = s.CornerRadiusTopRight =
+            s.CornerRadiusBottomLeft = s.CornerRadiusBottomRight = (int)radius;
+        }
+        return s;
+    }
+
+    /// <summary>
+    /// The card's own background: an outer dark edge and an inner lit
+    /// one, which is the whole trick that makes a flat rectangle read as
+    /// a window rather than a hole.
+    /// </summary>
+    public static Panel Window()
+    {
+        var s = Flat(Card, Radius);
+        s.BorderWidthTop = s.BorderWidthBottom = s.BorderWidthLeft = s.BorderWidthRight = 2;
+        s.BorderColor = EdgeLit;
+        s.ShadowColor = new Color(0, 0, 0, 0.55f);
+        s.ShadowSize = 18;
+        s.AntiAliasing = true;
+        var p = new Panel();
+        p.AddThemeStyleboxOverride("panel", s);
+        return p;
+    }
+
+    /// <summary>The title band, square at the bottom so it meets the body.</summary>
+    public static Panel TitleBar()
+    {
+        var s = Flat(Band);
+        s.CornerRadiusTopLeft = s.CornerRadiusTopRight = (int)Radius - 1;
+        s.BorderWidthBottom = 1;
+        s.BorderColor = Rule;
+        s.AntiAliasing = true;
+        var p = new Panel();
+        p.AddThemeStyleboxOverride("panel", s);
+        return p;
+    }
+
+    /// <summary>A hairline, for under a title or between sections.</summary>
+    public static ColorRect Hairline() => new ColorRect { Color = Rule };
+
+    /// <summary>The panel's name, in the title bar.</summary>
+    public static Label Title(string text = "")
+    {
+        var l = new Label { Text = text, VerticalAlignment = VerticalAlignment.Center };
+        l.AddThemeFontSizeOverride("font_size", TitleSize);
+        l.AddThemeColorOverride("font_color", GoldBright);
+        return l;
+    }
+
+    /// <summary>Body text.</summary>
+    public static Label Body(string text = "", bool dim = false)
+    {
+        var l = new Label { Text = text };
+        l.AddThemeFontSizeOverride("font_size", BodySize);
+        l.AddThemeColorOverride("font_color", dim ? TextDim : Text);
+        return l;
+    }
+
+    // ---- buttons ---------------------------------------------------
+
+    public enum Kind
+    {
+        /// <summary>The one thing the panel is for. One per panel, at most.</summary>
+        Primary,
+        /// <summary>Everything else in the footer.</summary>
+        Secondary,
+        /// <summary>Destroys something.</summary>
+        Danger,
+        /// <summary>A list row.</summary>
+        Row,
+        /// <summary>A list row, the other stripe.</summary>
+        RowAlt,
+        /// <summary>An inventory slot.</summary>
+        Slot,
+        /// <summary>A tab across the top of a body.</summary>
+        Tab,
+        /// <summary>The round close in the title bar.</summary>
+        Close,
+        /// <summary>A small square stepper: +, -, a count.</summary>
+        Step,
+    }
+
+    static void Style(Button b, string which, StyleBoxFlat s) => b.AddThemeStyleboxOverride(which, s);
+
+    /// <summary>
+    /// Gives a button the house look. Call once, after the button
+    /// exists; nothing here depends on its size, so a later Layout is
+    /// free to move it.
+    /// </summary>
+    /// <param name="keep">
+    /// A colour the caller owns - a quest row's type colour, a player's
+    /// name colour - which Dress must not overwrite. Without it every
+    /// data-coloured list has to re-apply its colours after both Dress
+    /// and Pick, and three of them did.
+    /// </param>
+    public static Button Dress(Button b, Kind kind, Color? keep = null)
+    {
+        if (b == null) return null;
+
+        Color fill, hot, down, line, text;
+        float radius = 8f;
+        int border = 1;
+        int size = BodySize;
+
+        switch (kind)
+        {
+            case Kind.Primary:
+                fill = new Color(0.286f, 0.231f, 0.129f); hot = new Color(0.357f, 0.286f, 0.157f);
+                down = new Color(0.227f, 0.184f, 0.102f); line = Gold; text = GoldBright;
+                break;
+            case Kind.Danger:
+                fill = new Color(0.255f, 0.110f, 0.090f); hot = new Color(0.310f, 0.137f, 0.110f);
+                down = new Color(0.200f, 0.086f, 0.071f); line = Danger; text = new Color(1f, 0.78f, 0.72f);
+                break;
+            case Kind.Row:
+            case Kind.RowAlt:
+                fill = kind == Kind.Row ? Row : RowAlt; hot = RowHot; down = RowPick;
+                line = new Color(0, 0, 0, 0); text = Text; radius = 6f; border = 0;
+                break;
+            case Kind.Slot:
+                fill = new Color(0.078f, 0.071f, 0.063f); hot = new Color(0.137f, 0.125f, 0.106f);
+                down = RowPick; line = Rule; text = Text; radius = 6f;
+                break;
+            case Kind.Tab:
+                fill = new Color(0.098f, 0.090f, 0.078f); hot = new Color(0.149f, 0.133f, 0.110f);
+                down = new Color(0.216f, 0.184f, 0.129f); line = Rule; text = TextDim;
+                radius = 6f;
+                break;
+            case Kind.Close:
+                fill = new Color(0.173f, 0.153f, 0.125f); hot = new Color(0.400f, 0.188f, 0.149f);
+                down = new Color(0.310f, 0.137f, 0.110f); line = Rule; text = Text;
+                radius = 16f; size = TitleSize - 4;
+                break;
+            case Kind.Step:
+                fill = new Color(0.157f, 0.141f, 0.118f); hot = new Color(0.216f, 0.192f, 0.157f);
+                down = new Color(0.267f, 0.224f, 0.157f); line = Rule; text = GoldBright;
+                radius = 6f; size = BodySize + 2;
+                break;
+            default: // Secondary
+                fill = new Color(0.153f, 0.141f, 0.122f); hot = new Color(0.204f, 0.188f, 0.161f);
+                down = new Color(0.118f, 0.110f, 0.094f); line = Rule; text = Text;
+                break;
+        }
+
+        StyleBoxFlat Make(Color c)
+        {
+            var s = Flat(c, radius);
+            if (border > 0)
+            {
+                s.BorderWidthTop = s.BorderWidthBottom = s.BorderWidthLeft = s.BorderWidthRight = border;
+                s.BorderColor = line;
+            }
+            s.AntiAliasing = true;
+            return s;
+        }
+
+        Style(b, "normal", Make(fill));
+        Style(b, "hover", Make(hot));
+        Style(b, "pressed", Make(down));
+        Style(b, "focus", Make(hot));
+
+        var off = Make(new Color(fill.R * 0.7f, fill.G * 0.7f, fill.B * 0.7f));
+        off.BorderColor = new Color(line.R, line.G, line.B, line.A * 0.4f);
+        Style(b, "disabled", off);
+
+        if (keep.HasValue) text = keep.Value;
+        b.AddThemeFontSizeOverride("font_size", size);
+        b.AddThemeColorOverride("font_color", text);
+        b.AddThemeColorOverride("font_hover_color", kind == Kind.Row || kind == Kind.RowAlt ? GoldBright : text);
+        b.AddThemeColorOverride("font_pressed_color", GoldBright);
+        b.AddThemeColorOverride("font_focus_color", text);
+        b.AddThemeColorOverride("font_disabled_color", TextOff);
+        return b;
+    }
+
+    /// <summary>
+    /// Marks a row as the chosen one: the fill the pressed state uses,
+    /// plus a gold edge down the left, which is what tells you which row
+    /// you are looking at when the fill alone is a shade of brown.
+    /// </summary>
+    public static void Pick(Button b, bool on, bool alt = false)
+    {
+        if (b == null) return;
+        var s = Flat(on ? RowPick : (alt ? RowAlt : Row), 6f);
+        if (on)
+        {
+            s.BorderWidthLeft = 4;
+            s.BorderColor = Gold;
+        }
+        s.AntiAliasing = true;
+        Style(b, "normal", s);
+        // A row that is a CheckBox draws its PRESSED box while it is
+        // ticked, so overriding only `normal` left a ticked row looking
+        // exactly like an unticked one - which is the bug this whole
+        // method exists to prevent. Two panels grew the same four-line
+        // workaround before this line did.
+        Style(b, "pressed", s);
+        Style(b, "hover_pressed", s);
+        b.AddThemeColorOverride("font_color", on ? GoldBright : Text);
+    }
+
+    /// <summary>
+    /// The same stripe as a row, for something that is READ rather than
+    /// pressed - an attribute, a heading, a line of a table. Dress only
+    /// takes a Button; this takes the stylebox to a Panel.
+    /// </summary>
+    public static StyleBoxFlat Stripe(bool alt)
+    {
+        var s = Flat(alt ? RowAlt : Row, 6f);
+        s.AntiAliasing = true;
+        return s;
+    }
+
+    /// <summary>
+    /// Marks a tab as the active one. Same idea as <see cref="Pick"/>,
+    /// said in the idiom of a tab: the mark is along the BOTTOM, where a
+    /// tab joins the thing it reveals, rather than down the left, which
+    /// is a list idiom.
+    /// </summary>
+    public static void Tab(Button b, bool active)
+    {
+        if (b == null) return;
+        var s = Flat(active ? new Color(0.216f, 0.184f, 0.129f) : new Color(0.098f, 0.090f, 0.078f), 6f);
+        s.BorderWidthBottom = active ? 3 : 1;
+        s.BorderColor = active ? Gold : Rule;
+        s.AntiAliasing = true;
+        Style(b, "normal", s);
+        b.AddThemeColorOverride("font_color", active ? GoldBright : TextDim);
+    }
+
+    /// <summary>
+    /// A sunken surface: a page to read, or a box to type in. Everything
+    /// else in here is raised, and a reading surface that is raised
+    /// reads as another button.
+    /// </summary>
+    public static StyleBoxFlat Sunken()
+    {
+        var s = Flat(new Color(0.055f, 0.051f, 0.045f), 8f);
+        s.BorderWidthTop = 2;
+        s.BorderWidthLeft = s.BorderWidthRight = s.BorderWidthBottom = 1;
+        s.BorderColor = new Color(0.035f, 0.031f, 0.027f);
+        s.ContentMarginLeft = s.ContentMarginRight = 12;
+        s.ContentMarginTop = s.ContentMarginBottom = 8;
+        s.AntiAliasing = true;
+        return s;
+    }
+
+    /// <summary>Gives a text box the sunken look and the right colours.</summary>
+    public static T Field<T>(T box) where T : Control
+    {
+        if (box == null) return null;
+        box.AddThemeStyleboxOverride("normal", Sunken());
+        var hot = Sunken(); hot.BorderColor = GoldDim;
+        box.AddThemeStyleboxOverride("focus", hot);
+        box.AddThemeStyleboxOverride("read_only", Sunken());
+        box.AddThemeFontSizeOverride("font_size", BodySize);
+        box.AddThemeColorOverride("font_color", Text);
+        box.AddThemeColorOverride("font_placeholder_color", TextOff);
+        box.AddThemeColorOverride("caret_color", Gold);
+        box.AddThemeColorOverride("selection_color", new Color(0.35f, 0.29f, 0.16f));
+        return box;
+    }
+
+    /// <summary>The small gold label over a field or a block of text.</summary>
+    public static Label Caption(string text)
+    {
+        var l = new Label { Text = text };
+        l.AddThemeFontSizeOverride("font_size", SmallSize);
+        l.AddThemeColorOverride("font_color", GoldDim);
+        return l;
+    }
+
+    /// <summary>A section heading inside a body: gold, with a rule under it.</summary>
+    public static Label Heading(string text)
+    {
+        var l = new Label { Text = text };
+        l.AddThemeFontSizeOverride("font_size", BodySize);
+        l.AddThemeColorOverride("font_color", Gold);
+        return l;
+    }
+
+    /// <summary>
+    /// A progress bar that is not two grey slabs. Godot's default is
+    /// exactly that, which is what made six attributes read as six
+    /// smudges.
+    /// </summary>
+    public static ProgressBar Bar(Color? fill = null)
+    {
+        var trough = Flat(new Color(0.055f, 0.051f, 0.045f), 4f);
+        trough.BorderWidthTop = trough.BorderWidthBottom =
+        trough.BorderWidthLeft = trough.BorderWidthRight = 1;
+        trough.BorderColor = Rule;
+        trough.AntiAliasing = true;
+
+        var full = Flat(fill ?? Gold, 4f);
+        full.AntiAliasing = true;
+
+        var b = new ProgressBar { ShowPercentage = false };
+        b.AddThemeStyleboxOverride("background", trough);
+        b.AddThemeStyleboxOverride("fill", full);
+        return b;
+    }
+
+    /// <summary>
+    /// How wide a line of prose should be allowed to get. A letter, a
+    /// news story or a quest description running the full width of a
+    /// sideways phone is a line nobody can follow back to the start.
+    /// </summary>
+    public const float Measure = 760f;
+
+    /// <summary>Gap, for the theme constants that insist on an int.</summary>
+    public const int GapI = (int)Gap;
+
+    /// <summary>The round close for a title bar. Caller positions it.</summary>
+    public static Button CloseX(Action pressed)
+    {
+        var b = new Button { Text = "✕", TooltipText = "Close" };
+        Dress(b, Kind.Close);
+        if (pressed != null) b.Pressed += pressed;
+        return b;
+    }
+
+    /// <summary>
+    /// Lays a row of footer buttons out from the RIGHT edge, which is
+    /// where the last one wants to be: on a phone the thumb that
+    /// dismisses a panel is on the side it came from, and the primary
+    /// action reads last in the line. Returns the left edge reached, so
+    /// a caller can put something else beside them.
+    /// </summary>
+    public static float FootRow(Rect2 foot, params Button[] rightToLeft)
+    {
+        float x = foot.Position.X + foot.Size.X;
+        foreach (Button b in rightToLeft)
+        {
+            if (b == null || !b.Visible) continue;
+            float w = Mathf.Max(110f, b.Text.Length * 11f + 44f);
+            x -= w;
+            b.Position = new Vector2(x, foot.Position.Y);
+            b.Size = new Vector2(w, foot.Size.Y);
+            x -= Gap;
+        }
+        return x;
+    }
+
+    /// <summary>
+    /// What a panel with no content should say, rather than showing an
+    /// empty box. Every list panel had a different answer to this and
+    /// several had none.
+    /// </summary>
+    /// <remarks>
+    /// NOT autowrapped, and that is the whole point. A wrapping Label
+    /// computes its minimum height from the width it last SHAPED at,
+    /// and a panel builds this hidden and sizes it in a later Layout -
+    /// so the shaping width is 1 point, the text wraps one character
+    /// per line, and the minimum height comes out in the thousands.
+    /// Godot clamps a Control's Size up to its minimum, so assigning
+    /// position and size in one go gave one panel a 989-point label and
+    /// another a 3717-point one, each centring its text most of a
+    /// screen below the card it belonged to. The minimum fixes itself a
+    /// frame or two later and the size never shrinks back.
+    ///
+    /// Two separate panels hit this within an hour of each other and
+    /// worked around it locally, which is the signal that it belongs
+    /// here. ClipText pins the minimum at 1x1, so the label is exactly
+    /// the size it is given; a message that does not fit is elided
+    /// rather than reflowing the window. Keep these short.
+    /// </remarks>
+    public static Label Empty(string text)
+    {
+        var l = new Label
+        {
+            Text = text,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            ClipText = true,
+            TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
+        };
+        l.AddThemeFontSizeOverride("font_size", BodySize);
+        l.AddThemeColorOverride("font_color", TextDim);
+        return l;
+    }
+}
