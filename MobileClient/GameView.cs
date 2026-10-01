@@ -45,6 +45,24 @@ public partial class GameView : Node2D
     [Export] public float TurnSpeed = 2.2f;      // radians per second, keyboard
     [Export] public bool Run = false;
 
+    /// <summary>
+    /// Autorun: the reference's AutoMove, which is a key there
+    /// (`OISKeyBinding`, dispatched at `ControllerInput.cpp:566`) and
+    /// a button here. Walking forward on a phone means holding a thumb
+    /// on a stick for as long as the walk lasts, which is the one
+    /// thing a keyboard never asked of anybody.
+    /// </summary>
+    bool _autoMove;
+
+    /// <summary>
+    /// Whether autorun was switched on while already walking. The
+    /// reference keeps the same flag (isAutoMoveOnMove): turning it on
+    /// mid-walk means the release that follows is the one you were
+    /// already making, so it clears this rather than cancelling the
+    /// autorun you just asked for.
+    /// </summary>
+    bool _autoMoveOnMove;
+
     readonly M59Assets _assets = new M59Assets();
     readonly TouchControls _touch = new TouchControls();
     ChatOverlay _chat;
@@ -92,7 +110,7 @@ public partial class GameView : Node2D
     ObjectBase _amountForTrade;
     uint _targetBeforeBag = uint.MaxValue;
     RoomBuffsPanel _roomBuffs;
-    Button _loot, _go;
+    Button _loot, _go, _auto;
     LootPanel _lootList;
     LootPanel _contents;
     BuyPanel _shop;
@@ -283,13 +301,18 @@ public partial class GameView : Node2D
         // than 76 - the first attempt drew "Go" straight through the
         // word and the shot showed "SetGoings". So: the seven 76-wide
         // slots from Map to Guild, then Settings' own 96, then this.
+        const float edge = 12f, map = 70f, gap = 8f, slot = 76f, settings = 96f;
+        float past = edge + map + gap + (slot + gap) * 7f + settings + gap;
         if (_go != null)
         {
-            const float edge = 12f, map = 70f, gap = 8f, slot = 76f, settings = 96f;
             _go.Size = new Vector2(slot, 40);
-            _go.Position = new Vector2(
-                v.X - (edge + map + gap + (slot + gap) * 7f + settings + gap + slot),
-                v.Y - 40f - 12f);
+            _go.Position = new Vector2(v.X - (past + slot), v.Y - 40f - 12f);
+        }
+
+        if (_auto != null)
+        {
+            _auto.Size = new Vector2(slot, 40);
+            _auto.Position = new Vector2(v.X - (past + (slot + gap) + slot), v.Y - 40f - 12f);
         }
     }
 
@@ -933,6 +956,21 @@ public partial class GameView : Node2D
             _ui.AddChild(_go);
             Panels.Opener(_go);
 
+            // Autorun. A toggle rather than a hold, as the reference's
+            // key is: press once and walk until something stops you.
+            _auto = new Button { Text = "Auto", ToggleMode = true };
+            _auto.Toggled += on =>
+            {
+                _autoMove = on;
+                // Switched on with the stick already pushed? Then the
+                // release you are about to make is the one you were
+                // already making, and it clears this instead of the
+                // autorun - `ControllerInput.cpp:568`.
+                _autoMoveOnMove = on && _touch.Move.LengthSquared() > 0.0001f;
+            };
+            _ui.AddChild(_auto);
+            Panels.Opener(_auto);
+
             // The list the game has: what is in the thing, with names in
             // the library's own colours, and a Get for one item as well as
             // the Get All this button does.
@@ -1182,6 +1220,14 @@ public partial class GameView : Node2D
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;
         if (_go != null) _go.Visible = inWorld;
+        if (_auto != null)
+        {
+            _auto.Visible = inWorld;
+            // The button follows the state rather than owning it:
+            // walking manually turns autorun off, and the button has
+            // to say so.
+            if (_auto.ButtonPressed != _autoMove) _auto.SetPressedNoSignal(_autoMove);
+        }
         if (_splash != null)
         {
             _splash.Visible = inWorld;
@@ -1303,6 +1349,25 @@ public partial class GameView : Node2D
         Vector2 stick = _touch.Move;
         strafe += stick.X;
         fwd -= stick.Y;                       // screen Y grows downward
+
+        // Autorun. The reference cancels it on a manual forward or
+        // back (`ControllerInput.cpp:607`), and the stick IS forward
+        // and back here - so pushing it cancels, unless the autorun
+        // was switched on mid-walk, in which case the first release
+        // spends that grace instead. Turning with the look drag does
+        // not cancel, which is the point: you run and steer.
+        if (_autoMove)
+        {
+            bool pushed = MathF.Abs(stick.Y) > 0.35f;
+            if (pushed)
+            {
+                if (_autoMoveOnMove) { /* the walk it was turned on during */ }
+                else _autoMove = false;
+            }
+            else if (_autoMoveOnMove) _autoMoveOnMove = false;
+
+            if (_autoMove && fwd == 0f) fwd += 1f;
+        }
 
         float dAngle = turn * TurnSpeed * (float)delta + _touch.TakeTurn();
         if (dAngle != 0f) _client.TryYaw(dAngle);

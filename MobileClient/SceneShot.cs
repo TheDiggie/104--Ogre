@@ -173,7 +173,7 @@ public partial class SceneShot : Node
         if (press != null)
         {
             Button b = FindButton(GetTree().Root, press);
-            if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed {press}"); }
+            if (b != null) { Hit(b); GD.Print($"[SceneShot] pressed {press}"); }
             else GD.Print($"[SceneShot] no button called {press}");
         }
 
@@ -205,7 +205,7 @@ public partial class SceneShot : Node
         if (press != null)
         {
             Button b = FindButton(GetTree().Root, press);
-            if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed {press}"); }
+            if (b != null) { Hit(b); GD.Print($"[SceneShot] pressed {press}"); }
             else GD.Print($"[SceneShot] no button called {press}");
             for (int i = 0; i < 30; i++)
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
@@ -279,7 +279,7 @@ public partial class SceneShot : Node
             boxes[1].Text = p[1];
             await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
             Button go = FindButton(GetTree().Root, "Connect");
-            if (go != null) { go.EmitSignal(BaseButton.SignalName.Pressed); GD.Print("[SceneShot] pressed Connect"); }
+            if (go != null) { Hit(go); GD.Print("[SceneShot] pressed Connect"); }
             else GD.Print("[SceneShot] no Connect button");
         }
 
@@ -313,7 +313,7 @@ public partial class SceneShot : Node
         if (press != null)
         {
             Button b = FindButton(GetTree().Root, press);
-            if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed {press}"); }
+            if (b != null) { Hit(b); GD.Print($"[SceneShot] pressed {press}"); }
             for (int i = 0; i < 30; i++)
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         }
@@ -585,7 +585,7 @@ public partial class SceneShot : Node
             else
             {
                 Button b = FindButton(GetTree().Root, step);
-                if (b != null) { b.EmitSignal(BaseButton.SignalName.Pressed); GD.Print($"[SceneShot] pressed {step}"); }
+                if (b != null) { Hit(b); GD.Print($"[SceneShot] pressed {step}"); }
                 else GD.Print($"[SceneShot] no button called {step}");
             }
 
@@ -623,6 +623,14 @@ public partial class SceneShot : Node
     /// changes through Toggled, and a settings switch wired to Toggled
     /// stayed exactly where it was while the harness reported pressing
     /// it.
+    /// </summary>
+    /// <summary>
+    /// Presses a button the way a finger does. Every press in this
+    /// file goes through here, which it did not used to: a bare name
+    /// emitted Pressed directly, and a TOGGLE does not change state on
+    /// that signal. Autorun's button reported "pressed Auto" and the
+    /// client did not move an inch - a harness bug that reads exactly
+    /// like a dead feature.
     /// </summary>
     static void Hit(Button b)
     {

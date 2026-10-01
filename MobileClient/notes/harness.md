@@ -67,6 +67,8 @@ Tags: process | Kept so the next session tests something new rather than re-prov
 - NPC quests: `@obj:Alice` then Quest lists her three, with description
   and instructions, and Continue sends `ReqTriggerQuest`.
 - Skills: the Skills tab, row tapped twice, `ReqPerform` on the wire.
+- Autorun: the Auto button walks with nothing touching the screen, and
+  a backward stick drag cancels it and releases the button.
 - Casting: target something, open Spells, tap the row TWICE - the first
   tap describes, the second casts - and `ReqCast` with the spell's id
   reaches the wire. Rows are named `row<id>`, so `@name:row5002` gets
@@ -141,6 +143,16 @@ button called Quest" - which reads as a missing button rather than a
 missed tap.
 
 See also: SceneShot.cs | the client -> ../GameView.cs
+
+## Emitting Pressed does not press a toggle
+Tags: gotchas, lessons | The bare-name step emitted the Pressed signal, which a ToggleMode button ignores - "pressed Auto" and the client did not move an inch
+
+`Hit()` knew this and flipped `ButtonPressed` instead; the bare-name
+branch did not go through `Hit()`. Every press in SceneShot does now.
+A harness bug of this shape reads exactly like a dead feature, which
+is the expensive kind.
+
+See also: SceneShot.cs
 
 ## A run inherits the last run's hotbar
 Tags: gotchas, process | HotbarStore saves to user://hotbar.cfg per character, so every scripted bind is still there next run - the slots accumulate across a testing session

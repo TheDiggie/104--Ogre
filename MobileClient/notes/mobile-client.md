@@ -102,3 +102,26 @@ does the ordering the reference's handlers were there to preserve.
 Played: Rest puts it up, Stand takes it down.
 
 See also: godot-ui.md | the harness -> harness.md
+
+## Autorun
+Tags: design | The reference's AutoMove, a key there and a button here - a phone asks you to hold a thumb down for the whole walk, which a keyboard never did
+
+`ControllerInput.cpp:566` flips `isAutoMove` on the key, and
+`:607` cancels it on a manual forward or back. On a phone the stick IS
+forward and back, so pushing it cancels; turning with the look drag
+does not, which is the point - you run and steer.
+
+`isAutoMoveOnMove` is mirrored too: switch autorun on while already
+walking and the release that follows is the one you were already
+making, so it spends that grace instead of cancelling the autorun you
+just asked for.
+
+The button is a toggle beside Go and follows the state rather than
+owning it, because walking manually turns autorun off and the button
+has to say so.
+
+Played: Auto alone puts thirteen `ReqMove` on the wire with nothing
+touching the screen, and a backward drag afterwards releases the
+button in the next frame.
+
+See also: godot-ui.md | the harness -> harness.md
