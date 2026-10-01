@@ -86,7 +86,26 @@ public partial class M59Sound : Node
 
     readonly Dictionary<string, AudioStream> _streams = new Dictionary<string, AudioStream>();
     readonly List<AudioStreamPlayer2D> _pool = new List<AudioStreamPlayer2D>();
-    readonly Dictionary<string, AudioStreamPlayer2D> _loops = new Dictionary<string, AudioStreamPlayer2D>();
+    /// <summary>
+    /// One looping voice: the player, which object it belongs to, and
+    /// where that object was the last time it was heard from.
+    ///
+    /// The reference attaches a looping sound to the object's scene
+    /// node (`ControllerSound.cpp:471-472`) and moves it whenever the
+    /// object moves (`RemoteNode.cpp:510-535`), and throws it away with
+    /// the node (:112-125). Keyed on the filename alone, as this was,
+    /// two fountains in one room share one voice and a StopWave naming
+    /// the file silences both - so the object's id is part of the key.
+    /// </summary>
+    sealed class Loop
+    {
+        public AudioStreamPlayer2D Player;
+        public uint Owner;          // 0 when the sound has no object
+        public float X, Y;          // where it is, in the server's units
+        public string File;
+    }
+
+    readonly Dictionary<string, Loop> _loops = new Dictionary<string, Loop>();
     AudioStreamPlayer _music;
     string _musicPlaying = "";
 
@@ -121,8 +140,9 @@ public partial class M59Sound : Node
     void Reheard()
     {
         foreach (var kv in _loops)
-            if (kv.Value != null && kv.Value.Playing && _gain.TryGetValue(kv.Value, out float g))
-                kv.Value.VolumeDb = Mathf.LinearToDb(Mathf.Max(0.0001f, g * _volume));
+            if (kv.Value?.Player != null && kv.Value.Player.Playing
+                && _gain.TryGetValue(kv.Value.Player, out float g))
+                kv.Value.Player.VolumeDb = Mathf.LinearToDb(Mathf.Max(0.0001f, g * _volume));
         foreach (var p in _pool)
             if (p.Playing && _gain.TryGetValue(p, out float g))
                 p.VolumeDb = Mathf.LinearToDb(Mathf.Max(0.0001f, g * _volume));
@@ -183,7 +203,9 @@ public partial class M59Sound : Node
         // loop player first left an idle node behind for every distinct
         // ambient while looping sounds were switched off.
         if (loop && !Loops) return;
-        AudioStreamPlayer2D player = loop ? Loop(Key(info.ResourceName)) : Idle();
+        string key = loop ? LoopKey(info) : null;
+        Loop entry = loop ? Voice(key, info, sx, sy) : null;
+        AudioStreamPlayer2D player = loop ? entry?.Player : Idle();
         if (player == null) return;
 
         // Looping is a property of the stream in Godot, not of the player,
@@ -210,6 +232,7 @@ public partial class M59Sound : Node
         // it started, so a fountain was as loud behind you as in front.
         // It cannot follow every frame from here, but it can at least be
         // re-placed whenever the server mentions it again.
+        if (entry != null) { entry.X = sx; entry.Y = sy; }
         _gain[player] = shape;
         player.VolumeDb = Mathf.LinearToDb(gain);
         // Distance and panning are worked out above, in the game's own
@@ -236,6 +259,72 @@ public partial class M59Sound : Node
         Emit(info, stream, sx, sy, listenerX, listenerY, facing);
     }
 
+    /// <summary>
+    /// Keeps the looping voices where their objects are, and stops the
+    /// ones whose object has gone.
+    ///
+    /// The reference does both without being asked: the sound hangs off
+    /// the object's scene node, `RefreshPosition` moves every sound in
+    /// that node's list whenever the object moves
+    /// (`RemoteNode.cpp:510-535`), and the node's destructor stops and
+    /// drops them (:112-125). Here the voices are not attached to
+    /// anything, so once a frame they are told where to be. Without
+    /// this a fountain was exactly as loud behind you as in front, for
+    /// as long as the room lasted.
+    ///
+    /// <paramref name="present"/> answers "is this object still in the
+    /// room, and where"; a sound with no object (id 0) is left alone,
+    /// since it belongs to the room rather than to anything in it.
+    /// </summary>
+    public void Follow(Func<uint, (bool Here, float X, float Y)> present,
+                       float listenerX, float listenerY, float facing)
+    {
+        if (_loops.Count == 0) return;
+
+        List<string> gone = null;
+        foreach (var kv in _loops)
+        {
+            Loop l = kv.Value;
+            if (l?.Player == null) continue;
+
+            if (l.Owner != 0 && present != null)
+            {
+                (bool here, float x, float y) = present(l.Owner);
+                if (!here)
+                {
+                    (gone ??= new List<string>()).Add(kv.Key);
+                    continue;
+                }
+                l.X = x; l.Y = y;
+            }
+
+            float dx = l.X - listenerX, dy = l.Y - listenerY;
+            float distance = MathF.Sqrt(dx * dx + dy * dy);
+            float shape = 1f / (1f + Rolloff * MathF.Min(distance, MaxDistance));
+            _gain[l.Player] = shape;
+            l.Player.VolumeDb = Mathf.LinearToDb(Mathf.Max(0.0001f, shape * Volume));
+
+            float pan = 0f;
+            if (distance > 1f)
+            {
+                float c = MathF.Cos(facing), sn = MathF.Sin(facing);
+                pan = Mathf.Clamp((dx * sn - dy * c) / distance, -1f, 1f);
+            }
+            l.Player.Position = new Vector2(pan * 400f, 0f);
+        }
+
+        if (gone == null) return;
+        foreach (string k in gone)
+        {
+            Loop l = _loops[k];
+            l.Player?.Stop();
+            l.Player?.QueueFree();
+            if (l.Player != null) _gain.Remove(l.Player);
+            _loops.Remove(k);
+            if (Verbose) GD.Print($"[M59Sound] dropped {k}: its object left");
+        }
+    }
+
     /// <summary>Stops a looping sound the server has finished with.</summary>
     public void Stop(StopSound info)
     {
@@ -245,14 +334,31 @@ public partial class M59Sound : Node
         // PlaySound swaps it for the .ogg that is actually on disk. The
         // two therefore never match on the raw name, so both go through
         // the same normalisation before being looked up.
-        string key = Key(info.ResourceName);
-        if (Verbose) GD.Print($"[M59Sound] stop asked for '{key}', loops {_loops.Count}");
-        if (_loops.TryGetValue(key, out AudioStreamPlayer2D p) && p != null)
+        string file = Key(info.ResourceName);
+        if (Verbose) GD.Print($"[M59Sound] stop asked for '{file}' id {info.ID}, loops {_loops.Count}");
+
+        // The reference looks for the sound on the named object first,
+        // then on the avatar, then in its global list
+        // (`ControllerSound.cpp:259-338`). Here: the one voice for that
+        // object and that file if the message names an object, and
+        // every voice of that file if it does not.
+        var doomed = new List<string>();
+        foreach (var kv in _loops)
         {
-            p.Stop();
-            _loops.Remove(key);
-            p.QueueFree();
-            if (Verbose) GD.Print($"[M59Sound] stopped {key}");
+            Loop l = kv.Value;
+            if (l == null || l.File != file) continue;
+            if (info.ID != 0 && l.Owner != info.ID) continue;
+            doomed.Add(kv.Key);
+        }
+
+        foreach (string k in doomed)
+        {
+            Loop l = _loops[k];
+            l.Player?.Stop();
+            l.Player?.QueueFree();
+            if (l.Player != null) _gain.Remove(l.Player);
+            _loops.Remove(k);
+            if (Verbose) GD.Print($"[M59Sound] stopped {k}");
         }
     }
 
@@ -268,7 +374,7 @@ public partial class M59Sound : Node
     public void StopAll()
     {
         foreach (var kv in _loops)
-            if (kv.Value != null) { kv.Value.Stop(); kv.Value.QueueFree(); }
+            if (kv.Value?.Player != null) { kv.Value.Player.Stop(); kv.Value.Player.QueueFree(); }
         _loops.Clear();
         foreach (var p in _pool) p.Stop();
         _gain.Clear();
@@ -379,14 +485,34 @@ public partial class M59Sound : Node
         => string.IsNullOrEmpty(name) ? name
          : System.IO.Path.ChangeExtension(name, ".ogg").ToLowerInvariant();
 
-    AudioStreamPlayer2D Loop(string name)
+    /// <summary>
+    /// The voice for one looping sound, made if it does not exist.
+    /// </summary>
+    Loop Voice(string key, PlaySound info, float sx, float sy)
     {
-        if (name != null && _loops.TryGetValue(name, out AudioStreamPlayer2D p) && p != null)
-            return p;
+        if (key == null) return null;
+        if (_loops.TryGetValue(key, out Loop had) && had?.Player != null)
+        {
+            had.X = sx; had.Y = sy;
+            return had;
+        }
 
-        var made = new AudioStreamPlayer2D();
-        AddChild(made);
-        if (name != null) _loops[name] = made;
+        var made = new Loop
+        {
+            Player = new AudioStreamPlayer2D(),
+            Owner = info.ID,
+            File = Key(info.ResourceName),
+            X = sx, Y = sy,
+        };
+        AddChild(made.Player);
+        _loops[key] = made;
         return made;
     }
+
+    /// <summary>
+    /// What identifies a looping voice: the object it belongs to and
+    /// the file, so two of the same fountain in one room are two
+    /// sounds and stopping one does not stop the other.
+    /// </summary>
+    static string LoopKey(PlaySound info) => info.ID + "|" + Key(info.ResourceName);
 }

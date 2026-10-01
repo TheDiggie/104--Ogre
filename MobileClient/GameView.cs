@@ -1329,6 +1329,7 @@ public partial class GameView : Node2D
         _options?.Follow(_client.Data?.ClientPreferences);
         _fx?.Sync(_client.Data);
         Wading();
+        FollowSounds();
         _guild?.Sync(_client.Data?.GuildInfo, _client.Data?.DiplomacyInfo,
                      _client.Data != null ? _client.Data.AvatarID : 0u);
         _wizard?.Sync(_client.Data?.StatChangeInfo);
@@ -1813,6 +1814,23 @@ public partial class GameView : Node2D
             Resource = room.ResourceWadingSound,
         };
         PlaySound(splash);
+    }
+
+    /// <summary>
+    /// Tells the looping sounds where their objects have got to, and
+    /// which of them have left. See M59Sound.Follow.
+    /// </summary>
+    void FollowSounds()
+    {
+        if (_sound == null || _client?.Data == null) return;
+        RoomObject me = _client.Data.AvatarObject;
+        if (me == null) return;
+
+        _sound.Follow(id =>
+        {
+            RoomObject o = _client.Data.RoomObjects?.GetItemByID(id);
+            return o == null ? (false, 0f, 0f) : (true, o.Position3D.X, o.Position3D.Z);
+        }, me.Position3D.X, me.Position3D.Z, me.Angle);
     }
 
     /// <summary>When the last splash was, so the next one waits its turn.</summary>
