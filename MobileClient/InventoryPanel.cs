@@ -128,6 +128,8 @@ public partial class InventoryPanel : Control
 
     Button _open;
     ColorRect _panel;
+    Panel _card, _bar;
+    Button _x;
     Label _title;
     ScrollContainer _scroll;
     GridContainer _grid;
@@ -163,14 +165,30 @@ public partial class InventoryPanel : Control
         AddChild(_open);
         Panels.Opener(_open);
 
-        // Opaque: the reference window is a TaharezLook FrameWindow with no Alpha (Meridian59.layout:1396, UIInventory.cpp:8).
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 1f), Visible = false };
+        // The scrim eats the touch that would otherwise reach the world
+        // behind, and is what makes the card read as being in front of
+        // something rather than being the screen. Opaque card: the
+        // reference window is a TaharezLook FrameWindow with no Alpha
+        // (Meridian59.layout:1396, UIInventory.cpp:8).
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = new Label { Text = "Carrying", Visible = false };
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 6);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Carrying");
+        _title.Visible = false;
         AddChild(_title);
+
+        _x = M59Skin.CloseX(Close);
+        _x.Visible = false;
+        AddChild(_x);
 
         _grid = new GridContainer { Columns = Columns };
         _grid.AddThemeConstantOverride("h_separation", 8);
@@ -186,8 +204,8 @@ public partial class InventoryPanel : Control
         _selected.AddThemeColorOverride("font_color", new Color(1, 1, 1));
         AddChild(_selected);
 
-        _use   = MakeAction("Use",   () => { if (_picked != null) UseItem?.Invoke(_picked); });
-        _drop  = MakeAction("Drop",  () => { if (_picked != null) DropItem?.Invoke(_picked); });
+        _use   = MakeAction("Use",   () => { if (_picked != null) UseItem?.Invoke(_picked); }, M59Skin.Kind.Primary);
+        _drop  = MakeAction("Drop",  () => { if (_picked != null) DropItem?.Invoke(_picked); }, M59Skin.Kind.Danger);
         _look  = MakeAction("Look",  () => { if (_picked != null) LookItem?.Invoke(_picked); });
         _bind  = MakeAction("Hotbar",() => { if (_picked != null) BindItem?.Invoke(_picked); });
         _close = MakeAction("Close", Close);
@@ -197,10 +215,10 @@ public partial class InventoryPanel : Control
         Pick(null);
     }
 
-    Button MakeAction(string text, Action pressed)
+    Button MakeAction(string text, Action pressed, M59Skin.Kind kind = M59Skin.Kind.Secondary)
     {
         var b = new Button { Text = text, Visible = false };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(b, kind);
         b.Pressed += pressed;
         AddChild(b);
         return b;
@@ -224,24 +242,48 @@ public partial class InventoryPanel : Control
         _open.Size = new Vector2(76, 40);
         _open.Position = new Vector2(v.X - 70f - pad - (76f + 8f) * 2f, v.Y - 40f - pad);
 
-        float side = Panels.Side(v, 0.05f);
-        float rowH = FontSize * 2.6f;
+        // The card is sized to the grid it holds, so a pack with two
+        // rows in it is a two-row window and not a tall empty box - the
+        // thing that made every panel read as a debug screen. Thirty
+        // slots is the floor (see Across), so the window never shrinks
+        // below a usable target either.
+        int cols = Across();
+        int rows = Mathf.Max(2, Mathf.CeilToInt(Mathf.Max(30, _grid.GetChildCount()) / (float)cols));
+        // Two passes, because a slot's size depends on the card's width
+        // and the card's height depends on the slot's size. The first
+        // pass is only ever used for its width.
+        float wide = M59Skin.Body(M59Skin.Frame(v)).Size.X;
+        float cell = Mathf.Clamp((wide - 8f * (cols - 1)) / Mathf.Max(1, cols),
+                                 SlotSize * 0.5f, SlotSize * 2f);
+        float want = rows * (cell + 8f) + M59Skin.RowH;   // grid plus the selected-item line
+        Rect2 card = M59Skin.Frame(v, want);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        _title.Position = new Vector2(side, side);
-        _scroll.Position = new Vector2(side, side + FontSize * 2.4f);
-        _scroll.Size = new Vector2(v.X - side * 2f, v.Y - _scroll.Position.Y - rowH * 2f - side);
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
+
+        // The name of the chosen item sits under the grid, above the
+        // actions that act on it, rather than floating over the footer.
+        _selected.Position = new Vector2(body.Position.X, body.Position.Y + body.Size.Y - M59Skin.RowH * 0.8f);
+        _selected.Size = new Vector2(body.Size.X, M59Skin.RowH * 0.8f);
+
+        _scroll.Position = body.Position;
+        _scroll.Size = new Vector2(body.Size.X, Mathf.Max(SlotSize, body.Size.Y - M59Skin.RowH * 0.9f));
         SizeCells();
 
-        float y = v.Y - rowH - side * 0.5f;
-        _selected.Position = new Vector2(side, y - FontSize * 1.6f);
-
-        Button[] row = { _use, _drop, _look, _bind, _close };
-        float w = (v.X - side * 2f - 8f * (row.Length - 1)) / row.Length;
-        for (int i = 0; i < row.Length; i++)
-        {
-            row[i].Position = new Vector2(side + i * (w + 8f), y);
-            row[i].Size = new Vector2(w, rowH);
-        }
+        // Right to left: Close sits where the thumb that dismisses it
+        // is, and Use - the one thing the bag is for - reads last.
+        M59Skin.FootRow(foot, _close, _bind, _look, _drop, _use);
     }
 
     /// <summary>
@@ -304,6 +346,7 @@ public partial class InventoryPanel : Control
         // Above whatever else is open - see Panels.ToFront.
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         _open.Visible = !on;
         _close.Visible = on;
         if (!on) { _use.Visible = false; _drop.Visible = false; _look.Visible = false; _bind.Visible = false; _selected.Visible = false; }
@@ -440,13 +483,17 @@ public partial class InventoryPanel : Control
             MouseFilter = MouseFilterEnum.Stop,
         };
 
+        // Warm greys, from the one palette - see M59Skin. A filled slot
+        // sits a shade above an empty one so a full pack still reads as
+        // a grid rather than a wall.
         var box = new StyleBoxFlat
         {
-            BgColor = o != null ? new Color(0.13f, 0.13f, 0.16f) : new Color(0.07f, 0.07f, 0.09f),
-            BorderColor = new Color(0.3f, 0.3f, 0.36f),
+            BgColor = o != null ? M59Skin.RowAlt : new Color(0.055f, 0.051f, 0.043f),
+            BorderColor = M59Skin.Rule,
         };
         box.SetBorderWidthAll(1);
-        box.SetCornerRadiusAll(3);
+        box.SetCornerRadiusAll(6);
+        box.AntiAliasing = true;
 
         // The one you have chosen. The buttons and the name label at
         // the bottom said which item was picked, and the grid said
@@ -461,7 +508,7 @@ public partial class InventoryPanel : Control
         // the same item.
         if (o != null && _picked != null && o.ID == _picked.ID)
         {
-            box.BgColor = new Color(0.22f, 0.24f, 0.32f);
+            box.BgColor = M59Skin.RowPick;
             // The two marks are not exclusive. Picking an item used to
             // overwrite its in-use border, which hid the one thing the
             // Use button is about to change - the selected slot said
@@ -470,7 +517,7 @@ public partial class InventoryPanel : Control
             // of the border still says worn.
             box.BorderColor = o.IsInUse
                 ? new Color(1f, 0.8f, 0.35f)
-                : new Color(0.75f, 0.85f, 1f);
+                : M59Skin.Gold;
             box.SetBorderWidthAll(3);
         }
         else if (o != null && o.IsInUse)

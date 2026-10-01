@@ -55,6 +55,22 @@ public partial class NpcQuestsPanel : Control
     Button _accept, _close, _help;
     TextureRect _portrait;
 
+    // The shared chrome: a card over a scrim, a title bar with a round
+    // close, and a footer. See M59Skin.
+    Panel _card, _bar;
+    Button _x;
+    /// <summary>The frame around the giver's picture.</summary>
+    Panel _portraitFrame;
+    /// <summary>The surface the description and the requirements sit on.</summary>
+    Panel _page;
+    /// <summary>What an NPC with nothing to offer says, where the list would be.</summary>
+    Label _empty;
+    /// <summary>
+    /// Each row's colour, kept because M59Skin.Pick sets a font colour
+    /// of its own and the quest colours are the information here.
+    /// </summary>
+    readonly List<Color> _rowColors = new List<Color>();
+
     /// <summary>Show this text to the player. Raised by Help.</summary>
     public event System.Action<string> Helped;
 
@@ -100,11 +116,23 @@ public partial class NpcQuestsPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f), Visible = false };
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = Heading("Quests", FontSize + 4, new Color(1, 0.92f, 0.6f));
-        _who = Heading("", FontSize, new Color(0.75f, 0.78f, 0.84f));
+        _card = M59Skin.Window(); _card.Visible = false; AddChild(_card);
+        _bar = M59Skin.TitleBar(); _bar.Visible = false; AddChild(_bar);
+
+        _title = M59Skin.Title("Quests"); _title.Visible = false; AddChild(_title);
+        _x = M59Skin.CloseX(Dismiss); _x.Visible = false; AddChild(_x);
+        _who = Heading("", M59Skin.BodySize, M59Skin.Text);
+
+        // A frame behind the picture, so a sprite with a lot of
+        // transparency around it still reads as a portrait and not as
+        // art that has come loose.
+        _portraitFrame = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _portraitFrame.AddThemeStyleboxOverride("panel", Sunken());
+        AddChild(_portraitFrame);
         // The quest giver's picture. The reference composes one and sets
         // it as the window image (`UINPCQuestList.cpp:33-42`, `:98-104`,
         // `:115-118`); it is the only thing that window shows of the NPC.
@@ -117,11 +145,23 @@ public partial class NpcQuestsPanel : Control
             Name = "giverPortrait",
         };
         AddChild(_portrait);
-        _descLabel = Heading("Description", FontSize, new Color(1, 0.86f, 0.45f));
-        _reqLabel = Heading("Requirements", FontSize, new Color(1, 0.86f, 0.45f));
+        // Built before the captions and the text that sit on it:
+        // siblings draw in tree order, so a page added later covers
+        // them (it did, and the captions vanished).
+        _page = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _page.AddThemeStyleboxOverride("panel", Sunken());
+        AddChild(_page);
+
+        _descLabel = Heading("Description", M59Skin.SmallSize, M59Skin.GoldDim);
+        _reqLabel = Heading("Requirements", M59Skin.SmallSize, M59Skin.GoldDim);
+
+        _empty = M59Skin.Empty("Nothing to offer just now.");
+        _empty.Visible = false;
+        AddChild(_empty);
 
         _rows = new VBoxContainer();
-        _rows.AddThemeConstantOverride("separation", 2);
+        _rows.AddThemeConstantOverride("separation", 4);
+        _rows.SizeFlagsHorizontal = SizeFlags.Fill | SizeFlags.Expand;
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
@@ -135,7 +175,7 @@ public partial class NpcQuestsPanel : Control
             uint id = _quests[_picked].ObjectBase.ID;
             Accept?.Invoke(_giver, id);
             Dismiss();
-        });
+        }, M59Skin.Kind.Primary);
         // The game has a Help button on this window and it is the only
         // place a new player is told how quests read
         // (`UINPCQuestList.cpp:353-360`). The text is the client's own,
@@ -159,6 +199,25 @@ public partial class NpcQuestsPanel : Control
         return l;
     }
 
+    /// <summary>
+    /// An inset surface - the portrait's frame and the page the quest
+    /// text is read off. M59Skin's chrome is all raised; a thing you
+    /// read out of wants to look punched into the card.
+    /// </summary>
+    static StyleBoxFlat Sunken()
+    {
+        return new StyleBoxFlat
+        {
+            BgColor = new Color(0.055f, 0.051f, 0.043f),
+            CornerRadiusTopLeft = 8, CornerRadiusTopRight = 8,
+            CornerRadiusBottomLeft = 8, CornerRadiusBottomRight = 8,
+            BorderWidthTop = 1, BorderWidthBottom = 1,
+            BorderWidthLeft = 1, BorderWidthRight = 1,
+            BorderColor = M59Skin.Rule,
+            AntiAliasing = true,
+        };
+    }
+
     RichTextLabel Body()
     {
         var r = new RichTextLabel
@@ -168,71 +227,117 @@ public partial class NpcQuestsPanel : Control
             Visible = false,
             MouseFilter = MouseFilterEnum.Pass,
         };
-        r.AddThemeFontSizeOverride("normal_font_size", FontSize);
+        r.AddThemeFontSizeOverride("normal_font_size", M59Skin.BodySize);
+        r.AddThemeColorOverride("default_color", M59Skin.Text);
+        // A quest description is a paragraph someone wrote, and the
+        // requirements are a list read line by line: both want air
+        // between the lines. The server's own colours are untouched.
+        r.AddThemeConstantOverride("line_separation", 7);
         AddChild(r);
         return r;
     }
 
-    Button Push(string text, Action pressed)
+    Button Push(string text, Action pressed, M59Skin.Kind kind = M59Skin.Kind.Secondary)
     {
         var b = new Button { Text = text, Visible = false };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(b, kind);
         b.Pressed += pressed;
         AddChild(b);
         return b;
     }
+
+    /// <summary>
+    /// How wide a line of a quest description may run before the eye
+    /// loses the next one.
+    /// </summary>
+    const float Measure = 760f;
 
     void Layout()
     {
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.8f, 760f);
-        float top = v.Y - height - side * 0.5f;
-        float w = v.X - side * 2f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        Rect2 card = M59Skin.Frame(v);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        float y = top;
-        // The picture on the left, the title and the giver's name beside it.
+        _card.Position = card.Position; _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
+
+        // Who is offering, then what they have: the picture and the
+        // name head the LIST rather than the window, because the title
+        // bar is already carrying the quest being read.
+        bool wide = body.Size.X >= 980f;
+        float listW = wide ? Mathf.Clamp(body.Size.X * 0.38f, 340f, 520f) : body.Size.X;
         float pic = PortraitSize;
-        _portrait.Position = new Vector2(side, y);
-        _portrait.Size = new Vector2(pic, pic);
-        float tx = side + pic + 12f;
-        float headTop = y;
-        _title.Position = new Vector2(tx, y); y += FontSize * 1.6f;
-        _who.Position = new Vector2(tx, y); y += FontSize * 1.8f;
-        y = Mathf.Max(y, headTop + pic + 6f);
 
-        // The list takes a third of what is left; the two text blocks
-        // share the rest. A phone cannot show the game's side-by-side
-        // layout, so it is stacked.
-        float rest = top + height - rowH - 8f - y;
-        float listH = Mathf.Max(rowH * 2f, rest * 0.34f);
-        _scroll.Position = new Vector2(side, y);
-        _scroll.Size = new Vector2(w, listH);
-        _rows.CustomMinimumSize = new Vector2(w, 0);
-        y += listH + 8f;
+        _portraitFrame.Position = body.Position;
+        _portraitFrame.Size = new Vector2(pic, pic);
+        _portrait.Position = body.Position + new Vector2(4f, 4f);
+        _portrait.Size = new Vector2(pic - 8f, pic - 8f);
+        _who.Position = new Vector2(body.Position.X + pic + M59Skin.Gap,
+                                    body.Position.Y + (pic - M59Skin.BodySize * 1.6f) * 0.5f);
+        _who.Size = new Vector2(listW - pic - M59Skin.Gap, M59Skin.BodySize * 1.6f);
 
-        float textH = (rest - listH - 8f - FontSize * 3.2f) * 0.5f;
-        _descLabel.Position = new Vector2(side, y); y += FontSize * 1.6f;
-        _desc.Position = new Vector2(side, y);
-        _desc.Size = new Vector2(w, textH); y += textH + 4f;
-        _reqLabel.Position = new Vector2(side, y); y += FontSize * 1.6f;
-        _req.Position = new Vector2(side, y);
-        _req.Size = new Vector2(w, textH);
+        float top = body.Position.Y + pic + M59Skin.Pad;
+        float listH = wide ? body.Position.Y + body.Size.Y - top
+                           : Mathf.Max(M59Skin.RowH * 2f, (body.Position.Y + body.Size.Y - top) * 0.34f);
 
-        float by = top + height - rowH;
-        Button[] row = { _accept, _help, _close };
-        float bw = (w - 8f) / row.Length;
-        for (int i = 0; i < row.Length; i++)
-        {
-            row[i].Position = new Vector2(side + i * (bw + 8f), by);
-            row[i].Size = new Vector2(bw, rowH);
-        }
+        _scroll.Position = new Vector2(body.Position.X, top);
+        _scroll.Size = new Vector2(listW, listH);
+        _rows.CustomMinimumSize = new Vector2(listW - 14f, 0);
+        _empty.Position = _scroll.Position;
+        _empty.Size = _scroll.Size;
+
+        // The reading half: beside the list when there is room, under
+        // it when there is not. The two blocks are one page with two
+        // captions on it, rather than two boxes floating on the card.
+        float rx = wide ? body.Position.X + listW + M59Skin.Pad : body.Position.X;
+        float ry = wide ? body.Position.Y : top + listH + M59Skin.Pad;
+        float rw = wide ? body.Size.X - listW - M59Skin.Pad : body.Size.X;
+        float rh = body.Position.Y + body.Size.Y - ry;
+
+        _page.Position = new Vector2(rx, ry);
+        _page.Size = new Vector2(rw, Mathf.Max(0f, rh));
+
+        float inner = Mathf.Min(rw - M59Skin.Pad * 2f, Measure);
+        float ix = rx + Mathf.Round((rw - inner) * 0.5f);
+        float capH = M59Skin.SmallSize + 10f;
+        // The description gets the larger share: the requirements are
+        // short lines and the description is prose.
+        float textH = Mathf.Max(0f, rh - M59Skin.Pad * 2f - capH * 2f - M59Skin.Pad);
+        // The description takes what it needs and the requirements
+        // follow it, instead of each taking half the page and the
+        // instructions sitting four hundred pixels below a two-line
+        // description. GetContentHeight is a frame behind a change of
+        // text, which is why Pick asks for another pass.
+        float wants = _desc.GetContentHeight();
+        float descH = wants > 1f
+            ? Mathf.Clamp(wants + 6f, M59Skin.RowH, Mathf.Max(M59Skin.RowH, textH - M59Skin.RowH))
+            : Mathf.Round(textH * 0.58f);
+
+        float y = ry + M59Skin.Pad;
+        _descLabel.Position = new Vector2(ix, y);
+        _descLabel.Size = new Vector2(inner, capH); y += capH;
+        _desc.Position = new Vector2(ix, y);
+        _desc.Size = new Vector2(inner, descH); y += descH + M59Skin.Pad;
+        _reqLabel.Position = new Vector2(ix, y);
+        _reqLabel.Size = new Vector2(inner, capH); y += capH;
+        _req.Position = new Vector2(ix, y);
+        _req.Size = new Vector2(inner, Mathf.Max(0f, textH - descH));
+
+        // Right to left: Close under the dismissing thumb, then Help,
+        // and Accept - the one thing this window is for - furthest in.
+        M59Skin.FootRow(foot, _close, _help, _accept);
     }
 
     void Show(bool on)
@@ -240,10 +345,16 @@ public partial class NpcQuestsPanel : Control
         // Above whatever else is open - see Panels.ToFront.
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _who.Visible = on; _portrait.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on; _portraitFrame.Visible = on;
+        _page.Visible = on;
         _scroll.Visible = on; _descLabel.Visible = on; _desc.Visible = on;
         _reqLabel.Visible = on; _req.Visible = on;
         _accept.Visible = on; _help.Visible = on; _close.Visible = on;
+        _empty.Visible = on && _quests.Count == 0;
         if (on) GetParent()?.MoveChild(this, -1);
+        // The card is laid out against the viewport, and nothing else
+        // calls this on the way in.
+        if (on) Layout();
     }
 
     void Dismiss()
@@ -304,6 +415,7 @@ public partial class NpcQuestsPanel : Control
 
         _quests.Clear();
         _buttons.Clear();
+        _rowColors.Clear();
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
 
         foreach (QuestObjectInfo q in info.QuestList)
@@ -332,6 +444,9 @@ public partial class NpcQuestsPanel : Control
         // reference leaves the boxes as they were; this wording is the
         // client's own.)
         if (_quests.Count == 0) _desc.Text = "This person has no quests to offer right now.";
+        // ... and the list says so where the list would be.
+        _empty.Visible = IsOpen && _quests.Count == 0;
+        Layout();
     }
 
     Button Row(QuestObjectInfo q, int index)
@@ -341,17 +456,27 @@ public partial class NpcQuestsPanel : Control
         var b = new Button
         {
             Alignment = HorizontalAlignment.Left,
-            CustomMinimumSize = new Vector2(0, RowHeight),
-            Flat = true,
+            CustomMinimumSize = new Vector2(0, M59Skin.RowH),
             Icon = Icon(q.ObjectBase),
             Text = "  " + (string.IsNullOrWhiteSpace(q.ObjectBase.Name) ? "(unnamed)" : q.ObjectBase.Name),
             // Named by position so the screenshot harness can pick a row
             // it cannot find by text.
             Name = $"row{index}",
         };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
-        b.AddThemeColorOverride("font_color", new Color(
-            ((argb >> 16) & 0xFF) / 255f, ((argb >> 8) & 0xFF) / 255f, (argb & 0xFF) / 255f));
+        // Striped like every other list, then the quest's own colour
+        // put back on top: green, yellow and white are the library's
+        // (QuestTypeColors) and say what the row IS, so nothing here
+        // may override them - Dress and Pick both set a font colour,
+        // and both are followed by this.
+        M59Skin.Dress(b, index % 2 == 0 ? M59Skin.Kind.Row : M59Skin.Kind.RowAlt);
+        b.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        var tone = new Color(
+            ((argb >> 16) & 0xFF) / 255f, ((argb >> 8) & 0xFF) / 255f, (argb & 0xFF) / 255f);
+        b.AddThemeColorOverride("font_color", tone);
+        b.AddThemeColorOverride("font_hover_color", tone);
+        b.AddThemeColorOverride("font_pressed_color", tone);
+        b.AddThemeColorOverride("font_focus_color", tone);
+        _rowColors.Add(tone);
         b.Pressed += () => Pick(index);
         return b;
     }
@@ -365,8 +490,14 @@ public partial class NpcQuestsPanel : Control
         _picked = index;
         _pickedId = index >= 0 && index < _quests.Count ? _quests[index].ObjectBase.ID : -1;
 
+        // The chosen row is marked by fill and a gold edge, and keeps
+        // its own quest colour - which is why Pick's font colour is
+        // put back rather than left.
         for (int i = 0; i < _buttons.Count; i++)
-            _buttons[i].Flat = i != index;
+        {
+            M59Skin.Pick(_buttons[i], i == index, i % 2 != 0);
+            if (i < _rowColors.Count) _buttons[i].AddThemeColorOverride("font_color", _rowColors[i]);
+        }
 
         if (index < 0 || index >= _quests.Count)
         {
@@ -375,6 +506,10 @@ public partial class NpcQuestsPanel : Control
             _accept.Disabled = true;
             return;
         }
+
+        // The two blocks are sized to the text that is about to go in
+        // them, which the engine has not measured yet.
+        CallDeferred(MethodName.Layout);
 
         QuestObjectInfo q = _quests[index];
         // The window is titled with the quest you are reading, as the

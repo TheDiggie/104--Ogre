@@ -101,12 +101,16 @@ public partial class GuildHallBuyPanel : Control
     public event Action Cancelled;
 
     ColorRect _panel;
+    Panel _card, _bar;
+    Button _x;
     Label _title, _head, _selectedDesc, _selected, _passwordDesc, _invalid;
     HBoxContainer _headings;
     ScrollContainer _scroll;
     VBoxContainer _rows;
     LineEdit _password;
     Button _buy, _cancel;
+    /// <summary>The rule between the list and the two things below it.</summary>
+    ColorRect _rule;
 
     GuildHallsInfo _info;
 
@@ -126,8 +130,13 @@ public partial class GuildHallBuyPanel : Control
     /// </summary>
     uint _pick;
 
-    /// <summary>Row buttons by hall id, so the highlight moves without a rebuild.</summary>
-    readonly Dictionary<uint, Button> _rowFor = new Dictionary<uint, Button>();
+    /// <summary>
+    /// Row buttons by hall id, so the highlight moves without a rebuild.
+    /// The stripe is remembered with them: Pick has to be told which
+    /// stripe a row goes back to when it stops being the chosen one.
+    /// </summary>
+    readonly Dictionary<uint, (Button button, bool alt)> _rowFor =
+        new Dictionary<uint, (Button, bool)>();
 
     public bool IsOpen => _panel != null && _panel.Visible;
 
@@ -136,13 +145,33 @@ public partial class GuildHallBuyPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f), Visible = false };
+        // The scrim eats the touch that would reach the world behind;
+        // the card over it is opaque, which the old 0.97 panel was not.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
+
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
 
         // The frame's caption and its headline label, both the layout's
         // own words (`Meridian59.layout:1656`, `:1667`).
-        _title = Heading("Rent Guild Hall", FontSize + 4, new Color(1, 0.92f, 0.6f));
-        _head = Heading("Select a hall to house your guild:", FontSize, new Color(0.75f, 0.78f, 0.84f));
+        _title = M59Skin.Title("Rent Guild Hall");
+        _title.Visible = false;
+        AddChild(_title);
+
+        // The cross is the frame's close button, which in the reference
+        // tears the offer down exactly as Cancel does (`:269-271`).
+        _x = M59Skin.CloseX(() => Cancelled?.Invoke());
+        _x.Visible = false;
+        AddChild(_x);
+
+        _head = Heading("Select a hall to house your guild:", M59Skin.BodySize, M59Skin.TextDim);
 
         // The list's column headings: "Guild hall name", "Cost", "Daily
         // rent", in the reference's order and its words
@@ -159,34 +188,51 @@ public partial class GuildHallBuyPanel : Control
         AddChild(_headings);
 
         _rows = new VBoxContainer();
-        _rows.AddThemeConstantOverride("separation", 2);
+        _rows.AddThemeConstantOverride("separation", 4);
+        // Or the list is only as wide as its longest hall name and the
+        // two money columns land wherever that row's text ended - see
+        // notes/godot-ui.md, "A ScrollContainer sizes its child to that
+        // child's minimum".
+        _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
+
+        _rule = M59Skin.Hairline();
+        _rule.Visible = false;
+        AddChild(_rule);
 
         // "Guild hall:" and a read-only box showing the pick
         // (`:1676-1686`). The reference fills that box from the selection
         // change (`:151-170`) and blanks it when the selected row is
         // removed (`:129-134`).
-        _selectedDesc = Heading("Guild hall:", FontSize, new Color(0.86f, 0.88f, 0.92f));
-        _selected = Heading("", FontSize, new Color(1, 0.92f, 0.6f));
+        _selectedDesc = Cap("Guild hall");
+        _selected = Heading("", M59Skin.BodySize + 2, M59Skin.GoldBright);
 
-        _passwordDesc = Heading("Password:", FontSize, new Color(0.86f, 0.88f, 0.92f));
-        _password = new LineEdit { PlaceholderText = "guild password", Visible = false, Name = "hallpassword" };
-        _password.AddThemeFontSizeOverride("font_size", FontSize);
+        _passwordDesc = Cap("Password");
+        _password = M59Skin.Field(new LineEdit
+        {
+            PlaceholderText = "guild password",
+            Visible = false,
+            Name = "hallpassword",
+        });
         AddChild(_password);
 
         // The layout's warning, in the layout's words. It shares its box
         // with the password field there because it replaces it; here it
         // gets its own line, since a phone has the height and hiding the
         // field you are being told to fill in would be unkind.
-        _invalid = Heading("You must specify a guild password!", FontSize - 2, new Color(0.95f, 0.55f, 0.5f));
+        _invalid = Heading("You must specify a guild password!", M59Skin.SmallSize + 2, M59Skin.Danger);
 
         // Cancel on the left, Buy on the right, as in the layout
         // (`:1703-1712`) - and, as in ConfirmPopup, the one that spends
-        // money is not the one under a resting thumb.
+        // money is not the one under a resting thumb. FootRow lays them
+        // out from the right, so Cancel is the rightmost argument.
         _cancel = Push("Cancel", () => Cancelled?.Invoke(), "hallcancel");
         _buy = Push("Buy", Confirm, "hallbuy");
+        M59Skin.Dress(_cancel, M59Skin.Kind.Secondary);
+        // Renting the hall is the one thing this window is for.
+        M59Skin.Dress(_buy, M59Skin.Kind.Primary);
 
         GetViewport().SizeChanged += Layout;
         Layout();
@@ -216,9 +262,18 @@ public partial class GuildHallBuyPanel : Control
             MouseFilter = MouseFilterEnum.Ignore,
         };
         if (stretch) l.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        else l.CustomMinimumSize = new Vector2(FontSize * 5f, 0);
-        l.AddThemeFontSizeOverride("font_size", FontSize - 3);
-        l.AddThemeColorOverride("font_color", new Color(0.62f, 0.65f, 0.72f));
+        else l.CustomMinimumSize = new Vector2(ColMoney, 0);
+        l.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        l.AddThemeColorOverride("font_color", M59Skin.GoldDim);
+        return l;
+    }
+
+    /// <summary>The small gold line over a field.</summary>
+    Label Cap(string text)
+    {
+        Label l = M59Skin.Caption(text);
+        l.Visible = false;
+        AddChild(l);
         return l;
     }
 
@@ -255,58 +310,96 @@ public partial class GuildHallBuyPanel : Control
         Buy?.Invoke(_pick, password);
     }
 
+    /// <summary>
+    /// The two money columns, fixed so the figures line up down the
+    /// list and the headings sit over them. Wide enough for the cost,
+    /// which is the long number and the one being compared.
+    /// </summary>
+    const float ColMoney = 150f;
+    /// <summary>The gutter a row insets its contents by - the headings too.</summary>
+    const float RowInset = 12f;
+    /// <summary>Room kept for the list's scrollbar, so the headings stay put.</summary>
+    const float BarW = 14f;
+    const float CapH = 20f, FieldH = 44f;
+
+    float RowTall => Mathf.Max(RowHeight, M59Skin.RowH);
+
     void Layout()
     {
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.8f, 780f);
-        float top = v.Y - height - side * 0.5f;
-        float w = v.X - side * 2f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        // Below the list, inside the card: a rule, the pick readout and
+        // the password line side by side, and the warning under them.
+        float below = 1f + M59Skin.Gap + CapH + FieldH + M59Skin.SmallSize + 12f;
+        int shown = Mathf.Max(1, _rows != null ? _rows.GetChildCount() : 1);
+        float want = M59Skin.BodySize + 8f + CapH + shown * (RowTall + 4f) + below;
 
-        float y = top;
-        _title.Position = new Vector2(side, y); y += FontSize * 1.9f;
-        _head.Position = new Vector2(side, y); y += FontSize * 1.8f;
+        Rect2 card = M59Skin.Frame(v, want);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        // Below the list: the pick readout, the password line, the
-        // warning, and the button row - plus the gap under the last of
-        // them, the same accounting GuildPanel.Layout spells out.
-        const float foot = 12f;
-        float below = rowH * 4f + 24f + foot;
+        _card.Position = card.Position; _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
+
+        float x = body.Position.X, w = body.Size.X, y = body.Position.Y;
+
+        _head.Position = new Vector2(x, y);
+        _head.Size = new Vector2(w, M59Skin.BodySize + 6f);
+        y += M59Skin.BodySize + 8f;
 
         // The headings sit on the row grid: the rows inset their content
-        // by ten pixels either side (see Row), so the headings do too, or
-        // "Cost" would not sit over the costs.
-        _headings.Position = new Vector2(side + 10f, y);
-        _headings.Size = new Vector2(w - 20f, FontSize * 1.4f);
-        y += FontSize * 1.6f;
+        // by RowInset either side, so the headings do too, or "Cost"
+        // would not sit over the costs.
+        _headings.Position = new Vector2(x + RowInset, y);
+        // The rows take the scroll's full width until a scrollbar
+        // appears, so the headings match that and not the reserved
+        // width: "Cost" fourteen pixels off the costs is the common
+        // case, an overflowing list the rare one.
+        _headings.Size = new Vector2(w - RowInset * 2f, CapH);
+        y += CapH;
 
-        _scroll.Position = new Vector2(side, y);
-        _scroll.Size = new Vector2(w, Mathf.Max(rowH, top + height - below - 8f - y));
-        _rows.CustomMinimumSize = new Vector2(w, 0);
+        float listH = Mathf.Max(RowTall, body.Position.Y + body.Size.Y - below - y);
+        _scroll.Position = new Vector2(x, y);
+        _scroll.Size = new Vector2(w, listH);
+        _rows.CustomMinimumSize = new Vector2(w - BarW, 0);
 
-        float by = top + height - below;
-        _selectedDesc.Position = new Vector2(side, by + rowH * 0.25f);
-        _selected.Position = new Vector2(side + w * 0.3f, by + rowH * 0.25f);
+        float by = body.Position.Y + body.Size.Y - below;
+        _rule.Position = new Vector2(x, by);
+        _rule.Size = new Vector2(w, 1f);
+        by += 1f + M59Skin.Gap;
 
-        by += rowH;
-        _passwordDesc.Position = new Vector2(side, by + rowH * 0.25f);
-        _password.Position = new Vector2(side + w * 0.3f, by);
-        _password.Size = new Vector2(w * 0.7f, rowH);
+        // The chosen hall and the password are one line of two columns:
+        // what you picked, and the word that proves you may rent it.
+        float colW = (w - M59Skin.Gap) * 0.5f;
+        float rightX = x + colW + M59Skin.Gap;
+        _selectedDesc.Position = new Vector2(x, by);
+        _selectedDesc.Size = new Vector2(colW, CapH);
+        _passwordDesc.Position = new Vector2(rightX, by);
+        _passwordDesc.Size = new Vector2(colW, CapH);
+        by += CapH;
+        _selected.Position = new Vector2(x, by);
+        _selected.Size = new Vector2(colW, FieldH);
+        _selected.VerticalAlignment = VerticalAlignment.Center;
+        _password.Position = new Vector2(rightX, by);
+        _password.Size = new Vector2(colW, FieldH);
+        by += FieldH + 4f;
 
-        by += rowH + 4f;
-        _invalid.Position = new Vector2(side, by);
+        _invalid.Position = new Vector2(rightX, by);
+        _invalid.Size = new Vector2(colW, M59Skin.SmallSize + 6f);
 
-        by += rowH * 0.9f + 8f;
-        _cancel.Position = new Vector2(side, by);
-        _cancel.Size = new Vector2(w * 0.5f - 6f, rowH);
-        _buy.Position = new Vector2(side + w * 0.5f + 6f, by);
-        _buy.Size = new Vector2(w * 0.5f - 6f, rowH);
+        // Cancel at the right, where the dismissing thumb is; Buy, which
+        // spends, beside it rather than under it.
+        M59Skin.FootRow(foot, _cancel, _buy);
     }
 
     void Show(bool on)
@@ -316,8 +409,9 @@ public partial class GuildHallBuyPanel : Control
         // visible (`UIGuildHallBuy.cpp:68-69`).
         if (on) Panels.ToFront(this);
         _panel.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         _title.Visible = on; _head.Visible = on;
-        _headings.Visible = on; _scroll.Visible = on;
+        _headings.Visible = on; _scroll.Visible = on; _rule.Visible = on;
         _selectedDesc.Visible = on; _selected.Visible = on;
         _passwordDesc.Visible = on; _password.Visible = on;
         _cancel.Visible = on; _buy.Visible = on;
@@ -447,26 +541,28 @@ public partial class GuildHallBuyPanel : Control
     Control Row(GuildHall h)
     {
         uint id = h.ID;
+        bool alt = _rowFor.Count % 2 == 1;
 
         var row = new Button
         {
-            CustomMinimumSize = new Vector2(0, RowHeight),
+            CustomMinimumSize = new Vector2(0, RowTall),
             // Named so a scripted run can press one: the text is in
             // child labels, so there is nothing to find it by.
             Name = $"hall{id}",
         };
-        row.AddThemeFontSizeOverride("font_size", FontSize);
+        // Alternating stripes, so a long list of halls keeps its place.
+        M59Skin.Dress(row, alt ? M59Skin.Kind.RowAlt : M59Skin.Kind.Row);
         row.Pressed += () => Choose(id);
 
         // Remembered here, as the row is built, so Paint can move the
         // highlight without rebuilding the list.
-        _rowFor[id] = row;
+        _rowFor[id] = (row, alt);
 
         var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
         line.SetAnchorsPreset(LayoutPreset.FullRect);
-        line.AddThemeConstantOverride("separation", 10);
-        line.OffsetLeft = 10; line.OffsetTop = 4;
-        line.OffsetRight = -10; line.OffsetBottom = -4;
+        line.AddThemeConstantOverride("separation", M59Skin.GapI);
+        line.OffsetLeft = RowInset; line.OffsetTop = 4;
+        line.OffsetRight = -RowInset; line.OffsetBottom = -4;
         row.AddChild(line);
 
         var name = new Label
@@ -476,12 +572,15 @@ public partial class GuildHallBuyPanel : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        name.AddThemeFontSizeOverride("font_size", FontSize);
-        name.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
+        name.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        name.AddThemeColorOverride("font_color", M59Skin.Text);
         line.AddChild(name);
 
-        line.AddChild(Number(h.Cost.ToString(), new Color(1, 0.86f, 0.4f)));
-        line.AddChild(Number(h.Rent.ToString(), new Color(0.75f, 0.78f, 0.84f)));
+        // The cost is what the decision turns on, so it is the loud one:
+        // bright gold, two sizes up. The daily rent is the small print
+        // beside it, which is how the two differ in the choosing.
+        line.AddChild(Number(h.Cost.ToString(), M59Skin.GoldBright, M59Skin.BodySize + 4));
+        line.AddChild(Number(h.Rent.ToString(), M59Skin.TextDim, M59Skin.SmallSize));
 
         return row;
     }
@@ -491,17 +590,17 @@ public partial class GuildHallBuyPanel : Control
     /// numbers that slide about as the names beside them change length
     /// are two numbers nobody can compare down the list.
     /// </summary>
-    Label Number(string text, Color color)
+    Label Number(string text, Color color, int size)
     {
         var l = new Label
         {
             Text = text,
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
-            CustomMinimumSize = new Vector2(FontSize * 5f, 0),
+            CustomMinimumSize = new Vector2(ColMoney, 0),
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        l.AddThemeFontSizeOverride("font_size", FontSize);
+        l.AddThemeFontSizeOverride("font_size", size);
         l.AddThemeColorOverride("font_color", color);
         return l;
     }
@@ -533,19 +632,20 @@ public partial class GuildHallBuyPanel : Control
     /// The highlight, and whether Buy can be pressed.
     ///
     /// CEGUI gives the picked row a selection brush (`:104-110`); Godot's
-    /// button has no such state, so the row is tinted instead. Buy dead
-    /// with nothing picked is the reference's silent `return` on a null
-    /// selection (`:227-230`) said in advance, which is the better place
-    /// to say it: a button that does nothing when pressed teaches
-    /// nothing.
+    /// button has no such state, so the skin's Pick marks it - the lit
+    /// fill and a gold edge down the left, which is what tells you which
+    /// row you are looking at when the fill alone is a shade of brown. A
+    /// brightening Modulate did the job before and could not be told
+    /// apart from the hover. Buy dead with nothing picked is the
+    /// reference's silent `return` on a null selection (`:227-230`) said
+    /// in advance, which is the better place to say it: a button that
+    /// does nothing when pressed teaches nothing.
     /// </summary>
     void Paint()
     {
-        foreach (KeyValuePair<uint, Button> pair in _rowFor)
-            if (GodotObject.IsInstanceValid(pair.Value))
-                pair.Value.Modulate = pair.Key == _pick
-                    ? new Color(1.35f, 1.3f, 1f)
-                    : Colors.White;
+        foreach (KeyValuePair<uint, (Button button, bool alt)> pair in _rowFor)
+            if (GodotObject.IsInstanceValid(pair.Value.button))
+                M59Skin.Pick(pair.Value.button, pair.Key == _pick, pair.Value.alt);
 
         _buy.Disabled = _pick == 0;
     }

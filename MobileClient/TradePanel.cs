@@ -38,14 +38,6 @@ using Meridian59.Drawing2D;
 /// </summary>
 public partial class TradePanel : Control
 {
-    /// <summary>
-    /// Air under the last button row. Without it the button's bottom
-    /// edge and the panel's own are the same line, and the only way out
-    /// of the window reads as cut off while every row above it has a
-    /// gap.
-    /// </summary>
-    const float Foot = 12f;
-
     [Export] public int FontSize = 16;
     [Export] public int IconSize = 36;
     [Export] public int RowHeight = 48;
@@ -155,7 +147,18 @@ public partial class TradePanel : Control
     }
 
     ColorRect _panel;
+    Panel _card, _bar;
+    Button _x;
     Label _title, _mine, _theirs;
+    /// <summary>
+    /// The line down the middle. Two lists stacked one above the other
+    /// read as one long list with a heading halfway down it; a rule
+    /// between two columns is what says they are two sides of the same
+    /// thing. Laid out side by side while the card is wider than it is
+    /// tall, and stacked when it is not - see Layout.
+    /// </summary>
+    ColorRect _split;
+    Label _noneMine, _noneTheirs;
     ScrollContainer _scrollMine, _scrollTheirs;
     VBoxContainer _rowsMine, _rowsTheirs;
     Button _add, _offer, _accept, _cancel;
@@ -179,15 +182,47 @@ public partial class TradePanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        // Opaque: a FrameWindow with no Alpha (Meridian59.layout:1585, UITrade.cpp:8).
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 1f), Visible = false };
+        // The scrim dims the world and eats the touch that would reach
+        // it. The CARD is the opaque part: a FrameWindow with no Alpha
+        // (Meridian59.layout:1585, UITrade.cpp:8), so nothing draws
+        // through the two lists or the notice.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = Head("Trade", FontSize + 4, new Color(1, 0.92f, 0.6f));
-        _mine = Head("You offer", FontSize, new Color(0.8f, 0.85f, 1f));
-        _theirs = Head("They offer", FontSize, new Color(1, 0.85f, 0.8f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
 
-        _notice = Head("", FontSize, new Color(1f, 0.78f, 0.45f));
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Trade");
+        _title.Visible = false;
+        AddChild(_title);
+
+        // The round close does exactly what Cancel does - the same
+        // call, not a quieter second way out of a trade.
+        _x = M59Skin.CloseX(CancelTrade);
+        _x.Visible = false;
+        AddChild(_x);
+
+        _split = M59Skin.Hairline();
+        _split.Visible = false;
+        AddChild(_split);
+
+        _mine = Head("You offer", M59Skin.BodySize, M59Skin.GoldBright);
+        _theirs = Head("They offer", M59Skin.BodySize, M59Skin.GoldBright);
+
+        _noneMine = Settled(M59Skin.Empty("Nothing yet - Add something of yours."));
+        _noneMine.Visible = false;
+        AddChild(_noneMine);
+        _noneTheirs = Settled(M59Skin.Empty("Nothing yet."));
+        _noneTheirs.Visible = false;
+        AddChild(_noneTheirs);
+
+        _notice = Head("", M59Skin.BodySize, new Color(1f, 0.78f, 0.45f));
         _notice.Name = "tradeNotice";
         _notice.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _notice.VerticalAlignment = VerticalAlignment.Center;
@@ -239,8 +274,12 @@ public partial class TradePanel : Control
                 foreach (ObjectBase o in _trade.ItemsYou)
                     if (o != null) send.Add(new ObjectID(o.ID, Offering(o)));
             Offer?.Invoke(send);
-        });
-        _accept = Act("Accept", () => Accept?.Invoke());
+        }, M59Skin.Kind.Primary);
+        // Primary too, and not a second one on screen: Offer is up
+        // while the offer is still yours to make and Accept only once
+        // it is not (see the visibility rules in Sync), so the two are
+        // never both shown.
+        _accept = Act("Accept", () => Accept?.Invoke(), M59Skin.Kind.Primary);
         // The game sends the cancel only when a trade is actually
         // pending, and clears its own side either way
         // (`UITrade.cpp:490-495`). Sending unconditionally asks the
@@ -248,16 +287,31 @@ public partial class TradePanel : Control
         // answers by doing nothing - leaving IsVisible set and the
         // window up, so Cancel looked broken whenever you had opened
         // the window on a nearby player and nobody had offered yet.
-        _cancel = Act("Cancel", () =>
-        {
-            if (_trade != null && _trade.IsPending) Cancel?.Invoke();
-            _trade?.Clear(true);
-            Show(false);
-            Clear();
-        });
+        _cancel = Act("Cancel", CancelTrade, M59Skin.Kind.Danger);
 
         GetViewport().SizeChanged += Layout;
         Layout();
+    }
+
+    /// <summary>
+    /// Takes the word-wrap off a label that is sized by hand.
+    ///
+    /// WHY. An autowrap Label shapes its text at the width it has WHEN
+    /// FIRST ASKED, which for a label built hidden and sized in Layout is
+    /// one pixel - a character per line, a minimum height of ~990. A
+    /// Control cannot be sized below its minimum, so Layout's
+    /// `Size = column` was clamped to 990 tall, and the label (centred in
+    /// that) drew at the bottom of the screen, far outside the card. The
+    /// minimum corrects itself a moment later, but Size does not shrink
+    /// back. One line, clipped with an ellipsis if a column is ever too
+    /// narrow for it, has a minimum that does not depend on its width.
+    /// </summary>
+    static Label Settled(Label l)
+    {
+        l.AutowrapMode = TextServer.AutowrapMode.Off;
+        l.ClipText = true;
+        l.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        return l;
     }
 
     Label Head(string text, int size, Color colour)
@@ -269,13 +323,26 @@ public partial class TradePanel : Control
         return l;
     }
 
-    Button Act(string text, Action pressed)
+    Button Act(string text, Action pressed, M59Skin.Kind kind = M59Skin.Kind.Secondary)
     {
         var b = new Button { Text = text, Visible = false };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(b, kind);
         b.Pressed += pressed;
         AddChild(b);
         return b;
+    }
+
+    /// <summary>
+    /// Backing out of the trade. Lifted out of the Cancel button's
+    /// lambda unchanged so the title bar's close can call the SAME
+    /// thing rather than a second, nearly-identical path.
+    /// </summary>
+    void CancelTrade()
+    {
+        if (_trade != null && _trade.IsPending) Cancel?.Invoke();
+        _trade?.Clear(true);
+        Show(false);
+        Clear();
     }
 
     void Show(bool on)
@@ -285,6 +352,10 @@ public partial class TradePanel : Control
         foreach (Node n in GetChildren())
             if (n is Control c && c != this) c.Visible = on;
         _notice.Visible = on && _notice.Text != "";
+        // The two "nothing yet" lines belong to their own column's
+        // emptiness, not to the window's visibility, so the blanket
+        // loop above must not be the last word on them.
+        Empties();
         _panel.Visible = on;
         Layout();
     }
@@ -294,46 +365,83 @@ public partial class TradePanel : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Mathf.Max(12f, v.X * 0.04f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.78f, 780f);
-        float top = v.Y - height - side;
-        float w = v.X - side * 2f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        // Room for the notice only while there is one to show, and for
+        // the taller of the two lists otherwise: side by side, the card
+        // is as tall as the longer column needs, not as tall as both
+        // put together.
+        const float headH = 30f;
+        int longest = Mathf.Max(1, Mathf.Max(_rowsMine?.GetChildCount() ?? 0,
+                                             _rowsTheirs?.GetChildCount() ?? 0));
+        float noteH = _notice.Text != "" ? 52f : 0f;
+        Rect2 card = M59Skin.Frame(v, headH + longest * (RowHeight + 3f) + noteH + M59Skin.Gap);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        _title.Position = new Vector2(side, top);
-        _title.Size = new Vector2(w, rowH);
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        float listTop = top + rowH;
-        // Room for the notice only while there is one to show.
-        float noteH = _notice.Text != "" ? rowH * 1.1f : 0f;
-        float listH = (height - rowH * 3f - 28f - noteH) / 2f;
+        // The notice sits at the FOOT of the body, under both columns:
+        // what it says is about the offer as a whole, and putting it
+        // over one column would read as belonging to that column.
+        _notice.Position = new Vector2(body.Position.X, body.Position.Y + body.Size.Y - noteH);
+        _notice.Size = new Vector2(body.Size.X, noteH);
+        float listsH = body.Size.Y - noteH - (noteH > 0f ? M59Skin.Gap : 0f);
 
-        _mine.Position = new Vector2(side, listTop);
-        _mine.Size = new Vector2(w, rowH * 0.8f);
-        _scrollMine.Position = new Vector2(side, listTop + rowH * 0.8f);
-        _scrollMine.Size = new Vector2(w, listH);
-        _rowsMine.CustomMinimumSize = new Vector2(w, 0);
+        // Two columns while there is width for them. The card is capped
+        // at Frame's width, so a column is never the two thousand
+        // points a sideways phone would otherwise give it; below that
+        // cap - a phone held upright - two columns of a name and a
+        // count would be unreadable, so they stack as they did before.
+        bool twoUp = body.Size.X >= 620f;
+        float colW = twoUp ? (body.Size.X - M59Skin.Gap * 3f) * 0.5f : body.Size.X;
+        float colH = twoUp ? listsH - headH : (listsH - headH * 2f - M59Skin.Gap) * 0.5f;
+        colH = Mathf.Max(RowHeight, colH);
 
-        float theirTop = listTop + rowH * 0.8f + listH + 8f;
-        _theirs.Position = new Vector2(side, theirTop);
-        _theirs.Size = new Vector2(w, rowH * 0.8f);
-        _scrollTheirs.Position = new Vector2(side, theirTop + rowH * 0.8f);
-        _scrollTheirs.Size = new Vector2(w, listH);
-        _rowsTheirs.CustomMinimumSize = new Vector2(w, 0);
+        float x2 = twoUp ? body.Position.X + colW + M59Skin.Gap * 3f : body.Position.X;
+        float y2 = twoUp ? body.Position.Y : body.Position.Y + headH + colH + M59Skin.Gap;
 
-        float y = top + height - rowH - Foot;
-        _notice.Position = new Vector2(side, y - noteH);
-        _notice.Size = new Vector2(w, noteH);
-        Button[] row = { _add, _offer, _accept, _cancel };
-        float bw = (w - 6f * (row.Length - 1)) / row.Length;
-        for (int i = 0; i < row.Length; i++)
-        {
-            row[i].Position = new Vector2(side + i * (bw + 6f), y);
-            row[i].Size = new Vector2(bw, rowH);
-        }
+        _mine.Position = body.Position;
+        _mine.Size = new Vector2(colW, headH);
+        _scrollMine.Position = new Vector2(body.Position.X, body.Position.Y + headH);
+        _scrollMine.Size = new Vector2(colW, colH);
+        _rowsMine.CustomMinimumSize = new Vector2(colW, 0);
+        _noneMine.Position = _scrollMine.Position;
+        _noneMine.Size = _scrollMine.Size;
+
+        _theirs.Position = new Vector2(x2, y2);
+        _theirs.Size = new Vector2(colW, headH);
+        _scrollTheirs.Position = new Vector2(x2, y2 + headH);
+        _scrollTheirs.Size = new Vector2(colW, colH);
+        _rowsTheirs.CustomMinimumSize = new Vector2(colW, 0);
+        _noneTheirs.Position = _scrollTheirs.Position;
+        _noneTheirs.Size = _scrollTheirs.Size;
+
+        // The rule between them, only when they are side by side.
+        _split.Visible = twoUp && IsOpen;
+        _split.Position = new Vector2(body.Position.X + colW + M59Skin.Gap * 1.5f, body.Position.Y);
+        _split.Size = new Vector2(1f, listsH);
+
+        // Right to left: Cancel where the thumb that backs out is, then
+        // Add, and whichever of Offer and Accept is live reads last.
+        M59Skin.FootRow(foot, _cancel, _add, _accept, _offer);
+    }
+
+    /// <summary>Each column says so when it is empty, rather than being a blank box.</summary>
+    void Empties()
+    {
+        if (_noneMine == null) return;
+        _noneMine.Visible = IsOpen && (_rowsMine?.GetChildCount() ?? 0) == 0;
+        _noneTheirs.Visible = IsOpen && (_rowsTheirs?.GetChildCount() ?? 0) == 0;
     }
 
     /// <summary>
@@ -517,9 +625,12 @@ public partial class TradePanel : Control
         {
             _mineSignature = nowMine;
             foreach (Node n in _rowsMine.GetChildren()) { _rowsMine.RemoveChild(n); n.QueueFree(); }
+            int m = 0;
             if (trade.ItemsYou != null)
                 foreach (ObjectBase o in trade.ItemsYou)
-                    if (o != null) _rowsMine.AddChild(Row(o, (int)o.Count, true));
+                    if (o != null) _rowsMine.AddChild(Row(o, (int)o.Count, true, m++ % 2 == 1));
+            Empties();
+            Layout();
         }
 
         var sb = new System.Text.StringBuilder();
@@ -532,9 +643,12 @@ public partial class TradePanel : Control
         _theirSignature = now;
 
         foreach (Node n in _rowsTheirs.GetChildren()) { _rowsTheirs.RemoveChild(n); n.QueueFree(); }
+        int t = 0;
         if (trade.ItemsPartner != null)
             foreach (ObjectBase o in trade.ItemsPartner)
-                if (o != null) _rowsTheirs.AddChild(Row(o, (int)o.Count, false));
+                if (o != null) _rowsTheirs.AddChild(Row(o, (int)o.Count, false, t++ % 2 == 1));
+        Empties();
+        Layout();
     }
 
     void Clear()
@@ -545,6 +659,7 @@ public partial class TradePanel : Control
         _mineSignature = "";
         foreach (Node n in _rowsMine.GetChildren()) { _rowsMine.RemoveChild(n); n.QueueFree(); }
         foreach (Node n in _rowsTheirs.GetChildren()) { _rowsTheirs.RemoveChild(n); n.QueueFree(); }
+        Empties();
     }
 
     /// <summary>
@@ -560,7 +675,7 @@ public partial class TradePanel : Control
         return o.Flags != null && o.Flags.IsEquipped ? name + " (in use)" : name;
     }
 
-    Control Row(ObjectBase o, int count, bool mine)
+    Control Row(ObjectBase o, int count, bool mine, bool alt)
     {
         // The row sits inside a button so it can be held. The game
         // looks at a trade row on a right click, on both sides
@@ -572,9 +687,12 @@ public partial class TradePanel : Control
         var press = new Button
         {
             CustomMinimumSize = new Vector2(0, RowHeight),
-            Flat = true,
             Name = (mine ? "myrow" : "theirrow") + o.ID,
         };
+        // Alternating tints, so the eye keeps its place down a column
+        // of near-identical lines. No picked state: a tap here does
+        // nothing by design (see above), so there is nothing to mark.
+        M59Skin.Dress(press, alt ? M59Skin.Kind.RowAlt : M59Skin.Kind.Row);
         press.ButtonDown += () => _downAt = Time.GetTicksMsec();
         press.Pressed += () =>
         {
@@ -605,7 +723,7 @@ public partial class TradePanel : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        name.AddThemeFontSizeOverride("font_size", FontSize);
+        name.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
         name.AddThemeColorOverride("font_color", new Color(
             ((argb >> 16) & 0xFF) / 255f, ((argb >> 8) & 0xFF) / 255f, (argb & 0xFF) / 255f));
         line.AddChild(name);
@@ -624,7 +742,10 @@ public partial class TradePanel : Control
                 Name = $"mine{o.ID}",
                 TooltipText = "How many",
             };
-            many.AddThemeFontSizeOverride("font_size", FontSize);
+            // A stepper, not a slab: a small square that opens the
+            // amount prompt, and it says so by looking like one.
+            many.CustomMinimumSize = new Vector2(72, 0);
+            M59Skin.Dress(many, M59Skin.Kind.Step);
             many.Pressed += () => AmountWanted?.Invoke(o);
             line.AddChild(many);
         }
@@ -634,10 +755,12 @@ public partial class TradePanel : Control
             {
                 Text = $"x{count}",
                 VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                CustomMinimumSize = new Vector2(72, 0),
                 MouseFilter = MouseFilterEnum.Ignore,
             };
-            many.AddThemeFontSizeOverride("font_size", FontSize);
-            many.AddThemeColorOverride("font_color", new Color(0.7f, 0.7f, 0.76f));
+            many.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+            many.AddThemeColorOverride("font_color", M59Skin.Gold);
             line.AddChild(many);
         }
 

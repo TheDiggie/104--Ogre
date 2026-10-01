@@ -33,7 +33,9 @@ public partial class LookPanel : Control
     [Export] public int FontSize = 16;
     [Export] public int PictureSize = 128;
 
-    ColorRect _shade, _panel;
+    ColorRect _shade;
+    Panel _card, _bar, _frame, _page;
+    Button _x;
     TextureRect _picture;
     Label _name;
     RichTextLabel _description;
@@ -72,7 +74,7 @@ public partial class LookPanel : Control
     /// </summary>
     string _wasIns = "";
 
-    public bool IsOpen => _panel != null && _panel.Visible;
+    public bool IsOpen => _card != null && _card.Visible;
 
     public override void _Ready()
     {
@@ -86,12 +88,28 @@ public partial class LookPanel : Control
         // two Close buttons on screen, and pressing the lower one shut
         // the bag and left this orphaned. MouseFilter.Stop is the half
         // that matters: it swallows the taps.
-        _shade = new ColorRect { Color = new Color(0, 0, 0, 0.5f), Visible = false,
+        _shade = new ColorRect { Color = M59Skin.Scrim, Visible = false,
                                  MouseFilter = MouseFilterEnum.Stop };
         AddChild(_shade);
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.98f), Visible = false };
-        AddChild(_panel);
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _x = M59Skin.CloseX(Close);
+        _x.Visible = false;
+        AddChild(_x);
+
+        // The picture gets a sunken frame of its own and the room to
+        // fill it. It is the first thing this window is for, and it was
+        // a sprite dropped on the background with the name beside it.
+        _frame = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _frame.AddThemeStyleboxOverride("panel", M59Skin.Sunken());
+        AddChild(_frame);
 
         _picture = new TextureRect
         {
@@ -101,26 +119,36 @@ public partial class LookPanel : Control
         };
         AddChild(_picture);
 
-        _name = new Label { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
-        _name.AddThemeFontSizeOverride("font_size", FontSize + 4);
-        _name.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
-        _name.AddThemeConstantOverride("outline_size", 3);
+        // The name IS the title bar. It carries the server's colour, so
+        // a guildmate or an outlaw reads as one at the top of the
+        // window rather than in a line of body text.
+        _name = M59Skin.Title("");
+        _name.Visible = false;
         AddChild(_name);
 
+        // The description is read, not pressed, so it sits on a sunken
+        // page - and at a measure, because a sentence stretched across
+        // a sideways phone cannot be followed back to its own next line.
+        _page = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _page.AddThemeStyleboxOverride("panel", M59Skin.Sunken());
+        AddChild(_page);
+
         _description = new RichTextLabel { Visible = false, BbcodeEnabled = true, ScrollActive = true };
-        _description.AddThemeFontSizeOverride("normal_font_size", FontSize);
+        _description.AddThemeFontSizeOverride("normal_font_size", M59Skin.BodySize);
+        _description.AddThemeColorOverride("default_color", M59Skin.Text);
         AddChild(_description);
 
         _inscription = new Label { Visible = false, MouseFilter = MouseFilterEnum.Ignore, AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        _inscription.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        _inscription.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
         _inscription.AddThemeColorOverride("font_color", new Color(0.8f, 0.78f, 0.6f));
         AddChild(_inscription);
 
         // School, level and costs for a spell; school and level for a
-        // skill; nothing for an object. One line under the name.
-        _detail = new Label { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
-        _detail.AddThemeFontSizeOverride("font_size", FontSize - 1);
-        _detail.AddThemeColorOverride("font_color", new Color(0.72f, 0.78f, 0.9f));
+        // skill; nothing for an object. One line under the name, in the
+        // skin's caption gold rather than a blue of its own.
+        _detail = M59Skin.Caption("");
+        _detail.Visible = false;
+        _detail.MouseFilter = MouseFilterEnum.Ignore;
         AddChild(_detail);
 
         // Signing a book, a tombstone or a deed. The reference makes
@@ -131,11 +159,14 @@ public partial class LookPanel : Control
         // client showed the inscription as a plain label and had no way
         // to send one at all, so writing on anything was unreachable.
         _writing = new TextEdit { Visible = false };
-        _writing.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        M59Skin.Field(_writing);
         AddChild(_writing);
 
-        _write = new Button { Text = "Write", Visible = false };
-        _write.AddThemeFontSizeOverride("font_size", FontSize);
+        // In the footer with Close rather than squeezed beside its own
+        // box: it is an action on the window, and the footer is where
+        // this skin keeps those.
+        _write = new Button { Text = "Write", Visible = false, Name = "lookWrite" };
+        M59Skin.Dress(_write, M59Skin.Kind.Primary);
         // Only when the text has actually changed, which is what the
         // reference tests before it sends: OK on the object-details
         // window compares the box against `lookInfo->Inscription->
@@ -189,12 +220,12 @@ public partial class LookPanel : Control
         // the name, not as a footnote.
         _titles = new Label { Visible = false, MouseFilter = MouseFilterEnum.Ignore,
                               AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        _titles.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        _titles.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
         _titles.AddThemeColorOverride("font_color", new Color(0.88f, 0.84f, 0.62f));
         AddChild(_titles);
 
         _websiteLine = new Label { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
-        _websiteLine.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        _websiteLine.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
         _websiteLine.AddThemeColorOverride("font_color", new Color(0.66f, 0.78f, 0.95f));
         AddChild(_websiteLine);
 
@@ -206,11 +237,11 @@ public partial class LookPanel : Control
         // Godot has no read-only RichTextLabel worth the name, so the
         // same effect is two widgets sharing one rectangle.
         _descEdit = new TextEdit { Visible = false, WrapMode = TextEdit.LineWrappingMode.Boundary };
-        _descEdit.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Field(_descEdit);
         AddChild(_descEdit);
 
         _urlEdit = new LineEdit { Visible = false, PlaceholderText = "Website" };
-        _urlEdit.AddThemeFontSizeOverride("font_size", FontSize - 1);
+        M59Skin.Field(_urlEdit);
         AddChild(_urlEdit);
 
         // The reference has no Save button: its OK button both saves and
@@ -220,8 +251,8 @@ public partial class LookPanel : Control
         // half-typed description. Close saves too, for the same reason
         // the reference's OK does - see Close() - so nothing typed is
         // lost either way; this is just the explicit half.
-        _save = new Button { Text = "Save", Visible = false };
-        _save.AddThemeFontSizeOverride("font_size", FontSize);
+        _save = new Button { Text = "Save", Visible = false, Name = "lookSave" };
+        M59Skin.Dress(_save, M59Skin.Kind.Primary);
         _save.Pressed += SaveSelf;
         AddChild(_save);
 
@@ -233,7 +264,7 @@ public partial class LookPanel : Control
         // have and hid a run of it. AliasEditor names its own for the
         // same reason.
         _close = new Button { Text = "Close", Visible = false, Name = "lookClose" };
-        _close.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(_close, M59Skin.Kind.Secondary);
         _close.Pressed += Close;
         AddChild(_close);
 
@@ -241,84 +272,120 @@ public partial class LookPanel : Control
         Layout();
     }
 
+    /// <summary>
+    /// The picture's side, and the height of a box or a line at the
+    /// foot of the body. The picture is given a floor of its own
+    /// because PictureSize is also what the sprite is composed at, and
+    /// a 128-pixel thing in a 128-pixel hole has no room at all.
+    /// </summary>
+    const float PicFloor = 168f, FootLineH = 52f;
+
     void Layout()
     {
-        if (_panel == null) return;
+        if (_card == null) return;
         Vector2 v = GetViewportRect().Size;
-
-        float side = Panels.Side(v, 0.06f);
-        float w = v.X - side;
-
-        // As tall as it needs to be. A fixed 55% of the screen meant a
-        // one-line description sat above two hundred pixels of empty
-        // black with the Close button parked at the bottom of it - and
-        // an inscription box floating in the middle of that void. The
-        // text decides, between enough for the picture and the old
-        // maximum.
-        float textW = w - side;
-        float bodyH = _description != null
-            ? _description.GetThemeFont("normal_font").GetMultilineStringSize(
-                  _description.Text ?? "", HorizontalAlignment.Left, textW,
-                  _description.GetThemeFontSize("normal_font_size")).Y
-            : 0f;
-        float needed = PictureSize + 26f          // the picture and the name
-                     + bodyH * 1.15f + 16f        // the description
-                     + FontSize * 9.5f;           // detail, inscription, Close and air
-        float h = Mathf.Clamp(needed, Mathf.Min(v.Y * 0.30f, 260f),
-                              Mathf.Min(v.Y * 0.8f, 620f));
-        float top = v.Y * 0.18f;
 
         _shade.Position = Vector2.Zero;
         _shade.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top);
-        _panel.Size = new Vector2(w, h);
+        float picW = Mathf.Max(PictureSize, PicFloor);
 
-        _picture.Position = new Vector2(side, top + 14f);
-        _picture.Size = new Vector2(PictureSize, PictureSize);
+        // The card is only as wide as a picture plus a readable line of
+        // prose. Frame caps it against the screen as well, so a
+        // sideways phone does not get a description two thousand points
+        // across.
+        float wantW = picW + M59Skin.Gap + M59Skin.Measure + M59Skin.Pad * 2f;
 
-        _name.Position = new Vector2(side + PictureSize + 16f, top + 16f);
+        // Two passes, because the text's height depends on the column's
+        // width and the card's height depends on the text's height. The
+        // first pass is only ever used for its width.
+        float textW = Mathf.Max(220f,
+            M59Skin.Body(M59Skin.Frame(v, 0f, true, wantW)).Size.X - picW - M59Skin.Gap);
 
-        float textTop = top + PictureSize + 26f;
-        _description.Position = new Vector2(side, textTop);
-        _description.Size = new Vector2(w - side, h - (textTop - top) - FontSize * 5f);
+        float bodyH = _description != null
+            ? _description.GetThemeFont("normal_font").GetMultilineStringSize(
+                  _description.Text ?? "", HorizontalAlignment.Left, textW - 24f,
+                  _description.GetThemeFontSize("normal_font_size")).Y
+            : 0f;
 
-        _inscription.Position = new Vector2(side, top + h - FontSize * 4.4f);
-        _inscription.Size = new Vector2(w - side, FontSize * 2f);
+        // What the four kinds put above and below the description. They
+        // share one layout - the rows that a kind does not use are
+        // simply not visible, and take no height - which is what keeps
+        // a spell, an object, a skill and a player the same window.
+        float headH = (_titles.Visible ? M59Skin.SmallSize * 2.8f : 0f)
+                    + (_detail.Visible ? M59Skin.SmallSize + 10f : 0f);
+        bool anyFoot = _inscription.Visible || _writing.Visible
+                    || _websiteLine.Visible || _urlEdit.Visible;
+        float footLine = anyFoot ? FootLineH + M59Skin.Gap : 0f;
 
-        // The writable version takes the label's place, with the button
-        // beside it rather than under, so the Close row does not move.
-        float writeW = FontSize * 5f;
-        _writing.Position = _inscription.Position;
-        _writing.Size = new Vector2(w - side - writeW - 8f, FontSize * 2.4f);
-        _write.Position = new Vector2(side + (w - side) - writeW, _inscription.Position.Y);
-        _write.Size = new Vector2(writeW, FontSize * 2.4f);
+        float want = Mathf.Max(picW,
+                               headH + bodyH * 1.15f + M59Skin.Pad * 2f + footLine);
+        Rect2 card = M59Skin.Frame(v, want, true, wantW);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        _detail.Position = new Vector2(side, top + h - FontSize * 6.4f);
-        _detail.Size = new Vector2(w - side, FontSize * 1.8f);
+        _card.Position = card.Position; _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _name.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _name.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        // The player rows reuse the slots the object rows sit in, which
-        // is what keeps the two shapes of this window the same size and
-        // the Close button in the same place under both. Titles takes
-        // the space beside the picture under the name; the website takes
-        // the inscription's line, with Save beside it exactly as Write
-        // sits beside the inscription box.
-        _titles.Position = new Vector2(side + PictureSize + 16f, top + 16f + FontSize + 10f);
-        _titles.Size = new Vector2(w - side - PictureSize - 16f, FontSize * 3.2f);
+        // The picture's column on the left, square and the full height
+        // of the body if the body is short enough to be filled by it.
+        float picH = Mathf.Min(picW, body.Size.Y);
+        _frame.Position = body.Position;
+        _frame.Size = new Vector2(picW, picH);
+        _picture.Position = body.Position + new Vector2(10f, 10f);
+        _picture.Size = new Vector2(picW - 20f, picH - 20f);
 
-        _descEdit.Position = _description.Position;
-        _descEdit.Size = _description.Size;
+        // Everything that is words shares one column beside it, so the
+        // four kinds differ only in which of its rows are up.
+        float x = body.Position.X + picW + M59Skin.Gap;
+        float w = body.Position.X + body.Size.X - x;
+        float y = body.Position.Y;
 
-        _websiteLine.Position = _inscription.Position;
-        _websiteLine.Size = _inscription.Size;
+        if (_titles.Visible)
+        {
+            _titles.Position = new Vector2(x, y);
+            _titles.Size = new Vector2(w, M59Skin.SmallSize * 2.8f);
+            y += M59Skin.SmallSize * 2.8f;
+        }
+        if (_detail.Visible)
+        {
+            _detail.Position = new Vector2(x, y);
+            _detail.Size = new Vector2(w, M59Skin.SmallSize + 10f);
+            y += M59Skin.SmallSize + 10f;
+        }
 
-        _urlEdit.Position = _inscription.Position;
-        _urlEdit.Size = new Vector2(w - side - writeW - 8f, FontSize * 2.4f);
-        _save.Position = new Vector2(side + (w - side) - writeW, _inscription.Position.Y);
-        _save.Size = new Vector2(writeW, FontSize * 2.4f);
+        float pageH = Mathf.Max(FootLineH, body.Position.Y + body.Size.Y - y - footLine);
+        _page.Position = new Vector2(x, y);
+        _page.Size = new Vector2(w, pageH);
+        // Inside the sunken page, clear of its own border.
+        _description.Position = new Vector2(x + 12f, y + 8f);
+        _description.Size = new Vector2(w - 24f, pageH - 16f);
+        _descEdit.Position = _page.Position;
+        _descEdit.Size = _page.Size;
 
-        _close.Position = new Vector2(side, top + h - FontSize * 2.4f - 8f);
-        _close.Size = new Vector2(w - side, FontSize * 2.4f);
+        // The last line of the column: an inscription read, an
+        // inscription being written, a website, or a website being
+        // typed. One slot, because exactly one of them is ever up.
+        float fy = body.Position.Y + body.Size.Y - FootLineH;
+        _inscription.Position = new Vector2(x, fy);
+        _inscription.Size = new Vector2(w, FootLineH);
+        _writing.Position = new Vector2(x, fy);
+        _writing.Size = new Vector2(w, FootLineH);
+        _websiteLine.Position = new Vector2(x, fy);
+        _websiteLine.Size = new Vector2(w, FootLineH);
+        _urlEdit.Position = new Vector2(x, fy);
+        _urlEdit.Size = new Vector2(w, FootLineH);
+
+        // Right to left: Close under the thumb that dismisses it, and
+        // whichever of Write and Save is up beside it. FootRow skips
+        // the hidden one.
+        M59Skin.FootRow(foot, _close, _write, _save);
     }
 
     public void Close()
@@ -410,7 +477,10 @@ public partial class LookPanel : Control
         bool who = on && _playerMode;
 
         _shade.Visible = on;
-        _panel.Visible = on;
+        _card.Visible = on;
+        _bar.Visible = on;
+        _x.Visible = on;
+        _frame.Visible = on;
         _picture.Visible = on && _picture.Texture != null;
         _name.Visible = on;
         // In player mode the read-only description gives way to the
@@ -418,6 +488,9 @@ public partial class LookPanel : Control
         // is the reference's ReadOnly flip (`UIPlayerDetails.cpp:155-160`)
         // expressed as two widgets in one rectangle.
         _description.Visible = on && !(who && _playerEditable);
+        // The page is the description's own surface, so it comes and
+        // goes with it; the writable version brings its own.
+        _page.Visible = _description.Visible;
         _inscription.Visible = thing && !_editable && !string.IsNullOrWhiteSpace(_inscription.Text);
         _writing.Visible = thing && _editable;
         _write.Visible = thing && _editable;

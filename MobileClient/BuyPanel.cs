@@ -42,9 +42,15 @@ public static class TickStyle
     static ImageTexture Make(int n, bool ticked, bool dim)
     {
         float a = dim ? 0.45f : 1f;
-        var border = new Color(0.92f, 0.94f, 1f, a);
-        var fill = ticked ? new Color(0.16f, 0.5f, 0.24f, a) : new Color(0.22f, 0.24f, 0.30f, a);
-        var tick = new Color(1f, 1f, 1f, a);
+        // The box's own light, in the skin's warm greys rather than the
+        // blue-white it was drawn in: everything behind it is torchlight
+        // on stone, and a cold box on a warm card read as a stray
+        // widget. Same three pictures, same contrast - only the hues
+        // moved. The ticked fill is the Primary button's, so a ticked
+        // row and the Buy button that spends on it agree.
+        var border = new Color(M59Skin.Gold.R, M59Skin.Gold.G, M59Skin.Gold.B, a);
+        var fill = ticked ? new Color(0.286f, 0.231f, 0.129f, a) : new Color(0.078f, 0.071f, 0.063f, a);
+        var tick = new Color(M59Skin.GoldBright.R, M59Skin.GoldBright.G, M59Skin.GoldBright.B, a);
 
         var img = Image.CreateEmpty(n, n, false, Image.Format.Rgba8);
         int m = Mathf.Max(2, n / 12);       // border width
@@ -109,14 +115,6 @@ public static class TickStyle
 /// </summary>
 public partial class BuyPanel : Control
 {
-    /// <summary>
-    /// Air under the last button row. Without it the button's bottom
-    /// edge and the panel's own are the same line, and the only way out
-    /// of the window reads as cut off while every row above it has a
-    /// gap.
-    /// </summary>
-    const float Foot = 12f;
-
     [Export] public int FontSize = 16;
     [Export] public int IconSize = 40;
     [Export] public int RowHeight = 56;
@@ -141,7 +139,9 @@ public partial class BuyPanel : Control
     bool _reverting;
 
     ColorRect _panel;
-    Label _title, _sum;
+    Panel _card, _bar;
+    Button _x;
+    Label _title, _sum, _empty;
     ScrollContainer _scroll;
     VBoxContainer _rows;
     Button _ok, _close;
@@ -173,14 +173,18 @@ public partial class BuyPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        // Opaque. At 0.95 the chat overlay (added to the same layer, and
+        // The scrim dims the world and eats the touch that would reach
+        // it; the CARD over it is opaque, and that opacity is load
+        // bearing rather than taste.
+        //
+        // At 0.95 the chat overlay (added to the same layer, and
         // anchored to the bottom-left) shows through at 5%, which is
         // plenty for white text on this colour: on 1920x1080 the running
-        // total sits at y~860, exactly where the chat lines draw, and
-        // the one number a player must read before spending had chat
-        // running through it.
+        // total sits low on the panel, exactly where the chat lines
+        // draw, and the one number a player must read before spending
+        // had chat running through it.
         //
-        // Why the whole panel rather than the alternatives. MOVING the
+        // Why the whole window rather than the alternatives. MOVING the
         // total only relocates the collision: the chat block is anchored
         // to the screen, not to this panel, and in portrait it spans the
         // full width, so nowhere in the lower half of the panel is safe.
@@ -188,17 +192,31 @@ public partial class BuyPanel : Control
         // prices, names and button captions beside it ghosted by the same
         // bleed. The game has neither problem because its shop is an
         // opaque CEGUI frame (`UIBuy.cpp:12` takes it as a FrameWindow),
-        // so nothing draws behind any of it; an opaque panel is the same
+        // so nothing draws behind any of it; M59Skin.Window() is the same
         // thing, and the 5% it gives up showed nothing of the world
         // anyway. ChatOverlay's own full-screen log is opaque for the
         // same reason (ChatOverlay.cs, `_fullBack`).
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 1f), Visible = false };
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = new Label { Text = "For sale", Visible = false };
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 4);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("For sale");
+        _title.Visible = false;
         AddChild(_title);
+
+        // The round close in the title bar does what the footer's Close
+        // does - Dismiss - rather than a second, quieter way out.
+        _x = M59Skin.CloseX(Dismiss);
+        _x.Visible = false;
+        AddChild(_x);
 
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 4);
@@ -213,9 +231,17 @@ public partial class BuyPanel : Control
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
-        _sum = new Label { Text = "", Visible = false };
-        _sum.AddThemeFontSizeOverride("font_size", FontSize + 2);
-        _sum.AddThemeColorOverride("font_color", new Color(1, 0.86f, 0.4f));
+        _empty = M59Skin.Empty("This merchant has nothing for sale.");
+        _empty.Visible = false;
+        AddChild(_empty);
+
+        // The total is the one number a player must read before
+        // spending, so it is title-sized and gold and sits in the
+        // footer band beside the button that spends it - not a line of
+        // small print lost above a row of grey slabs.
+        _sum = new Label { Text = "", Visible = false, VerticalAlignment = VerticalAlignment.Center };
+        _sum.AddThemeFontSizeOverride("font_size", M59Skin.TitleSize);
+        _sum.AddThemeColorOverride("font_color", M59Skin.GoldBright);
         AddChild(_sum);
 
         _ok = Action("Buy", () =>
@@ -225,20 +251,34 @@ public partial class BuyPanel : Control
                 if (o != null && _ticked.Contains(o.ID)) want.Add(o);
             if (want.Count > 0) Buy?.Invoke(want);
             Dismiss();
-        });
+        }, M59Skin.Kind.Primary);
         _close = Action("Close", Dismiss);
 
         GetViewport().SizeChanged += Layout;
         Layout();
     }
 
-    Button Action(string text, Action pressed)
+    Button Action(string text, Action pressed, M59Skin.Kind kind = M59Skin.Kind.Secondary)
     {
         var b = new Button { Text = text, Visible = false };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(b, kind);
         b.Pressed += pressed;
         AddChild(b);
         return b;
+    }
+
+    /// <summary>
+    /// The skin's <see cref="M59Skin.Pick"/>, plus the states a TOGGLE
+    /// button draws in. A row here is a CheckBox, so while it is ticked
+    /// Godot draws its "pressed" box rather than its "normal" one -
+    /// marking only "normal", which is all Pick does, left a ticked row
+    /// looking exactly like an unticked one.
+    /// </summary>
+    static void Mark(Button b, bool on, bool alt)
+    {
+        M59Skin.Pick(b, on, alt);
+        b.AddThemeStyleboxOverride("pressed", b.GetThemeStylebox("normal"));
+        b.AddThemeStyleboxOverride("hover_pressed", b.GetThemeStylebox(on ? "normal" : "hover"));
     }
 
     void Layout()
@@ -246,29 +286,40 @@ public partial class BuyPanel : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.66f, 640f);
-        float top = v.Y - height - side;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        // The card is sized to the list it holds, so a shop with three
+        // lines is a three-line window rather than a tall empty box -
+        // the thing that made this read as a debug screen.
+        int lines = Mathf.Max(1, _rows != null ? _rows.GetChildCount() : 1);
+        float want = lines * (RowHeight + 4f);
+        Rect2 card = M59Skin.Frame(v, want);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        _title.Position = new Vector2(side, top);
-        _scroll.Position = new Vector2(side, top + FontSize * 2.2f);
-        _scroll.Size = new Vector2(v.X - side * 2f, height - FontSize * 2.2f - rowH * 2f - 20f);
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        _sum.Position = new Vector2(side, top + height - rowH * 2f - 6f - Foot);
-        _sum.Size = new Vector2(v.X - side * 2f, rowH);
+        _scroll.Position = body.Position;
+        _scroll.Size = body.Size;
+        _rows.CustomMinimumSize = new Vector2(body.Size.X, 0);
+        _empty.Position = body.Position;
+        _empty.Size = body.Size;
 
-        float y = top + height - rowH - Foot;
-        Button[] row = { _ok, _close };
-        float w = (v.X - side * 2f - 8f) / row.Length;
-        for (int i = 0; i < row.Length; i++)
-        {
-            row[i].Position = new Vector2(side + i * (w + 8f), y);
-            row[i].Size = new Vector2(w, rowH);
-        }
+        // Buy reads last in the line and Close sits where the thumb
+        // that dismisses it is; the total takes whatever the two of
+        // them leave, which keeps it clear of both.
+        float left = M59Skin.FootRow(foot, _close, _ok);
+        _sum.Position = foot.Position;
+        _sum.Size = new Vector2(Mathf.Max(0f, left - foot.Position.X - M59Skin.Gap), foot.Size.Y);
     }
 
     /// <summary>
@@ -322,6 +373,9 @@ public partial class BuyPanel : Control
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
         _sum.Visible = on; _ok.Visible = on; _close.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
+        _empty.Visible = on && _rows.GetChildCount() == 0;
+        Layout();
     }
 
     /// <summary>
@@ -355,6 +409,9 @@ public partial class BuyPanel : Control
                 _signature = "";
                 foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
             }
+            _stock.Clear();
+            _empty.Visible = true;
+            Layout();
             return;
         }
 
@@ -395,8 +452,13 @@ public partial class BuyPanel : Control
                     if (!_stockMost.TryGetValue(o.ID, out uint had) || o.Count > had)
                         _stockMost[o.ID] = o.Count;
 
-                    _stock.Add(o); _rows.AddChild(Row(o));
+                    // Alternating tints, so the eye keeps its place down
+                    // a list of near-identical lines.
+                    _stock.Add(o); _rows.AddChild(Row(o, _stock.Count % 2 == 0));
                 }
+
+            _empty.Visible = _stock.Count == 0;
+            Layout();
 
             string who = buy.TradePartner != null && !string.IsNullOrWhiteSpace(buy.TradePartner.Name)
                 ? buy.TradePartner.Name : "For sale";
@@ -418,11 +480,11 @@ public partial class BuyPanel : Control
             if (o == null || !_ticked.Contains(o.ID)) continue;
             sum += o.IsStackable ? (long)o.Count * o.Price : o.Price;
         }
-        _sum.Text = _ticked.Count == 0 ? "nothing picked" : $"{sum} for {_ticked.Count}";
+        _sum.Text = _ticked.Count == 0 ? "Nothing picked" : $"Total {sum}  ({_ticked.Count})";
         _ok.Disabled = _ticked.Count == 0;
     }
 
-    Control Row(TradeOfferObject o)
+    Control Row(TradeOfferObject o, bool alt)
     {
         TradeOfferObject captured = o;
 
@@ -435,7 +497,8 @@ public partial class BuyPanel : Control
             // in child labels, so there is nothing to find it by.
             Name = $"buy{o.ID}",
         };
-        tick.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(tick, alt ? M59Skin.Kind.RowAlt : M59Skin.Kind.Row);
+        Mark(tick, _ticked.Contains(o.ID), alt);
         TickStyle.Apply(tick);
         tick.ButtonDown += () => _downAt = Time.GetTicksMsec();
         tick.Toggled += on =>
@@ -454,6 +517,7 @@ public partial class BuyPanel : Control
                 return;
             }
             if (on) _ticked.Add(captured.ID); else _ticked.Remove(captured.ID);
+            Mark(tick, on, alt);
             Total();
         };
 
@@ -480,7 +544,7 @@ public partial class BuyPanel : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        name.AddThemeFontSizeOverride("font_size", FontSize);
+        name.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
         name.AddThemeColorOverride("font_color", new Color(
             ((argb >> 16) & 0xFF) / 255f, ((argb >> 8) & 0xFF) / 255f, (argb & 0xFF) / 255f));
         line.AddChild(name);
@@ -503,7 +567,10 @@ public partial class BuyPanel : Control
                 Name = $"many{o.ID}",
                 TooltipText = "How many",
             };
-            many.AddThemeFontSizeOverride("font_size", FontSize);
+            // A stepper, not a slab: it is a small square that opens
+            // the amount prompt, and it says so by looking like one.
+            many.CustomMinimumSize = new Vector2(72, 0);
+            M59Skin.Dress(many, M59Skin.Kind.Step);
             many.Pressed += () => AmountWanted?.Invoke(o);
             line.AddChild(many);
         }
@@ -518,11 +585,11 @@ public partial class BuyPanel : Control
             Text = o.Price.ToString(),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
-            CustomMinimumSize = new Vector2(80, 0),
+            CustomMinimumSize = new Vector2(96, 0),
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        price.AddThemeFontSizeOverride("font_size", FontSize);
-        price.AddThemeColorOverride("font_color", new Color(1, 0.86f, 0.4f));
+        price.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        price.AddThemeColorOverride("font_color", M59Skin.Gold);
         line.AddChild(price);
 
         return tick;

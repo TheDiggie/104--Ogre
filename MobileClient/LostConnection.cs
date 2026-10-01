@@ -27,7 +27,8 @@ public partial class LostConnection : Control
     public event Action Retry;
 
     ColorRect _back;
-    Label _title, _detail;
+    Panel _card, _bar;
+    Label _title, _said, _detail;
     Button _retry;
 
     public bool IsOpen => _back != null && _back.Visible;
@@ -37,14 +38,39 @@ public partial class LostConnection : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _back = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.88f), Visible = false };
+        // Heavier than the panels' scrim on purpose: what is behind this
+        // is the last frame of a world you are no longer in, and leaving
+        // it readable is what made the old behaviour confusing.
+        _back = new ColorRect
+        {
+            Color = new Color(M59Skin.Scrim.R, M59Skin.Scrim.G, M59Skin.Scrim.B, 0.88f),
+            Visible = false,
+        };
         AddChild(_back);
 
-        _title = Text("Lost connection to the server.", FontSize + 6, new Color(1, 0.92f, 0.6f));
-        _detail = Text("", FontSize, new Color(0.8f, 0.82f, 0.88f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Lost connection");
+        _title.Visible = false;
+        AddChild(_title);
+
+        // What happened and what happens next, in that order. A phone
+        // loses its connection in a lift, not because something is
+        // broken, and the screen should not sound like a crash.
+        _said = Text("The server stopped answering.\n\nReconnect puts you back in the world with the character you were playing.",
+                     M59Skin.BodySize, M59Skin.Text);
+        // The technical reason, kept and kept SMALL: it is the only clue
+        // anyone has when something genuinely is wrong, and it is not
+        // what the player is here to read.
+        _detail = Text("", M59Skin.SmallSize, M59Skin.TextDim);
 
         _retry = new Button { Text = "Reconnect", Visible = false, Name = "reconnect" };
-        _retry.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        M59Skin.Dress(_retry, M59Skin.Kind.Primary);
         _retry.Pressed += () => { Hide2(); Retry?.Invoke(); };
         AddChild(_retry);
 
@@ -58,7 +84,6 @@ public partial class LostConnection : Control
         {
             Text = text,
             Visible = false,
-            HorizontalAlignment = HorizontalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
         };
         l.AddThemeFontSizeOverride("font_size", size);
@@ -71,8 +96,6 @@ public partial class LostConnection : Control
     {
         if (_back == null) return;
         Vector2 v = GetViewportRect().Size;
-        float side = Panels.Side(v, 0.08f, 20f);
-        float rowH = FontSize * 2.6f;
 
         // Sized here rather than anchored: this lives under a
         // CanvasLayer whose Control parent has no rect, and an anchored
@@ -101,16 +124,40 @@ public partial class LostConnection : Control
         _back.Position = new Vector2(-offset.X / scale.X, -offset.Y / scale.Y);
         _back.Size = new Vector2(v.X / scale.X, v.Y / scale.Y);
 
-        float mid = v.Y * 0.4f;
-        _title.Position = new Vector2(side, mid);
-        _title.Size = new Vector2(v.X - side * 2f, rowH);
+        // A centred card, like every panel, rather than three lines
+        // floating in the middle of a black screen.
+        Rect2 probe = M59Skin.Frame(v);
+        float w = Mathf.Min(probe.Size.X, Mathf.Clamp(v.X * 0.46f, 420f, 780f));
+        float wrap = w - M59Skin.Pad * 2f;
+        float saidH = Measure(_said, wrap);
+        float detailH = Measure(_detail, wrap);
 
-        _detail.Position = new Vector2(side, mid + rowH);
-        _detail.Size = new Vector2(v.X - side * 2f, rowH * 2f);
+        Rect2 full = M59Skin.Frame(v, saidH + detailH + M59Skin.Gap * 3f);
+        Rect2 card = new Rect2(Mathf.Round((v.X - w) * 0.5f), full.Position.Y,
+                               Mathf.Round(w), full.Size.Y);
+        Rect2 body = M59Skin.Body(card);
 
-        _retry.Position = new Vector2(side, mid + rowH * 3.4f);
-        _retry.Size = new Vector2(v.X - side * 2f, rowH);
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f, M59Skin.TitleH);
+
+        _said.Position = body.Position;
+        _said.Size = new Vector2(body.Size.X, saidH);
+        _detail.Position = new Vector2(body.Position.X, body.Position.Y + body.Size.Y - detailH);
+        _detail.Size = new Vector2(body.Size.X, detailH);
+
+        M59Skin.FootRow(M59Skin.Foot(card), _retry);
     }
+
+    /// <summary>How tall a wrapped label comes out at this width.</summary>
+    static float Measure(Label l, float wrap)
+        => l == null ? 0f
+         : l.GetThemeFont("font").GetMultilineStringSize(
+               l.Text ?? "", HorizontalAlignment.Left, wrap,
+               l.GetThemeFontSize("font_size")).Y;
 
     /// <summary>Puts it up, with the technical reason underneath.</summary>
     public void Show(string detail)
@@ -119,6 +166,7 @@ public partial class LostConnection : Control
         Panels.ToFront(this);
         _detail.Text = detail ?? "";
         _back.Visible = _title.Visible = _detail.Visible = _retry.Visible = true;
+        _card.Visible = _bar.Visible = _said.Visible = true;
         // Laid out on the way in, the way LeftWorld.Open does: the
         // backdrop's rectangle now depends on the interface layer's
         // transform, and that is settled after this panel was built.
@@ -130,5 +178,6 @@ public partial class LostConnection : Control
     {
         if (_back == null) return;
         _back.Visible = _title.Visible = _detail.Visible = _retry.Visible = false;
+        _card.Visible = _bar.Visible = _said.Visible = false;
     }
 }

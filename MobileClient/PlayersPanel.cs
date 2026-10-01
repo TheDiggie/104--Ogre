@@ -56,7 +56,10 @@ public partial class PlayersPanel : Control
 
     Button _open;
     ColorRect _panel;
+    Panel _card, _bar;
+    Button _x;
     Label _title;
+    Label _empty;
     ScrollContainer _scroll;
     VBoxContainer _rows;
     Button _close;
@@ -80,23 +83,47 @@ public partial class PlayersPanel : Control
         AddChild(_open);
         Panels.Opener(_open);
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.95f), Visible = false };
+        // The scrim eats the touch that would reach the world behind,
+        // and is what makes the card read as being in front of
+        // something rather than being the screen.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = new Label { Text = "Online", Visible = false };
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 4);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Online");
+        _title.Visible = false;
         AddChild(_title);
+
+        _x = M59Skin.CloseX(Close);
+        _x.Visible = false;
+        AddChild(_x);
 
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 4);
+        // Without this the list is only as wide as its longest name and
+        // the mute column lands wherever that name ended - see
+        // notes/godot-ui.md, "A ScrollContainer sizes its child to that
+        // child's minimum".
+        _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
 
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
+        _empty = M59Skin.Empty("Nobody else is online.");
+        _empty.Visible = false;
+        AddChild(_empty);
+
         _close = new Button { Text = "Close", Visible = false };
-        _close.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(_close, M59Skin.Kind.Secondary);
         _close.Pressed += Close;
         AddChild(_close);
 
@@ -113,6 +140,8 @@ public partial class PlayersPanel : Control
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
         _close.Visible = on; _open.Visible = !on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
+        if (!on) _empty.Visible = false;
         Layout();
     }
 
@@ -124,21 +153,40 @@ public partial class PlayersPanel : Control
         _open.Size = new Vector2(64, 40);
         _open.Position = new Vector2(v.X - ButtonRight - 64, v.Y - ButtonBottom - 40);
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.66f, 620f);
-        float top = v.Y - height - side;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        // Sized to the list it holds: four people online is a four-row
+        // window, not six hundred pixels of black under four names.
+        float rowH = Mathf.Max(RowHeight, M59Skin.RowH);
+        int shown = Mathf.Max(1, _rows != null ? _rows.GetChildCount() : 1);
+        // A list of names does not want the full width a sideways
+        // phone would give it: the mute column would end up a thumb's
+        // length from the name it mutes.
+        Rect2 card = M59Skin.Frame(v, shown * (rowH + 4f), true, 900f);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        _title.Position = new Vector2(side, top);
-        _scroll.Position = new Vector2(side, top + FontSize * 2.2f);
-        _scroll.Size = new Vector2(v.X - side * 2f, height - FontSize * 2.2f - rowH - 16f);
-        _rows.CustomMinimumSize = new Vector2(_scroll.Size.X, 0);
+        _card.Position = card.Position; _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        _close.Position = new Vector2(side, top + height - rowH - Foot);
-        _close.Size = new Vector2(v.X - side * 2f, rowH);
+        _scroll.Position = body.Position;
+        _scroll.Size = body.Size;
+        _rows.CustomMinimumSize = new Vector2(body.Size.X, 0);
+
+        // Over the list, where the rows would have been.
+        _empty.Position = _scroll.Position;
+        _empty.Size = _scroll.Size;
+
+        // Close at the right of the footer rather than stretched across
+        // the bottom as the loudest thing on the panel.
+        M59Skin.FootRow(foot, _close);
     }
 
     public void Sync(OnlinePlayerList players)
@@ -148,8 +196,12 @@ public partial class PlayersPanel : Control
         if (players == null || players.Count == 0)
         {
             if (_title != null) _title.Text = "Online (nobody yet)";
+            // A sentence rather than an empty rectangle, which reads as
+            // a panel that failed.
+            if (_empty != null) _empty.Visible = true;
             return;
         }
+        _empty.Visible = false;
 
         var sb = new System.Text.StringBuilder();
         foreach (OnlinePlayer p in players) 
@@ -169,15 +221,43 @@ public partial class PlayersPanel : Control
             if (p != null) _rows.AddChild(Row(p));
 
         _title.Text = $"Online ({players.Count})";
+
+        // The card is sized to the row count, so a list that just
+        // changed length needs the frame measured again.
+        Layout();
     }
 
     Control Row(OnlinePlayer p)
     {
         string who = string.IsNullOrWhiteSpace(p.Name) ? "(unnamed)" : p.Name;
         int index = _rows.GetChildCount();
+        bool alt = index % 2 == 1;
 
-        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
-        line.AddThemeConstantOverride("separation", 6);
+        // The row is one striped slab with the three columns laid on
+        // it, rather than a name-shaped button with two things floating
+        // beside it: the mute belongs to the name next to it, and the
+        // stripe is what says so. The name button takes the same
+        // stripe, so the slab reads as continuous and only the half
+        // that is pressable lights under a finger.
+        var back = new Panel
+        {
+            CustomMinimumSize = new Vector2(0, Mathf.Max(RowHeight, M59Skin.RowH)),
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        back.AddThemeStyleboxOverride("panel", M59Skin.Stripe(alt));
+
+        var line = new HBoxContainer();
+        line.SetAnchorsPreset(LayoutPreset.FullRect);
+        line.AddThemeConstantOverride("separation", M59Skin.GapI);
+        line.OffsetLeft = 6; line.OffsetRight = -M59Skin.Gap;
+        line.OffsetTop = 3; line.OffsetBottom = -3;
+        back.AddChild(line);
+
+        uint argb = p.Flags != null ? NameColors.GetColorFor(p.Flags) : NameColors.NORMAL;
+        var tint = new Color(
+            ((argb >> 16) & 0xFF) / 255f,
+            ((argb >> 8) & 0xFF) / 255f,
+            (argb & 0xFF) / 255f);
 
         var b = new Button
         {
@@ -187,21 +267,12 @@ public partial class PlayersPanel : Control
             TooltipText = Kind(p.Flags),
             Name = $"who{index}",
         };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
-
-        uint argb = p.Flags != null ? NameColors.GetColorFor(p.Flags) : NameColors.NORMAL;
-        var tint = new Color(
-            ((argb >> 16) & 0xFF) / 255f,
-            ((argb >> 8) & 0xFF) / 255f,
-            (argb & 0xFF) / 255f);
-        // Every state, not just the resting one: a Button draws hover,
-        // pressed and focus in their own colours, so with only
-        // font_color set the name turned white the moment a finger
-        // touched it.
-        foreach (string state in new[] { "font_color", "font_hover_color", "font_pressed_color",
-                                          "font_hover_pressed_color", "font_focus_color" })
-            b.AddThemeColorOverride(state, tint);
-
+        // The library's name colour is handed to Dress rather than
+        // re-applied after it: Dress writes every state - hover,
+        // pressed, focus - and a colour painted on afterwards was
+        // painted over by the next Dress or Pick. Alternating stripes,
+        // so a long list keeps its place.
+        M59Skin.Dress(b, alt ? M59Skin.Kind.RowAlt : M59Skin.Kind.Row, tint);
         b.Pressed += () => Tell?.Invoke(who);
         line.AddChild(b);
 
@@ -210,14 +281,20 @@ public partial class PlayersPanel : Control
         // (`UIOnlinePlayers.cpp:52-77`), and a phone never hovers, so the
         // same words sit in the row (the Kind() below is the same
         // decision). The tooltip is kept for a mouse.
+        //
+        // A fixed column, right-aligned: this is a table, and the word
+        // landing wherever each name ended is what made it read as a
+        // ragged list rather than one.
         var kind = new Label
         {
             Text = Kind(p.Flags),
             Name = $"kind{index}",
             VerticalAlignment = VerticalAlignment.Center,
-            Modulate = new Color(1f, 1f, 1f, 0.7f),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            CustomMinimumSize = new Vector2(KindW, 0),
         };
-        kind.AddThemeFontSizeOverride("font_size", FontSize - 3);
+        kind.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        kind.AddThemeColorOverride("font_color", M59Skin.TextDim);
         line.AddChild(kind);
 
         var ignore = new CheckBox
@@ -225,15 +302,23 @@ public partial class PlayersPanel : Control
             Text = "mute",
             ButtonPressed = _ignored != null && _ignored.Contains(p.Name),
             Name = $"mute{index}",
+            // Its own column, so the boxes line up down the list
+            // instead of each sitting at the end of its own row.
+            CustomMinimumSize = new Vector2(MuteW, 0),
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
         };
-        ignore.AddThemeFontSizeOverride("font_size", FontSize - 3);
+        ignore.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        ignore.AddThemeColorOverride("font_color", M59Skin.TextDim);
         TickStyle.Apply(ignore, 28);  // dark-on-dark by default; see TickStyle in BuyPanel.cs
         string name = p.Name;
         ignore.Toggled += on => Ignore?.Invoke(name, on);
         line.AddChild(ignore);
 
-        return line;
+        return back;
     }
+
+    /// <summary>The two fixed columns to the right of the name.</summary>
+    const float KindW = 140f, MuteW = 96f;
 
     /// <summary>
     /// Someone was muted or unmuted. The caller owns the list, because

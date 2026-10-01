@@ -67,8 +67,13 @@ public partial class AliasEditor : Control
     [Export] public int RowHeight = 46;
 
     ColorRect _panel;
+    Panel _card, _bar;
+    Button _x;
     Label _title;
     Label _note;
+    Label _formCaption;
+    ColorRect _rule;
+    Label _empty;
     LineEdit _newKey, _newValue;
     Button _add;
     ScrollContainer _scroll;
@@ -76,6 +81,16 @@ public partial class AliasEditor : Control
     Button _close;
 
     Config _config;
+
+    /// <summary>
+    /// Every row's key box, so Layout can hold them all to the same
+    /// column as the form's. A row is built before the panel has been
+    /// laid out, so it cannot read the width itself - and a row whose
+    /// key box is its own width puts the command box somewhere new on
+    /// every line.
+    /// </summary>
+    readonly System.Collections.Generic.List<LineEdit> _keyBoxes =
+        new System.Collections.Generic.List<LineEdit>();
 
     public bool IsOpen => _panel != null && _panel.Visible;
 
@@ -100,46 +115,83 @@ public partial class AliasEditor : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f), Visible = false };
+        // The scrim eats the touch that would reach whatever is
+        // behind, and is what makes the card read as a window rather
+        // than as the screen.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = new Label { Text = "Aliases", Visible = false };
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 4);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Aliases");
+        _title.Visible = false;
         AddChild(_title);
+
+        _x = M59Skin.CloseX(Close);
+        _x.Visible = false;
+        AddChild(_x);
+
+        // The form at the top of the body says what it is, because two
+        // empty boxes over a list of filled ones is a row of the list
+        // that happens to be blank.
+        _formCaption = M59Skin.Caption("New alias");
+        _formCaption.Visible = false;
+        AddChild(_formCaption);
 
         // The two boxes and the Add button, which are the reference's
         // AddKey, AddValue and Add (`UIOptions.cpp:169-171`).
         _newKey = new LineEdit { PlaceholderText = "alias", Visible = false, Name = "aliasNewKey" };
-        _newKey.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Field(_newKey);
         AddChild(_newKey);
 
         _newValue = new LineEdit { PlaceholderText = "command it stands for", Visible = false, Name = "aliasNewValue" };
-        _newValue.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Field(_newValue);
         // Enter in either box adds, because reaching a button with a
         // thumb while a keyboard is up is the slow way round.
         _newValue.TextSubmitted += _ => Add();
         _newKey.TextSubmitted += _ => Add();
         AddChild(_newValue);
 
+        // The one thing this panel is for, so it is the one Primary on
+        // it; Close is a footer button like any other.
         _add = new Button { Text = "Add", Visible = false, Name = "aliasAdd" };
-        _add.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(_add, M59Skin.Kind.Primary);
         _add.Pressed += Add;
         AddChild(_add);
 
         _note = new Label { Visible = false };
-        _note.AddThemeFontSizeOverride("font_size", FontSize - 3);
+        _note.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
         _note.AddThemeColorOverride("font_color", new Color(0.95f, 0.65f, 0.55f));
         AddChild(_note);
 
+        // A hairline between the form and the list: they are two
+        // things, and the gap alone was not saying so.
+        _rule = M59Skin.Hairline();
+        _rule.Visible = false;
+        AddChild(_rule);
+
         _rows = new VBoxContainer();
-        _rows.AddThemeConstantOverride("separation", 2);
+        _rows.AddThemeConstantOverride("separation", 4);
+        // Or the list is only as wide as its longest command and the
+        // delete buttons land in a ragged column - see notes/godot-ui.md.
+        _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
+        _empty = M59Skin.Empty("No aliases yet. A word above, the command it stands for beside it.");
+        _empty.Visible = false;
+        AddChild(_empty);
+
         _close = new Button { Text = "Close", Visible = false, Name = "aliasClose" };
-        _close.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(_close, M59Skin.Kind.Secondary);
         _close.Pressed += Close;
         AddChild(_close);
 
@@ -169,54 +221,99 @@ public partial class AliasEditor : Control
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
         _close.Visible = on; _note.Visible = on;
         _newKey.Visible = on; _newValue.Visible = on; _add.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
+        _formCaption.Visible = on; _rule.Visible = on;
+        _empty.Visible = on && (_config?.Aliases == null || _config.Aliases.Count == 0);
         Layout();
     }
+
+    /// <summary>Height of a form box and of a list row.</summary>
+    const float FieldH = 46f;
 
     void Layout()
     {
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.8f, 800f);
-        float top = v.Y - height - side * 0.5f;
-        float w = v.X - side * 2f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        float rowH = Mathf.Max(RowHeight, M59Skin.RowH);
+        int shown = Mathf.Max(1, _rows != null ? _rows.GetChildCount() : 1);
+        // The form, the note, the rule and the list: the card is as
+        // tall as those come to, within the screen.
+        float formH = M59Skin.SmallSize + 6f + FieldH + M59Skin.Gap
+                    + M59Skin.SmallSize + 6f + M59Skin.Gap + 1f + M59Skin.Gap;
+        // Capped: a two-word alias and the command it stands for do not
+        // want the whole width of a sideways phone between them.
+        Rect2 card = M59Skin.Frame(v, formH + shown * (rowH + 4f), true, 1100f);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        float y = top;
-        _title.Position = new Vector2(side, y); y += FontSize * 2f;
+        _card.Position = card.Position; _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        // Key gets a third, value the rest, Add a thumb's width. On a
-        // narrow screen a key box any smaller stops showing the word
-        // that is in it.
-        float addW = Mathf.Min(96f, w * 0.22f);
-        float keyW = Mathf.Max(90f, (w - addW - 16f) * 0.34f);
-        _newKey.Position = new Vector2(side, y);
-        _newKey.Size = new Vector2(keyW, rowH);
-        _newValue.Position = new Vector2(side + keyW + 8f, y);
-        _newValue.Size = new Vector2(w - keyW - addW - 16f, rowH);
-        _add.Position = new Vector2(side + w - addW, y);
-        _add.Size = new Vector2(addW, rowH);
-        y += rowH + 4f;
+        float w = body.Size.X, x = body.Position.X, y = body.Position.Y;
 
-        _note.Position = new Vector2(side, y);
-        _note.Size = new Vector2(w, FontSize * 1.4f);
-        y += FontSize * 1.6f;
+        _formCaption.Position = new Vector2(x, y);
+        _formCaption.Size = new Vector2(w, M59Skin.SmallSize + 6f);
+        y += M59Skin.SmallSize + 6f;
 
-        _scroll.Position = new Vector2(side, y);
-        _scroll.Size = new Vector2(w, Mathf.Max(rowH, top + height - rowH - 24f - y));
+        // Key gets the same fixed column the rows use, so the form sits
+        // directly over the list it adds to; Add takes a thumb's width
+        // at the right, where the row's delete is.
+        float addW = Mathf.Min(120f, w * 0.22f);
+        float keyW = KeyW(w);
+        foreach (LineEdit k in _keyBoxes)
+            if (GodotObject.IsInstanceValid(k)) k.CustomMinimumSize = new Vector2(keyW, 0);
+        // Indented by the bind column the rows carry, so the two boxes
+        // of the form sit directly over the two boxes of every row.
+        float fx = x + M59Skin.Gap + BindW + M59Skin.Gap;
+        _newKey.Position = new Vector2(fx, y);
+        _newKey.Size = new Vector2(keyW, FieldH);
+        _newValue.Position = new Vector2(fx + keyW + M59Skin.Gap, y);
+        _newValue.Size = new Vector2(x + w - addW - M59Skin.Gap - (fx + keyW + M59Skin.Gap), FieldH);
+        _add.Position = new Vector2(x + w - addW, y);
+        _add.Size = new Vector2(addW, FieldH);
+        y += FieldH + M59Skin.Gap;
+
+        _note.Position = new Vector2(x, y);
+        _note.Size = new Vector2(w, M59Skin.SmallSize + 6f);
+        y += M59Skin.SmallSize + 6f + M59Skin.Gap;
+
+        _rule.Position = new Vector2(x, y);
+        _rule.Size = new Vector2(w, 1f);
+        y += 1f + M59Skin.Gap;
+
+        _scroll.Position = new Vector2(x, y);
+        _scroll.Size = new Vector2(w, Mathf.Max(rowH, body.Position.Y + body.Size.Y - y));
         _rows.CustomMinimumSize = new Vector2(w, 0);
 
-        _close.Position = new Vector2(side, top + height - rowH - 12f);
-        _close.Size = new Vector2(w, rowH);
+        _empty.Position = _scroll.Position;
+        _empty.Size = _scroll.Size;
+
+        M59Skin.FootRow(foot, _close);
     }
+
+    /// <summary>
+    /// The key column, shared by the form and every row so the two
+    /// boxes of a row sit under the two boxes that add one.
+    /// </summary>
+    static float KeyW(float w) => Mathf.Clamp(w * 0.26f, 120f, 280f);
+
+    /// <summary>The bind column at the head of every row.</summary>
+    const float BindW = 48f;
 
     void Build()
     {
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
+        _keyBoxes.Clear();
         _note.Text = "";
         if (_config?.Aliases == null) return;
 
@@ -227,6 +324,11 @@ public partial class AliasEditor : Control
             _rows.AddChild(Row(i));
 
         _title.Text = $"Aliases ({_config.Aliases.Count})";
+        _empty.Visible = IsOpen && _config.Aliases.Count == 0;
+
+        // The card is sized to the list, so a list that just changed
+        // length needs the frame measured again.
+        Layout();
     }
 
     /// <summary>
@@ -240,9 +342,24 @@ public partial class AliasEditor : Control
     Control Row(int index)
     {
         KeyValuePairString alias = _config.Aliases[index];
+        bool alt = index % 2 == 1;
 
-        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
-        line.AddThemeConstantOverride("separation", 6);
+        // The row is a striped panel with the controls laid on it,
+        // rather than three bare widgets in a line: alternating stripes
+        // are what let the eye follow one alias across to its delete.
+        var back = new Panel
+        {
+            CustomMinimumSize = new Vector2(0, Mathf.Max(RowHeight, M59Skin.RowH)),
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        back.AddThemeStyleboxOverride("panel", M59Skin.Stripe(alt));
+
+        var line = new HBoxContainer();
+        line.SetAnchorsPreset(LayoutPreset.FullRect);
+        line.AddThemeConstantOverride("separation", M59Skin.GapI);
+        line.OffsetLeft = M59Skin.Gap; line.OffsetRight = -M59Skin.Gap;
+        line.OffsetTop = 5; line.OffsetBottom = -5;
+        back.AddChild(line);
 
         // First in the row, where the reference puts its drag handle
         // (`UI_OPTIONS_CHILDINDEX_ALIAS_DRAG` is child 0, `:1070`), and
@@ -257,20 +374,27 @@ public partial class AliasEditor : Control
             Text = ActionButtons.AliasIcon() == null ? "+" : "",
             ExpandIcon = false,
             TooltipText = "Put on the hotbar",
-            CustomMinimumSize = new Vector2(52, 0),
+            CustomMinimumSize = new Vector2(BindW, 0),
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
             Name = $"aliasBind{index}",
         };
-        bind.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        // A small square stepper, like the spell book's bind: it is one
+        // of three things in the row that takes its own press, and the
+        // row itself is not pressable.
+        M59Skin.Dress(bind, M59Skin.Kind.Step);
+        bind.CustomMinimumSize = new Vector2(BindW, M59Skin.RowH - 16f);
         bind.Pressed += () => Hotbar(index);
         line.AddChild(bind);
 
         var key = new LineEdit
         {
             Text = alias.Key ?? "",
-            CustomMinimumSize = new Vector2(Mathf.Max(90f, _rows.Size.X * 0.3f), 0),
+            // The same column the form's key box takes, so the list
+            // reads as a table rather than as rows of their own widths.
             Name = $"aliasKey{index}",
         };
-        key.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Field(key);
+        _keyBoxes.Add(key);
         // Enter or leaving the box commits, which is EventTextAccepted
         // and EventDeactivated on the reference's boxes (`:1095-1099`).
         key.TextSubmitted += _ => CommitKey(index, key);
@@ -283,22 +407,26 @@ public partial class AliasEditor : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             Name = $"aliasValue{index}",
         };
-        value.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Field(value);
         value.TextSubmitted += _ => CommitValue(index, value);
         value.FocusExited += () => CommitValue(index, value);
         line.AddChild(value);
 
         var del = new Button
         {
-            Text = "x",
-            CustomMinimumSize = new Vector2(52, 0),
+            Text = "✕",
+            TooltipText = "Remove this alias",
+            CustomMinimumSize = new Vector2(48, M59Skin.RowH - 16f),
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
             Name = $"aliasDelete{index}",
         };
-        del.AddThemeFontSizeOverride("font_size", FontSize);
+        // It destroys something, and there is no confirmation - see the
+        // class note - so it says so in its colour.
+        M59Skin.Dress(del, M59Skin.Kind.Danger);
         del.Pressed += () => Delete(index);
         line.AddChild(del);
 
-        return line;
+        return back;
     }
 
     /// <summary>

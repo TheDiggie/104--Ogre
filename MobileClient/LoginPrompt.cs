@@ -55,22 +55,44 @@ public partial class LoginPrompt : Control
     /// </summary>
     public event Action<int> ServerChanged;
 
-    Label _title, _note, _serverLabel;
+    Label _title, _note, _serverLabel, _userLabel, _passLabel;
     ColorRect _bg;
+    Panel _card, _bar;
     LineEdit _user, _pass;
     Button _go, _options;
     OptionButton _servers;
+
+    /// <summary>
+    /// The note's resting colour. It doubles as the error line, so both
+    /// Pick and Go put it back to this before writing anything that is
+    /// not a refusal - see those two. Dim rather than grey-blue now,
+    /// because it sits on the card with the rest of the skin.
+    /// </summary>
+    static readonly Color NoteCalm = M59Skin.TextDim;
+    /// <summary>A refusal, and the one thing the player gets when something goes wrong.</summary>
+    static readonly Color NoteBad = new Color(1f, 0.58f, 0.50f);
 
     public override void _Ready()
     {
         SetAnchorsPreset(LayoutPreset.FullRect);
 
-        _bg = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f) };
+        // Opaque, not the skin's translucent Scrim: there is no world
+        // behind this screen yet, only the connection log the view
+        // writes down the left, and that must not read through the card.
+        _bg = new ColorRect { Color = new Color(M59Skin.Scrim.R, M59Skin.Scrim.G, M59Skin.Scrim.B) };
         AddChild(_bg);
 
-        _title = new Label { Text = "Meridian 59" };
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 14);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.86f, 0.45f));
+        _card = M59Skin.Window();
+        AddChild(_card);
+        _bar = M59Skin.TitleBar();
+        AddChild(_bar);
+
+        // The game's name IS the title bar. Bigger than the skin's
+        // TitleSize and nothing else like it in the client, because this
+        // is the one screen whose job is to say which game this is -
+        // still inside the 58-point bar, so the body is where Frame put it.
+        _title = M59Skin.Title("Meridian 59");
+        _title.AddThemeFontSizeOverride("font_size", 34);
         AddChild(_title);
 
         // Above the account, as it is in the layout: Server at y=75,
@@ -78,9 +100,7 @@ public partial class LoginPrompt : Control
         // (`Meridian59.layout:3045`, :3058, :3068). The order is not
         // arbitrary - which server you are on decides which account name
         // means anything, so it is the first thing asked.
-        _serverLabel = new Label { Text = "Server" };
-        _serverLabel.AddThemeFontSizeOverride("font_size", FontSize - 2);
-        _serverLabel.AddThemeColorOverride("font_color", new Color(0.72f, 0.74f, 0.8f));
+        _serverLabel = M59Skin.Caption("Server");
         AddChild(_serverLabel);
 
         // An OptionButton rather than a row of steppers, because this is
@@ -90,38 +110,61 @@ public partial class LoginPrompt : Control
         // popup inside the game window, which is what the house rule
         // wants - no OS dialog anywhere near it.
         _servers = new OptionButton { Name = "serverPick" };
-        _servers.AddThemeFontSizeOverride("font_size", FontSize);
+        // Dressed as a button and aligned left, so it reads as the
+        // choice it is rather than as an engine widget: a bare
+        // OptionButton on a black page was the one control on this
+        // screen that looked like a form field from another program.
+        M59Skin.Dress(_servers, M59Skin.Kind.Secondary);
+        _servers.Alignment = HorizontalAlignment.Left;
+        // The list it drops is drawn by a PopupMenu with its own theme,
+        // which Dress cannot reach - left alone it opened as a grey
+        // engine menu over the card.
+        PopupMenu list = _servers.GetPopup();
+        list.AddThemeStyleboxOverride("panel", M59Skin.Sunken());
+        list.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        list.AddThemeColorOverride("font_color", M59Skin.Text);
+        list.AddThemeColorOverride("font_hover_color", M59Skin.GoldBright);
         _servers.ItemSelected += index => Pick((int)index);
         AddChild(_servers);
 
-        _user = new LineEdit { PlaceholderText = "account" };
-        _user.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        _userLabel = M59Skin.Caption("Account");
+        AddChild(_userLabel);
+
+        _user = M59Skin.Field(new LineEdit { PlaceholderText = "account" });
         _user.TextSubmitted += _ => Go();
         AddChild(_user);
 
-        _pass = new LineEdit { PlaceholderText = "password", Secret = true };
-        _pass.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        _passLabel = M59Skin.Caption("Password");
+        AddChild(_passLabel);
+
+        // Secret stays Secret: this box never shows what is typed in it.
+        _pass = M59Skin.Field(new LineEdit { PlaceholderText = "password", Secret = true });
         _pass.TextSubmitted += _ => Go();
         AddChild(_pass);
 
+        // The one thing this screen is for.
         _go = new Button { Text = "Connect" };
-        _go.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        M59Skin.Dress(_go, M59Skin.Kind.Primary);
         _go.Pressed += Go;
         AddChild(_go);
 
-        // The layout's own shape: a small square button on the same line
-        // as Connect, at the right-hand end (`Meridian59.layout:3074-3080`
-        // puts it at x 100..125 against Connect's 0..100). Spelt out
-        // rather than iconised because there are no CEGUI icon images
-        // here to borrow.
+        // The layout's own shape: a small button on the same line as
+        // Connect (`Meridian59.layout:3074-3080` puts it at x 100..125
+        // against Connect's 0..100). Spelt out rather than iconised
+        // because there are no CEGUI icon images here to borrow. In the
+        // footer beside Connect now, laid out from the right like every
+        // other panel's actions.
         _options = new Button { Text = "Settings", Name = "loginOptions" };
-        _options.AddThemeFontSizeOverride("font_size", FontSize - 2);
+        M59Skin.Dress(_options, M59Skin.Kind.Secondary);
         _options.Pressed += () => Options?.Invoke();
         AddChild(_options);
 
+        // The progress line and every refusal. Body-sized rather than
+        // the small print it was: when something goes wrong this is the
+        // only thing the player is given.
         _note = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        _note.AddThemeFontSizeOverride("font_size", FontSize - 4);
-        _note.AddThemeColorOverride("font_color", new Color(0.6f, 0.6f, 0.66f));
+        _note.AddThemeFontSizeOverride("font_size", M59Skin.BodySize - 2);
+        _note.AddThemeColorOverride("font_color", NoteCalm);
         AddChild(_note);
 
         Recall();
@@ -169,7 +212,7 @@ public partial class LoginPrompt : Control
         // Back to the neutral colour: the note doubles as the error line
         // (see Trouble), and a red address under a server you have just
         // changed away from is a lie about the one you picked.
-        _note.AddThemeColorOverride("font_color", new Color(0.6f, 0.6f, 0.66f));
+        _note.AddThemeColorOverride("font_color", NoteCalm);
         ServerChanged?.Invoke(index);
     }
 
@@ -196,7 +239,7 @@ public partial class LoginPrompt : Control
     {
         if (_note == null) return;
         _note.Text = why;
-        _note.AddThemeColorOverride("font_color", new Color(1, 0.5f, 0.45f));
+        _note.AddThemeColorOverride("font_color", NoteBad);
         _go.Disabled = false;
     }
 
@@ -239,7 +282,7 @@ public partial class LoginPrompt : Control
         // reason Pick does it: the note doubles as the error line, and
         // "connecting..." in refusal red is a lie about what is
         // happening.
-        _note.AddThemeColorOverride("font_color", new Color(0.6f, 0.6f, 0.66f));
+        _note.AddThemeColorOverride("font_color", NoteCalm);
         _note.Text = "connecting...";
         Submitted?.Invoke(u, p);
     }
@@ -267,6 +310,26 @@ public partial class LoginPrompt : Control
         catch { /* not being able to remember it is not worth an error */ }
     }
 
+
+    /// <summary>
+    /// How wide the card should ask to be.
+    ///
+    /// Frame caps the width, and for a prompt-shaped card the cap is a
+    /// fixed number of points - which is right on a sideways phone and
+    /// wrong on an upright one, where the viewport is as wide as the
+    /// landscape one (the project stretches canvas items and expands
+    /// the aspect, so a portrait window grows the HEIGHT and keeps
+    /// X at 1920) and a 560-point card is a third of the glass with
+    /// nothing either side of it. Held tall, the card takes the screen.
+    ///
+    /// M59Skin could grow this; Frame's wantW is the place for it.
+    /// </summary>
+    static float CardW(Vector2 v, float wide)
+        => v.Y > v.X ? Mathf.Max(wide, v.X * 0.9f) : wide;
+
+    /// <summary>Caption, then the box it names. Both are a fixed height here.</summary>
+    const float CapH = 22f;
+
     void Layout()
     {
         if (_title == null) return;
@@ -279,47 +342,55 @@ public partial class LoginPrompt : Control
         _bg.Position = Vector2.Zero;
         _bg.Size = v;
 
+        float boxH = Mathf.Max(M59Skin.RowH, FontSize * 2.6f);
+        // Three captioned boxes, the gaps between them, and two lines of
+        // note under the lot. Handed to Frame so the card is the size of
+        // what is in it rather than the size of the screen - on a 1080
+        // frame the old column floated in the top-left quadrant with
+        // six hundred pixels of nothing under it.
+        float wantH = 3f * (CapH + boxH) + M59Skin.Gap * 2f + M59Skin.Gap * 1.5f + boxH;
+        // A prompt, not a list: 560 points, the width Frame caps at for
+        // a card whose longest line is a server name.
+        Rect2 card = M59Skin.Frame(v, wantH, true, CardW(v, 560f));
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        float pad = Mathf.Max(20f, v.X * 0.08f);
-        float w = Mathf.Min(v.X - pad * 2f, 520f);
-        float x = (v.X - w) * 0.5f;
-        float h = FontSize * 2.8f;
-        float step = h + 10f;
-        // Two rows taller than it was - a label and the picker - so the
-        // column starts higher to keep the whole of it on a short screen
-        // held sideways. Clamped rather than computed from the middle
-        // because the title sits two rows ABOVE y and would otherwise
-        // walk off the top.
-        float y = Mathf.Max(h * 2f + pad, v.Y * 0.20f);
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f, M59Skin.TitleH);
 
-        _title.Position = new Vector2(x, y - h * 2f);
-        _title.Size = new Vector2(w, h * 1.6f);
+        float x = body.Position.X, w = body.Size.X, y = body.Position.Y;
 
         _serverLabel.Position = new Vector2(x, y);
-        _serverLabel.Size = new Vector2(w, FontSize * 1.6f);
+        _serverLabel.Size = new Vector2(w, CapH);
+        _servers.Position = new Vector2(x, y + CapH);
+        _servers.Size = new Vector2(w, boxH);
+        y += CapH + boxH + M59Skin.Gap;
 
-        _servers.Position = new Vector2(x, y + FontSize * 1.7f);
-        _servers.Size = new Vector2(w, h);
+        _userLabel.Position = new Vector2(x, y);
+        _userLabel.Size = new Vector2(w, CapH);
+        _user.Position = new Vector2(x, y + CapH);
+        _user.Size = new Vector2(w, boxH);
+        y += CapH + boxH + M59Skin.Gap;
 
-        float row = y + FontSize * 1.7f + step;
+        _passLabel.Position = new Vector2(x, y);
+        _passLabel.Size = new Vector2(w, CapH);
+        _pass.Position = new Vector2(x, y + CapH);
+        _pass.Size = new Vector2(w, boxH);
+        y += CapH + boxH + M59Skin.Gap * 1.5f;
 
-        _user.Position = new Vector2(x, row);
-        _user.Size = new Vector2(w, h);
+        // Inside the card, under the fields it talks about. Stranded
+        // outside it - which is where a line at the bottom of the
+        // screen would be - it would be the one message a player in
+        // trouble never finds.
+        _note.Position = new Vector2(x, y);
+        _note.Size = new Vector2(w, Mathf.Max(boxH, body.Position.Y + body.Size.Y - y));
 
-        _pass.Position = new Vector2(x, row + step);
-        _pass.Size = new Vector2(w, h);
-
-        // Connect and Settings share the line, as they do in the layout
-        // (`Meridian59.layout:3070`, :3076): Connect takes the width it
-        // always did less the small button and the gap.
-        float side = Mathf.Max(96f, w * 0.25f);
-        _go.Position = new Vector2(x, row + step * 2f + 6f);
-        _go.Size = new Vector2(w - side - 8f, h);
-
-        _options.Position = new Vector2(x + w - side, row + step * 2f + 6f);
-        _options.Size = new Vector2(side, h);
-
-        _note.Position = new Vector2(x, row + step * 3f + 16f);
-        _note.Size = new Vector2(w, h * 2f);
+        // Connect last in the line, as the skin lays a footer out: the
+        // primary action is the one nearest the thumb.
+        M59Skin.FootRow(foot, _go, _options);
     }
 }

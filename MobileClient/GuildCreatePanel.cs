@@ -102,6 +102,10 @@ public partial class GuildCreatePanel : Control
     public event Action Closed;
 
     ColorRect _panel;
+    Panel _card, _bar;
+    Button _x;
+    /// <summary>The sunken plate the price is read off. See Layout.</summary>
+    Panel _price;
     Label _title, _nameDesc, _maleDesc, _femaleDesc, _costDesc, _cost, _note;
     LineEdit _name;
     readonly LineEdit[] _male = new LineEdit[5];
@@ -131,15 +135,36 @@ public partial class GuildCreatePanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f), Visible = false };
+        // The scrim eats the touch that would reach the world behind;
+        // the card over it is opaque, which the old 0.97 panel was not.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
         // The frame's caption and the three labels, all the layout's words
-        // (`Meridian59.layout:2088`, `:2098`, `:2111`, `:2118`).
-        _title = Heading("Create Guild", FontSize + 4, new Color(1, 0.92f, 0.6f));
-        _nameDesc = Heading("Name:", FontSize, new Color(0.86f, 0.88f, 0.92f));
-        _maleDesc = Heading("Male ranks:", FontSize, new Color(0.75f, 0.78f, 0.84f));
-        _femaleDesc = Heading("Female ranks:", FontSize, new Color(0.75f, 0.78f, 0.84f));
+        // (`Meridian59.layout:2088`, `:2098`, `:2111`, `:2118`) - the
+        // colons gone, because a caption over a field does not need one.
+        _title = M59Skin.Title("Create Guild");
+        _title.Visible = false;
+        AddChild(_title);
+
+        // Closing is the frame's cross in the reference too
+        // (`UIGuildCreate.cpp:162-171`); it raises the same Closed.
+        _x = M59Skin.CloseX(() => Closed?.Invoke());
+        _x.Visible = false;
+        AddChild(_x);
+
+        _nameDesc = Cap("Name");
+        _maleDesc = Cap("Male ranks");
+        _femaleDesc = Cap("Female ranks");
 
         _name = Box("guild name", BlakservStringLengths.MAX_GUILD_NAME_LEN, "guildname");
 
@@ -162,15 +187,30 @@ public partial class GuildCreatePanel : Control
 
         // "Secret guild" (`:2195`). Ticking it changes nothing but the
         // price shown and the byte sent.
+        // The price sits on a sunken plate with the secret box, because
+        // those two are one thought: the tick is what decides which
+        // number this is, and the number is what the decision turns on.
+        // It is the only large thing in the body for that reason. Added
+        // before the controls that sit on it - siblings draw in tree
+        // order, so a plate added last would cover them.
+        _price = new Panel { Visible = false };
+        _price.AddThemeStyleboxOverride("panel", M59Skin.Sunken());
+        _price.MouseFilter = MouseFilterEnum.Ignore;
+        AddChild(_price);
+
         _secret = new CheckBox { Text = "Secret guild", Visible = false, Name = "secret" };
-        _secret.AddThemeFontSizeOverride("font_size", FontSize);
+        _secret.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        _secret.AddThemeColorOverride("font_color", M59Skin.Text);
+        TickStyle.Apply(_secret);
         _secret.Toggled += _ => Quote();
         AddChild(_secret);
 
-        _costDesc = Heading("Cost:", FontSize, new Color(0.86f, 0.88f, 0.92f));
-        _cost = Heading("0", FontSize, new Color(1, 0.86f, 0.4f));
+        _costDesc = Cap("Cost to found");
+        _cost = Heading("0", M59Skin.TitleSize + 6, M59Skin.GoldBright);
+        _cost.HorizontalAlignment = HorizontalAlignment.Right;
+        _cost.VerticalAlignment = VerticalAlignment.Center;
 
-        _note = Heading("", FontSize - 2, new Color(0.95f, 0.55f, 0.5f));
+        _note = Heading("", M59Skin.SmallSize + 2, M59Skin.Danger);
 
         // The layout has one button, Create (`:2214-2217`); the way out is
         // the frame's close cross, which this has no frame for, so Close
@@ -178,6 +218,9 @@ public partial class GuildCreatePanel : Control
         // that spends money.
         _close = Push("Close", () => Closed?.Invoke(), "guildclose");
         _create = Push("Create", Confirm, "guildcreate");
+        // Founding the guild is the one thing this window is for.
+        M59Skin.Dress(_create, M59Skin.Kind.Primary);
+        M59Skin.Dress(_close, M59Skin.Kind.Secondary);
 
         GetViewport().SizeChanged += Layout;
         Layout();
@@ -188,6 +231,15 @@ public partial class GuildCreatePanel : Control
         var l = new Label { Text = text, Visible = false };
         l.AddThemeFontSizeOverride("font_size", size);
         l.AddThemeColorOverride("font_color", color);
+        AddChild(l);
+        return l;
+    }
+
+    /// <summary>The small gold line over a field or a column of them.</summary>
+    Label Cap(string text)
+    {
+        Label l = M59Skin.Caption(text);
+        l.Visible = false;
         AddChild(l);
         return l;
     }
@@ -207,7 +259,9 @@ public partial class GuildCreatePanel : Control
             Visible = false,
             Name = name,
         };
-        e.AddThemeFontSizeOverride("font_size", FontSize);
+        // Sunken, so a box you type in is not another raised slab among
+        // the eleven raised slabs this form would otherwise be.
+        M59Skin.Field(e);
         AddChild(e);
         return e;
     }
@@ -273,62 +327,91 @@ public partial class GuildCreatePanel : Control
         Found?.Invoke(f);
     }
 
+    /// <summary>A text box, a caption over it, and the plate the price sits on.</summary>
+    const float FieldH = 44f, CapH = 20f, PriceH = 72f;
+
     void Layout()
     {
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.4f;
-        float height = Mathf.Min(v.Y * 0.88f, 900f);
-        float top = v.Y - height - side * 0.5f;
-        float w = v.X - side * 2f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        // A form, not a list: it is asked for a width rather than taking
+        // the card's full one, because eleven boxes stretched across a
+        // sideways phone are eleven lines nobody can follow back. The
+        // height is what the form needs, so there is no dead field of
+        // black under it either.
+        float want = CapH + FieldH + M59Skin.Gap * 2f
+                   + CapH + 5f * (FieldH + 6f)
+                   + M59Skin.Gap + PriceH
+                   + (_note.Visible ? M59Skin.SmallSize + 14f : 0f);
+        Rect2 card = M59Skin.Frame(v, want, true, 1000f);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        float y = top;
-        _title.Position = new Vector2(side, y); y += FontSize * 1.9f;
+        _card.Position = card.Position; _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        _nameDesc.Position = new Vector2(side, y + rowH * 0.25f);
-        _name.Position = new Vector2(side + w * 0.22f, y);
-        _name.Size = new Vector2(w * 0.78f, rowH);
-        y += rowH + 8f;
+        float x = body.Position.X, w = body.Size.X, y = body.Position.Y;
+
+        _nameDesc.Position = new Vector2(x, y);
+        _nameDesc.Size = new Vector2(w, CapH);
+        y += CapH;
+        _name.Position = new Vector2(x, y);
+        _name.Size = new Vector2(w, FieldH);
+        y += FieldH + M59Skin.Gap * 2f;
 
         // Two columns, male and female, as the layout has them
         // (`Meridian59.layout:2110-2121`) - the two titles for one rank
         // side by side, which is the pairing the server reads them in
         // (`UserCommandGuildCreate.cs:59-120` interleaves them on the
         // wire).
-        float colW = w * 0.5f - 6f;
-        _maleDesc.Position = new Vector2(side, y);
-        _femaleDesc.Position = new Vector2(side + w * 0.5f + 6f, y);
-        y += FontSize * 1.7f;
+        float colW = (w - M59Skin.Gap) * 0.5f;
+        float rightX = x + colW + M59Skin.Gap;
+        _maleDesc.Position = new Vector2(x, y);
+        _maleDesc.Size = new Vector2(colW, CapH);
+        _femaleDesc.Position = new Vector2(rightX, y);
+        _femaleDesc.Size = new Vector2(colW, CapH);
+        y += CapH;
 
         for (int i = 0; i < 5; i++)
         {
-            _male[i].Position = new Vector2(side, y);
-            _male[i].Size = new Vector2(colW, rowH);
-            _female[i].Position = new Vector2(side + w * 0.5f + 6f, y);
-            _female[i].Size = new Vector2(colW, rowH);
-            y += rowH + 4f;
+            _male[i].Position = new Vector2(x, y);
+            _male[i].Size = new Vector2(colW, FieldH);
+            _female[i].Position = new Vector2(rightX, y);
+            _female[i].Size = new Vector2(colW, FieldH);
+            y += FieldH + 6f;
         }
 
-        y += 6f;
-        _secret.Position = new Vector2(side, y);
-        _secret.Size = new Vector2(w * 0.5f, rowH);
-        _costDesc.Position = new Vector2(side + w * 0.55f, y + rowH * 0.2f);
-        _cost.Position = new Vector2(side + w * 0.75f, y + rowH * 0.2f);
-        y += rowH + 6f;
+        // The price plate. The number is the largest thing in the body
+        // because it is the thing the decision turns on, and it is read
+        // off the right-hand end where the eye lands after the tick.
+        y += M59Skin.Gap;
+        _price.Position = new Vector2(x, y);
+        _price.Size = new Vector2(w, PriceH);
+        _secret.Position = new Vector2(x + M59Skin.Pad, y + (PriceH - FieldH) * 0.5f);
+        _secret.Size = new Vector2(w * 0.45f, FieldH);
+        _costDesc.Position = new Vector2(x + w * 0.5f, y + 12f);
+        _costDesc.Size = new Vector2(w * 0.5f - M59Skin.Pad, CapH);
+        _costDesc.HorizontalAlignment = HorizontalAlignment.Right;
+        _cost.Position = new Vector2(x + w * 0.5f, y + 12f + CapH);
+        _cost.Size = new Vector2(w * 0.5f - M59Skin.Pad, PriceH - 12f - CapH - 8f);
+        y += PriceH + M59Skin.Gap;
 
-        _note.Position = new Vector2(side, y);
-        _note.Size = new Vector2(w, FontSize * 2f);
+        _note.Position = new Vector2(x, y);
+        _note.Size = new Vector2(w, M59Skin.SmallSize + 10f);
 
-        float by = top + height - rowH - 12f;
-        _close.Position = new Vector2(side, by);
-        _close.Size = new Vector2(w * 0.5f - 6f, rowH);
-        _create.Position = new Vector2(side + w * 0.5f + 6f, by);
-        _create.Size = new Vector2(w * 0.5f - 6f, rowH);
+        // Close at the right, where the dismissing thumb is; Create -
+        // the one that spends - beside it rather than under it.
+        M59Skin.FootRow(foot, _close, _create);
     }
 
     void Show(bool on)
@@ -338,7 +421,9 @@ public partial class GuildCreatePanel : Control
         // (`UIGuildCreate.cpp:80-81`).
         if (on) Panels.ToFront(this);
         _panel.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         _title.Visible = on;
+        _price.Visible = on;
         _nameDesc.Visible = on; _name.Visible = on;
         _maleDesc.Visible = on; _femaleDesc.Visible = on;
         for (int i = 0; i < 5; i++) { _male[i].Visible = on; _female[i].Visible = on; }

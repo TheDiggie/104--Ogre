@@ -51,10 +51,21 @@ public partial class SpellsPanel : Control
 
     Button _open;
     ColorRect _panel;
+    Panel _card, _bar;
+    Button _x;
     Label _title;
+    Label _empty;
     Button _tabSpells, _tabSkills, _close;
     ScrollContainer _scroll;
     VBoxContainer _rows;
+
+    /// <summary>
+    /// The row buttons as built, in list order, so the chosen one can be
+    /// re-marked without rebuilding the list. The stripe is remembered
+    /// with them: Pick has to be told which stripe a row goes back to
+    /// when it stops being the chosen one.
+    /// </summary>
+    readonly List<(uint id, Button button, bool alt)> _built = new List<(uint, Button, bool)>();
 
     bool _showingSpells = true;
     string _signature = "";
@@ -86,17 +97,36 @@ public partial class SpellsPanel : Control
         AddChild(_open);
         Panels.Opener(_open);
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.94f), Visible = false };
+        // The scrim eats the touch that would reach the world behind.
+        // The card is opaque, which the old 0.94 panel was not - the
+        // chat log read straight through the spell names.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = new Label { Text = "Spells", Visible = false };
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 4);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Spells");
+        _title.Visible = false;
         AddChild(_title);
 
-        _tabSpells = Tab("Spells", () => { _showingSpells = true; _signature = ""; _chosen = 0; });
-        _tabSkills = Tab("Skills", () => { _showingSpells = false; _signature = ""; _chosen = 0; });
-        _close = Tab("Close", () => Close());
+        _x = M59Skin.CloseX(Close);
+        _x.Visible = false;
+        AddChild(_x);
+
+        _tabSpells = Tab("Spells", M59Skin.Kind.Tab, () => { _showingSpells = true; _signature = ""; _chosen = 0; });
+        _tabSkills = Tab("Skills", M59Skin.Kind.Tab, () => { _showingSpells = false; _signature = ""; _chosen = 0; });
+        _close = Tab("Close", M59Skin.Kind.Secondary, () => Close());
+
+        _empty = M59Skin.Empty("");
+        _empty.Visible = false;
+        AddChild(_empty);
 
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 4);
@@ -116,10 +146,10 @@ public partial class SpellsPanel : Control
         Layout();
     }
 
-    Button Tab(string text, Action pressed)
+    Button Tab(string text, M59Skin.Kind kind, Action pressed)
     {
         var b = new Button { Text = text, Visible = false };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(b, kind);
         b.Pressed += pressed;
         AddChild(b);
         return b;
@@ -127,8 +157,15 @@ public partial class SpellsPanel : Control
 
     /// <summary>Where the opening button sits, left of whatever else owns the corner.</summary>
     public float RightReserve { get; set; } = 250f;
-    /// <summary>Pixels at the top already spoken for by the avatar block.</summary>
+    /// <summary>
+    /// Pixels at the top already spoken for by the avatar block. Kept
+    /// because the view may set it, but the card is centred and bounded
+    /// now, so it no longer has to dodge that corner.
+    /// </summary>
     public float TopReserve { get; set; } = 120f;
+
+    /// <summary>Height of the tab strip at the top of the body.</summary>
+    const float TabH = 44f;
 
     void Layout()
     {
@@ -139,35 +176,53 @@ public partial class SpellsPanel : Control
         _open.Size = new Vector2(76, 40);
         _open.Position = new Vector2(v.X - RightReserve - 76f, v.Y - 40f - pad);
 
-        float side = Panels.Side(v, 0.05f);
-        float rowH = FontSize * 2.6f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        // Below the corner the avatar block owns - the bars and the
-        // portrait are drawn over this panel otherwise.
-        float top = Mathf.Max(side, TopReserve);
+        // Sized to the list it holds, within the screen: a book with two
+        // spells in it is a two-row window, not nine hundred pixels of
+        // black with two lines at the top. Frame caps both axes.
+        float rowH = Mathf.Max(RowHeight, M59Skin.RowH);
+        int shown = Mathf.Max(1, _rows != null ? _rows.GetChildCount() : 1);
+        float want = TabH + M59Skin.Gap + shown * (rowH + 4f);
+        Rect2 card = M59Skin.Frame(v, want);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        // Down to the bottom edge, not to `side` above it. The close
-        // button sits in the last row of the panel, and a panel that
-        // stopped short of the screen left that row - and the button -
-        // floating over the world with the room visible around it.
-        _panel.Position = new Vector2(side * 0.5f, top);
-        _panel.Size = new Vector2(v.X - side, v.Y - top);
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        _title.Position = new Vector2(side, top + 8f);
-        _scroll.Position = new Vector2(side, top + FontSize * 4.6f);
-        _scroll.Size = new Vector2(v.X - side * 2f, v.Y - top - side - FontSize * 4.6f - rowH - 16f);
-
-        float tabY = top + FontSize * 2.2f;
+        // The tabs sit at the top of the BODY, inside the card, rather
+        // than floating in the panel's dead space: they choose what the
+        // list below them shows, so they belong to it.
         Button[] tabs = { _tabSpells, _tabSkills };
-        float tw = (v.X - side * 2f - 8f) / 2f;
+        float tw = (body.Size.X - M59Skin.Gap) / 2f;
         for (int i = 0; i < tabs.Length; i++)
         {
-            tabs[i].Position = new Vector2(side + i * (tw + 8f), tabY);
-            tabs[i].Size = new Vector2(tw, FontSize * 2.2f);
+            tabs[i].Position = new Vector2(body.Position.X + i * (tw + M59Skin.Gap), body.Position.Y);
+            tabs[i].Size = new Vector2(tw, TabH);
         }
 
-        _close.Position = new Vector2(side, v.Y - side - rowH);
-        _close.Size = new Vector2(v.X - side * 2f, rowH);
+        float listY = body.Position.Y + TabH + M59Skin.Gap;
+        float listH = Mathf.Max(rowH, body.Position.Y + body.Size.Y - listY);
+        _scroll.Position = new Vector2(body.Position.X, listY);
+        _scroll.Size = new Vector2(body.Size.X, listH);
+        _rows.CustomMinimumSize = new Vector2(body.Size.X, 0);
+
+        // Over the list, where the rows would have been.
+        _empty.Position = _scroll.Position;
+        _empty.Size = _scroll.Size;
+
+        // Close at the right of the footer, not stretched across the
+        // bottom as the loudest thing on the panel.
+        M59Skin.FootRow(foot, _close);
     }
 
     public void Open()
@@ -185,8 +240,11 @@ public partial class SpellsPanel : Control
         // Above whatever else is open - see Panels.ToFront.
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         _tabSpells.Visible = on; _tabSkills.Visible = on; _close.Visible = on;
         _open.Visible = !on;
+        if (!on) _empty.Visible = false;
+        Layout();
     }
 
     /// <summary>Rebuilds when the list changes. Cheap to call every frame.</summary>
@@ -236,20 +294,51 @@ public partial class SpellsPanel : Control
         _iconRetryAt = Time.GetTicksMsec() + 500;
         _chosen = 0;
 
+        // Freed before their replacements arrive, or the old child still
+        // holds the name and Godot renames the new one - see
+        // notes/godot-ui.md, "Free a row before you add its replacement".
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
+        _built.Clear();
 
         _title.Text = _showingSpells ? $"Spells ({list.Count})" : $"Skills ({list.Count})";
 
         // Which tab you are on, said by the tab rather than only by the
         // title. The two buttons were drawn identically whichever list
-        // was showing.
-        _tabSpells.Flat = !_showingSpells;
-        _tabSkills.Flat = _showingSpells;
-        _tabSpells.AddThemeColorOverride("font_color",
-            _showingSpells ? new Color(1f, 0.92f, 0.6f) : new Color(0.72f, 0.74f, 0.8f));
-        _tabSkills.AddThemeColorOverride("font_color",
-            _showingSpells ? new Color(0.72f, 0.74f, 0.8f) : new Color(1f, 0.92f, 0.6f));
-        foreach (StatList s in list) _rows.AddChild(Row(s));
+        // was showing. Pick is what marks a chosen thing in this skin -
+        // the gold edge and the lit fill - and a tab is the one thing on
+        // the panel that is chosen whether or not anything was tapped.
+        M59Skin.Pick(_tabSpells, _showingSpells);
+        M59Skin.Pick(_tabSkills, !_showingSpells);
+
+        int index = 0;
+        foreach (StatList s in list)
+        {
+            bool alt = index++ % 2 == 1;
+            Button b = Row(s, alt);
+            _rows.AddChild(b);
+            _built.Add((s.ObjectID, b, alt));
+        }
+
+        // Thirty identical lines of nothing is worse than a sentence.
+        _empty.Text = _showingSpells ? "You know no spells." : "You have no skills yet.";
+        _empty.Visible = list.Count == 0;
+
+        // The card is sized to the row count, so a list that just
+        // changed length needs the frame measured again.
+        Layout();
+        Mark();
+    }
+
+    /// <summary>
+    /// Re-marks the row that has been tapped once, so the half of a
+    /// double tap you are in the middle of is visible. Pure appearance:
+    /// _chosen is set by the row handler either way.
+    /// </summary>
+    void Mark()
+    {
+        foreach ((uint id, Button button, bool alt) r in _built)
+            if (GodotObject.IsInstanceValid(r.button))
+                M59Skin.Pick(r.button, r.id == _chosen && _chosen != 0, r.alt);
     }
 
     /// <summary>The row tapped once, waiting to see if it is tapped again.</summary>
@@ -267,12 +356,20 @@ public partial class SpellsPanel : Control
     /// </summary>
     [Export] public ulong DoubleTapMs = 600;
 
-    Control Row(StatList s)
+    Button Row(StatList s, bool alt)
     {
         uint id = s.ObjectID;
         bool spell = _showingSpells;
 
-        var button = new Button { CustomMinimumSize = new Vector2(0, RowHeight) };
+        // The skin's row is the floor: RowHeight is the knob, but a
+        // thumb needs the 56 the skin settled on.
+        var button = new Button
+        {
+            CustomMinimumSize = new Vector2(0, Mathf.Max(RowHeight, M59Skin.RowH)),
+        };
+        // Alternating stripes, because thirty rows of one brown give the
+        // eye nothing to count down.
+        M59Skin.Dress(button, alt ? M59Skin.Kind.RowAlt : M59Skin.Kind.Row);
         // Named so a test can press a row: the row's text lives in a
         // child label, so there is nothing to find it by otherwise.
         button.Name = $"row{id}";
@@ -292,6 +389,7 @@ public partial class SpellsPanel : Control
                 _chosenAt = Time.GetTicksMsec();
                 Look?.Invoke(id);
             }
+            Mark();
         };
 
         var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
@@ -335,7 +433,8 @@ public partial class SpellsPanel : Control
             VerticalAlignment = VerticalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        name.AddThemeFontSizeOverride("font_size", FontSize);
+        name.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        name.AddThemeColorOverride("font_color", M59Skin.Text);
         line.AddChild(name);
 
         // How far along you are with it, which is what the game's rows show.
@@ -345,8 +444,12 @@ public partial class SpellsPanel : Control
             VerticalAlignment = VerticalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        percent.AddThemeFontSizeOverride("font_size", FontSize);
-        percent.AddThemeColorOverride("font_color", new Color(0.8f, 0.85f, 0.95f));
+        percent.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        percent.AddThemeColorOverride("font_color", M59Skin.Gold);
+        // A fixed column, so the numbers line up down the list instead
+        // of each landing wherever its spell's name ended.
+        percent.CustomMinimumSize = new Vector2(64, 0);
+        percent.HorizontalAlignment = HorizontalAlignment.Right;
         line.AddChild(percent);
 
         // A passive skill gets no bind button at all. The reference
@@ -371,10 +474,13 @@ public partial class SpellsPanel : Control
         {
             Text = "+",
             TooltipText = "Put on the hotbar",
-            CustomMinimumSize = new Vector2(RowHeight, 0),
             Name = $"bind{id}",
         };
-        bind.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        // A square stepper rather than a second row-high slab: it is the
+        // one thing in the row that takes its own press.
+        M59Skin.Dress(bind, M59Skin.Kind.Step);
+        bind.CustomMinimumSize = new Vector2(M59Skin.RowH - 12f, M59Skin.RowH - 16f);
+        bind.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         bind.Pressed += () => Assign?.Invoke(id, spell);
         line.AddChild(bind);
 

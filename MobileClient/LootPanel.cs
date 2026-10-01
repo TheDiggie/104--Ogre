@@ -32,14 +32,6 @@ using Meridian59.Drawing2D;
 /// </summary>
 public partial class LootPanel : Control
 {
-    /// <summary>
-    /// Air under the last button row. Without it the button's bottom
-    /// edge and the panel's own are the same line, and the only way out
-    /// of the window reads as cut off while every row above it has a
-    /// gap.
-    /// </summary>
-    const float Foot = 12f;
-
     [Export] public int FontSize = 16;
     [Export] public int IconSize = 40;
     [Export] public int RowHeight = 56;
@@ -90,7 +82,9 @@ public partial class LootPanel : Control
     bool _reverting;
 
     ColorRect _panel;
-    Label _title;
+    Panel _card, _bar;
+    Button _x;
+    Label _title, _empty;
     ScrollContainer _scroll;
     VBoxContainer _rows;
     Button _get, _getAll, _put, _close;
@@ -120,14 +114,37 @@ public partial class LootPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        // Opaque: LootList/ObjectContents are FrameWindows with no Alpha (Meridian59.layout:2994,2970; UILootList.cpp:8, UIObjectContents.cpp:8).
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 1f), Visible = false };
+        // The scrim dims the world and eats the touch that would reach
+        // it. The CARD is the opaque part, which is the half that
+        // matters: LootList/ObjectContents are FrameWindows with no
+        // Alpha (Meridian59.layout:2994,2970; UILootList.cpp:8,
+        // UIObjectContents.cpp:8), so nothing - the chat log included -
+        // draws through the names and counts.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = new Label { Text = Heading, Visible = false };
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 4);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title(Heading);
+        _title.Visible = false;
         AddChild(_title);
+
+        // The round close in the title bar does what the footer's Close
+        // does - Dismiss - rather than a second, quieter way out.
+        _x = M59Skin.CloseX(Dismiss);
+        _x.Visible = false;
+        AddChild(_x);
+
+        _empty = M59Skin.Empty("There is nothing here to take.");
+        _empty.Visible = false;
+        AddChild(_empty);
 
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 4);
@@ -160,7 +177,7 @@ public partial class LootPanel : Control
             if (picked.Count == 0) return;
             GetItems?.Invoke(picked);
             Dismiss();
-        });
+        }, M59Skin.Kind.Primary);
         _put = Action("Put", () => PutWanted?.Invoke());
         _getAll = Action("Get All", () => { GetAll?.Invoke(); Dismiss(); });
         _close = Action("Close", Dismiss);
@@ -169,13 +186,27 @@ public partial class LootPanel : Control
         Layout();
     }
 
-    Button Action(string text, Action pressed)
+    Button Action(string text, Action pressed, M59Skin.Kind kind = M59Skin.Kind.Secondary)
     {
         var b = new Button { Text = text, Visible = false };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(b, kind);
         b.Pressed += pressed;
         AddChild(b);
         return b;
+    }
+
+    /// <summary>
+    /// The skin's <see cref="M59Skin.Pick"/>, plus the states a TOGGLE
+    /// button draws in. A row here is a CheckBox, so while it is ticked
+    /// Godot draws its "pressed" box rather than its "normal" one -
+    /// marking only "normal", which is all Pick does, left a ticked row
+    /// looking exactly like an unticked one.
+    /// </summary>
+    static void Mark(Button b, bool on, bool alt)
+    {
+        M59Skin.Pick(b, on, alt);
+        b.AddThemeStyleboxOverride("pressed", b.GetThemeStylebox("normal"));
+        b.AddThemeStyleboxOverride("hover_pressed", b.GetThemeStylebox(on ? "normal" : "hover"));
     }
 
     void Layout()
@@ -183,28 +214,39 @@ public partial class LootPanel : Control
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.6f, 560f);
-        float top = v.Y - height - side;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        // Sized to the list: three things on the floor is a three-row
+        // window, not a tall empty box with the Close at the bottom of
+        // it.
+        int lines = Mathf.Max(1, _rows != null ? _rows.GetChildCount() : 1);
+        Rect2 card = M59Skin.Frame(v, lines * (RowHeight + 4f));
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        _title.Position = new Vector2(side, top);
-        _scroll.Position = new Vector2(side, top + FontSize * 2.2f);
-        _scroll.Size = new Vector2(v.X - side * 2f, height - FontSize * 2.2f - rowH - 16f);
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        float y = top + height - rowH - Foot;
-        Button[] row = ShowGetAll
-            ? new[] { _get, _getAll, _close }
-            : (AllowPut ? new[] { _get, _put, _close } : new[] { _get, _close });
-        float w = (v.X - side * 2f - 8f * (row.Length - 1)) / row.Length;
-        for (int i = 0; i < row.Length; i++)
-        {
-            row[i].Position = new Vector2(side + i * (w + 8f), y);
-            row[i].Size = new Vector2(w, rowH);
-        }
+        _scroll.Position = body.Position;
+        _scroll.Size = body.Size;
+        _rows.CustomMinimumSize = new Vector2(body.Size.X, 0);
+        _empty.Position = body.Position;
+        _empty.Size = body.Size;
+
+        // Right to left: Close under the thumb that came in with it,
+        // and Get - the one thing the window is for - last in the line.
+        // Put and Get All are never both up (ShowGetAll is the loot
+        // pile, AllowPut the container), and FootRow skips what is
+        // hidden, so the one list covers both windows.
+        M59Skin.FootRow(foot, _close, _getAll, _put, _get);
     }
 
     /// <summary>
@@ -250,6 +292,9 @@ public partial class LootPanel : Control
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
         _get.Visible = on; _getAll.Visible = on && ShowGetAll;
         _put.Visible = on && AllowPut; _close.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
+        _empty.Visible = on && _rows.GetChildCount() == 0;
+        Layout();
     }
 
     /// <summary>
@@ -325,6 +370,8 @@ public partial class LootPanel : Control
             _signature = "";
             foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
             _title.Text = $"{Heading} (0)";
+            _empty.Visible = true;
+            Layout();
             return;
         }
 
@@ -350,11 +397,16 @@ public partial class LootPanel : Control
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
 
         _title.Text = $"{Heading} ({items.Count})";
+        // Alternating tints, so the eye keeps its place down a list of
+        // near-identical lines.
+        int n2 = 0;
         foreach (ObjectBase o in items)
-            if (o != null) _rows.AddChild(Row(o));
+            if (o != null) _rows.AddChild(Row(o, n2++ % 2 == 1));
+        _empty.Visible = false;
+        Layout();
     }
 
-    Control Row(ObjectBase o)
+    Control Row(ObjectBase o, bool alt)
     {
         ObjectBase captured = o;
 
@@ -366,6 +418,8 @@ public partial class LootPanel : Control
             // lives in child labels, so there is nothing to find it by.
             Name = $"loot{o.ID}",
         };
+        M59Skin.Dress(button, alt ? M59Skin.Kind.RowAlt : M59Skin.Kind.Row);
+        Mark(button, _ticked.Contains(o.ID), alt);
         TickStyle.Apply(button);
         button.ButtonDown += () => _downAt = Time.GetTicksMsec();
         button.Toggled += on =>
@@ -384,6 +438,7 @@ public partial class LootPanel : Control
                 Look?.Invoke(captured.ID);
                 return;
             }
+            Mark(button, on, alt);
             Pick(captured.ID, on);
         };
 
@@ -416,7 +471,7 @@ public partial class LootPanel : Control
             VerticalAlignment = VerticalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        name.AddThemeFontSizeOverride("font_size", FontSize);
+        name.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
         name.AddThemeColorOverride("font_color", colour);
         name.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
         name.AddThemeConstantOverride("outline_size", 3);
@@ -430,14 +485,20 @@ public partial class LootPanel : Control
         // (`InventoryPanel.cs:483-491`).
         if (o.Count > 0)
         {
+            // Its own right-hand column, so a one-digit count and a
+            // three-digit one line up instead of floating wherever the
+            // name ended - and "x" in front, so a bare 1 reads as a
+            // count rather than as part of the name.
             var amount = new Label
             {
-                Text = o.Count.ToString(),
+                Text = $"x{o.Count}",
                 VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                CustomMinimumSize = new Vector2(80, 0),
                 MouseFilter = MouseFilterEnum.Ignore,
             };
-            amount.AddThemeFontSizeOverride("font_size", FontSize);
-            amount.AddThemeColorOverride("font_color", new Color(0.85f, 0.85f, 0.9f));
+            amount.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+            amount.AddThemeColorOverride("font_color", M59Skin.Gold);
             line.AddChild(amount);
         }
 

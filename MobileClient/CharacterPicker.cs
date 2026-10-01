@@ -25,8 +25,11 @@ public partial class CharacterPicker : Control
     public event Action NewWanted;
 
     VBoxContainer _rows;
+    ScrollContainer _scroll;
     Label _title;
     ColorRect _bg;
+    Panel _card, _bar, _motdBox;
+    Label _motdCap;
 
     /// <summary>
     /// The message of the day. See <see cref="Sync"/> - this is the one
@@ -67,12 +70,18 @@ public partial class CharacterPicker : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         Visible = false;
 
-        _bg = new ColorRect { Color = new Color(0, 0, 0, 0.82f) };
+        // Opaque, not the skin's translucent Scrim: nothing is behind
+        // this screen but the view's connection log down the left edge,
+        // and at 0.82 that log read straight through the character names.
+        _bg = new ColorRect { Color = new Color(M59Skin.Scrim.R, M59Skin.Scrim.G, M59Skin.Scrim.B) };
         AddChild(_bg);
 
-        _title = new Label { Text = "Choose a character" };
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 6);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        _card = M59Skin.Window();
+        AddChild(_card);
+        _bar = M59Skin.TitleBar();
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Choose a character");
         AddChild(_title);
 
         // The message of the day, between the heading and the list.
@@ -104,13 +113,30 @@ public partial class CharacterPicker : Control
             FitContent = false,
             Visible = false,
         };
-        _motd.AddThemeFontSizeOverride("normal_font_size", FontSize - 2);
-        _motd.AddThemeColorOverride("default_color", new Color(0.82f, 0.85f, 0.92f));
+        _motd.AddThemeFontSizeOverride("normal_font_size", M59Skin.BodySize - 2);
+        _motd.AddThemeColorOverride("default_color", M59Skin.Text);
+        // On a sunken panel, because it is the one thing on this screen
+        // that is READ rather than pressed - everything else here is a
+        // raised button, and server prose on the same surface as the
+        // rows read as another row.
+        _motdBox = new Panel { Visible = false };
+        _motdBox.AddThemeStyleboxOverride("panel", M59Skin.Sunken());
+        AddChild(_motdBox);
+        _motdCap = M59Skin.Caption("Message of the day");
+        _motdCap.Visible = false;
+        AddChild(_motdCap);
         AddChild(_motd);
 
         _rows = new VBoxContainer();
-        _rows.AddThemeConstantOverride("separation", 10);
-        AddChild(_rows);
+        _rows.AddThemeConstantOverride("separation", M59Skin.GapI);
+        // A ScrollContainer sizes its child to that child's MINIMUM
+        // width unless the child asks to expand - without this the rows
+        // would be as wide as the longest name, with the rest of the
+        // card going spare beside them. See notes/godot-ui.md.
+        _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _scroll = new ScrollContainer();
+        _scroll.AddChild(_rows);
+        AddChild(_scroll);
 
         GetViewport().SizeChanged += Layout;
         Layout();
@@ -128,24 +154,72 @@ public partial class CharacterPicker : Control
         _bg.Position = Vector2.Zero;
         _bg.Size = v;
 
-        float pad = Panels.Side(v, 0.08f, 24f);
-        _title.Position = new Vector2(pad, pad);
+        // The card is the size of the list in it: an account with two
+        // characters is a two-row window, not a full-bleed black page
+        // with two buttons stranded at the top of it.
+        int shown = Mathf.Max(1, _rows.GetChildCount());
+        // Plus a point of slack: a list one pixel taller than its
+        // box grows a scrollbar beside two rows.
+        float rowsH = shown * M59Skin.RowH + (shown - 1) * M59Skin.Gap + 4f;
+        float motdH = 0f;
+        if (_motd != null && _motd.Visible)
+            // Capped at a third of the screen: the characters are what
+            // this screen is for and a long announcement must not push
+            // them off it.
+            motdH = Mathf.Min(_motdH + M59Skin.Pad * 2f, v.Y * 0.33f) + CapH + M59Skin.Gap;
 
-        // The message takes as much room as it needs and no more, up to
-        // a third of the screen - past which it scrolls, because the
-        // character buttons are what this screen is for and they must
-        // not be pushed off it by a long announcement.
-        float top = pad + FontSize * 3f;
+        // Narrower than a list panel would be: a column of names wants
+        // to be read down, not stretched across a sideways phone.
+        Rect2 card = M59Skin.Frame(v, motdH + rowsH, false, CardW(v, 720f));
+        Rect2 body = M59Skin.Body(card, false);
+
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f, M59Skin.TitleH);
+
+        float top = body.Position.Y;
         if (_motd != null && _motd.Visible)
         {
-            _motd.Position = new Vector2(pad, top);
-            _motd.Size = new Vector2(v.X - pad * 2, Mathf.Min(_motdH, v.Y * 0.33f));
-            top += _motd.Size.Y + FontSize;
+            float h = Mathf.Min(_motdH + M59Skin.Pad * 2f, v.Y * 0.33f);
+            _motdCap.Position = new Vector2(body.Position.X, top);
+            _motdCap.Size = new Vector2(body.Size.X, CapH);
+            _motdBox.Position = new Vector2(body.Position.X, top + CapH);
+            _motdBox.Size = new Vector2(body.Size.X, h);
+            // Inset inside its own sunken panel, so the text does not
+            // sit on the frame.
+            _motd.Position = _motdBox.Position + new Vector2(M59Skin.Pad, M59Skin.Pad * 0.5f);
+            _motd.Size = _motdBox.Size - new Vector2(M59Skin.Pad * 2f, M59Skin.Pad);
+            top += CapH + h + M59Skin.Gap;
         }
 
-        _rows.Position = new Vector2(pad, top);
-        _rows.Size = new Vector2(v.X - pad * 2, v.Y - pad - top);
+        _scroll.Position = new Vector2(body.Position.X, top);
+        _scroll.Size = new Vector2(body.Size.X,
+                                   Mathf.Max(M59Skin.RowH, body.Position.Y + body.Size.Y - top));
+        _rows.CustomMinimumSize = new Vector2(body.Size.X, 0);
     }
+
+
+    /// <summary>
+    /// How wide the card should ask to be.
+    ///
+    /// Frame caps the width, and for a prompt-shaped card the cap is a
+    /// fixed number of points - which is right on a sideways phone and
+    /// wrong on an upright one, where the viewport is as wide as the
+    /// landscape one (the project stretches canvas items and expands
+    /// the aspect, so a portrait window grows the HEIGHT and keeps
+    /// X at 1920) and a 560-point card is a third of the glass with
+    /// nothing either side of it. Held tall, the card takes the screen.
+    ///
+    /// M59Skin could grow this; Frame's wantW is the place for it.
+    /// </summary>
+    static float CardW(Vector2 v, float wide)
+        => v.Y > v.X ? Mathf.Max(wide, v.X * 0.9f) : wide;
+
+    /// <summary>Height of a caption over a block.</summary>
+    const float CapH = 22f;
 
     /// <summary>
     /// Follows the server's welcome information - which today means the
@@ -186,19 +260,66 @@ public partial class CharacterPicker : Control
 
         bool any = !string.IsNullOrWhiteSpace(text);
         _motd.Visible = any;
+        _motdBox.Visible = any;
+        _motdCap.Visible = any;
         _motdH = 0f;
         if (any)
         {
             // Measured rather than guessed, so the button list starts
             // directly under the message instead of below a fixed block
-            // of empty space.
+            // of empty space. Measured against the CARD's text width,
+            // not the screen's: the message lives inside the card now,
+            // and measuring across 1920 points reported one line where
+            // the card wraps to three.
             Vector2 v = GetViewportRect().Size;
-            float pad = Panels.Side(v, 0.08f, 24f);
+            float wide = M59Skin.Frame(v, 0f, false, CardW(v, 720f)).Size.X - M59Skin.Pad * 4f;
             _motdH = _motd.GetThemeFont("normal_font").GetMultilineStringSize(
-                         _motd.Text, HorizontalAlignment.Left, v.X - pad * 2,
+                         _motd.Text, HorizontalAlignment.Left, wide,
                          _motd.GetThemeFontSize("normal_font_size")).Y * 1.2f + 8f;
         }
         Layout();
+    }
+
+    /// <summary>
+    /// Makes a row's FOCUS state look chosen - the lit fill and the
+    /// gold edge down the left that this skin marks a picked row with.
+    ///
+    /// Focus is where the mark lives: GameView remembers the character
+    /// you played last and marks its row by overriding the three font
+    /// colours and calling GrabFocus (`GameView.PreselectCharacter`,
+    /// which explains why focus is the only per-row state there is to
+    /// set here). Dressed alone, that was a slightly lighter brown and
+    /// gold text - true, and not something you would notice. Nothing
+    /// about WHEN a row is marked changes; only what being marked
+    /// looks like.
+    /// </summary>
+    /// <summary>
+    /// Pushes a left-aligned row's text in off its own edge. Dress's
+    /// styleboxes carry no content margin, so a left-aligned caption
+    /// started at pixel zero - against the gold edge that marks the
+    /// remembered character, which it then looked like part of.
+    /// </summary>
+    static void Indent(Button b)
+    {
+        foreach (string state in new[] { "normal", "hover", "pressed", "focus", "disabled" })
+            if (b.GetThemeStylebox(state) is StyleBoxFlat s) s.ContentMarginLeft = M59Skin.Pad;
+    }
+
+    static void Marked(Button b)
+    {
+        var s = new StyleBoxFlat
+        {
+            BgColor = M59Skin.RowPick,
+            BorderWidthLeft = 4,
+            BorderColor = M59Skin.Gold,
+            CornerRadiusTopLeft = 6,
+            CornerRadiusTopRight = 6,
+            CornerRadiusBottomLeft = 6,
+            CornerRadiusBottomRight = 6,
+            ContentMarginLeft = M59Skin.Pad,
+            AntiAliasing = true,
+        };
+        b.AddThemeStyleboxOverride("focus", s);
     }
 
     public void Offer(IList<CharSelectItem> characters)
@@ -223,15 +344,28 @@ public partial class CharacterPicker : Control
                 if (c != null && c.IsEmptySlot) { CanCreate = true; FreeSlotId = c.ID; break; }
         }
 
+        int index = 0;
         foreach (CharSelectItem c in characters)
         {
             CharSelectItem captured = c;          // do not close over the loop variable
             var b = new Button
             {
+                // The name is the button's OWN text, not a child label:
+                // GameView marks the character you played last by
+                // overriding this button's font colours and grabbing its
+                // focus (`GameView.PreselectCharacter`), and a colour
+                // override on a Button does not reach a Label inside it.
                 Text = string.IsNullOrWhiteSpace(c.Name) ? "(unnamed)" : c.Name,
-                CustomMinimumSize = new Vector2(0, FontSize * 2.8f),
+                CustomMinimumSize = new Vector2(0, M59Skin.RowH),
+                Alignment = HorizontalAlignment.Left,
             };
-            b.AddThemeFontSizeOverride("font_size", FontSize);
+            M59Skin.Dress(b, index++ % 2 == 1 ? M59Skin.Kind.RowAlt : M59Skin.Kind.Row);
+            // Choosing a person, not ticking a list item: the name
+            // carries the weight of a heading and sits where a name
+            // sits, at the left margin of the row.
+            b.AddThemeFontSizeOverride("font_size", M59Skin.BodySize + 4);
+            Indent(b);
+            Marked(b);
             b.Pressed += () => { Visible = false; Chosen?.Invoke(captured); };
             _rows.AddChild(b);
         }
@@ -241,11 +375,14 @@ public partial class CharacterPicker : Control
             var make = new Button
             {
                 Text = "New character",
-                CustomMinimumSize = new Vector2(0, FontSize * 2.8f),
+                CustomMinimumSize = new Vector2(0, M59Skin.RowH),
                 Name = "newCharacter",
             };
-            make.AddThemeFontSizeOverride("font_size", FontSize);
-            make.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+            // Secondary, not a row: it makes somebody rather than
+            // choosing one of them, and a list of people with an action
+            // in the middle of it reads as a person called New character.
+            M59Skin.Dress(make, M59Skin.Kind.Secondary);
+            make.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
             make.Pressed += () => { Visible = false; NewWanted?.Invoke(); };
             _rows.AddChild(make);
         }

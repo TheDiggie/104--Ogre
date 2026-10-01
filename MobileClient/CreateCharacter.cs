@@ -53,7 +53,8 @@ public partial class CreateCharacter : Control
     public event Action Cancelled;
 
     ColorRect _panel;
-    Label _title, _points;
+    Panel _card, _bar, _faceBox;
+    Label _title, _points, _pointsCap;
     TextureRect _face;
     ScrollContainer _scroll;
     VBoxContainer _rows;
@@ -75,12 +76,44 @@ public partial class CreateCharacter : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.98f), Visible = false };
+        // Opaque: there is no world behind the creation screen, only
+        // the view's connection log, which must not read through it.
+        _panel = new ColorRect
+        {
+            Color = new Color(M59Skin.Scrim.R, M59Skin.Scrim.G, M59Skin.Scrim.B),
+            Visible = false,
+        };
         AddChild(_panel);
 
-        _title = Heading("New character", FontSize + 5, new Color(1, 0.92f, 0.6f));
-        _points = Heading("", FontSize, new Color(1, 0.86f, 0.4f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
 
+        _title = M59Skin.Title("New character");
+        _title.Visible = false;
+        AddChild(_title);
+
+        // The budget, in the card's own header rather than in the
+        // scrolling column: it is the one number every choice below
+        // spends, and a budget you have to scroll back to is a budget
+        // you spend blind.
+        _pointsCap = M59Skin.Caption("Points to spend");
+        _pointsCap.Visible = false;
+        AddChild(_pointsCap);
+        _points = new Label { Visible = false };
+        _points.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        _points.AddThemeColorOverride("font_color", M59Skin.GoldBright);
+        AddChild(_points);
+
+        // The face sits in a sunken frame beside the budget, so it
+        // reads as a portrait rather than as art that came loose: it
+        // used to float in the top-right corner outside everything.
+        _faceBox = new Panel { Visible = false };
+        _faceBox.AddThemeStyleboxOverride("panel", M59Skin.Sunken());
+        AddChild(_faceBox);
         _face = new TextureRect
         {
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
@@ -89,74 +122,110 @@ public partial class CreateCharacter : Control
         AddChild(_face);
 
         _rows = new VBoxContainer();
-        _rows.AddThemeConstantOverride("separation", 2);
+        _rows.AddThemeConstantOverride("separation", 4);
+        // See notes/godot-ui.md: without this the rows are only as wide
+        // as their longest line and every value column lands wherever
+        // that row's text ended.
+        _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
-        _make = Push("Create", Finish);
-        _close = Push("Cancel", () => { Show(false); Cancelled?.Invoke(); });
+        _make = Push("Create", Finish, M59Skin.Kind.Primary);
+        _close = Push("Cancel", () => { Show(false); Cancelled?.Invoke(); }, M59Skin.Kind.Secondary);
 
         GetViewport().SizeChanged += Layout;
         Layout();
     }
 
-    Label Heading(string text, int size, Color color)
-    {
-        var l = new Label { Text = text, Visible = false };
-        l.AddThemeFontSizeOverride("font_size", size);
-        l.AddThemeColorOverride("font_color", color);
-        AddChild(l);
-        return l;
-    }
-
-    Button Push(string text, Action pressed)
+    Button Push(string text, Action pressed, M59Skin.Kind kind)
     {
         var b = new Button { Text = text, Visible = false };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(b, kind);
         b.Pressed += pressed;
         AddChild(b);
         return b;
     }
+
+
+    /// <summary>
+    /// How wide the card should ask to be.
+    ///
+    /// Frame caps the width, and for a prompt-shaped card the cap is a
+    /// fixed number of points - which is right on a sideways phone and
+    /// wrong on an upright one, where the viewport is as wide as the
+    /// landscape one (the project stretches canvas items and expands
+    /// the aspect, so a portrait window grows the HEIGHT and keeps
+    /// X at 1920) and a 560-point card is a third of the glass with
+    /// nothing either side of it. Held tall, the card takes the screen.
+    ///
+    /// M59Skin could grow this; Frame's wantW is the place for it.
+    /// </summary>
+    static float CardW(Vector2 v, float wide)
+        => v.Y > v.X ? Mathf.Max(wide, v.X * 0.9f) : wide;
+
+    /// <summary>The header strip: the portrait's side, so the budget beside it.</summary>
+    float HeaderH => PortraitSize;
 
     void Layout()
     {
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Panels.Side(v, 0.05f);
-        float rowH = FontSize * 2.6f;
-        float height = v.Y - side;
-        float top = side * 0.5f;
-        float w = v.X - side * 2f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 8f);
-        _panel.Size = new Vector2(v.X - side, height);
+        // As tall as the screen allows and no wider than a line of
+        // prose wants to be: this form is mostly the wizard's own
+        // sentences, and at 1620 points wide - which is what an
+        // unbounded card is on a sideways phone - they are lines nobody
+        // can follow back to the start. The old panel ran the full
+        // width and put every value column a thousand points from the
+        // name it belonged to.
+        Rect2 card = M59Skin.Frame(v, 0f, true, CardW(v, M59Skin.Measure + M59Skin.Pad * 4f));
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        float y = top;
-        _title.Position = new Vector2(side, y);
-        _face.Position = new Vector2(v.X - side - PortraitSize, y);
-        _face.Size = new Vector2(PortraitSize, PortraitSize);
-        y += FontSize * 2f;
-        _points.Position = new Vector2(side, y);
-        y += Mathf.Max(FontSize * 2f, PortraitSize - FontSize * 2f);
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f, M59Skin.TitleH);
 
-        _scroll.Position = new Vector2(side, y);
-        _scroll.Size = new Vector2(w, top + height - rowH - 20f - y);
-        _rows.CustomMinimumSize = new Vector2(w, 0);
+        // Header: the budget on the left, the face on the right, both
+        // inside the card and both fixed while the form scrolls.
+        float faceW = PortraitSize;
+        _faceBox.Position = new Vector2(body.Position.X + body.Size.X - faceW, body.Position.Y);
+        _faceBox.Size = new Vector2(faceW, HeaderH);
+        _face.Position = _faceBox.Position + new Vector2(6f, 6f);
+        _face.Size = _faceBox.Size - new Vector2(12f, 12f);
 
-        float by = top + height - rowH - 12f;
-        float each = (w - 8f) * 0.5f;
-        _make.Position = new Vector2(side, by);
-        _make.Size = new Vector2(each, rowH);
-        _close.Position = new Vector2(side + each + 8f, by);
-        _close.Size = new Vector2(each, rowH);
+        _pointsCap.Position = new Vector2(body.Position.X, body.Position.Y + 6f);
+        _pointsCap.Size = new Vector2(body.Size.X - faceW - M59Skin.Gap, 20f);
+        _points.Position = new Vector2(body.Position.X, body.Position.Y + 30f);
+        _points.Size = new Vector2(body.Size.X - faceW - M59Skin.Gap, HeaderH - 36f);
+        _points.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+
+        float top = body.Position.Y + HeaderH + M59Skin.Gap;
+        _scroll.Position = new Vector2(body.Position.X, top);
+        _scroll.Size = new Vector2(body.Size.X,
+                                   Mathf.Max(M59Skin.RowH, body.Position.Y + body.Size.Y - top));
+        // Less the scrollbar's own width: a column sized to the whole
+        // viewport runs underneath the bar, and the right-hand end of
+        // every field and every + button sat behind it.
+        _rows.CustomMinimumSize = new Vector2(body.Size.X - BarW, 0);
+
+        // Create last in the line, where the skin puts the one thing a
+        // panel is for.
+        M59Skin.FootRow(foot, _make, _close);
     }
 
     void Show(bool on)
     {
         _panel.Visible = on; _title.Visible = on; _points.Visible = on;
-        _face.Visible = on; _scroll.Visible = on;
+        _pointsCap.Visible = on; _card.Visible = on; _bar.Visible = on;
+        _faceBox.Visible = on; _face.Visible = on; _scroll.Visible = on;
         _make.Visible = on; _close.Visible = on;
         if (on) GetParent()?.MoveChild(this, -1);
         Layout();
@@ -221,23 +290,30 @@ public partial class CreateCharacter : Control
         _readers.Clear();
         _spellRows.Clear();
         _skillRows.Clear();
+        _stripe.Clear();
+        _taken.Clear();
+        _alt = false;
 
         _rows.AddChild(Section("Who"));
-        _name = new LineEdit { PlaceholderText = "name", CustomMinimumSize = new Vector2(0, RowHeight) };
+        _rows.AddChild(M59Skin.Caption("Name"));
+        _name = M59Skin.Field(new LineEdit
+        {
+            PlaceholderText = "name",
+            CustomMinimumSize = new Vector2(0, M59Skin.RowH - 8f),
+        });
         // The game's own cap (`UIAvatarCreateWizard.cpp:82`). Without
         // it an over-long name went to the server and came back as
         // NameTooLong - which, until now, was silence.
         _name.MaxLength = Meridian59.Common.Constants.BlakservStringLengths.MAX_CHAR_NAME_LEN;
-        _name.AddThemeFontSizeOverride("font_size", FontSize);
         _name.Name = "charName";
         _rows.AddChild(_name);
 
-        _description = new TextEdit
+        _rows.AddChild(M59Skin.Caption("Description"));
+        _description = M59Skin.Field(new TextEdit
         {
             PlaceholderText = "description",
             CustomMinimumSize = new Vector2(0, RowHeight * 2.4f),
-        };
-        _description.AddThemeFontSizeOverride("font_size", FontSize);
+        });
         _description.Name = "charDescription";
         _rows.AddChild(_description);
 
@@ -359,23 +435,30 @@ public partial class CreateCharacter : Control
         }
     }
 
+    /// <summary>
+    /// A section of the form: the skin's gold heading with a rule under
+    /// it, returned as one block so the rule cannot drift away from the
+    /// name it underlines. Space above, none below, so a heading reads
+    /// as belonging to what follows it.
+    /// </summary>
     Control Section(string text)
     {
-        var l = new Label
-        {
-            Text = text,
-            CustomMinimumSize = new Vector2(0, RowHeight),
-            VerticalAlignment = VerticalAlignment.Bottom,
-        };
-        l.AddThemeFontSizeOverride("font_size", FontSize + 3);
-        l.AddThemeColorOverride("font_color", new Color(1, 0.86f, 0.45f));
-        return l;
+        var block = new VBoxContainer();
+        block.AddThemeConstantOverride("separation", 4);
+        block.AddChild(new Control { CustomMinimumSize = new Vector2(0, M59Skin.Gap) });
+        Label l = M59Skin.Heading(text);
+        l.AddThemeFontSizeOverride("font_size", M59Skin.BodySize + 2);
+        block.AddChild(l);
+        ColorRect rule = M59Skin.Hairline();
+        rule.CustomMinimumSize = new Vector2(0, 1);
+        block.AddChild(rule);
+        return block;
     }
 
     Button Preset(string text, Action pick)
     {
         var b = new Button { Text = text, SizeFlagsHorizontal = SizeFlags.ExpandFill, Name = $"preset{text}" };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(b, M59Skin.Kind.Secondary);
         b.Pressed += () => { pick(); _signature = ""; };
         return b;
     }
@@ -462,15 +545,38 @@ public partial class CreateCharacter : Control
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
         };
-        l.AddThemeFontSizeOverride("font_size", FontSize - 2);
-        l.AddThemeColorOverride("font_color", new Color(0.68f, 0.71f, 0.78f));
+        l.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        l.AddThemeColorOverride("font_color", M59Skin.TextDim);
         return l;
     }
 
+    /// <summary>
+    /// Which stripe the next row takes. A form of forty rows with
+    /// paragraphs between them needs something to count down, and the
+    /// skin's two row colours are it; reset per Build so the stripes
+    /// start the same way every time.
+    /// </summary>
+    bool _alt;
+
     Control Row(string name, Func<string> read, Action down, Action up)
     {
-        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
-        line.AddThemeConstantOverride("separation", 8);
+        // On a striped panel, with the contents inset: the rows used to
+        // be bare HBoxes on the background, so the whole form read as
+        // loose text with buttons at the end of it.
+        var holder = new PanelContainer();
+        holder.AddThemeStyleboxOverride("panel", M59Skin.Stripe(_alt));
+        _alt = !_alt;
+
+        var pad = new MarginContainer();
+        pad.AddThemeConstantOverride("margin_left", (int)M59Skin.Pad);
+        pad.AddThemeConstantOverride("margin_right", 6);
+        pad.AddThemeConstantOverride("margin_top", 4);
+        pad.AddThemeConstantOverride("margin_bottom", 4);
+        holder.AddChild(pad);
+
+        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, M59Skin.RowH - 8f) };
+        line.AddThemeConstantOverride("separation", (int)M59Skin.Gap);
+        pad.AddChild(line);
 
         var label = new Label
         {
@@ -478,8 +584,8 @@ public partial class CreateCharacter : Control
             VerticalAlignment = VerticalAlignment.Center,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
         };
-        label.AddThemeFontSizeOverride("font_size", FontSize);
-        label.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
+        label.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        label.AddThemeColorOverride("font_color", M59Skin.Text);
         line.AddChild(label);
 
         var value = new Label
@@ -487,26 +593,36 @@ public partial class CreateCharacter : Control
             Text = read(),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
+            // A fixed column, so the numbers line down the form instead
+            // of each landing where its own name ended.
             CustomMinimumSize = new Vector2(90, 0),
         };
-        value.AddThemeFontSizeOverride("font_size", FontSize);
-        value.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        value.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        value.AddThemeColorOverride("font_color", M59Skin.GoldBright);
         line.AddChild(value);
         _values[name] = value;
         _readers[name] = read;
 
-        var less = new Button { Text = "-", CustomMinimumSize = new Vector2(52, 0), Name = $"less{Slug(name)}" };
-        less.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        var less = new Button { Text = "-", Name = $"less{Slug(name)}" };
+        M59Skin.Dress(less, M59Skin.Kind.Step);
+        less.CustomMinimumSize = new Vector2(StepW, 0);
         less.Pressed += () => down();
         line.AddChild(less);
 
-        var more = new Button { Text = "+", CustomMinimumSize = new Vector2(52, 0), Name = $"more{Slug(name)}" };
-        more.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        var more = new Button { Text = "+", Name = $"more{Slug(name)}" };
+        M59Skin.Dress(more, M59Skin.Kind.Step);
+        more.CustomMinimumSize = new Vector2(StepW, 0);
         more.Pressed += () => up();
         line.AddChild(more);
 
-        return line;
+        return holder;
     }
+
+    /// <summary>A stepper wide enough for a thumb.</summary>
+    const float StepW = 56f;
+
+    /// <summary>What Godot's vertical scrollbar takes out of the width.</summary>
+    const float BarW = 16f;
 
     readonly Dictionary<string, Func<string>> _readers = new Dictionary<string, Func<string>>();
     // Held rather than looked up by node name: a name search through a
@@ -514,6 +630,10 @@ public partial class CreateCharacter : Control
     // and it did.
     readonly Dictionary<uint, Button> _spellRows = new Dictionary<uint, Button>();
     readonly Dictionary<uint, Button> _skillRows = new Dictionary<uint, Button>();
+    /// <summary>Which stripe each ability row is, so Pick can put it back.</summary>
+    readonly Dictionary<Button, bool> _stripe = new Dictionary<Button, bool>();
+    /// <summary>Each ability row's name label, which is what carries its colour.</summary>
+    readonly Dictionary<Button, Label> _taken = new Dictionary<Button, Label>();
 
     /// <summary>
     /// One spell or skill. Tapping it takes it; tapping it again gives
@@ -523,14 +643,51 @@ public partial class CreateCharacter : Control
     {
         var b = new Button
         {
-            Text = $"  {(string.IsNullOrWhiteSpace(name) ? "(unnamed)" : name)}   [{cost}]",
             Alignment = HorizontalAlignment.Left,
-            CustomMinimumSize = new Vector2(0, RowHeight),
-            Flat = true,
+            CustomMinimumSize = new Vector2(0, M59Skin.RowH - 8f),
             Name = node,
         };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        bool alt = _alt;
+        _alt = !_alt;
+        M59Skin.Dress(b, alt ? M59Skin.Kind.RowAlt : M59Skin.Kind.Row);
+        _stripe[b] = alt;
         if (spell) _spellRows[id] = b; else _skillRows[id] = b;
+
+        // The name and the cost as two columns inside the row, rather
+        // than one string with spaces in it: a hundred abilities whose
+        // price lands wherever the name ended is a column you cannot
+        // read down. The labels take no presses, so the whole row is
+        // still one target.
+        var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+        line.SetAnchorsPreset(LayoutPreset.FullRect);
+        line.AddThemeConstantOverride("separation", (int)M59Skin.Gap);
+        line.OffsetLeft = M59Skin.Pad; line.OffsetRight = -M59Skin.Pad;
+        b.AddChild(line);
+
+        var label = new Label
+        {
+            Text = string.IsNullOrWhiteSpace(name) ? "(unnamed)" : name,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            VerticalAlignment = VerticalAlignment.Center,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        label.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        label.AddThemeColorOverride("font_color", M59Skin.Text);
+        line.AddChild(label);
+        _taken[b] = label;
+
+        var price = new Label
+        {
+            Text = cost.ToString(),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            CustomMinimumSize = new Vector2(64, 0),
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        price.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        price.AddThemeColorOverride("font_color", M59Skin.Gold);
+        line.AddChild(price);
+
         b.Pressed += () =>
         {
             if (_info == null) return;
@@ -598,7 +755,11 @@ public partial class CreateCharacter : Control
         if (now == _signature) return;
         _signature = now;
 
-        _points.Text = $"{_info.AttributesAvailable} attribute points, "
+        // One number per line, each said in full: "70 attribute
+        // points, 45 ability points left" read as one sentence with a
+        // comma in it, and which number the "left" belonged to was
+        // anyone's guess.
+        _points.Text = $"{_info.AttributesAvailable} attribute points left\n"
                      + $"{_info.SkillPointsAvailable} ability points left";
 
         foreach (KeyValuePair<string, Func<string>> r in _readers)
@@ -615,12 +776,21 @@ public partial class CreateCharacter : Control
         foreach (KeyValuePair<uint, Button> r in _skillRows) Tint(r.Value, Has(r.Key, false));
     }
 
-    static void Tint(Button b, bool taken)
+    /// <summary>
+    /// Marks a taken ability the way this skin marks any chosen row -
+    /// the lit fill and the gold edge down the left - instead of by
+    /// turning the row's text green and flattening it. Which rows are
+    /// marked is unchanged; only what the mark looks like is.
+    ///
+    /// The name is a child Label now, so the colour goes on the label:
+    /// a font_color override on the Button would not reach it.
+    /// </summary>
+    void Tint(Button b, bool taken)
     {
         if (b == null) return;
-        b.Flat = !taken;
-        b.AddThemeColorOverride("font_color",
-            taken ? new Color(0.55f, 1f, 0.6f) : new Color(0.86f, 0.88f, 0.92f));
+        M59Skin.Pick(b, taken, _stripe.TryGetValue(b, out bool alt) && alt);
+        if (_taken.TryGetValue(b, out Label name))
+            name.AddThemeColorOverride("font_color", taken ? M59Skin.GoldBright : M59Skin.Text);
     }
 
     /// <summary>

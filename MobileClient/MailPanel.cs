@@ -58,14 +58,32 @@ public partial class MailPanel : Control
     RichTextLabel _body;
     Button _new, _reply, _replyAll, _refresh, _delete, _close;
 
+    // The card, its title bar and the round close in it - the shared
+    // chrome every panel wears now. See M59Skin.
+    Panel _card, _bar;
+    Button _x;
+    /// <summary>The letter's own surface, so the page reads as a page.</summary>
+    Panel _page;
+    /// <summary>Who it is from and when, over the letter.</summary>
+    Label _letterHead;
+    /// <summary>What an empty mailbox says.</summary>
+    Label _empty;
+
     // The compose half.
     LineEdit _to, _subject;
     TextEdit _text;
     Button _send, _cancel;
+    /// <summary>
+    /// Labels for the compose boxes. A placeholder vanishes the moment
+    /// anything is typed, so a form made of placeholders alone has no
+    /// labels at all once it is filled in.
+    /// </summary>
+    Label _toLabel, _subjectLabel, _textLabel;
 
     // The in-page question asked when Reply would overwrite a draft that
     // has a body. Never a system dialog: these are children of the panel.
     ColorRect _dim;
+    Panel _askCard;
     Label _askText;
     Button _askYes, _askNo;
     Action _replace;
@@ -98,24 +116,57 @@ public partial class MailPanel : Control
         AddChild(_open);
         Panels.Opener(_open);
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f), Visible = false };
+        // The scrim dims the world instead of hiding it, and the card
+        // over it is what the panel actually is now. See M59Skin.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = Heading("Mail", FontSize + 4, new Color(1, 0.92f, 0.6f));
-        _error = Heading("", FontSize, new Color(0.9f, 0.3f, 0.3f));
+        _card = M59Skin.Window(); _card.Visible = false; AddChild(_card);
+        _bar = M59Skin.TitleBar(); _bar.Visible = false; AddChild(_bar);
+
+        _title = M59Skin.Title("Mail"); _title.Visible = false; AddChild(_title);
+        _x = M59Skin.CloseX(Close); _x.Visible = false; AddChild(_x);
+
+        _error = Heading("", M59Skin.SmallSize + 2, M59Skin.Danger);
+
+        // The page the letter sits on, under the text: the list and the
+        // letter were one unbroken column of grey, and a surface is what
+        // tells you the reading has started.
+        _page = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _page.AddThemeStyleboxOverride("panel", Sunken());
+        AddChild(_page);
+
+        _letterHead = new Label { Visible = false, ClipText = true };
+        _letterHead.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        _letterHead.AddThemeColorOverride("font_color", M59Skin.Gold);
+        AddChild(_letterHead);
+
+        _empty = M59Skin.Empty("No letters. Refresh asks the server for anything not collected.");
+        _empty.Visible = false;
+        AddChild(_empty);
 
         _rows = new VBoxContainer();
-        _rows.AddThemeConstantOverride("separation", 2);
+        _rows.AddThemeConstantOverride("separation", 4);
+        _rows.SizeFlagsHorizontal = SizeFlags.Fill | SizeFlags.Expand;
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
         _body = new RichTextLabel { BbcodeEnabled = true, Visible = false };
-        _body.AddThemeFontSizeOverride("normal_font_size", FontSize);
+        _body.AddThemeFontSizeOverride("normal_font_size", M59Skin.BodySize);
+        _body.AddThemeColorOverride("default_color", M59Skin.Text);
+        // A letter is read, not scanned: the lines need air between them
+        // or a paragraph is a grey brick.
+        _body.AddThemeConstantOverride("line_separation", 7);
         AddChild(_body);
 
-        _to = Field("to (comma separated)");
-        _subject = Field("subject");
+        _toLabel = FieldLabel("To");
+        _subjectLabel = FieldLabel("Subject");
+        _textLabel = FieldLabel("Letter");
+
+        _to = Field("one name, or several separated by commas");
+        _subject = Field("what it is about");
         // The game's own limits, and they are not arbitrary: SendSendMail
         // glues "Subject: " + the title onto the front of the body, and
         // the server's 4096 applies to the whole thing - which is why the
@@ -124,31 +175,41 @@ public partial class MailPanel : Control
         // letter is silently truncated or refused with nothing said.
         _subject.MaxLength = 60;
         _text = new TextEdit { Visible = false, PlaceholderText = "..." };
-        _text.AddThemeFontSizeOverride("font_size", FontSize);
+        _text.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        _text.AddThemeColorOverride("font_color", M59Skin.Text);
+        _text.AddThemeColorOverride("font_placeholder_color", M59Skin.TextOff);
+        _text.AddThemeStyleboxOverride("normal", Sunken());
+        _text.AddThemeStyleboxOverride("focus", Sunken(true));
         AddChild(_text);
 
         _new = Push("New", Resume);
         _reply = Push("Reply", () => Reply(false));
         _replyAll = Push("Reply all", () => Reply(true));
         _refresh = Push("Refresh", () => Refresh?.Invoke());
-        _delete = Push("Delete", Remove);
+        _delete = Push("Delete", Remove, M59Skin.Kind.Danger);
         _close = Push("Close", Close);
 
-        _send = Push("Send", Ask);
+        _send = Push("Send", Ask, M59Skin.Kind.Primary);
         _cancel = Push("Cancel", () => { _composing = false; _asked = null; Show(true); });
 
         // Last children, so they draw over everything else in the panel.
-        _dim = new ColorRect { Color = new Color(0, 0, 0, 0.82f), Visible = false,
+        _dim = new ColorRect { Color = M59Skin.Scrim, Visible = false,
                                MouseFilter = MouseFilterEnum.Stop };
         AddChild(_dim);
+        // The question gets a card of its own rather than floating text
+        // on a black wash: it is a window in front of a window.
+        _askCard = M59Skin.Window();
+        _askCard.Visible = false;
+        AddChild(_askCard);
         _askText = new Label { Visible = false, AutowrapMode = TextServer.AutowrapMode.WordSmart,
                                HorizontalAlignment = HorizontalAlignment.Center,
                                VerticalAlignment = VerticalAlignment.Center };
-        _askText.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        _askText.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        _askText.AddThemeColorOverride("font_color", M59Skin.Text);
         AddChild(_askText);
-        _askYes = Push("Replace draft", () => { Action go = _replace; Unask(); go?.Invoke(); });
+        _askYes = Push("Replace draft", () => { Action go = _replace; Unask(); go?.Invoke(); }, M59Skin.Kind.Danger);
         _askYes.Name = "draftreplace";
-        _askNo = Push("Keep draft", () => { Unask(); Resume(); });
+        _askNo = Push("Keep draft", () => { Unask(); Resume(); }, M59Skin.Kind.Primary);
         _askNo.Name = "draftkeep";
 
         GetViewport().SizeChanged += Layout;
@@ -164,18 +225,55 @@ public partial class MailPanel : Control
         return l;
     }
 
+    /// <summary>
+    /// An inset surface: the letter's page, and the inside of every box
+    /// on the compose form. M59Skin has raised chrome and rows but
+    /// nothing that reads as "type in here", and a box has to look
+    /// punched into the card rather than sitting on it.
+    /// </summary>
+    static StyleBoxFlat Sunken(bool lit = false)
+    {
+        var s = new StyleBoxFlat
+        {
+            BgColor = new Color(0.055f, 0.051f, 0.043f),
+            CornerRadiusTopLeft = 8, CornerRadiusTopRight = 8,
+            CornerRadiusBottomLeft = 8, CornerRadiusBottomRight = 8,
+            BorderWidthTop = 1, BorderWidthBottom = 1,
+            BorderWidthLeft = 1, BorderWidthRight = 1,
+            BorderColor = lit ? M59Skin.Gold : M59Skin.Rule,
+            ContentMarginLeft = 12, ContentMarginRight = 12,
+            ContentMarginTop = 8, ContentMarginBottom = 8,
+            AntiAliasing = true,
+        };
+        return s;
+    }
+
+    /// <summary>A caption over a box, in the small print.</summary>
+    Label FieldLabel(string text)
+    {
+        var l = new Label { Text = text, Visible = false };
+        l.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        l.AddThemeColorOverride("font_color", M59Skin.GoldDim);
+        AddChild(l);
+        return l;
+    }
+
     LineEdit Field(string hint)
     {
         var e = new LineEdit { PlaceholderText = hint, Visible = false };
-        e.AddThemeFontSizeOverride("font_size", FontSize);
+        e.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        e.AddThemeColorOverride("font_color", M59Skin.Text);
+        e.AddThemeColorOverride("font_placeholder_color", M59Skin.TextOff);
+        e.AddThemeStyleboxOverride("normal", Sunken());
+        e.AddThemeStyleboxOverride("focus", Sunken(true));
         AddChild(e);
         return e;
     }
 
-    Button Push(string text, Action pressed)
+    Button Push(string text, Action pressed, M59Skin.Kind kind = M59Skin.Kind.Secondary)
     {
         var b = new Button { Text = text, Visible = false };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(b, kind);
         b.Pressed += pressed;
         AddChild(b);
         return b;
@@ -201,17 +299,25 @@ public partial class MailPanel : Control
         bool write = on && _composing;
 
         _panel.Visible = on; _title.Visible = on; _open.Visible = !on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         _error.Visible = on && !string.IsNullOrEmpty(_error.Text);
 
         _scroll.Visible = list; _body.Visible = list;
+        // The page and the letter's header only mean anything while a
+        // letter is chosen; the empty line only while there are none.
+        _page.Visible = list && _pickedNum >= 0;
+        _letterHead.Visible = list && _pickedNum >= 0;
+        _empty.Visible = list && _buttons.Count == 0;
         foreach (Button b in new[] { _new, _reply, _replyAll, _refresh, _delete, _close })
             b.Visible = list;
 
         _to.Visible = write; _subject.Visible = write; _text.Visible = write;
+        _toLabel.Visible = write; _subjectLabel.Visible = write; _textLabel.Visible = write;
         _send.Visible = write; _cancel.Visible = write;
 
         bool ask = on && list && _asking;
-        _dim.Visible = ask; _askText.Visible = ask; _askYes.Visible = ask; _askNo.Visible = ask;
+        _dim.Visible = ask; _askCard.Visible = ask; _askText.Visible = ask;
+        _askYes.Visible = ask; _askNo.Visible = ask;
         // A letter is in progress: say so, so New is not mistaken for a
         // blank page.
         _new.Text = HasDraft ? "Draft" : "New";
@@ -219,6 +325,13 @@ public partial class MailPanel : Control
         if (on) GetParent()?.MoveChild(this, -1);
         Layout();
     }
+
+    /// <summary>
+    /// A line of prose is read by jumping back to the left edge, and
+    /// over about this many pixels the eye loses the next line. The
+    /// card is as wide as a sideways phone and the letter is not.
+    /// </summary>
+    const float Measure = 760f;
 
     void Layout()
     {
@@ -228,79 +341,99 @@ public partial class MailPanel : Control
         _open.Size = new Vector2(76, 40);
         _open.Position = new Vector2(v.X - ButtonRight - 76, v.Y - ButtonBottom - 40);
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.8f, 780f);
-        float top = v.Y - height - side * 0.5f;
-        float w = v.X - side * 2f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        Rect2 card = M59Skin.Frame(v);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        _dim.Position = _panel.Position; _dim.Size = _panel.Size;
-        float bw = Mathf.Min(w, 760f), bx = v.X * 0.5f - bw * 0.5f;
-        float by2 = top + height * 0.5f - rowH * 1.5f;
-        _askText.Position = new Vector2(bx, by2); _askText.Size = new Vector2(bw, rowH * 2f);
-        Row(new[] { _askYes, _askNo }, bx, by2 + rowH * 2f + 8f, bw, rowH);
+        _card.Position = card.Position; _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        float y = top;
-        _title.Position = new Vector2(side, y); y += FontSize * 1.8f;
-        _error.Position = new Vector2(side, y);
-        if (_error.Visible) y += FontSize * 1.6f;
+        // The question covers the whole screen and is centred on it, so
+        // it is never half off the card it belongs to.
+        _dim.Position = Vector2.Zero; _dim.Size = v;
+        float aw = Mathf.Min(v.X - 64f, 620f), ah = 230f;
+        var ask = new Rect2(Mathf.Round((v.X - aw) * 0.5f), Mathf.Round((v.Y - ah) * 0.5f), aw, ah);
+        _askCard.Position = ask.Position; _askCard.Size = ask.Size;
+        _askText.Position = new Vector2(ask.Position.X + M59Skin.Pad, ask.Position.Y + M59Skin.Pad);
+        _askText.Size = new Vector2(aw - M59Skin.Pad * 2f, ah - M59Skin.Pad * 2f - 48f - M59Skin.Gap);
+        M59Skin.FootRow(new Rect2(ask.Position.X + M59Skin.Pad,
+                                  ask.Position.Y + ah - M59Skin.Pad - 48f,
+                                  aw - M59Skin.Pad * 2f, 48f), _askNo, _askYes);
+
+        float errH = _error.Visible ? M59Skin.SmallSize * 2f : 0f;
+        _error.Position = new Vector2(body.Position.X, body.Position.Y);
+        _error.Size = new Vector2(body.Size.X, errH);
+        float top = body.Position.Y + errH;
+        float rest = body.Size.Y - errH;
 
         if (_composing)
         {
-            _to.Position = new Vector2(side, y);
-            _to.Size = new Vector2(w, rowH); y += rowH + 6f;
-            _subject.Position = new Vector2(side, y);
-            _subject.Size = new Vector2(w, rowH); y += rowH + 6f;
+            // The form is a form, not the whole card: a To box two
+            // thousand pixels long for a name of six letters is what
+            // the sideways screen does to anything stretched to fit.
+            float fw = Mathf.Min(body.Size.X, 900f);
+            float fx = body.Position.X + Mathf.Round((body.Size.X - fw) * 0.5f);
+            float lh = M59Skin.SmallSize + 8f, fh = 46f, y = top;
 
-            float bodyH = top + height - rowH - 8f - y;
-            _text.Position = new Vector2(side, y);
-            _text.Size = new Vector2(w, bodyH);
+            _toLabel.Position = new Vector2(fx, y); _toLabel.Size = new Vector2(fw, lh); y += lh;
+            _to.Position = new Vector2(fx, y); _to.Size = new Vector2(fw, fh);
+            y += fh + M59Skin.Gap;
+            _subjectLabel.Position = new Vector2(fx, y); _subjectLabel.Size = new Vector2(fw, lh); y += lh;
+            _subject.Position = new Vector2(fx, y); _subject.Size = new Vector2(fw, fh);
+            y += fh + M59Skin.Gap;
+            _textLabel.Position = new Vector2(fx, y); _textLabel.Size = new Vector2(fw, lh); y += lh;
+            _text.Position = new Vector2(fx, y);
+            _text.Size = new Vector2(fw, Mathf.Max(fh, top + rest - y));
 
-            Row(new[] { _send, _cancel }, side, top + height - rowH, w, rowH);
+            M59Skin.FootRow(foot, _cancel, _send);
             return;
         }
 
-        // Two rows of buttons: a finger needs six of them somewhere.
-        // The last row wants air under it: without it the Close
-        // button's bottom edge and the panel's own are the same line
-        // and the only way out looks cut off.
-        float buttons = rowH * 2f + 8f + 12f;
-        float rest = top + height - buttons - 8f - y;
-        // The list is the window. It had 45% of the space and the body
-        // had the rest, so thirty-eight letters were shown through a
-        // five-row slot with the last one sliced in half, while a
-        // one-line message sat above two hundred pixels of nothing.
-        float listH = rest * 0.62f;
+        // Two columns on a wide card, stacked on a narrow one. The list
+        // and the letter are different things and the eye should not
+        // have to be told so twice: side by side the letter keeps a
+        // readable measure AND the list keeps its full height, which
+        // stacking cannot give both of.
+        bool wide = body.Size.X >= 980f;
+        float listW = wide ? Mathf.Clamp(body.Size.X * 0.40f, 320f, 560f) : body.Size.X;
+        float listH = wide ? rest : Mathf.Max(M59Skin.RowH * 2f, rest * 0.45f);
 
-        _scroll.Position = new Vector2(side, y);
-        _scroll.Size = new Vector2(w, listH);
-        _rows.CustomMinimumSize = new Vector2(w, 0);
-        // A real gap between the list and the letter. At 8 pixels the
-        // last row's second line and the first line of the body sat on
-        // the same baseline with no divider, and the letter read as
-        // part of the row above it.
-        const float split = 20f;
-        y += listH + split;
+        _scroll.Position = new Vector2(body.Position.X, top);
+        _scroll.Size = new Vector2(listW, listH);
+        _rows.CustomMinimumSize = new Vector2(listW - 14f, 0);
+        _empty.Position = _scroll.Position;
+        _empty.Size = _scroll.Size;
 
-        _body.Position = new Vector2(side, y);
-        _body.Size = new Vector2(w, rest - listH - split);
+        float rx = wide ? body.Position.X + listW + M59Skin.Pad : body.Position.X;
+        float ry = wide ? top : top + listH + M59Skin.Pad;
+        float rw = wide ? body.Size.X - listW - M59Skin.Pad : body.Size.X;
+        float rh = wide ? rest : rest - listH - M59Skin.Pad;
 
-        float by = top + height - buttons;
-        Row(new[] { _new, _reply, _replyAll }, side, by, w, rowH);
-        Row(new[] { _refresh, _delete, _close }, side, by + rowH + 8f, w, rowH);
-    }
+        _page.Position = new Vector2(rx, ry);
+        _page.Size = new Vector2(rw, Mathf.Max(0f, rh));
 
-    static void Row(Button[] row, float x, float y, float w, float h)
-    {
-        float each = (w - 8f * (row.Length - 1)) / row.Length;
-        for (int i = 0; i < row.Length; i++)
-        {
-            row[i].Position = new Vector2(x + i * (each + 8f), y);
-            row[i].Size = new Vector2(each, h);
-        }
+        // Inside the page: the sender's line, then the letter, held to
+        // a measure and centred in whatever is left over.
+        float inner = Mathf.Min(rw - M59Skin.Pad * 2f, Measure);
+        float ix = rx + Mathf.Round((rw - inner) * 0.5f);
+        _letterHead.Position = new Vector2(ix, ry + M59Skin.Pad);
+        _letterHead.Size = new Vector2(inner, M59Skin.BodySize + 10f);
+        float bodyTop = ry + M59Skin.Pad + M59Skin.BodySize + 10f + M59Skin.Gap;
+        _body.Position = new Vector2(ix, bodyTop);
+        _body.Size = new Vector2(inner, Mathf.Max(0f, ry + rh - M59Skin.Pad - bodyTop));
+
+        // Right to left: Close under the thumb that dismisses it, New -
+        // the one thing this panel is for besides reading - furthest in.
+        M59Skin.FootRow(foot, _close, _delete, _refresh, _replyAll, _reply, _new);
     }
 
     public void Sync(MailList mails)
@@ -319,6 +452,10 @@ public partial class MailPanel : Control
                 _body.Text = "";
                 _pickedNum = -1;
             }
+            // Nothing in the box says so in words, rather than leaving
+            // an empty rectangle that reads as a panel that failed.
+            _empty.Visible = true;
+            _page.Visible = false; _letterHead.Visible = false;
             return;
         }
 
@@ -359,6 +496,7 @@ public partial class MailPanel : Control
             _rows.AddChild(b);
         }
 
+        _empty.Visible = false;
         _title.Text = $"Mail ({mails.Count})";
         // Nothing is selected until the player taps a row, as in the
         // reference (`UIMail.cpp:182`, `:266`). Delete is permanent on
@@ -382,11 +520,14 @@ public partial class MailPanel : Control
         {
             Text = $"  {m.Num}   {m.Sender}   {m.Title}\n     {when.ToShortDateString()} {when.ToShortTimeString()}",
             Alignment = HorizontalAlignment.Left,
-            CustomMinimumSize = new Vector2(0, RowHeight),
-            Flat = true,
+            CustomMinimumSize = new Vector2(0, M59Skin.RowH),
+            // Dressed rather than Flat: the stripes are what keep a
+            // mailbox of sixty letters readable, and Pick draws the
+            // chosen one. The alternating shade is by position.
             Name = $"mail{index}",
         };
-        b.AddThemeFontSizeOverride("font_size", FontSize - 2);
+        M59Skin.Dress(b, index % 2 == 0 ? M59Skin.Kind.Row : M59Skin.Kind.RowAlt);
+        b.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
         b.Pressed += () => Pick(index);
         return b;
     }
@@ -394,12 +535,24 @@ public partial class MailPanel : Control
     void Pick(int index)
     {
         _pickedNum = index >= 0 && index < _sorted.Count ? (long)_sorted[index].Num : -1;
-        for (int i = 0; i < _buttons.Count; i++) _buttons[i].Flat = i != index;
+        for (int i = 0; i < _buttons.Count; i++) M59Skin.Pick(_buttons[i], i == index, i % 2 != 0);
 
         // Indexes are into the SORTED list, which is what the rows were
         // built from; the model's own order is not the shown order.
-        if (index < 0 || index >= _sorted.Count) { _body.Text = ""; return; }
-        string text = _sorted[index].Message != null ? _sorted[index].Message.FullString : "";
+        if (index < 0 || index >= _sorted.Count)
+        {
+            _body.Text = ""; _letterHead.Text = "";
+            _page.Visible = false; _letterHead.Visible = false;
+            return;
+        }
+        Mail chosen = _sorted[index];
+        // The letter's own heading, so the page says what is on it
+        // rather than starting mid-sentence under a list of sixty rows.
+        DateTime when = Meridian59.Common.MeridianDate.ToDateTime(chosen.Timestamp);
+        _letterHead.Text = $"{chosen.Title}   -   {chosen.Sender}, {when.ToShortDateString()}";
+        _page.Visible = IsOpen && !_composing;
+        _letterHead.Visible = _page.Visible;
+        string text = chosen.Message != null ? chosen.Message.FullString : "";
         _body.Text = text != null ? text.Replace("[", "[lb]") : "";
     }
 

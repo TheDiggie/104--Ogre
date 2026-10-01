@@ -143,14 +143,34 @@ public partial class OptionsPanel : Control
 
     Button _open;
     ColorRect _panel;
+    Panel _card, _bar;
+    Button _x;
     Label _title;
     ScrollContainer _scroll;
     VBoxContainer _rows;
     Button _close;
 
+    /// <summary>
+    /// Which stripe the next row takes. Reset by every heading, so a
+    /// section always starts on the same shade and the eye reads the
+    /// list as sections rather than as one long zebra.
+    /// </summary>
+    int _stripe;
+
+    /// <summary>
+    /// The line that says why the preference switches are dead. See
+    /// FollowPreferences: a row that is disabled and says nothing is a
+    /// row that looks broken.
+    /// </summary>
+    Label _prefNote;
+
     PreferencesFlags _prefs;
     readonly Dictionary<string, Label> _values = new Dictionary<string, Label>();
     readonly Dictionary<string, Func<string>> _readers = new Dictionary<string, Func<string>>();
+    // A slider shows its value as a number AND as a bar against its
+    // range, because "7" alone says nothing about how loud that is.
+    readonly Dictionary<string, ProgressBar> _bars = new Dictionary<string, ProgressBar>();
+    readonly Dictionary<string, Func<float>> _amounts = new Dictionary<string, Func<float>>();
     readonly List<CheckBox> _switches = new List<CheckBox>();
     string _signature = "";
 
@@ -250,22 +270,41 @@ public partial class OptionsPanel : Control
         AddChild(_open);
         Panels.Opener(_open);
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f), Visible = false };
+        // The scrim eats the touch that would reach the world behind,
+        // and is what makes the card read as being in front of
+        // something rather than being the screen.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = new Label { Text = "Settings", Visible = false };
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 4);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Settings");
+        _title.Visible = false;
         AddChild(_title);
 
+        _x = M59Skin.CloseX(Close);
+        _x.Visible = false;
+        AddChild(_x);
+
         _rows = new VBoxContainer();
-        _rows.AddThemeConstantOverride("separation", 2);
+        _rows.AddThemeConstantOverride("separation", 4);
+        // Or every row is only as wide as its own label and the
+        // controls land in a ragged column - see notes/godot-ui.md,
+        // "A ScrollContainer sizes its child to that child's minimum".
+        _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
         _close = new Button { Text = "Close", Visible = false };
-        _close.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(_close, M59Skin.Kind.Secondary);
         _close.Pressed += Close;
         AddChild(_close);
 
@@ -364,9 +403,21 @@ public partial class OptionsPanel : Control
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
         _close.Visible = on; _open.Visible = !on && _openerAllowed;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         if (on) GetParent()?.MoveChild(this, -1);
         Layout();
     }
+
+    /// <summary>
+    /// How wide the column of settings is allowed to get.
+    ///
+    /// The card is as wide as the screen allows, because the password
+    /// form and the longer switch labels want room - but a row whose
+    /// label is at one edge and whose stepper is at the other, sixteen
+    /// hundred points away, is a row nobody can read as one row. The
+    /// column is held to this and centred in the card.
+    /// </summary>
+    const float ColumnW = 880f;
 
     void Layout()
     {
@@ -376,26 +427,34 @@ public partial class OptionsPanel : Control
         _open.Size = new Vector2(96, 40);
         _open.Position = new Vector2(v.X - ButtonRight - 96, v.Y - ButtonBottom - 40);
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.8f, 800f);
-        float top = v.Y - height - side * 0.5f;
-        float w = v.X - side * 2f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        // The longest list in the client, so it takes the height it is
+        // allowed - Frame caps it against the screen. The WIDTH is the
+        // column plus its padding: a card wider than the settings it
+        // holds is the dead space this redesign is about, and centring
+        // the column inside a 1600-point card only moves it.
+        Rect2 card = M59Skin.Frame(v, 0f, true, ColumnW + M59Skin.Pad * 2f + 18f);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        float y = top;
-        _title.Position = new Vector2(side, y); y += FontSize * 2f;
+        _card.Position = card.Position; _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        _scroll.Position = new Vector2(side, y);
-        _scroll.Size = new Vector2(w, top + height - rowH - 24f - y);
-        _rows.CustomMinimumSize = new Vector2(w, 0);
+        float w = Mathf.Min(body.Size.X, ColumnW);
+        _scroll.Position = new Vector2(body.Position.X + Mathf.Round((body.Size.X - w) * 0.5f),
+                                       body.Position.Y);
+        _scroll.Size = new Vector2(w, body.Size.Y);
+        _rows.CustomMinimumSize = new Vector2(w - 14f, 0);
 
-        // Twelve pixels of air under the last row, so the panel's
-        // own edge and the button's are not the same line.
-        _close.Position = new Vector2(side, top + height - rowH - 12f);
-        _close.Size = new Vector2(w, rowH);
+        M59Skin.FootRow(foot, _close);
     }
 
     /// <summary>The flags this panel switches; read every time it opens.</summary>
@@ -409,6 +468,9 @@ public partial class OptionsPanel : Control
     {
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
         _values.Clear(); _readers.Clear(); _switches.Clear();
+        _bars.Clear(); _amounts.Clear();
+        _stripe = 0;
+        _prefNote = null;
         // Cleared with the rest, which it was not: Preference() appends
         // to this on every Build, so a second Open left FollowPreferences
         // walking rows whose CheckBox had been queued for freeing. It
@@ -457,6 +519,14 @@ public partial class OptionsPanel : Control
         }
         else
         {
+        // Why the seven below are dead when they are. The gate itself
+        // is in Preference(); this is the half that says so out loud,
+        // instead of leaving seven greyed rows with no reason.
+        _prefNote = M59Skin.Caption("Waiting for the server to send your preferences.");
+        _prefNote.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _prefNote.Visible = false;
+        _rows.AddChild(_prefNote);
+
         _rows.AddChild(Preference("Safety off", () => _prefs != null && _prefs.IsSafetyOff,
                                   on => { if (_prefs != null) _prefs.IsSafetyOff = on; }));
         _rows.AddChild(Preference("Temporary safety on death", () => _prefs != null && _prefs.TempSafe,
@@ -530,15 +600,23 @@ public partial class OptionsPanel : Control
         _newPass = Secret("New Password", "newPassword");
         _confirmPass = Secret("Confirm Password", "confirmPassword");
 
+        // The one thing this section does, so it is a Primary - and it
+        // sits at the right of its own line rather than stretched the
+        // width of the form, which is the shape the footers take.
+        var row = new HBoxContainer { CustomMinimumSize = new Vector2(0, M59Skin.RowH) };
+        row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
+
         var go = new Button
         {
             Text = "Change Password",
-            CustomMinimumSize = new Vector2(0, RowHeight),
+            CustomMinimumSize = new Vector2(240, 48),
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
             Name = "changePassword",
         };
-        go.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(go, M59Skin.Kind.Primary);
         go.Pressed += Rotate;
-        _rows.AddChild(go);
+        row.AddChild(go);
+        _rows.AddChild(row);
     }
 
     /// <summary>
@@ -549,21 +627,26 @@ public partial class OptionsPanel : Control
     /// </summary>
     LineEdit Secret(string caption, string node)
     {
-        var label = new Label { Text = caption, CustomMinimumSize = new Vector2(0, FontSize * 1.8f) };
-        label.AddThemeFontSizeOverride("font_size", FontSize - 1);
-        label.AddThemeColorOverride("font_color", new Color(0.72f, 0.74f, 0.8f));
+        // A form, not three more rows of the list: a caption over its
+        // own field, which is the shape every other form in this client
+        // takes.
+        Label label = M59Skin.Caption(caption);
+        label.CustomMinimumSize = new Vector2(0, M59Skin.SmallSize + 8f);
         _rows.AddChild(label);
 
         var box = new LineEdit
         {
             Secret = true,
-            CustomMinimumSize = new Vector2(0, RowHeight),
+            CustomMinimumSize = new Vector2(0, FieldH),
             Name = node,
         };
-        box.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Field(box);
         _rows.AddChild(box);
         return box;
     }
+
+    /// <summary>A form field's height.</summary>
+    const float FieldH = 46f;
 
     /// <summary>
     /// The four checks, in the reference's order and with its own
@@ -628,18 +711,13 @@ public partial class OptionsPanel : Control
 
     /// <summary>
     /// A line of the reference's own explanatory text. Wrapped, because
-    /// these are sentences and the panel is as wide as a phone.
+    /// these are sentences and the column is narrower than the card.
     /// </summary>
     Control Note(string text)
     {
-        var l = new Label
-        {
-            Text = text,
-            AutowrapMode = TextServer.AutowrapMode.WordSmart,
-            CustomMinimumSize = new Vector2(0, FontSize * 2f),
-        };
-        l.AddThemeFontSizeOverride("font_size", FontSize - 1);
-        l.AddThemeColorOverride("font_color", new Color(0.7f, 0.72f, 0.78f));
+        Label l = M59Skin.Caption(text);
+        l.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        l.CustomMinimumSize = new Vector2(0, M59Skin.SmallSize * 2.2f);
         return l;
     }
 
@@ -650,30 +728,20 @@ public partial class OptionsPanel : Control
     /// </summary>
     Control Opens(string name, string verb, Action pressed)
     {
-        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
-        line.AddThemeConstantOverride("separation", 8);
-
-        var label = new Label
-        {
-            Text = name,
-            VerticalAlignment = VerticalAlignment.Center,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-        };
-        label.AddThemeFontSizeOverride("font_size", FontSize);
-        label.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
-        line.AddChild(label);
+        Panel back = Shell(out HBoxContainer line);
+        line.AddChild(RowName(name));
 
         var go = new Button
         {
             Text = verb,
-            CustomMinimumSize = new Vector2(112, 0),
+            CustomMinimumSize = new Vector2(130, M59Skin.RowH - 14f),
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
             Name = $"open{Slug(name)}",
         };
-        go.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(go, M59Skin.Kind.Secondary);
         go.Pressed += () => pressed();
         line.AddChild(go);
-
-        return line;
+        return back;
     }
 
     /// <summary>
@@ -681,8 +749,11 @@ public partial class OptionsPanel : Control
     /// one back, so they can be greyed out until the server has spoken
     /// and re-read when it does.
     /// </summary>
-    readonly List<(CheckBox Box, Func<bool> Get)> _prefRows =
-        new List<(CheckBox, Func<bool>)>();
+    /// The label is carried too, so a disabled row can be dimmed as
+    /// well as unpressable: a lit label beside a dead box reads as a
+    /// control that is simply not working.
+    readonly List<(CheckBox Box, Func<bool> Get, Label Label)> _prefRows =
+        new List<(CheckBox, Func<bool>, Label)>();
 
     /// <summary>
     /// Puts the preference switches where the model says they are, and
@@ -691,133 +762,207 @@ public partial class OptionsPanel : Control
     public void FollowPreferences()
     {
         bool live = _prefs != null && _prefs.Enabled;
-        foreach ((CheckBox box, Func<bool> get) in _prefRows)
+        foreach ((CheckBox box, Func<bool> get, Label label) in _prefRows)
         {
             box.Disabled = !live;
             box.SetPressedNoSignal(get());
+            if (label != null && GodotObject.IsInstanceValid(label))
+                label.AddThemeColorOverride("font_color", live ? M59Skin.Text : M59Skin.TextOff);
         }
+        if (_prefNote != null && GodotObject.IsInstanceValid(_prefNote))
+            _prefNote.Visible = _prefRows.Count > 0 && !live;
     }
 
+    /// <summary>
+    /// A section heading with a rule under it, and the thing that
+    /// resets the stripe: a heading is where one group of settings
+    /// stops and the next begins.
+    /// </summary>
     Control Section(string text)
+    {
+        _stripe = 0;
+        var box = new VBoxContainer { CustomMinimumSize = new Vector2(0, 54) };
+        box.AddThemeConstantOverride("separation", 4);
+
+        Label l = M59Skin.Heading(text);
+        l.VerticalAlignment = VerticalAlignment.Bottom;
+        l.SizeFlagsVertical = SizeFlags.ExpandFill;
+        box.AddChild(l);
+
+        ColorRect rule = M59Skin.Hairline();
+        rule.CustomMinimumSize = new Vector2(0, 1);
+        box.AddChild(rule);
+        return box;
+    }
+
+    /// <summary>
+    /// The shape every row of this panel takes: a striped slab with the
+    /// name at the left and whatever changes it at the right. Unrelated
+    /// controls - a stepper, a switch, a button into another panel -
+    /// all sit in it, which is what makes a list of unrelated things
+    /// read as one list.
+    /// </summary>
+    Panel Shell(out HBoxContainer line)
+    {
+        var back = new Panel
+        {
+            CustomMinimumSize = new Vector2(0, Mathf.Max(RowHeight, M59Skin.RowH)),
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        back.AddThemeStyleboxOverride("panel", M59Skin.Stripe(_stripe++ % 2 == 1));
+
+        line = new HBoxContainer();
+        line.SetAnchorsPreset(LayoutPreset.FullRect);
+        line.AddThemeConstantOverride("separation", M59Skin.GapI);
+        line.OffsetLeft = M59Skin.Gap; line.OffsetRight = -M59Skin.Gap;
+        line.OffsetTop = 5; line.OffsetBottom = -5;
+        back.AddChild(line);
+        return back;
+    }
+
+    /// <summary>The name of a setting, at the left of its row.</summary>
+    static Label RowName(string text)
     {
         var l = new Label
         {
             Text = text,
-            CustomMinimumSize = new Vector2(0, RowHeight),
-            VerticalAlignment = VerticalAlignment.Bottom,
+            VerticalAlignment = VerticalAlignment.Center,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            MouseFilter = MouseFilterEnum.Ignore,
         };
-        l.AddThemeFontSizeOverride("font_size", FontSize + 2);
-        l.AddThemeColorOverride("font_color", new Color(1, 0.86f, 0.45f));
+        l.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        l.AddThemeColorOverride("font_color", M59Skin.Text);
         return l;
+    }
+
+    /// <summary>A square stepper, sized to a thumb.</summary>
+    Button Step(string text, string node, Action pressed)
+    {
+        var b = new Button
+        {
+            Text = text,
+            Name = node,
+            CustomMinimumSize = new Vector2(52, M59Skin.RowH - 16f),
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+        };
+        M59Skin.Dress(b, M59Skin.Kind.Step);
+        b.Pressed += pressed;
+        return b;
     }
 
     /// <summary>
     /// A number with a minus and a plus rather than a drag bar: a slider
     /// thin enough to fit a row is not a thing a thumb can place
     /// accurately, and these all have few enough steps to step through.
+    ///
+    /// It shows the value, and the value against its range: a bar and
+    /// "7 / 10". A bare 7 says nothing about how loud that is, and the
+    /// three sliders here do not share a maximum.
     /// </summary>
     Control Slider(string name, Func<float> get, Action<float> set, float max = 10f)
     {
-        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
-        line.AddThemeConstantOverride("separation", 8);
+        Panel back = Shell(out HBoxContainer line);
+        line.AddChild(RowName(name));
 
-        var label = new Label
-        {
-            Text = name,
-            VerticalAlignment = VerticalAlignment.Center,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-        };
-        label.AddThemeFontSizeOverride("font_size", FontSize);
-        label.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
-        line.AddChild(label);
+        ProgressBar bar = M59Skin.Bar();
+        bar.MinValue = 0; bar.MaxValue = max; bar.Value = get();
+        bar.CustomMinimumSize = new Vector2(180, 10);
+        bar.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        bar.MouseFilter = MouseFilterEnum.Ignore;
+        line.AddChild(bar);
+        _bars[name] = bar;
+        _amounts[name] = get;
 
         var value = new Label
         {
-            Text = $"{get():0}",
+            Text = $"{get():0} / {max:0}",
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
-            CustomMinimumSize = new Vector2(70, 0),
+            // A fixed column, so the numbers line up down the list
+            // instead of each landing where its own label ended.
+            CustomMinimumSize = new Vector2(96, 0),
+            MouseFilter = MouseFilterEnum.Ignore,
         };
-        value.AddThemeFontSizeOverride("font_size", FontSize);
-        value.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        value.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        value.AddThemeColorOverride("font_color", M59Skin.GoldBright);
         line.AddChild(value);
         _values[name] = value;
-        _readers[name] = () => $"{get():0}";
+        _readers[name] = () => $"{get():0} / {max:0}";
 
-        var less = new Button { Text = "-", CustomMinimumSize = new Vector2(52, 0), Name = $"less{Slug(name)}" };
-        less.AddThemeFontSizeOverride("font_size", FontSize + 2);
-        less.Pressed += () => { set(Mathf.Max(0f, get() - 1f)); Redraw(); };
-        line.AddChild(less);
-
-        var more = new Button { Text = "+", CustomMinimumSize = new Vector2(52, 0), Name = $"more{Slug(name)}" };
-        more.AddThemeFontSizeOverride("font_size", FontSize + 2);
-        more.Pressed += () => { set(Mathf.Min(max, get() + 1f)); Redraw(); };
-        line.AddChild(more);
-
-        return line;
+        line.AddChild(Step("-", $"less{Slug(name)}",
+                           () => { set(Mathf.Max(0f, get() - 1f)); Redraw(); }));
+        line.AddChild(Step("+", $"more{Slug(name)}",
+                           () => { set(Mathf.Min(max, get() + 1f)); Redraw(); }));
+        return back;
     }
 
     /// <summary>
     /// A setting whose value is a word rather than a number, stepped the
     /// same way the numbers are so the column still reads as one column.
     /// Laid out exactly as Slider lays itself out - the value is just
-    /// wider, because "Portuguese" is.
+    /// wider, because "Portuguese" is, and there is no bar because a
+    /// language has no range.
     /// </summary>
     Control Choice(string name, Func<string> read, Action down, Action up)
     {
-        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
-        line.AddThemeConstantOverride("separation", 8);
-
-        var label = new Label
-        {
-            Text = name,
-            VerticalAlignment = VerticalAlignment.Center,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-        };
-        label.AddThemeFontSizeOverride("font_size", FontSize);
-        label.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
-        line.AddChild(label);
+        Panel back = Shell(out HBoxContainer line);
+        line.AddChild(RowName(name));
 
         var value = new Label
         {
             Text = read(),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
-            CustomMinimumSize = new Vector2(130, 0),
+            CustomMinimumSize = new Vector2(150, 0),
+            MouseFilter = MouseFilterEnum.Ignore,
         };
-        value.AddThemeFontSizeOverride("font_size", FontSize);
-        value.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        value.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        value.AddThemeColorOverride("font_color", M59Skin.GoldBright);
         line.AddChild(value);
         _values[name] = value;
         _readers[name] = read;
 
-        var less = new Button { Text = "-", CustomMinimumSize = new Vector2(52, 0), Name = $"less{Slug(name)}" };
-        less.AddThemeFontSizeOverride("font_size", FontSize + 2);
-        less.Pressed += () => { down(); Redraw(); };
-        line.AddChild(less);
-
-        var more = new Button { Text = "+", CustomMinimumSize = new Vector2(52, 0), Name = $"more{Slug(name)}" };
-        more.AddThemeFontSizeOverride("font_size", FontSize + 2);
-        more.Pressed += () => { up(); Redraw(); };
-        line.AddChild(more);
-
-        return line;
+        line.AddChild(Step("-", $"less{Slug(name)}", () => { down(); Redraw(); }));
+        line.AddChild(Step("+", $"more{Slug(name)}", () => { up(); Redraw(); }));
+        return back;
     }
 
-    Control Switch(string name, Func<bool> get, Action<bool> set)
+    /// <summary>
+    /// A switch, in the same shape as everything else: the name at the
+    /// left with the rest of them, the box in the right-hand column
+    /// where the steppers are.
+    ///
+    /// The box carries no text now, so what it toggles is said by the
+    /// row's label rather than by the box - the tap target is the box,
+    /// which is why it is given a column of its own to fill rather than
+    /// being left at the size of a tick.
+    /// </summary>
+    CheckBox Tick(string name, bool on, string node)
     {
         var box = new CheckBox
         {
-            Text = "  " + name,
-            ButtonPressed = get(),
-            CustomMinimumSize = new Vector2(0, RowHeight),
-            Name = $"opt{Slug(name)}",
+            ButtonPressed = on,
+            Name = node,
+            CustomMinimumSize = new Vector2(TickW, M59Skin.RowH - 10f),
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            Alignment = HorizontalAlignment.Center,
         };
-        box.AddThemeFontSizeOverride("font_size", FontSize);
         TickStyle.Apply(box);
+        return box;
+    }
+
+    /// <summary>The switch column, as wide as the steppers beside it.</summary>
+    const float TickW = 114f;
+
+    Control Switch(string name, Func<bool> get, Action<bool> set)
+    {
+        Panel back = Shell(out HBoxContainer line);
+        line.AddChild(RowName(name));
+        CheckBox box = Tick(name, get(), $"opt{Slug(name)}");
         box.Toggled += on => set(on);
         _switches.Add(box);
-        return box;
+        line.AddChild(box);
+        return back;
     }
 
     /// <summary>
@@ -826,15 +971,11 @@ public partial class OptionsPanel : Control
     /// </summary>
     Control Preference(string name, Func<bool> get, Action<bool> set)
     {
-        var box = new CheckBox
-        {
-            Text = "  " + name,
-            ButtonPressed = get(),
-            CustomMinimumSize = new Vector2(0, RowHeight),
-            Name = $"pref{Slug(name)}",
-        };
-        box.AddThemeFontSizeOverride("font_size", FontSize);
-        TickStyle.Apply(box);
+        Panel back = Shell(out HBoxContainer line);
+        Label label = RowName(name);
+        line.AddChild(label);
+
+        CheckBox box = Tick(name, get(), $"pref{Slug(name)}");
         // Nothing is sent until the server has told us what the
         // preferences actually are. The word arrives as
         // UserCommandReceivePreferences and sets PreferencesFlags.Enabled
@@ -851,15 +992,18 @@ public partial class OptionsPanel : Control
             set(on);
             Preferences?.Invoke();
         };
-        _prefRows.Add((box, get));
+        _prefRows.Add((box, get, label));
         _switches.Add(box);
-        return box;
+        line.AddChild(box);
+        return back;
     }
 
     void Redraw()
     {
         foreach (KeyValuePair<string, Func<string>> r in _readers)
             if (_values.TryGetValue(r.Key, out Label l)) l.Text = r.Value();
+        foreach (KeyValuePair<string, ProgressBar> b in _bars)
+            if (_amounts.TryGetValue(b.Key, out Func<float> get)) b.Value.Value = get();
     }
 
     static string Slug(string s) => s.Replace(" ", "").Replace("'", "");

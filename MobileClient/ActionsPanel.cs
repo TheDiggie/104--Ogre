@@ -22,13 +22,10 @@ using Meridian59.Common.Enums;
 /// </summary>
 public partial class ActionsPanel : Control
 {
-    /// <summary>
-    /// Air under the last button row. Without it the button's bottom
-    /// edge and the panel's own are the same line, and the only way out
-    /// of the window reads as cut off while every row above it has a
-    /// gap.
-    /// </summary>
-    const float Foot = 12f;
+    // The hand-rolled "Foot" gap that used to live here - air under the
+    // last button row, so the only way out of the window did not read as
+    // cut off against the panel's own edge - is now the card's footer
+    // band (M59Skin.FootH), which keeps that air structurally.
 
     [Export] public int FontSize = 16;
     [Export] public int RowHeight = 52;
@@ -51,6 +48,8 @@ public partial class ActionsPanel : Control
 
     Button _open, _close;
     ColorRect _panel;
+    Panel _card, _bar;
+    Button _x;
     Label _title;
     ScrollContainer _scroll;
     VBoxContainer _rows;
@@ -69,14 +68,30 @@ public partial class ActionsPanel : Control
         AddChild(_open);
         Panels.Opener(_open);
 
-        // Opaque: a FrameWindow with no Alpha (Meridian59.layout:1384, UIActions.cpp:10).
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 1f), Visible = false };
+        // The scrim eats the touch that would otherwise reach the world
+        // behind, and puts the card in front of something rather than
+        // being the screen. The CARD is opaque, which is what the
+        // reference's FrameWindow with no Alpha asks for
+        // (Meridian59.layout:1384, UIActions.cpp:10).
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = new Label { Text = "Actions", Visible = false };
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 4);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Actions");
+        _title.Visible = false;
         AddChild(_title);
+
+        _x = M59Skin.CloseX(Close);
+        _x.Visible = false;
+        AddChild(_x);
 
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 4);
@@ -89,7 +104,7 @@ public partial class ActionsPanel : Control
         AddChild(_scroll);
 
         _close = new Button { Text = "Close", Visible = false };
-        _close.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(_close, M59Skin.Kind.Secondary);
         _close.Pressed += Close;
         AddChild(_close);
 
@@ -109,6 +124,7 @@ public partial class ActionsPanel : Control
     void Show(bool on)
     {
         _panel.Visible = on; _title.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         _scroll.Visible = on; _close.Visible = on;
         _open.Visible = !on;
         Panels.ShowOpeners(!on);
@@ -123,19 +139,27 @@ public partial class ActionsPanel : Control
     {
         if (_built) return;
         _built = true;
-        foreach (AvatarAction a in All) _rows.AddChild(Row(a));
+        int i = 0;
+        foreach (AvatarAction a in All) _rows.AddChild(Row(a, i++));
     }
 
     static string Label(AvatarAction a) =>
         a == AvatarAction.GuildInvite ? "Guild invite" : a.ToString();
 
-    Control Row(AvatarAction a)
+    Control Row(AvatarAction a, int index)
     {
         var button = new Button
         {
-            CustomMinimumSize = new Vector2(0, RowHeight),
+            // The skin's row is the floor: RowHeight is the knob, but a
+            // thumb needs the 56 the skin settled on.
+            CustomMinimumSize = new Vector2(0, Mathf.Max(RowHeight, M59Skin.RowH)),
             Name = $"act{a}",
         };
+        // Every other row a shade lighter. Eleven rows of one brown and
+        // the eye has nothing to walk down; there is no selected state
+        // here because a tap PERFORMS - nothing is ever "the chosen
+        // action", so Pick would have nothing to mark.
+        M59Skin.Dress(button, index % 2 == 0 ? M59Skin.Kind.Row : M59Skin.Kind.RowAlt);
         button.Pressed += () => Perform?.Invoke(a);
 
         var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
@@ -151,17 +175,23 @@ public partial class ActionsPanel : Control
             VerticalAlignment = VerticalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        name.AddThemeFontSizeOverride("font_size", FontSize);
+        name.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        name.AddThemeColorOverride("font_color", M59Skin.Text);
         line.AddChild(name);
 
         var bind = new Button
         {
             Text = "+",
             TooltipText = "Put on the hotbar",
-            CustomMinimumSize = new Vector2(RowHeight, 0),
+            CustomMinimumSize = new Vector2(M59Skin.RowH - 12f, 0),
             Name = $"bind{a}",
         };
-        bind.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        // A square stepper rather than a second full-height slab: it is
+        // the one thing in the row that is not the row, and it has to
+        // look like it takes its own press.
+        M59Skin.Dress(bind, M59Skin.Kind.Step);
+        bind.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        bind.CustomMinimumSize = new Vector2(M59Skin.RowH - 12f, M59Skin.RowH - 16f);
         bind.Pressed += () => Assign?.Invoke(a);
         line.AddChild(bind);
 
@@ -176,20 +206,34 @@ public partial class ActionsPanel : Control
         _open.Size = new Vector2(76, 40);
         _open.Position = new Vector2(v.X - ButtonRight - 76, v.Y - ButtonBottom - 40);
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.72f, 700f);
-        float top = v.Y - height - side;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        // Sized to the eleven rows it holds, so the window is eleven
+        // rows tall instead of a fixed box with three hundred pixels of
+        // nothing under the last one. Frame caps it against the screen.
+        float want = All.Length * (Mathf.Max(RowHeight, M59Skin.RowH) + 4f);
+        Rect2 card = M59Skin.Frame(v, want);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        _title.Position = new Vector2(side, top);
-        _scroll.Position = new Vector2(side, top + FontSize * 2.2f);
-        _scroll.Size = new Vector2(v.X - side * 2f, height - FontSize * 2.2f - rowH - 16f);
-        _rows.CustomMinimumSize = new Vector2(_scroll.Size.X, 0);
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        _close.Position = new Vector2(side, top + height - rowH - Foot);
-        _close.Size = new Vector2(v.X - side * 2f, rowH);
+        _scroll.Position = body.Position;
+        _scroll.Size = body.Size;
+        _rows.CustomMinimumSize = new Vector2(body.Size.X, 0);
+
+        // Close sits at the right of the footer, where the thumb that
+        // dismisses it is, rather than stretched across the bottom edge
+        // as the most prominent thing on screen.
+        M59Skin.FootRow(foot, _close);
     }
 }

@@ -89,7 +89,7 @@ public partial class GuildShieldPanel : Control
     /// the layout's own pixel size (`UIGuild.cpp:60-61`); there is no
     /// layout file here, so this is the box and the art is scaled into it.
     /// </summary>
-    [Export] public int PreviewSize = 176;
+    [Export] public int PreviewSize = 300;
 
     /// <summary>
     /// Ask the server for the shield art and for our own shield, which is
@@ -128,6 +128,13 @@ public partial class GuildShieldPanel : Control
     public GuildPanel Roster;
 
     ColorRect _panel;
+    Panel _card, _bar;
+    Button _x;
+    /// <summary>The sunken plate the preview is drawn on. See Layout.</summary>
+    Panel _stage;
+    /// <summary>The three stepper rows' stripes, and the claim plate.</summary>
+    readonly Panel[] _stripe = new Panel[3];
+    Panel _claimPlate;
     Label _title, _claimedByDesc, _claimedBy, _colour1Desc, _colour2Desc, _designDesc, _note;
     TextureRect _image;
     Button _claim, _close;
@@ -145,10 +152,39 @@ public partial class GuildShieldPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f), Visible = false };
+        // The scrim eats the touch that would reach the world behind;
+        // the card over it is opaque, which the old 0.97 panel was not -
+        // and two windows reading through each other is exactly the bug
+        // Suspend/Resume was written for.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = Heading("Guild Shield", FontSize + 4, new Color(1, 0.92f, 0.6f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Guild Shield");
+        _title.Visible = false;
+        AddChild(_title);
+
+        // The cross closes the designer the way the Close button does -
+        // back to the roster it is a tab of, not out of the guild.
+        _x = M59Skin.CloseX(Close);
+        _x.Visible = false;
+        AddChild(_x);
+
+        // The stage the shield stands on: sunken, because everything
+        // else on this card is raised and the one thing here that is
+        // LOOKED at rather than pressed should not read as a button.
+        // Added before the picture, since siblings draw in tree order.
+        _stage = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _stage.AddThemeStyleboxOverride("panel", M59Skin.Sunken());
+        AddChild(_stage);
 
         // The picture. KeepAspectCentered rather than a stretch: the
         // composed frame is already centred in a square box of its own
@@ -167,7 +203,7 @@ public partial class GuildShieldPanel : Control
         // reference has no equivalent because its composer simply leaves
         // the image window empty, and an empty square on a phone reads as
         // a broken panel rather than as "waiting".
-        _note = Heading("", FontSize - 2, new Color(0.7f, 0.72f, 0.78f));
+        _note = Heading("", M59Skin.BodySize, M59Skin.TextDim);
         // The note stands in for the picture, so it is centred in the
         // picture's place and wraps rather than running on: see Layout,
         // where it is given the box's rectangle and not the panel's.
@@ -175,11 +211,25 @@ public partial class GuildShieldPanel : Control
         _note.VerticalAlignment = VerticalAlignment.Center;
         _note.AutowrapMode = TextServer.AutowrapMode.WordSmart;
 
-        _colour1Desc = Heading("Color 1", FontSize, new Color(0.86f, 0.88f, 0.92f));
-        _colour2Desc = Heading("Color 2", FontSize, new Color(0.86f, 0.88f, 0.92f));
-        _designDesc = Heading("Design", FontSize, new Color(0.86f, 0.88f, 0.92f));
-        _claimedByDesc = Heading("Claimed by", FontSize, new Color(0.86f, 0.88f, 0.92f));
-        _claimedBy = Heading("", FontSize, new Color(1, 0.92f, 0.6f));
+        // Three striped rows for the three settings and a plate for the
+        // claim line, built before the labels and buttons that stand on
+        // them: siblings draw in tree order.
+        for (int i = 0; i < _stripe.Length; i++)
+        {
+            var p = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+            p.AddThemeStyleboxOverride("panel", M59Skin.Stripe(i % 2 == 1));
+            AddChild(p);
+            _stripe[i] = p;
+        }
+        _claimPlate = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _claimPlate.AddThemeStyleboxOverride("panel", M59Skin.Sunken());
+        AddChild(_claimPlate);
+
+        _colour1Desc = Heading("Color 1", M59Skin.BodySize, M59Skin.Text);
+        _colour2Desc = Heading("Color 2", M59Skin.BodySize, M59Skin.Text);
+        _designDesc = Heading("Design", M59Skin.BodySize, M59Skin.Text);
+        _claimedByDesc = Caption2("Claimed by");
+        _claimedBy = Heading("", M59Skin.BodySize + 2, M59Skin.GoldBright);
 
         // Steppers, not drag bars. The reference's three controls are
         // CEGUI sliders with `setClickStep(1.0f)` (`UIGuild.cpp:44-46`) -
@@ -205,6 +255,15 @@ public partial class GuildShieldPanel : Control
         _claim = Push("Claim shield", () => Claim?.Invoke(), "claim");
         _close = Push("Close", Close, "close");
 
+        // The steppers are the skin's square stepper; the turns are the
+        // same shape, because they do the same kind of thing to the same
+        // picture. Taking the shield is what this window is for.
+        foreach (Button b in new[] { _c1Less, _c1More, _c2Less, _c2More, _dLess, _dMore,
+                                     _turnLeft, _turnRight })
+            M59Skin.Dress(b, M59Skin.Kind.Step);
+        M59Skin.Dress(_claim, M59Skin.Kind.Primary);
+        M59Skin.Dress(_close, M59Skin.Kind.Secondary);
+
         GetViewport().SizeChanged += Layout;
     }
 
@@ -213,6 +272,15 @@ public partial class GuildShieldPanel : Control
         var l = new Label { Text = text, Visible = false };
         l.AddThemeFontSizeOverride("font_size", size);
         l.AddThemeColorOverride("font_color", color);
+        AddChild(l);
+        return l;
+    }
+
+    /// <summary>The small gold line over a value.</summary>
+    Label Caption2(string text)
+    {
+        Label l = M59Skin.Caption(text);
+        l.Visible = false;
         AddChild(l);
         return l;
     }
@@ -263,7 +331,10 @@ public partial class GuildShieldPanel : Control
     {
         if (on) Panels.ToFront(this);
         _panel.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         _title.Visible = on;
+        _stage.Visible = on; _claimPlate.Visible = on;
+        foreach (Panel p in _stripe) p.Visible = on;
         _image.Visible = on && _image.Texture != null;
         _note.Visible = on && _image.Texture == null;
         _colour1Desc.Visible = on; _colour2Desc.Visible = on; _designDesc.Visible = on;
@@ -276,76 +347,113 @@ public partial class GuildShieldPanel : Control
         Layout();
     }
 
+    /// <summary>A stepper row, and the square buttons on it.</summary>
+    const float StepRow = 56f, StepBtn = 44f, TurnBtn = 52f;
+
     void Layout()
     {
         if (_panel == null || !_panel.Visible) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.8f, 780f);
-        float top = v.Y - height - side * 0.5f;
-        float w = v.X - side * 2f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        // The one window in this client where the player is choosing
+        // something to LOOK at, so the picture gets the room and the
+        // controls sit beside it rather than in a stack above it. The
+        // card is asked for the taller of the stage and the controls,
+        // because the two are side by side.
+        float controls = 3f * (StepRow + M59Skin.Gap) + M59Skin.Gap + 72f;
+        float stage = PreviewSize + M59Skin.Gap + TurnBtn;
+        Rect2 card = M59Skin.Frame(v, Mathf.Max(stage, controls), true, 1120f);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        float y = top;
-        _title.Position = new Vector2(side, y); y += FontSize * 1.9f;
+        _card.Position = card.Position; _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
 
-        // The picture, centred, with the two turn buttons either side of
-        // it - which is where a wheel over the image would have been.
-        float box = Mathf.Min(PreviewSize, Mathf.Max(96f, w - rowH * 2f - 24f));
-        float imgX = side + (w - box) * 0.5f;
-        _image.Position = new Vector2(imgX, y);
-        _image.Size = new Vector2(box, box);
-        // The note goes exactly where the picture would be, not across
-        // the whole panel. It used to start at `side` and run the full
-        // width, which is the same x the left turn button is given and an
-        // overlapping band of y - and the label is added to the tree
-        // after the button, so it drew on top and swallowed every tap
+        // Two columns: the stage on the left, taking whatever squares up
+        // inside the body's height, and the settings on the right.
+        float stageW = Mathf.Clamp(body.Size.X * 0.45f, 180f,
+                                   Mathf.Max(180f, body.Size.Y - TurnBtn - M59Skin.Gap));
+        float colX = body.Position.X + stageW + M59Skin.Pad;
+        float colW = Mathf.Max(220f, body.Position.X + body.Size.X - colX);
+
+        _stage.Position = body.Position;
+        _stage.Size = new Vector2(stageW, Mathf.Max(120f, body.Size.Y - TurnBtn - M59Skin.Gap));
+
+        // The art is drawn inside the stage, inset so the sunken edge
+        // stays visible all the way round it.
+        var inner = new Rect2(_stage.Position + new Vector2(10f, 10f),
+                              _stage.Size - new Vector2(20f, 20f));
+        _image.Position = inner.Position;
+        _image.Size = inner.Size;
+        // The note stands in for the picture, so it goes exactly where
+        // the picture is. It used to run the full width of the panel,
+        // across the same band of y as the turn buttons - and, added to
+        // the tree after them, it drew on top and swallowed every tap
         // meant for "<". That made the one control the player needs when
         // there is no art unusable in precisely the case the note is
-        // shown. Centred in the image box it clears both buttons by
-        // construction: on a narrow screen the box is sized to leave a
-        // turn button's width plus twelve on each side.
-        _note.Position = new Vector2(imgX, y);
-        _note.Size = new Vector2(box, box);
+        // shown. Inside the stage it clears both turns by construction
+        // now, since they are below the stage rather than beside it.
+        _note.Position = inner.Position;
+        _note.Size = inner.Size;
 
-        _turnLeft.Position = new Vector2(side, y + box * 0.5f - rowH * 0.5f);
-        _turnLeft.Size = new Vector2(rowH, rowH);
-        _turnRight.Position = new Vector2(side + w - rowH, y + box * 0.5f - rowH * 0.5f);
-        _turnRight.Size = new Vector2(rowH, rowH);
+        // The turns go under the stage, centred on it: that is where the
+        // wheel over the picture was, said with buttons.
+        float turnY = _stage.Position.Y + _stage.Size.Y + M59Skin.Gap;
+        float turnX = _stage.Position.X + (stageW - TurnBtn * 2f - M59Skin.Gap) * 0.5f;
+        _turnLeft.Position = new Vector2(turnX, turnY);
+        _turnLeft.Size = new Vector2(TurnBtn, TurnBtn);
+        _turnRight.Position = new Vector2(turnX + TurnBtn + M59Skin.Gap, turnY);
+        _turnRight.Size = new Vector2(TurnBtn, TurnBtn);
 
-        y += box + 12f;
+        // Three stepper rows on their own stripes: label and value on
+        // the left, minus and plus hard right, so the two columns of
+        // buttons line up down the three.
+        float y = body.Position.Y;
+        y = StepperRow(0, _colour1Desc, _c1Less, _c1More, colX, y, colW);
+        y = StepperRow(1, _colour2Desc, _c2Less, _c2More, colX, y, colW);
+        y = StepperRow(2, _designDesc, _dLess, _dMore, colX, y, colW);
 
-        // Three stepper rows: label on the left, minus and plus on the
-        // right. The label carries the value, because a separate value
-        // column costs width a phone does not have.
-        y = StepperRow(_colour1Desc, _c1Less, _c1More, side, y, w, rowH);
-        y = StepperRow(_colour2Desc, _c2Less, _c2More, side, y, w, rowH);
-        y = StepperRow(_designDesc, _dLess, _dMore, side, y, w, rowH);
+        // Who holds this design is the answer the steppers are asking
+        // for, so it sits under them on a plate of its own.
+        y += M59Skin.Gap;
+        _claimPlate.Position = new Vector2(colX, y);
+        _claimPlate.Size = new Vector2(colW, 72f);
+        _claimedByDesc.Position = new Vector2(colX + M59Skin.Pad, y + 12f);
+        _claimedByDesc.Size = new Vector2(colW - M59Skin.Pad * 2f, 18f);
+        _claimedBy.Position = new Vector2(colX + M59Skin.Pad, y + 32f);
+        _claimedBy.Size = new Vector2(colW - M59Skin.Pad * 2f, 28f);
 
-        _claimedByDesc.Position = new Vector2(side, y);
-        _claimedBy.Position = new Vector2(side + w * 0.35f, y);
-        y += rowH;
-
-        float by = top + height - rowH * 2f - 8f;
-        _claim.Position = new Vector2(side, by);
-        _claim.Size = new Vector2(w, rowH);
-        by += rowH + 8f;
-        _close.Position = new Vector2(side, by);
-        _close.Size = new Vector2(w, rowH);
+        // Close at the right, where the dismissing thumb is; Claim, the
+        // one thing this window is for, beside it.
+        M59Skin.FootRow(foot, _close, _claim);
     }
 
-    float StepperRow(Label label, Button less, Button more, float side, float y, float w, float rowH)
+    float StepperRow(int index, Label label, Button less, Button more,
+                     float x, float y, float w)
     {
-        label.Position = new Vector2(side, y + rowH * 0.25f);
-        less.Position = new Vector2(side + w - rowH * 2f - 8f, y);
-        less.Size = new Vector2(rowH, rowH);
-        more.Position = new Vector2(side + w - rowH, y);
-        more.Size = new Vector2(rowH, rowH);
-        return y + rowH + 6f;
+        Panel stripe = _stripe[index];
+        stripe.Position = new Vector2(x, y);
+        stripe.Size = new Vector2(w, StepRow);
+
+        label.Position = new Vector2(x + M59Skin.Pad, y);
+        label.Size = new Vector2(w - StepBtn * 2f - M59Skin.Gap - M59Skin.Pad * 2f, StepRow);
+        label.VerticalAlignment = VerticalAlignment.Center;
+
+        float by = y + (StepRow - StepBtn) * 0.5f;
+        less.Position = new Vector2(x + w - StepBtn * 2f - M59Skin.Gap - M59Skin.Pad, by);
+        less.Size = new Vector2(StepBtn, StepBtn);
+        more.Position = new Vector2(x + w - StepBtn - M59Skin.Pad, by);
+        more.Size = new Vector2(StepBtn, StepBtn);
+        return y + StepRow + M59Skin.Gap;
     }
 
     /// <summary>

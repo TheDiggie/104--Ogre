@@ -60,6 +60,11 @@ public partial class ChatOverlay : Control
     // you want when you missed something, and the library keeps 200.
     ColorRect _fullBack;
     Label _fullTitle;
+    // The card the full log is drawn on - see M59Skin. The transient
+    // overlay above is NOT a card and must not become one: it lives
+    // over the world. Only this screen is a window.
+    Panel _fullCard, _fullBar, _fullPage;
+    Button _fullX;
     ColorRect _logBack;
     ScrollContainer _fullScroll;
     RichTextLabel _full;
@@ -181,16 +186,38 @@ public partial class ChatOverlay : Control
         AddChild(_history);
         Panels.Opener(_history);
 
-        // Opaque. At 0.95 the minimap ring, both button rows, the
-        // vitals and the wall behind them all read through the text -
-        // a log you have to squint past is not a log.
-        _fullBack = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 1f), Visible = false };
+        // The scrim dims the world and eats the touch that would reach
+        // it; the CARD is the opaque part. (The old full-bleed rectangle
+        // was made opaque because at 0.95 the minimap ring, both button
+        // rows and the vitals read through the text - a log you have to
+        // squint past is not a log. The card keeps that promise: nothing
+        // is drawn through it.)
+        _fullBack = new ColorRect { Color = M59Skin.Scrim, Visible = false };
         AddChild(_fullBack);
 
-        _fullTitle = new Label { Text = "Chat log", Visible = false };
-        _fullTitle.AddThemeFontSizeOverride("font_size", FontSize + 4);
-        _fullTitle.AddThemeColorOverride("font_color", new Color(1f, 0.92f, 0.6f));
+        _fullCard = M59Skin.Window();
+        _fullCard.Visible = false;
+        AddChild(_fullCard);
+
+        _fullBar = M59Skin.TitleBar();
+        _fullBar.Visible = false;
+        AddChild(_fullBar);
+
+        _fullTitle = M59Skin.Title("Chat log");
+        _fullTitle.Visible = false;
         AddChild(_fullTitle);
+
+        // The same call as the Close in the footer, not a second way out.
+        _fullX = M59Skin.CloseX(HideHistory);
+        _fullX.Visible = false;
+        AddChild(_fullX);
+
+        // A sunken page to read from. Everything else on the card is
+        // raised, and a reading surface that is raised reads as another
+        // button. It sits UNDER the scroll, which is added after it.
+        _fullPage = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _fullPage.AddThemeStyleboxOverride("panel", M59Skin.Sunken());
+        AddChild(_fullPage);
 
         _full = new RichTextLabel
         {
@@ -205,10 +232,26 @@ public partial class ChatOverlay : Control
             // reference's drag-select exactly.
             SelectionEnabled = true,
         };
-        _full.AddThemeFontSizeOverride("normal_font_size", FontSize);
+        // Body size, not the HUD's: the overlay's sixteen is for a few
+        // lines over the world, this is the thing a player reads longest.
+        // The separation is what keeps a wrapped message from fusing
+        // with the next one.
+        _full.AddThemeFontSizeOverride("normal_font_size", M59Skin.BodySize);
+        _full.AddThemeFontSizeOverride("bold_font_size", M59Skin.BodySize);
+        _full.AddThemeFontSizeOverride("italics_font_size", M59Skin.BodySize);
+        _full.AddThemeFontSizeOverride("bold_italics_font_size", M59Skin.BodySize);
+        _full.AddThemeFontSizeOverride("mono_font_size", M59Skin.BodySize);
+        _full.AddThemeConstantOverride("line_separation", 6);
         _full.SizeFlagsHorizontal = SizeFlags.Fill | SizeFlags.Expand;
 
-        _fullScroll = new ScrollContainer { Visible = false };
+        // Horizontal scrolling off: the label is sized to the scroll's
+        // width less its bar, so it never needs it, and a bar's width
+        // of overflow had made the page wobble sideways.
+        _fullScroll = new ScrollContainer
+        {
+            Visible = false,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+        };
         _fullScroll.AddChild(_full);
         AddChild(_fullScroll);
 
@@ -245,12 +288,12 @@ public partial class ChatOverlay : Control
         // there is one, wins over the whole buffer - so on a tablet with
         // a trackpad the behaviour collapses back onto the reference's.
         _fullPlain = new Button { Text = "Plain", Visible = false, Name = "chatPlain" };
-        _fullPlain.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(_fullPlain, M59Skin.Kind.Secondary);
         _fullPlain.Pressed += TogglePlain;
         AddChild(_fullPlain);
 
         _fullCopy = new Button { Text = "Copy", Visible = false, Name = "chatCopy" };
-        _fullCopy.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(_fullCopy, M59Skin.Kind.Secondary);
         _fullCopy.Pressed += CopyLog;
         AddChild(_fullCopy);
 
@@ -259,12 +302,13 @@ public partial class ChatOverlay : Control
         // rule - and the reference, which has no OS dialogs anywhere in
         // its chat path either - rules out asking the platform to say it.
         _fullNote = new Label { Text = "", Visible = false };
-        _fullNote.AddThemeFontSizeOverride("font_size", FontSize);
+        _fullNote.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
         _fullNote.AddThemeColorOverride("font_color", new Color(0.56f, 0.88f, 0.56f));
+        _fullNote.VerticalAlignment = VerticalAlignment.Center;
         AddChild(_fullNote);
 
         _fullClose = new Button { Text = "Close", Visible = false };
-        _fullClose.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(_fullClose, M59Skin.Kind.Secondary);
         _fullClose.Pressed += HideHistory;
         AddChild(_fullClose);
 
@@ -327,36 +371,51 @@ public partial class ChatOverlay : Control
         // so an anchored child came out zero by zero: the log opened
         // and absolutely nothing appeared. Everything else in this file
         // is positioned explicitly, which is why only this was invisible.
-        float side = Panels.Side(v, 0.05f);
         _fullBack.Position = Vector2.Zero;
         _fullBack.Size = v;
 
-        float titleH = FontSize + 12f;
-        _fullTitle.Position = new Vector2(side, side * 0.5f);
-        _fullScroll.Position = new Vector2(side, side * 0.5f + titleH);
-        _fullScroll.Size = new Vector2(v.X - side * 2f,
-                                       v.Y - side * 0.5f - titleH - entryH - side * 0.8f);
+        // A card as wide as a line of prose wants to be, not as wide as
+        // a sideways phone: a message wrapped across 1600 points cannot
+        // be followed back to its start. Measure is the text column;
+        // the rest is the page's margins, the scrollbar and the card's
+        // padding.
+        Rect2 card = M59Skin.Frame(v, 0f, true, M59Skin.Measure + 24f + 16f + M59Skin.Pad * 2f);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
+
+        _fullCard.Position = card.Position;
+        _fullCard.Size = card.Size;
+        _fullBar.Position = card.Position;
+        _fullBar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _fullTitle.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _fullTitle.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _fullX.Size = new Vector2(34, 34);
+        _fullX.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                      card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
+
+        // The page fills the body; the scroll sits inside its margins
+        // (the sunken stylebox's own 12 and 8) so text never touches
+        // the edge.
+        _fullPage.Position = body.Position;
+        _fullPage.Size = body.Size;
+        _fullScroll.Position = body.Position + new Vector2(12f, 8f);
+        _fullScroll.Size = body.Size - new Vector2(24f, 16f);
         // The label wraps against a width; without one it has no height
-        // either and the scroll stays empty.
-        _full.CustomMinimumSize = new Vector2(_fullScroll.Size.X, 0);
+        // either and the scroll stays empty. Less the scrollbar, which
+        // the container takes out of the same width.
+        VScrollBar fullBar = _fullScroll.GetVScrollBar();
+        float barW = fullBar != null ? fullBar.GetCombinedMinimumSize().X : 0f;
+        _full.CustomMinimumSize = new Vector2(Mathf.Max(1f, _fullScroll.Size.X - barW - 4f), 0);
 
-        // Three across the bottom where Close alone used to be: the
-        // plain-text switch, the copy, and Close. Close keeps the right
-        // hand end, which is where a thumb has been finding it.
-        float rowW = v.X - side * 2f;
-        float thirdW = Mathf.Min(rowW / 3f - 6f, FontSize * 7f);
-        float rowY = v.Y - entryH - side * 0.5f;
-        _fullPlain.Position = new Vector2(side, rowY);
-        _fullPlain.Size = new Vector2(thirdW, entryH);
-        _fullCopy.Position = new Vector2(side + thirdW + 8f, rowY);
-        _fullCopy.Size = new Vector2(thirdW, entryH);
-        _fullClose.Position = new Vector2(side + rowW - thirdW, rowY);
-        _fullClose.Size = new Vector2(thirdW, entryH);
+        // Plain, Copy, Close left to right with Close at the right-hand
+        // end, which is where a thumb has been finding it. FootRow lays
+        // out from the right, so it is given them in reverse.
+        float left = M59Skin.FootRow(foot, _fullClose, _fullCopy, _fullPlain);
 
-        // The copy notice above the row, right-aligned into the gap
-        // between Copy and Close so it never sits under a button.
-        _fullNote.Position = new Vector2(side, rowY - FontSize - 10f);
-        _fullNote.Size = new Vector2(rowW, FontSize + 6f);
+        // The copy notice takes the empty left end of the footer, so it
+        // never sits under a button and never covers the log.
+        _fullNote.Position = foot.Position;
+        _fullNote.Size = new Vector2(Mathf.Max(0f, left - foot.Position.X), foot.Size.Y);
 
         float logH = (FontSize + 6) * Lines;
         _log.Position = new Vector2(pad, v.Y - entryH - pad * 2 - logH);
@@ -377,6 +436,7 @@ public partial class ChatOverlay : Control
     {
         _fullBack.Visible = true; _fullScroll.Visible = true; _fullClose.Visible = true;
         _fullTitle.Visible = true;
+        _fullCard.Visible = true; _fullBar.Visible = true; _fullPage.Visible = true; _fullX.Visible = true;
         _fullPlain.Visible = true; _fullCopy.Visible = true;
         // Opens styled, as the reference opens styled: `PlainMode`
         // starts false (`ControllerUI.h:320`). Plain mode is something
@@ -398,6 +458,7 @@ public partial class ChatOverlay : Control
     {
         _fullBack.Visible = false; _fullScroll.Visible = false; _fullClose.Visible = false;
         _fullTitle.Visible = false;
+        _fullCard.Visible = false; _fullBar.Visible = false; _fullPage.Visible = false; _fullX.Visible = false;
         _fullPlain.Visible = false; _fullCopy.Visible = false; _fullNote.Visible = false;
     }
 

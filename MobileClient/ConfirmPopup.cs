@@ -50,9 +50,20 @@ public partial class ConfirmPopup : Control
 {
     [Export] public int FontSize = 17;
 
-    ColorRect _shade, _panel;
-    Label _text;
+    ColorRect _shade;
+    /// <summary>The card. Named _panel still because IsOpen is read off it.</summary>
+    Panel _panel;
+    Panel _bar;
+    Label _heading, _text;
     Button _yes, _no, _ok;
+
+    /// <summary>
+    /// The question is the biggest thing on the card. FontSize is the
+    /// caller's number for the ordinary text in this client; a question
+    /// a player is about to answer irreversibly is not ordinary text,
+    /// so it is set from it rather than to it.
+    /// </summary>
+    int QuestionSize => FontSize + 7;
 
     Action<uint> _confirmed;
     Action _cancelled;
@@ -97,11 +108,23 @@ public partial class ConfirmPopup : Control
 
         // The shade is not decoration: it is what stops a tap meant for
         // the popup landing on the panel underneath it.
-        _shade = new ColorRect { Color = new Color(0, 0, 0, 0.55f), Visible = false, MouseFilter = MouseFilterEnum.Stop };
+        _shade = new ColorRect { Color = M59Skin.Scrim, Visible = false, MouseFilter = MouseFilterEnum.Stop };
         AddChild(_shade);
 
-        _panel = new ColorRect { Color = new Color(0.06f, 0.06f, 0.08f, 1f), Visible = false };
+        _panel = M59Skin.Window();
+        _panel.Visible = false;
         AddChild(_panel);
+
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        // No close in the title bar, deliberately: a question has two
+        // answers and both of them are buttons. A third way out would be
+        // a third answer with no handler behind it.
+        _heading = M59Skin.Title("");
+        _heading.Visible = false;
+        AddChild(_heading);
 
         _text = new Label
         {
@@ -110,13 +133,16 @@ public partial class ConfirmPopup : Control
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        _text.AddThemeFontSizeOverride("font_size", FontSize);
-        _text.AddThemeColorOverride("font_color", new Color(0.92f, 0.93f, 0.96f));
+        _text.AddThemeFontSizeOverride("font_size", QuestionSize);
+        _text.AddThemeColorOverride("font_color", M59Skin.Text);
         AddChild(_text);
 
-        _yes = Push("Yes", () => Answer(true));
-        _no = Push("No", () => Answer(false));
-        _ok = Push("OK", () => Answer(true));
+        // The two answers are not the same button. Yes is the one that
+        // acts - gold, or red when what it does cannot be taken back -
+        // and No is the plain one that backs out.
+        _yes = Push("Yes", () => Answer(true), M59Skin.Kind.Primary);
+        _no = Push("No", () => Answer(false), M59Skin.Kind.Secondary);
+        _ok = Push("OK", () => Answer(true), M59Skin.Kind.Primary);
 
         GetViewport().SizeChanged += Layout;
         // AlwaysOnTop, for real. Anything that adds, removes or moves a
@@ -157,13 +183,29 @@ public partial class ConfirmPopup : Control
         Panels.KeepPopupOnTop(GetParent());
     }
 
-    Button Push(string text, Action pressed)
+    Button Push(string text, Action pressed, M59Skin.Kind kind)
     {
         var b = new Button { Text = text, Visible = false };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(b, kind);
         b.Pressed += pressed;
         AddChild(b);
         return b;
+    }
+
+    /// <summary>
+    /// A question is a SMALL card, not a screen of black: the width is
+    /// chosen first, the question measured against it, and the card
+    /// comes out exactly as tall as what it has to say.
+    /// <see cref="M59Skin.Frame"/> does the height that way; the width
+    /// is capped here because Frame has no argument for it and its own
+    /// cap is the one a LIST wants - most of a sideways screen, which
+    /// for four words of question is the fault being fixed.
+    /// </summary>
+    static Rect2 Small(Vector2 v, float wantH, float wantW)
+    {
+        Rect2 r = M59Skin.Frame(v, wantH);
+        float w = Mathf.Min(r.Size.X, wantW);
+        return new Rect2(Mathf.Round((v.X - w) * 0.5f), r.Position.Y, Mathf.Round(w), r.Size.Y);
     }
 
     void Layout()
@@ -191,46 +233,40 @@ public partial class ConfirmPopup : Control
         _shade.Position = Vector2.Zero;
         _shade.Size = v;
 
-        float w = Mathf.Min(v.X * 0.86f, 620f);
-        // Tall enough for what is in it. A confirmation is one line and
-        // 300 was plenty; the quest window's help is fifteen, and a box
-        // that does not grow simply spills its text across the screen
-        // behind it. The reference has a second, larger popup for
-        // exactly this case - ShowOKLarge (`UINPCQuestList.cpp:357`) -
-        // and measuring is the same thing without a second box.
-        float wrap = w - 40f;
+        // Width first, then the question measured against it, then the
+        // card sized to the answer. A confirmation is one line and the
+        // quest window's help is fifteen; the reference has a second,
+        // larger popup for exactly that case - ShowOKLarge
+        // (`UINPCQuestList.cpp:357`) - and measuring is the same thing
+        // without a second box.
+        float w = Mathf.Clamp(v.X * 0.40f, 380f, 720f);
+        float wrap = w - M59Skin.Pad * 2f;
         float textH = _text != null
             ? _text.GetThemeFont("font").GetMultilineStringSize(
                   _text.Text ?? "", HorizontalAlignment.Left, wrap,
                   _text.GetThemeFontSize("font_size")).Y
             : 0f;
-        float h = Mathf.Clamp(textH * 1.15f + FontSize * 2.6f + 76f, v.Y * 0.34f, v.Y * 0.86f);
-        h = Mathf.Min(h, v.Y - 24f);
-        float x = (v.X - w) * 0.5f, y = (v.Y - h) * 0.5f;
-        float rowH = FontSize * 2.6f;
 
-        _panel.Position = new Vector2(x, y);
-        _panel.Size = new Vector2(w, h);
+        Rect2 card = Small(v, textH + M59Skin.Gap * 2f, w);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        _text.Position = new Vector2(x + 20f, y + 16f);
-        _text.Size = new Vector2(w - 40f, h - rowH - 44f);
+        _panel.Position = card.Position;
+        _panel.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _heading.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _heading.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f, M59Skin.TitleH);
 
-        float by = y + h - rowH - 16f;
-        if (_ok.Visible)
-        {
-            _ok.Position = new Vector2(x + 20f, by);
-            _ok.Size = new Vector2(w - 40f, rowH);
-        }
-        else
-        {
-            float each = (w - 48f) * 0.5f;
-            // No first, on the left: it is the default, and the
-            // destructive one should not be where a thumb rests.
-            _no.Position = new Vector2(x + 20f, by);
-            _no.Size = new Vector2(each, rowH);
-            _yes.Position = new Vector2(x + 28f + each, by);
-            _yes.Size = new Vector2(each, rowH);
-        }
+        _text.Position = body.Position;
+        _text.Size = body.Size;
+
+        // Right to left, the house order (M59Skin.FootRow): the button
+        // that dismisses sits under the thumb at the right edge, which
+        // here is also the safe default - and Yes, which is the one that
+        // cannot be taken back, is NOT where a thumb rests.
+        if (_ok.Visible) M59Skin.FootRow(foot, _ok);
+        else M59Skin.FootRow(foot, _no, _yes);
     }
 
     /// <summary>
@@ -260,8 +296,15 @@ public partial class ConfirmPopup : Control
     /// and costs nothing. Nothing that a server pushes is a question - see
     /// <see cref="Tell"/> for the ones that are.
     /// </summary>
+    /// <param name="destructive">
+    /// Whether Yes destroys something. Cosmetic only - it decides
+    /// whether Yes is the gold button or the red one - but the two
+    /// should not look alike, and nothing but the caller knows which
+    /// this is: exiling a member and renting a room arrive here
+    /// identically.
+    /// </param>
     public bool Choice(string text, uint id, Action<uint> confirmed, Action cancelled = null,
-                       bool closeOnInvalidate = true)
+                       bool closeOnInvalidate = true, bool destructive = false)
     {
         if (IsOpen)
         {
@@ -278,6 +321,9 @@ public partial class ConfirmPopup : Control
         // question about the world - a guild member, a hall, a stat
         // change - and those are the ones the reference marks true.
         _closeOnInvalidate = closeOnInvalidate;
+
+        _heading.Text = "Are you sure?";
+        M59Skin.Dress(_yes, destructive ? M59Skin.Kind.Danger : M59Skin.Kind.Primary);
 
         _yes.Visible = true; _no.Visible = true; _ok.Visible = false;
         Show(true);
@@ -322,6 +368,9 @@ public partial class ConfirmPopup : Control
         _cancelled = null;
         _closeOnInvalidate = closeOnInvalidate;
 
+        // A statement, not a question: it is told what it is in the
+        // title bar so the single button does not read as a choice.
+        _heading.Text = "Notice";
         _yes.Visible = false; _no.Visible = false; _ok.Visible = true;
         Show(true);
     }
@@ -341,6 +390,7 @@ public partial class ConfirmPopup : Control
         // children, and ToFront's own re-raise of an open popup is a
         // no-op for it because it is already last.
         _shade.Visible = on; _panel.Visible = on; _text.Visible = on;
+        _bar.Visible = on; _heading.Visible = on;
         if (!on) { _yes.Visible = false; _no.Visible = false; _ok.Visible = false; }
         if (on) Panels.ToFront(this);
         Layout();

@@ -26,32 +26,55 @@ public partial class UnpackScreen : Control
     public event Action Retry;
 
     ColorRect _bg;
+    Panel _card, _bar;
     Label _title;
     Label _body;
     Button _again;
+    /// <summary>The bar: a track with a fill in it, and the count beside.</summary>
+    ColorRect _track, _fill;
+    Label _count;
+    /// <summary>Where the copy is, 0..1; negative means "no number yet".</summary>
+    float _done = -1f;
 
     public override void _Ready()
     {
         SetAnchorsPreset(LayoutPreset.FullRect);
 
-        _bg = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f) };
+        _bg = new ColorRect { Color = M59Skin.Scrim };
         AddChild(_bg);
 
-        _title = new Label();
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 8);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.88f, 0.6f));
+        // A card, like every other panel. This screen is up for minutes
+        // on first run, and a sentence on a black field is what a crash
+        // looks like.
+        _card = M59Skin.Window();
+        AddChild(_card);
+        _bar = M59Skin.TitleBar();
+        AddChild(_bar);
+
+        _title = M59Skin.Title("");
         AddChild(_title);
+
+        // The progress is the point of the working half: a player who
+        // can see the bar move knows the phone is not hung, which is
+        // the whole complaint this screen was built for.
+        _track = new ColorRect { Color = new Color(0.047f, 0.043f, 0.039f) };
+        AddChild(_track);
+        _fill = new ColorRect { Color = M59Skin.Gold };
+        AddChild(_fill);
+        _count = M59Skin.Body("", true);
+        _count.HorizontalAlignment = HorizontalAlignment.Right;
+        AddChild(_count);
 
         // Wrapped, because every message this screen carries names a
         // path or a number of megabytes and a clipped path is no use to
         // anybody trying to report it.
         _body = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        _body.AddThemeFontSizeOverride("font_size", FontSize);
-        _body.AddThemeColorOverride("font_color", new Color(0.92f, 0.92f, 0.95f));
+        _body.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        _body.AddThemeColorOverride("font_color", M59Skin.Text);
         AddChild(_body);
 
         _again = new Button { Text = "Try again", Visible = false };
-        _again.AddThemeFontSizeOverride("font_size", FontSize + 2);
+        M59Skin.Dress(_again, M59Skin.Kind.Primary);
         _again.Pressed += () => Retry?.Invoke();
         AddChild(_again);
 
@@ -62,6 +85,7 @@ public partial class UnpackScreen : Control
     void Layout()
     {
         if (_body == null) return;
+        if (!IsInsideTree()) return;
         Vector2 v = GetViewportRect().Size;
 
         // Sized, not anchored: an anchored child of a Control with no
@@ -70,18 +94,52 @@ public partial class UnpackScreen : Control
         _bg.Position = Vector2.Zero;
         _bg.Size = v;
 
-        float pad = Panels.Side(v, 0.06f);
-        float w = v.X - pad * 2f;
+        bool bar = _track.Visible;
+        float barH = bar ? 14f + M59Skin.Gap + M59Skin.BodySize * 1.5f : 0f;
 
-        _title.Position = new Vector2(pad, pad);
-        _title.Size = new Vector2(w, (FontSize + 8) * 1.6f);
+        // Measured, so the card is the size of what it has to say: the
+        // working half is two lines and a refusal naming a path and two
+        // sizes is five.
+        Rect2 probe = M59Skin.Frame(v);
+        float w = Mathf.Min(probe.Size.X, Mathf.Clamp(v.X * 0.52f, 440f, 860f));
+        float wrap = w - M59Skin.Pad * 2f;
+        float textH = _body.GetThemeFont("font").GetMultilineStringSize(
+            _body.Text ?? "", HorizontalAlignment.Left, wrap,
+            _body.GetThemeFontSize("font_size")).Y;
 
-        _body.Position = new Vector2(pad, pad + (FontSize + 8) * 2.4f);
-        _body.Size = new Vector2(w, v.Y * 0.6f);
+        Rect2 full = M59Skin.Frame(v, textH + barH + M59Skin.Gap * 2f, _again.Visible);
+        Rect2 card = new Rect2(Mathf.Round((v.X - w) * 0.5f), full.Position.Y,
+                               Mathf.Round(w), full.Size.Y);
+        Rect2 body = M59Skin.Body(card, _again.Visible);
 
-        float h = FontSize * 2.6f;
-        _again.Position = new Vector2(pad, v.Y - pad - h);
-        _again.Size = new Vector2(Math.Min(w, 260f), h);
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f, M59Skin.TitleH);
+
+        _body.Position = body.Position;
+        _body.Size = new Vector2(body.Size.X, Mathf.Max(M59Skin.BodySize * 1.4f, body.Size.Y - barH));
+
+        // The bar goes at the FOOT of the body, under the words, with
+        // the count at its right end: one glance says both how far it
+        // has got and that it is still going.
+        if (bar)
+        {
+            float y = body.Position.Y + body.Size.Y - 14f;
+            _track.Position = new Vector2(body.Position.X, y);
+            _track.Size = new Vector2(body.Size.X, 14f);
+            _fill.Position = _track.Position;
+            // A copy that has not reported a count yet shows a sliver
+            // rather than an empty trough, which reads as stalled.
+            float at = _done < 0f ? 0.02f : Mathf.Clamp(_done, 0.02f, 1f);
+            _fill.Size = new Vector2(Mathf.Round(body.Size.X * at), 14f);
+            _count.Position = new Vector2(body.Position.X, y - M59Skin.BodySize * 1.5f);
+            _count.Size = new Vector2(body.Size.X, M59Skin.BodySize * 1.5f);
+        }
+
+        if (_again.Visible) M59Skin.FootRow(M59Skin.Foot(card), _again);
     }
 
     /// <summary>
@@ -96,9 +154,17 @@ public partial class UnpackScreen : Control
         Visible = true;
         if (_title != null) _title.Text = "Installing game data";
         if (_body != null)
-            _body.Text = line + "\n\nThis happens once, and it takes a few minutes.\n" +
+            _body.Text = "This happens once, and it takes a few minutes.\n" +
                          "Leave the game in front while it runs.";
         if (_again != null) _again.Visible = false;
+        // The line carries the numbers ("...: 418 of 1065",
+        // M59Paths.UnpackIfNeeded), so the bar is read out of the words
+        // rather than plumbed separately - nothing else knows them, and
+        // a line with no pair in it just leaves the bar where it was.
+        if (_count != null) _count.Text = line;
+        if (_track != null) { _track.Visible = true; _fill.Visible = true; _count.Visible = true; }
+        Fraction(line);
+        Layout();
     }
 
     /// <summary>
@@ -114,7 +180,29 @@ public partial class UnpackScreen : Control
         if (_title != null) _title.Text = "Game data not installed";
         if (_body != null) _body.Text = detail;
         if (_again != null) _again.Visible = true;
+        // No bar on a refusal: nothing is moving, and a frozen bar is
+        // the thing that makes a stopped copy look like a running one.
+        if (_track != null) { _track.Visible = false; _fill.Visible = false; _count.Visible = false; }
         Layout();
+    }
+
+    /// <summary>
+    /// Reads "<c>N of M</c>" out of the progress line and keeps it as a
+    /// fraction for the bar. Display only: a line without a pair leaves
+    /// the bar where it was rather than resetting it.
+    /// </summary>
+    void Fraction(string line)
+    {
+        if (string.IsNullOrEmpty(line)) return;
+        System.Text.RegularExpressions.Match m =
+            System.Text.RegularExpressions.Regex.Match(line, @"(\d+)\s+of\s+(\d+)");
+        if (!m.Success) return;
+        if (!long.TryParse(m.Groups[1].Value, out long at)) return;
+        if (!long.TryParse(m.Groups[2].Value, out long all) || all <= 0) return;
+        _done = Mathf.Clamp((float)(at / (double)all), 0f, 1f);
+        // Just the numbers beside the bar: the sentence they came in is
+        // already the title of the card.
+        if (_count != null) _count.Text = $"{at} of {all}";
     }
 
     /// <summary>Done; get out of the way.</summary>

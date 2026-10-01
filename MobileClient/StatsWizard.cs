@@ -55,7 +55,9 @@ public partial class StatsWizard : Control
     public event Action<string> Complain;
 
     ColorRect _panel;
-    Label _title, _points;
+    Panel _card, _bar;
+    Label _title, _points, _pointsCap;
+    ProgressBar _budget;
     ScrollContainer _scroll;
     VBoxContainer _rows;
     Button _ok, _close;
@@ -71,71 +73,131 @@ public partial class StatsWizard : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f), Visible = false };
+        // The scrim, not an opaque sheet: unlike the login and creation
+        // screens this one opens over the world, and the room behind it
+        // is where the character being changed is standing.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = Heading("Stat change", FontSize + 4, new Color(1, 0.92f, 0.6f));
-        _points = Heading("", FontSize + 1, new Color(1, 0.86f, 0.4f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Stat change");
+        _title.Visible = false;
+        AddChild(_title);
+
+        // The budget in the card's header, out of the scrolling list:
+        // every stepper below spends it, and a number you have to
+        // scroll back to is a number you spend blind.
+        _pointsCap = M59Skin.Caption("Attribute points");
+        _pointsCap.Visible = false;
+        AddChild(_pointsCap);
+        _points = new Label { Visible = false };
+        _points.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        _points.AddThemeColorOverride("font_color", M59Skin.GoldBright);
+        AddChild(_points);
+        // The pool as a bar as well as a number. The game spends these
+        // points on progress bars you drag (`UIStatChangeWizard.cpp`),
+        // and "25 / 220 left" alone never said which way it was going.
+        _budget = M59Skin.Bar();
+        _budget.Visible = false;
+        _budget.MinValue = 0;
+        _budget.MaxValue = StatChangeInfo.ATTRIBUTE_MAXSUM;
+        AddChild(_budget);
 
         _rows = new VBoxContainer();
-        _rows.AddThemeConstantOverride("separation", 2);
+        _rows.AddThemeConstantOverride("separation", 4);
+        // See notes/godot-ui.md: without this the rows are only as wide
+        // as their longest line and every value column lands wherever
+        // that row's text ended.
+        _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
-        _ok = Push("OK", Ok);
-        _close = Push("Close", Close);
+        _ok = Push("OK", Ok, M59Skin.Kind.Primary);
+        _close = Push("Close", Close, M59Skin.Kind.Secondary);
 
         GetViewport().SizeChanged += Layout;
         Layout();
     }
 
-    Label Heading(string text, int size, Color color)
-    {
-        var l = new Label { Text = text, Visible = false };
-        l.AddThemeFontSizeOverride("font_size", size);
-        l.AddThemeColorOverride("font_color", color);
-        AddChild(l);
-        return l;
-    }
-
-    Button Push(string text, Action pressed)
+    Button Push(string text, Action pressed, M59Skin.Kind kind)
     {
         var b = new Button { Text = text, Visible = false };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(b, kind);
         b.Pressed += pressed;
         AddChild(b);
         return b;
     }
+
+
+    /// <summary>
+    /// How wide the card should ask to be.
+    ///
+    /// Frame caps the width, and for a prompt-shaped card the cap is a
+    /// fixed number of points - which is right on a sideways phone and
+    /// wrong on an upright one, where the viewport is as wide as the
+    /// landscape one (the project stretches canvas items and expands
+    /// the aspect, so a portrait window grows the HEIGHT and keeps
+    /// X at 1920) and a 560-point card is a third of the glass with
+    /// nothing either side of it. Held tall, the card takes the screen.
+    ///
+    /// M59Skin could grow this; Frame's wantW is the place for it.
+    /// </summary>
+    static float CardW(Vector2 v, float wide)
+        => v.Y > v.X ? Mathf.Max(wide, v.X * 0.9f) : wide;
+
+    /// <summary>The header strip: a caption, the number, and the bar under it.</summary>
+    const float HeaderH = 78f;
+    /// <summary>What Godot's vertical scrollbar takes out of the width.</summary>
+    const float BarW = 16f;
 
     void Layout()
     {
         if (_panel == null) return;
         Vector2 v = GetViewportRect().Size;
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.82f, 820f);
-        float top = v.Y - height - side * 0.5f;
-        float w = v.X - side * 2f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        // Bounded on both axes and centred. The old panel was pinned to
+        // the bottom of the screen and ran nearly its full width, so a
+        // row's name and its number were a thousand points apart.
+        Rect2 card = M59Skin.Frame(v, 0f, true, CardW(v, M59Skin.Measure + M59Skin.Pad * 4f));
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        float y = top;
-        _title.Position = new Vector2(side, y); y += FontSize * 1.8f;
-        _points.Position = new Vector2(side, y); y += FontSize * 2f;
+        _card.Position = card.Position;
+        _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f, M59Skin.TitleH);
 
-        _scroll.Position = new Vector2(side, y);
-        _scroll.Size = new Vector2(w, top + height - rowH - 8f - y);
-        _rows.CustomMinimumSize = new Vector2(w, 0);
+        _pointsCap.Position = new Vector2(body.Position.X, body.Position.Y);
+        _pointsCap.Size = new Vector2(body.Size.X, 20f);
+        _points.Position = new Vector2(body.Position.X, body.Position.Y + 22f);
+        _points.Size = new Vector2(body.Size.X, 28f);
+        _budget.Position = new Vector2(body.Position.X, body.Position.Y + 56f);
+        _budget.Size = new Vector2(body.Size.X, 10f);
 
-        float by = top + height - rowH;
-        float each = (w - 8f) * 0.5f;
-        _ok.Position = new Vector2(side, by);
-        _ok.Size = new Vector2(each, rowH);
-        _close.Position = new Vector2(side + each + 8f, by);
-        _close.Size = new Vector2(each, rowH);
+        float top = body.Position.Y + HeaderH;
+        _scroll.Position = new Vector2(body.Position.X, top);
+        _scroll.Size = new Vector2(body.Size.X,
+                                   Mathf.Max(M59Skin.RowH, body.Position.Y + body.Size.Y - top));
+        // Less the scrollbar, or the right-hand end of every + button
+        // sits behind it.
+        _rows.CustomMinimumSize = new Vector2(body.Size.X - BarW, 0);
+
+        // OK last in the line, where the skin puts the one thing a
+        // panel is for.
+        M59Skin.FootRow(foot, _ok, _close);
     }
 
     public void Close()
@@ -149,6 +211,8 @@ public partial class StatsWizard : Control
         // Above whatever else is open - see Panels.ToFront.
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _points.Visible = on;
+        _pointsCap.Visible = on; _budget.Visible = on;
+        _card.Visible = on; _bar.Visible = on;
         _scroll.Visible = on; _ok.Visible = on; _close.Visible = on;
         if (on) GetParent()?.MoveChild(this, -1);
         Layout();
@@ -172,6 +236,7 @@ public partial class StatsWizard : Control
         {
             foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
             _values.Clear();
+            _alt = false;
 
             _rows.AddChild(Section("Attributes"));
             _rows.AddChild(Attribute("Might", () => info.Might, v => info.Might = v));
@@ -200,8 +265,14 @@ public partial class StatsWizard : Control
         // Points available is derived, not stored: 220 less the six
         // attributes. It moves on every change, which is why it is
         // redrawn here rather than set once.
-        _points.Text = $"{info.AttributesAvailable} / {StatChangeInfo.ATTRIBUTE_MAXSUM} left"
-                     + $"    intellect needed: {info.IntellectNeeded}";
+        // Said in words, with the two numbers kept apart. "25 / 220
+        // left   intellect needed: 1" read as one number over another
+        // and left you guessing which of the two was the budget.
+        _points.Text = $"{info.AttributesAvailable} left to spend of "
+                     + $"{StatChangeInfo.ATTRIBUTE_MAXSUM}   -   intellect needed: {info.IntellectNeeded}";
+        // The bar fills with what is SPENT, so an empty bar is an
+        // unspent pool and a full one is a character with nothing left.
+        _budget.Value = StatChangeInfo.ATTRIBUTE_MAXSUM - info.AttributesAvailable;
         Redraw();
     }
 
@@ -236,17 +307,23 @@ public partial class StatsWizard : Control
             l.Text = orig > 0 ? $"{value} / {orig}" : "0";
     }
 
+    /// <summary>
+    /// A section of the form: the skin's gold heading with a rule under
+    /// it, as one block so the rule cannot drift from the name it
+    /// underlines.
+    /// </summary>
     Control Section(string text)
     {
-        var l = new Label
-        {
-            Text = text,
-            CustomMinimumSize = new Vector2(0, RowHeight * 0.9f),
-            VerticalAlignment = VerticalAlignment.Bottom,
-        };
-        l.AddThemeFontSizeOverride("font_size", FontSize + 2);
-        l.AddThemeColorOverride("font_color", new Color(1, 0.86f, 0.45f));
-        return l;
+        var block = new VBoxContainer();
+        block.AddThemeConstantOverride("separation", 4);
+        block.AddChild(new Control { CustomMinimumSize = new Vector2(0, M59Skin.Gap) });
+        Label l = M59Skin.Heading(text);
+        l.AddThemeFontSizeOverride("font_size", M59Skin.BodySize + 2);
+        block.AddChild(l);
+        ColorRect rule = M59Skin.Hairline();
+        rule.CustomMinimumSize = new Vector2(0, 1);
+        block.AddChild(rule);
+        return block;
     }
 
     Control Attribute(string name, Func<byte> get, Action<byte> set)
@@ -258,10 +335,30 @@ public partial class StatsWizard : Control
                () => { if (get() > 0) set((byte)(get() - 1)); },
                () => set((byte)(get() + 1)));
 
+    /// <summary>Which stripe the next row takes, so a long list keeps its place.</summary>
+    bool _alt;
+    /// <summary>A stepper wide enough for a thumb.</summary>
+    const float StepW = 56f;
+
     Control Row(string name, Func<string> read, Action down, Action up)
     {
-        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, RowHeight) };
-        line.AddThemeConstantOverride("separation", 8);
+        // On a striped panel with its contents inset: the rows were
+        // bare HBoxes on the background, so thirteen of them read as
+        // loose text with buttons at the end.
+        var holder = new PanelContainer();
+        holder.AddThemeStyleboxOverride("panel", M59Skin.Stripe(_alt));
+        _alt = !_alt;
+
+        var pad = new MarginContainer();
+        pad.AddThemeConstantOverride("margin_left", (int)M59Skin.Pad);
+        pad.AddThemeConstantOverride("margin_right", 6);
+        pad.AddThemeConstantOverride("margin_top", 4);
+        pad.AddThemeConstantOverride("margin_bottom", 4);
+        holder.AddChild(pad);
+
+        var line = new HBoxContainer { CustomMinimumSize = new Vector2(0, M59Skin.RowH - 8f) };
+        line.AddThemeConstantOverride("separation", (int)M59Skin.Gap);
+        pad.AddChild(line);
 
         var label = new Label
         {
@@ -269,8 +366,8 @@ public partial class StatsWizard : Control
             VerticalAlignment = VerticalAlignment.Center,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
         };
-        label.AddThemeFontSizeOverride("font_size", FontSize);
-        label.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
+        label.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        label.AddThemeColorOverride("font_color", M59Skin.Text);
         line.AddChild(label);
 
         var value = new Label
@@ -278,10 +375,11 @@ public partial class StatsWizard : Control
             Text = read(),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
-            CustomMinimumSize = new Vector2(90, 0),
+            // A fixed column, so the numbers line down the list.
+            CustomMinimumSize = new Vector2(96, 0),
         };
-        value.AddThemeFontSizeOverride("font_size", FontSize);
-        value.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
+        value.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        value.AddThemeColorOverride("font_color", M59Skin.GoldBright);
         line.AddChild(value);
         _values[name] = value;
 
@@ -289,18 +387,18 @@ public partial class StatsWizard : Control
         // refusal looks like nothing happening, which is what dragging
         // a progress bar past its limit did in the game.
         var less = new Button { Text = "-", Name = $"less{Slug(name)}" };
-        less.AddThemeFontSizeOverride("font_size", FontSize + 2);
-        less.CustomMinimumSize = new Vector2(52, 0);
+        M59Skin.Dress(less, M59Skin.Kind.Step);
+        less.CustomMinimumSize = new Vector2(StepW, 0);
         less.Pressed += () => { down(); _signature = ""; };
         line.AddChild(less);
 
         var more = new Button { Text = "+", Name = $"more{Slug(name)}" };
-        more.AddThemeFontSizeOverride("font_size", FontSize + 2);
-        more.CustomMinimumSize = new Vector2(52, 0);
+        M59Skin.Dress(more, M59Skin.Kind.Step);
+        more.CustomMinimumSize = new Vector2(StepW, 0);
         more.Pressed += () => { up(); _signature = ""; };
         line.AddChild(more);
 
-        return line;
+        return holder;
     }
 
     static string Slug(string s) => s.Replace("'", "").Replace(" ", "");

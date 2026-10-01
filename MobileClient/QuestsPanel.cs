@@ -45,6 +45,13 @@ public partial class QuestsPanel : Control
     VBoxContainer _rows;
     Button _close;
 
+    // The shared chrome: a card over a scrim, a title bar with a round
+    // close, and a footer. See M59Skin.
+    Panel _card, _bar;
+    Button _x;
+    /// <summary>What an empty log says.</summary>
+    Label _empty;
+
     string _signature = "";
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
 
@@ -64,23 +71,33 @@ public partial class QuestsPanel : Control
         AddChild(_open);
         Panels.Opener(_open);
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.95f), Visible = false };
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = new Label { Text = "Quests", Visible = false };
-        _title.AddThemeFontSizeOverride("font_size", FontSize + 4);
-        _title.AddThemeColorOverride("font_color", new Color(1, 0.92f, 0.6f));
-        AddChild(_title);
+        _card = M59Skin.Window(); _card.Visible = false; AddChild(_card);
+        _bar = M59Skin.TitleBar(); _bar.Visible = false; AddChild(_bar);
+
+        _title = M59Skin.Title("Quests"); _title.Visible = false; AddChild(_title);
+        _x = M59Skin.CloseX(Close); _x.Visible = false; AddChild(_x);
+
+        _empty = M59Skin.Empty("No quests yet. Ask around - anyone with something to be done will say so.");
+        _empty.Visible = false;
+        AddChild(_empty);
 
         _rows = new VBoxContainer();
         _rows.AddThemeConstantOverride("separation", 4);
+        // Without the expand flag the list is only as wide as its
+        // longest row and every icon after it lands wherever that row's
+        // text ended - see notes/godot-ui.md.
+        _rows.SizeFlagsHorizontal = SizeFlags.Fill | SizeFlags.Expand;
 
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
         _close = new Button { Text = "Close", Visible = false };
-        _close.AddThemeFontSizeOverride("font_size", FontSize);
+        M59Skin.Dress(_close, M59Skin.Kind.Secondary);
         _close.Pressed += Close;
         AddChild(_close);
 
@@ -96,7 +113,9 @@ public partial class QuestsPanel : Control
         // Above whatever else is open - see Panels.ToFront.
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         _close.Visible = on; _open.Visible = !on;
+        _empty.Visible = on && _rows != null && _rows.GetChildCount() == 0;
         Layout();
     }
 
@@ -108,23 +127,43 @@ public partial class QuestsPanel : Control
         _open.Size = new Vector2(88, 40);
         _open.Position = new Vector2(v.X - ButtonRight - 88, v.Y - ButtonBottom - 40);
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.66f, 620f);
-        float top = v.Y - height - side;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
+        // The card is as tall as the log, not as tall as it is allowed
+        // to be: five quests used to be shown in a box with four
+        // hundred pixels of nothing under them.
+        float want = 0f;
+        if (_rows != null)
+            foreach (Node n in _rows.GetChildren())
+                if (n is Control c) want += c.CustomMinimumSize.Y + 4f;
+        if (_rows == null || _rows.GetChildCount() == 0) want = M59Skin.RowH * 3f;
 
-        _title.Position = new Vector2(side, top);
-        _scroll.Position = new Vector2(side, top + FontSize * 2.2f);
-        _scroll.Size = new Vector2(v.X - side * 2f, height - FontSize * 2.2f - rowH - 16f);
-        _rows.CustomMinimumSize = new Vector2(_scroll.Size.X, 0);
+        Rect2 card = M59Skin.Frame(v, want);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
 
-        // Twelve pixels of air under the last row, so the panel's
-        // own edge and the button's are not the same line.
-        _close.Position = new Vector2(side, top + height - rowH - 12f);
-        _close.Size = new Vector2(v.X - side * 2f, rowH);
+        _card.Position = card.Position; _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
+
+        // A quest name is a line of text, not a table: held to a
+        // column rather than stretched across a sideways phone, where
+        // the icon is at one edge and nothing is near the other.
+        float listW = Mathf.Min(body.Size.X, 820f);
+        _scroll.Position = new Vector2(body.Position.X + Mathf.Round((body.Size.X - listW) * 0.5f),
+                                       body.Position.Y);
+        _scroll.Size = new Vector2(listW, body.Size.Y);
+        _rows.CustomMinimumSize = new Vector2(listW - 14f, 0);
+        _empty.Position = body.Position;
+        _empty.Size = body.Size;
+
+        M59Skin.FootRow(foot, _close);
     }
 
     public void Sync(SkillList quests)
@@ -149,6 +188,9 @@ public partial class QuestsPanel : Control
             if (_rows != null)
                 foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
             _signature = "";
+            // An empty log says so, rather than showing an empty box.
+            _empty.Visible = IsOpen;
+            Layout();
             return;
         }
 
@@ -171,21 +213,46 @@ public partial class QuestsPanel : Control
         }
 
         _title.Text = $"Quests ({real})";
+        _empty.Visible = false;
+        // The card is sized to the rows it holds, so it has to be laid
+        // out again once they exist.
+        Layout();
     }
 
-    /// <summary>A row with no skill points is a heading, not a quest.</summary>
+    /// <summary>
+    /// A row with no skill points is a heading, not a quest.
+    ///
+    /// It used to be a bare label the same width as the rows, which on
+    /// a list of flat slabs read as a row that had been disabled. A
+    /// heading now looks like one: gold, spaced away from what is above
+    /// it, and underlined by a hairline that runs the width of the
+    /// list. Still not a button, and still not clickable.
+    /// </summary>
     Control Heading(StatList q)
     {
+        var box = new VBoxContainer
+        {
+            CustomMinimumSize = new Vector2(0, RowHeight * 1.1f),
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        box.AddThemeConstantOverride("separation", 4);
+
         var l = new Label
         {
             Text = string.IsNullOrWhiteSpace(q.ResourceName) ? "-" : q.ResourceName,
-            CustomMinimumSize = new Vector2(0, RowHeight * 0.8f),
             VerticalAlignment = VerticalAlignment.Bottom,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        l.AddThemeFontSizeOverride("font_size", FontSize + 2);
-        l.AddThemeColorOverride("font_color", new Color(1, 0.86f, 0.45f));
-        return l;
+        l.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        l.AddThemeColorOverride("font_color", M59Skin.GoldBright);
+        box.AddChild(l);
+
+        var rule = M59Skin.Hairline();
+        rule.CustomMinimumSize = new Vector2(0, 1);
+        rule.MouseFilter = MouseFilterEnum.Ignore;
+        box.AddChild(rule);
+        return box;
     }
 
     Control Row(StatList q, int index)
@@ -194,16 +261,19 @@ public partial class QuestsPanel : Control
         var b = new Button
         {
             Alignment = HorizontalAlignment.Left,
-            CustomMinimumSize = new Vector2(0, RowHeight),
-            Flat = true,
+            CustomMinimumSize = new Vector2(0, M59Skin.RowH),
             // Named by position among the quests (headings not counted), as
             // NpcQuestsPanel names its rows: with an icon the text lives in
             // a child Label and Button.Text is empty, so neither the
             // harness's text match nor anything else can find a row.
             Name = $"row{index}",
         };
-        b.AddThemeFontSizeOverride("font_size", FontSize);
-        b.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
+        // Striped by position among the quests, so a long log keeps its
+        // place; the headings break the stripe, which is what a heading
+        // is for.
+        M59Skin.Dress(b, index % 2 == 0 ? M59Skin.Kind.Row : M59Skin.Kind.RowAlt);
+        b.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        b.AddThemeColorOverride("font_color", M59Skin.Text);
         b.Pressed += () => Look?.Invoke(id);
 
         string name = string.IsNullOrWhiteSpace(q.ResourceName) ? "(unnamed)" : q.ResourceName;
@@ -244,8 +314,8 @@ public partial class QuestsPanel : Control
             VerticalAlignment = VerticalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore,
         };
-        label.AddThemeFontSizeOverride("font_size", FontSize);
-        label.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
+        label.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        label.AddThemeColorOverride("font_color", M59Skin.Text);
         line.AddChild(label);
 
         return b;

@@ -106,11 +106,33 @@ public partial class GuildPanel : Control
 
     Button _open;
     ColorRect _panel;
+    Panel _card, _bar;
+    Button _x;
     Label _title, _hall;
     ScrollContainer _scroll;
     VBoxContainer _rows;
     LineEdit _chest;
-    Button _setPassword, _abandon, _renounce, _close, _tab, _shield;
+    Button _setPassword, _abandon, _renounce, _close, _shield;
+
+    /// <summary>
+    /// The two lists, as a pair of tabs rather than the one button that
+    /// renamed itself. The reference's window IS tabs (`UIGuild.cpp:15`),
+    /// and a single control reading "Diplomacy" could say where you were
+    /// going but never where you were.
+    /// </summary>
+    Button _tabMembers, _tabDiplomacy;
+
+    /// <summary>
+    /// The column captions over the list. Outside the scroll, because a
+    /// heading that scrolls away stops being a heading - the same
+    /// reasoning GuildHallBuyPanel's headings carry.
+    /// </summary>
+    HBoxContainer _head;
+    Label _hName, _hA, _hB, _hC;
+
+    /// <summary>The guildmaster's block at the foot of the body, under a rule.</summary>
+    ColorRect _rule;
+    Label _masterHead, _chestCap;
 
     DiplomacyInfo _diplo;
 
@@ -157,25 +179,91 @@ public partial class GuildPanel : Control
         AddChild(_open);
         Panels.Opener(_open);
 
-        _panel = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.97f), Visible = false };
+        // The scrim eats the touch that would reach the world behind;
+        // the card over it is opaque, which the old 0.97 panel was not -
+        // the chat log read straight through the roster.
+        _panel = new ColorRect { Color = M59Skin.Scrim, Visible = false };
+        _panel.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_panel);
 
-        _title = Heading("Guild", FontSize + 4, new Color(1, 0.92f, 0.6f));
-        _hall = Heading("", FontSize, new Color(0.75f, 0.78f, 0.84f));
+        _card = M59Skin.Window();
+        _card.Visible = false;
+        AddChild(_card);
 
-        _none = new Label { Visible = false, AutowrapMode = TextServer.AutowrapMode.WordSmart, Name = "noGuild" };
-        _none.AddThemeFontSizeOverride("font_size", FontSize + 2);
-        _none.AddThemeColorOverride("font_color", new Color(0.86f, 0.88f, 0.92f));
+        _bar = M59Skin.TitleBar();
+        _bar.Visible = false;
+        AddChild(_bar);
+
+        _title = M59Skin.Title("Guild");
+        _title.Visible = false;
+        AddChild(_title);
+
+        _x = M59Skin.CloseX(Close);
+        _x.Visible = false;
+        AddChild(_x);
+
+        _hall = Heading("", M59Skin.BodySize, M59Skin.TextDim);
+
+        _none = M59Skin.Empty("");
+        _none.Visible = false;
+        _none.Name = "noGuild";
+        // ClipText, which is not about clipping. A WRAPPING Label's
+        // minimum height is computed from the width it had when it was
+        // last shaped, so a label that is sized in one go from zero
+        // asks "how tall is this wrapped at one character per line" and
+        // answers 3717 - and Size is clamped to the minimum, so the
+        // four lines of notice were centred a screen and a half below
+        // the card, which simply looked empty. With clipping on the
+        // minimum is 1x1 and the size given is the size taken; nothing
+        // is ever actually clipped, because the card is measured to
+        // hold the text.
+        _none.ClipText = true;
         AddChild(_none);
 
+        _tabMembers = Push("Members", () =>
+        {
+            if (!_showingDiplomacy) return;
+            _showingDiplomacy = false;
+            _signature = "";        // force the rebuild
+        });
+        _tabDiplomacy = Push("Diplomacy", () =>
+        {
+            if (_showingDiplomacy) return;
+            _showingDiplomacy = true;
+            _signature = "";
+        });
+        M59Skin.Dress(_tabMembers, M59Skin.Kind.Tab);
+        M59Skin.Dress(_tabDiplomacy, M59Skin.Kind.Tab);
+
+        // One header row, retexted per list: the columns are the same
+        // shape in both, so two of them would only be two things to keep
+        // in step.
+        _head = new HBoxContainer { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _head.AddThemeConstantOverride("separation", M59Skin.GapI);
+        _head.AddChild(_hName = Caption("", HorizontalAlignment.Left, 0f));
+        _head.AddChild(_hA = Caption("", HorizontalAlignment.Left, ColRank));
+        _head.AddChild(_hB = Caption("", HorizontalAlignment.Center, ColVote));
+        _head.AddChild(_hC = Caption("", HorizontalAlignment.Center, ColExile));
+        AddChild(_head);
+
         _rows = new VBoxContainer();
-        _rows.AddThemeConstantOverride("separation", 2);
+        _rows.AddThemeConstantOverride("separation", 4);
+        // Or the list is only as wide as its longest member name and
+        // every column after it lands where that row's text ended - see
+        // notes/godot-ui.md, "A ScrollContainer sizes its child to that
+        // child's minimum".
+        _rows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _scroll = new ScrollContainer { Visible = false };
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
-        _chest = new LineEdit { PlaceholderText = "chest password", Visible = false };
-        _chest.AddThemeFontSizeOverride("font_size", FontSize);
+        _rule = M59Skin.Hairline();
+        _rule.Visible = false;
+        AddChild(_rule);
+        _masterHead = Heading2("Guild hall");
+        _chestCap = Caption2("Guild chest password");
+
+        _chest = M59Skin.Field(new LineEdit { PlaceholderText = "chest password", Visible = false });
         AddChild(_chest);
 
         _setPassword = Push("Set password", () => Password?.Invoke(_chest.Text ?? ""));
@@ -191,13 +279,17 @@ public partial class GuildPanel : Control
             if (f.IsRenounce) Renounce?.Invoke(false);
             else if (f.IsDisband) Renounce?.Invoke(true);
         });
-        _tab = Push("Diplomacy", () =>
-        {
-            _showingDiplomacy = !_showingDiplomacy;
-            _signature = "";        // force the rebuild
-        });
         _shield = Push("Shield", () => ShieldDesigner?.Invoke());
         _close = Push("Close", Close);
+
+        // The footer's three, by what they do: Renounce and Disband
+        // destroy something, the other two do not. Close is the one a
+        // thumb reaches for, so it is the plain one at the right.
+        M59Skin.Dress(_setPassword, M59Skin.Kind.Secondary);
+        M59Skin.Dress(_abandon, M59Skin.Kind.Secondary);
+        M59Skin.Dress(_renounce, M59Skin.Kind.Danger);
+        M59Skin.Dress(_shield, M59Skin.Kind.Secondary);
+        M59Skin.Dress(_close, M59Skin.Kind.Secondary);
 
         GetViewport().SizeChanged += Layout;
         Layout();
@@ -212,6 +304,40 @@ public partial class GuildPanel : Control
         return l;
     }
 
+    /// <summary>A section heading inside the body, in the house style.</summary>
+    Label Heading2(string text)
+    {
+        Label l = M59Skin.Heading(text);
+        l.Visible = false;
+        AddChild(l);
+        return l;
+    }
+
+    /// <summary>The small gold line over a field.</summary>
+    Label Caption2(string text)
+    {
+        Label l = M59Skin.Caption(text);
+        l.Visible = false;
+        AddChild(l);
+        return l;
+    }
+
+    /// <summary>
+    /// One column caption over the list. A width of zero means "take
+    /// what is left", which is the name column; the rest are the fixed
+    /// widths the rows use, so the two line up.
+    /// </summary>
+    static Label Caption(string text, HorizontalAlignment align, float width)
+    {
+        Label l = M59Skin.Caption(text);
+        l.HorizontalAlignment = align;
+        l.VerticalAlignment = VerticalAlignment.Center;
+        l.MouseFilter = MouseFilterEnum.Ignore;
+        if (width > 0f) l.CustomMinimumSize = new Vector2(width, 0);
+        else l.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        return l;
+    }
+
     Button Push(string text, Action pressed)
     {
         var b = new Button { Text = text, Visible = false };
@@ -219,6 +345,50 @@ public partial class GuildPanel : Control
         b.Pressed += pressed;
         AddChild(b);
         return b;
+    }
+
+    /// <summary>Height of the tab strip at the top of the body.</summary>
+    const float TabH = 44f;
+    /// <summary>Height of the column captions over the list.</summary>
+    const float HeadH = 24f;
+    /// <summary>
+    /// The roster's columns and the diplomacy list's, as fixed widths so
+    /// the header and every row agree. This is the whole of "make it a
+    /// table": before, each row was an HBox that put its controls
+    /// wherever its own name happened to end.
+    /// </summary>
+    const float ColRank = 210f, ColVote = 56f, ColExile = 112f;
+    const float ColSaid = 150f, ColPick = 210f;
+    /// <summary>The gutter a row insets its contents by - the header too.</summary>
+    const float RowInset = 12f;
+    /// <summary>Room kept for the list's scrollbar, so the header stays over its columns.</summary>
+    const float BarW = 14f;
+
+    float RowTall => Mathf.Max(RowHeight, M59Skin.RowH);
+
+    /// <summary>
+    /// How tall the guildmaster's block at the foot of the body is, which
+    /// the frame has to know before it can be measured. Zero for anyone
+    /// who is not the guildmaster: that whole section is theirs.
+    /// </summary>
+    float MasterH()
+    {
+        if (_masterHead == null || !_masterHead.Visible) return 0f;
+        float h = 1f + M59Skin.Gap + 26f + 6f;
+        return h + (_chest.Visible ? 20f + 46f : 26f);
+    }
+
+    /// <summary>Card, title bar, name and the round close, for a given frame.</summary>
+    void Chrome(Rect2 card)
+    {
+        _card.Position = card.Position; _card.Size = card.Size;
+        _bar.Position = card.Position;
+        _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
+        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f - 44f, M59Skin.TitleH);
+        _x.Size = new Vector2(34, 34);
+        _x.Position = new Vector2(card.Position.X + card.Size.X - 34f - M59Skin.Pad,
+                                  card.Position.Y + (M59Skin.TitleH - 34f) * 0.5f);
     }
 
     void Layout()
@@ -229,74 +399,89 @@ public partial class GuildPanel : Control
         _open.Size = new Vector2(78, 40);
         _open.Position = new Vector2(v.X - ButtonRight - 78, v.Y - ButtonBottom - 40);
 
-        float side = Panels.Side(v, 0.06f);
-        float rowH = FontSize * 2.6f;
-        float height = Mathf.Min(v.Y * 0.8f, 780f);
-        float top = v.Y - height - side * 0.5f;
-        float w = v.X - side * 2f;
+        _panel.Position = Vector2.Zero;
+        _panel.Size = v;
 
-        _panel.Position = new Vector2(side * 0.5f, top - 12f);
-        _panel.Size = new Vector2(v.X - side, height + 12f);
-
-        float y = top;
-        _title.Position = new Vector2(side, y); y += FontSize * 1.8f;
-        _hall.Position = new Vector2(side, y);
-        if (_hall.Visible) y += FontSize * 1.8f;
-
-        // Three rows below the roster: the password line, the two
-        // guildmaster buttons, and Close - plus the gap under the last
-        // of them. Without that last term the Close row's bottom edge
-        // and the panel's own were the same line, so the only way out
-        // of the window looked cut off, while every row above it had
-        // eight pixels of air.
-        const float foot = 12f;
-        float below = rowH * 3f + 16f + foot;
-        _scroll.Position = new Vector2(side, y);
-        _scroll.Size = new Vector2(w, top + height - below - 8f - y);
-        _rows.CustomMinimumSize = new Vector2(w, 0);
-        _none.Position = new Vector2(side, y);
-        _none.Size = new Vector2(w, FontSize * 8f);
-
-        float by = top + height - below;
-        _chest.Position = new Vector2(side, by);
-        _chest.Size = new Vector2(w * 0.55f - 4f, rowH);
-        _setPassword.Position = new Vector2(side + w * 0.55f + 4f, by);
-        _setPassword.Size = new Vector2(w * 0.45f - 4f, rowH);
-
-        by += rowH + 8f;
-        _abandon.Position = new Vector2(side, by);
-        _abandon.Size = new Vector2(w * 0.5f - 4f, rowH);
-        _renounce.Position = new Vector2(side + w * 0.5f + 4f, by);
-        _renounce.Size = new Vector2(w * 0.5f - 4f, rowH);
-
-        // The last row is three buttons wide now rather than two: the
-        // list switch, the way into the shield designer, and Close. The
-        // shield button is not always there, so its share of the row goes
-        // to Close when it is not - a gap in the middle of the footer
-        // would read as a button that had failed to draw.
-        by += rowH + 8f;
+        // The notice is four lines of prose, so it gets a prompt-sized
+        // card and not the roster's: Frame's width cap is what keeps a
+        // sentence from being strung across a sideways phone.
         if (_noticeUp)
         {
-            _close.Position = new Vector2(side, by);
-            _close.Size = new Vector2(w, rowH);
+            Rect2 small = M59Skin.Frame(v, 160f, true, M59Skin.Measure);
+            Chrome(small);
+            Rect2 nb = M59Skin.Body(small);
+            _none.Position = nb.Position;
+            _none.Size = nb.Size;
+            M59Skin.FootRow(M59Skin.Foot(small), _close);
             return;
         }
-        bool shield = _shield != null && _shield.Visible;
-        float tabW = w * (shield ? 0.32f : 0.4f);
-        _tab.Position = new Vector2(side, by);
-        _tab.Size = new Vector2(tabW - 4f, rowH);
-        if (shield)
+
+        // Sized to what is in it: a guild of three is a three-row window
+        // rather than eight hundred pixels of black under three names.
+        int shown = Mathf.Max(1, _rows != null ? _rows.GetChildCount() : 1);
+        float master = MasterH();
+        float want = TabH + M59Skin.Gap + HeadH + shown * (RowTall + 4f) + master;
+        Rect2 card = M59Skin.Frame(v, want);
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
+        Chrome(card);
+
+        // The tabs are as wide as their words, not half a card each: on
+        // a sideways phone that would be two eight-hundred-pixel slabs.
+        const float tabW = 180f;
+        _tabMembers.Position = body.Position;
+        _tabMembers.Size = new Vector2(tabW, TabH);
+        _tabDiplomacy.Position = new Vector2(body.Position.X + tabW + M59Skin.Gap, body.Position.Y);
+        _tabDiplomacy.Size = new Vector2(tabW, TabH);
+
+        float y = body.Position.Y + TabH + M59Skin.Gap;
+        _head.Position = new Vector2(body.Position.X + RowInset, y);
+        // The rows take the scroll's full width until a scrollbar
+        // appears, so the header matches that and not the reserved
+        // width - a caption fourteen pixels off its column is worse,
+        // every day, than one that drifts when the list overflows.
+        _head.Size = new Vector2(body.Size.X - RowInset * 2f, HeadH);
+        y += HeadH;
+
+        float listH = Mathf.Max(RowTall, body.Position.Y + body.Size.Y - master - y);
+        _scroll.Position = new Vector2(body.Position.X, y);
+        _scroll.Size = new Vector2(body.Size.X, listH);
+        _rows.CustomMinimumSize = new Vector2(body.Size.X - BarW, 0);
+
+        // The guildmaster's controls are a SECTION of this window now,
+        // under a rule and a heading, rather than three loose rows
+        // floating between the list and the bottom edge.
+        float my = body.Position.Y + body.Size.Y - master;
+        _rule.Position = new Vector2(body.Position.X, my);
+        _rule.Size = new Vector2(body.Size.X, 1f);
+        my += 1f + M59Skin.Gap;
+        _masterHead.Position = new Vector2(body.Position.X, my);
+        _masterHead.Size = new Vector2(body.Size.X, 26f);
+        my += 26f + 6f;
+
+        // "No guild hall." and the password line are the two faces of
+        // the same slot and can never both carry text: _hall's text is
+        // set to "" exactly when PasswordSetFlag is non-zero, which is
+        // exactly when the chest line is shown.
+        _hall.Position = new Vector2(body.Position.X, my);
+        _hall.Size = new Vector2(body.Size.X, 26f);
+        if (_chest.Visible)
         {
-            _shield.Position = new Vector2(side + tabW + 4f, by);
-            _shield.Size = new Vector2(w * 0.28f - 8f, rowH);
-            _close.Position = new Vector2(side + tabW + w * 0.28f + 4f, by);
-            _close.Size = new Vector2(w * 0.4f - 4f, rowH);
+            _chestCap.Position = new Vector2(body.Position.X, my);
+            _chestCap.Size = new Vector2(body.Size.X, 18f);
+            my += 20f;
+            float fw = Mathf.Min(360f, body.Size.X * 0.4f);
+            _chest.Position = new Vector2(body.Position.X, my);
+            _chest.Size = new Vector2(fw, 46f);
+            _setPassword.Position = new Vector2(body.Position.X + fw + M59Skin.Gap, my);
+            _setPassword.Size = new Vector2(170f, 46f);
+            _abandon.Position = new Vector2(body.Position.X + fw + M59Skin.Gap + 180f, my);
+            _abandon.Size = new Vector2(170f, 46f);
         }
-        else
-        {
-            _close.Position = new Vector2(side + tabW + 4f, by);
-            _close.Size = new Vector2(w - tabW - 4f, rowH);
-        }
+
+        // Laid out from the right, so the button that dismisses is where
+        // the thumb is and the destructive one is furthest from it.
+        M59Skin.FootRow(foot, _close, _shield, _renounce);
     }
 
     /// <summary>
@@ -436,9 +621,12 @@ public partial class GuildPanel : Control
                    + "Speak to him and the founding window opens by itself.";
         Panels.ToFront(this);
         _panel.Visible = true; _title.Text = "Guild"; _title.Visible = true;
+        _card.Visible = true; _bar.Visible = true; _x.Visible = true;
         _none.Visible = true; _close.Visible = true; _open.Visible = false;
-        _scroll.Visible = false; _tab.Visible = false; _renounce.Visible = false;
+        _scroll.Visible = false; _renounce.Visible = false;
+        _tabMembers.Visible = false; _tabDiplomacy.Visible = false; _head.Visible = false;
         _shield.Visible = false; _hall.Visible = false;
+        _rule.Visible = false; _masterHead.Visible = false; _chestCap.Visible = false;
         _chest.Visible = false; _setPassword.Visible = false; _abandon.Visible = false;
         GetParent()?.MoveChild(this, -1); KeepPopupOnTop();
         Layout();
@@ -449,6 +637,7 @@ public partial class GuildPanel : Control
         if (!_noticeUp) return;
         _noticeUp = false;
         _none.Visible = false; _close.Visible = false; _title.Visible = false;
+        _card.Visible = false; _bar.Visible = false; _x.Visible = false;
         _panel.Visible = false; _open.Visible = true;
         Layout();
     }
@@ -472,8 +661,9 @@ public partial class GuildPanel : Control
         bool opening = on && !_panel.Visible;
         if (opening) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on;
+        _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         _scroll.Visible = on; _close.Visible = on; _open.Visible = !on;
-        _tab.Visible = on;
+        _tabMembers.Visible = on; _tabDiplomacy.Visible = on; _head.Visible = on;
 
         // The guildmaster half is only there when the server says you
         // have a hall to have a password on - AND when you are the
@@ -487,6 +677,11 @@ public partial class GuildPanel : Control
         bool master = fl != null && !fl.IsRenounce && fl.IsDisband;
         bool hall = on && master && _info.PasswordSetFlag != 0;
         _chest.Visible = hall; _setPassword.Visible = hall; _abandon.Visible = hall;
+        _chestCap.Visible = hall;
+        // The rule and the heading are the section the hall controls and
+        // "No guild hall." live in, so they come and go with the rank
+        // that owns them, not with the hall.
+        _rule.Visible = on && master; _masterHead.Visible = on && master;
 
         // "No guild hall." lives in the same tab as the password box
         // (`UIGuild.cpp:26`, `:164-173`), so it is the guildmaster's and
@@ -577,7 +772,29 @@ public partial class GuildPanel : Control
         // (`UIGuild.cpp:176-199`, `:870-888`).
         _renounce.Text = info.Flags != null && !info.Flags.IsRenounce && info.Flags.IsDisband
             ? "Disband" : "Renounce";
-        _tab.Text = _showingDiplomacy ? "Members" : "Diplomacy";
+
+        // Which list you are on, said by the tabs, and the captions over
+        // the columns changed with it - the two lists are different
+        // tables under the same frame.
+        M59Skin.Tab(_tabMembers, !_showingDiplomacy);
+        M59Skin.Tab(_tabDiplomacy, _showingDiplomacy);
+        _hName.Text = _showingDiplomacy ? "Guild" : "Member";
+        _hA.Text = _showingDiplomacy ? "They say" : "Rank";
+        _hA.CustomMinimumSize = new Vector2(_showingDiplomacy ? ColSaid : ColRank, 0);
+        _hA.HorizontalAlignment = _showingDiplomacy
+            ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+        _hB.Text = _showingDiplomacy ? "You say" : "Vote";
+        _hB.CustomMinimumSize = new Vector2(_showingDiplomacy ? ColPick : ColVote, 0);
+        _hB.HorizontalAlignment = _showingDiplomacy
+            ? HorizontalAlignment.Left : HorizontalAlignment.Center;
+        // The third column is the Exile button, which says its own name
+        // on every row; in the diplomacy list there is no third column.
+        _hC.Text = "";
+        _hC.CustomMinimumSize = new Vector2(ColExile, 0);
+        // Hidden rather than zero-width in the diplomacy list: a hidden
+        // child costs the HBox no separation either, and ten stray
+        // pixels at the end would push every caption off its column.
+        _hC.Visible = !_showingDiplomacy;
 
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
 
@@ -655,20 +872,32 @@ public partial class GuildPanel : Control
     Control GuildRow(GuildInfo info, DiplomacyInfo d, GuildEntry g, int index)
     {
         uint id = g.ID;
+
+        // A striped plate with the same fixed columns the header names,
+        // rather than a bare HBox: thirty guilds of one brown give the
+        // eye nothing to count down, and a standing that lands wherever
+        // the name before it ended cannot be compared with the one above.
+        Panel box = Plate(index);
         var line = new HBoxContainer
         {
-            CustomMinimumSize = new Vector2(0, RowHeight),
             Name = $"guild{index}",
+            MouseFilter = MouseFilterEnum.Ignore,
         };
-        line.AddThemeConstantOverride("separation", 8);
+        line.SetAnchorsPreset(LayoutPreset.FullRect);
+        line.AddThemeConstantOverride("separation", M59Skin.GapI);
+        line.OffsetLeft = RowInset; line.OffsetRight = -RowInset;
+        line.OffsetTop = 6; line.OffsetBottom = -6;
+        box.AddChild(line);
 
         var name = new Label
         {
             Text = g.Name ?? "(unnamed)",
             VerticalAlignment = VerticalAlignment.Center,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            MouseFilter = MouseFilterEnum.Ignore,
         };
-        name.AddThemeFontSizeOverride("font_size", FontSize);
+        name.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        name.AddThemeColorOverride("font_color", M59Skin.Text);
         line.AddChild(name);
 
         // Theirs toward you, which you cannot change and the reference
@@ -678,26 +907,34 @@ public partial class GuildPanel : Control
         {
             Text = StandingName(theirs),
             VerticalAlignment = VerticalAlignment.Center,
-            CustomMinimumSize = new Vector2(FontSize * 5f, 0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            CustomMinimumSize = new Vector2(ColSaid, 0),
+            MouseFilter = MouseFilterEnum.Ignore,
             Name = $"theirs{index}",
         };
-        said.AddThemeFontSizeOverride("font_size", FontSize - 2);
+        said.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
         said.AddThemeColorOverride("font_color",
-            theirs == 0 ? new Color(0.6f, 0.9f, 0.6f)
-          : theirs == 2 ? new Color(0.95f, 0.55f, 0.5f)
-                        : new Color(0.7f, 0.72f, 0.78f));
+            theirs == 0 ? new Color(0.60f, 0.82f, 0.52f)
+          : theirs == 2 ? new Color(0.90f, 0.48f, 0.42f)
+                        : M59Skin.TextDim);
         line.AddChild(said);
 
         // Yours toward them, in the reference's own order: Ally,
         // Neutral, Enemy (`UIGuild.cpp:513-518`).
         int ours = Standing(d, id, true);
         var pick = new OptionButton { Name = $"ours{index}" };
-        pick.AddThemeFontSizeOverride("font_size", FontSize - 2);
+        // An OptionButton IS a Button, so Dress reaches it - which is
+        // what gives the dead ones (your own guild, or no rights at all)
+        // a disabled face. Most of this list is dead for most ranks, so
+        // that is most of the window.
+        M59Skin.Dress(pick, M59Skin.Kind.Secondary);
+        pick.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize + 2);
         pick.AddItem("Ally", 0);
         pick.AddItem("Neutral", 1);
         pick.AddItem("Enemy", 2);
         pick.Selected = ours;
-        pick.CustomMinimumSize = new Vector2(FontSize * 7f, 0);
+        pick.CustomMinimumSize = new Vector2(ColPick, 38);
+        pick.SizeFlagsVertical = SizeFlags.ShrinkCenter;
 
         // Dead on your own guild, and dead unless you hold at least one
         // of the four rights (`UIGuild.cpp:545-548`).
@@ -723,7 +960,21 @@ public partial class GuildPanel : Control
         };
         line.AddChild(pick);
 
-        return line;
+        return box;
+    }
+
+    /// <summary>
+    /// One row's background: the skin's stripe, alternating, at the
+    /// list's row height. A Panel rather than a Button because nothing
+    /// in these two lists is pressed by the row itself - the controls
+    /// inside it are.
+    /// </summary>
+    Panel Plate(int index)
+    {
+        var box = new Panel { CustomMinimumSize = new Vector2(0, RowTall) };
+        box.AddThemeStyleboxOverride("panel", M59Skin.Stripe(index % 2 == 1));
+        box.MouseFilter = MouseFilterEnum.Ignore;
+        return box;
     }
 
     Control Row(GuildInfo info, GuildMemberEntry m, GuildMemberEntry me, int index)
@@ -732,28 +983,36 @@ public partial class GuildPanel : Control
         bool isMe = id == _avatar;
         GuildFlags f = info.Flags;
 
+        Panel box = Plate(index);
         var line = new HBoxContainer
         {
-            CustomMinimumSize = new Vector2(0, RowHeight),
             Name = $"member{index}",
+            MouseFilter = MouseFilterEnum.Ignore,
         };
-        line.AddThemeConstantOverride("separation", 8);
+        line.SetAnchorsPreset(LayoutPreset.FullRect);
+        line.AddThemeConstantOverride("separation", M59Skin.GapI);
+        line.OffsetLeft = RowInset; line.OffsetRight = -RowInset;
+        line.OffsetTop = 6; line.OffsetBottom = -6;
+        box.AddChild(line);
 
         var name = new Label
         {
             Text = m.Name ?? "(unnamed)",
             VerticalAlignment = VerticalAlignment.Center,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            MouseFilter = MouseFilterEnum.Ignore,
         };
-        name.AddThemeFontSizeOverride("font_size", FontSize);
-        name.AddThemeColorOverride("font_color",
-            isMe ? new Color(1, 0.92f, 0.6f) : new Color(0.86f, 0.88f, 0.92f));
+        name.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        name.AddThemeColorOverride("font_color", isMe ? M59Skin.GoldBright : M59Skin.Text);
         line.AddChild(name);
 
         // Rank. The names are the guild's own, five per gender, and the
         // member's gender picks the column.
         var rank = new OptionButton { Name = $"rank{index}" };
-        rank.AddThemeFontSizeOverride("font_size", FontSize - 2);
+        M59Skin.Dress(rank, M59Skin.Kind.Secondary);
+        rank.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize + 2);
+        rank.CustomMinimumSize = new Vector2(ColRank, 38);
+        rank.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         for (byte r = 1; r <= 5; r++) rank.AddItem(RankName(info, m.Gender, r), r);
         rank.Selected = Mathf.Clamp(m.Rank - 1, 0, 4);
         rank.Disabled = !CanSetRank(f, isMe);
@@ -789,8 +1048,13 @@ public partial class GuildPanel : Control
         {
             ButtonPressed = f != null && f.IsVote && supported,
             Name = $"vote{index}",
+            CustomMinimumSize = new Vector2(ColVote, 0),
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
         };
-        vote.AddThemeFontSizeOverride("font_size", FontSize - 2);
+        vote.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        // TickStyle draws its own box, and a dimmed one for the disabled
+        // state - which is most of them, since only a vote in progress
+        // offers any of these at all.
         TickStyle.Apply(vote);
         vote.Disabled = !CanVote(f, supported);
         vote.Toggled += on =>
@@ -804,7 +1068,13 @@ public partial class GuildPanel : Control
         line.AddChild(vote);
 
         var kick = new Button { Text = "Exile", Name = $"exile{index}" };
-        kick.AddThemeFontSizeOverride("font_size", FontSize - 2);
+        // Destructive, and dressed as such - and the disabled face
+        // matters more here than the live one: a member may exile
+        // nobody, so every row of their roster is a dead button.
+        M59Skin.Dress(kick, M59Skin.Kind.Danger);
+        kick.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize + 2);
+        kick.CustomMinimumSize = new Vector2(ColExile, 38);
+        kick.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         kick.Disabled = !CanExile(f, isMe, m.Rank);
         kick.Pressed += () =>
         {
@@ -813,7 +1083,7 @@ public partial class GuildPanel : Control
         };
         line.AddChild(kick);
 
-        return line;
+        return box;
     }
 
     static string RankName(GuildInfo info, Gender g, byte rank)
