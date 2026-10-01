@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using Godot;
@@ -193,6 +193,7 @@ public partial class GameView : Node2D
     QuestMarkers _questMarks;
     ScreenEffects _fx;
     CanvasLayer _fxLayer;
+    PlayerOverlays _overlays;
     ActionButtons _hotbar;
     LookPanel _look;
     SpellsPanel _book;
@@ -1067,6 +1068,30 @@ public partial class GameView : Node2D
             _fx = new ScreenEffects();
             _fxLayer.AddChild(_fx);
         });
+        // Your own hands, weapon, shield and held spell, over the world
+        // and under the interface. See PlayerOverlays.
+        //
+        // On the effects layer rather than one of its own, and added
+        // after the effect rectangle rather than before it, because both
+        // of those are decisions the reference has already made. Under
+        // the interface: the reference's overlay windows are sent to the
+        // back of the GUI root (`UIPlayerOverlays.cpp:117-118`) with the
+        // comment "set z-ordering so overlays are behind UI elements",
+        // and this layer is numbered below the interface's, which says
+        // the same thing once for every widget however the widget list is
+        // ordered. Over the effects: the reference's effects are Ogre
+        // compositors on the 3D viewport and CEGUI draws over all of
+        // them, so a blinded player still sees their own hands. Being a
+        // sibling after _fx settles that exactly - two CanvasLayers
+        // sharing a layer number would leave it to the order they
+        // happened to be constructed in.
+        Widget("overlays", () =>
+        {
+            _overlays = new PlayerOverlays
+            { Verbose = System.Environment.GetEnvironmentVariable("M59OVERLAYLOG") == "1" };
+            if (_fxLayer != null) _fxLayer.AddChild(_overlays);
+            else { var l = new CanvasLayer { Layer = 0 }; AddChild(l); l.AddChild(_overlays); }
+        });
         Widget("look", () =>
         {
             _look = new LookPanel();
@@ -1545,6 +1570,7 @@ public partial class GameView : Node2D
         _news?.Sync(_client.Data?.NewsGroup);
         _options?.Follow(_client.Data?.ClientPreferences);
         _fx?.Sync(_client.Data);
+        _overlays?.Sync(_client.Data);
         TradeOffered();
         ShieldError();
         Wading();
@@ -1574,7 +1600,7 @@ public partial class GameView : Node2D
         // with no bars, no hotbar and no menu, which is a far worse
         // failure than the cosmetic one the gate was added for.
         bool inWorld = _wasInGame || _client.Data?.AvatarObject != null;
-        foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _questMarks, _face, _vitals, _chat })
+        foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _questMarks, _face, _vitals, _chat, _overlays })
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;
         if (_go != null) _go.Visible = inWorld;

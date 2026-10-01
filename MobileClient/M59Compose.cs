@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Meridian59.Common.Enums;
 using Meridian59.Data.Models;
@@ -102,6 +102,48 @@ public static class M59Compose
                 true,                  // CenterVertical
                 true);                 // CenterHorizontal
         return Raster(ri);
+    }
+
+    /// <summary>
+    /// One of the first-person overlays the server hangs on your view -
+    /// your own hand, the weapon in it, the shield on the other arm, the
+    /// spell you are holding ready.
+    ///
+    /// These are not room objects and they are not icons, so neither of
+    /// the two above will do. `UIPlayerOverlays.cpp:101-107` builds one
+    /// ImageComposerCEGUI per overlay and sets every knob it cares about
+    /// explicitly: ApplyYOffset false, HotspotIndex 0, IsScalePow2
+    /// false, UseViewerFrame false, CenterHorizontal false,
+    /// CenterVertical false - and leaves Width and Height at the
+    /// constructor's zero (ImageComposer.cs:100-101), which is what asks
+    /// RenderInfo for the art's own size rather than a box to fit it in
+    /// (RenderInfo.cs:487-498).
+    ///
+    /// UseViewerFrame is set but has no effect and is not honoured here
+    /// either, because it cannot be: a PlayerOverlay is an ObjectBase,
+    /// not a RoomObject, so ImageComposer takes the ObjectBase branch
+    /// (ImageComposer.cs:249-252) whose Refresh composes from
+    /// Data.ViewerFrame unconditionally (RenderInfo.cs:216). The same
+    /// trap is written up at length on <see cref="Face"/>.
+    ///
+    /// No post-effects and no glow, which is a deliberate omission
+    /// rather than one of mine: ImageComposerCEGUI::DrawPostEffects is
+    /// empty (ImageComposerCEGUI.cpp:76-78), and the glowing background
+    /// is only ever drawn for an InventoryObject in use
+    /// (ImageComposer.cs:243-246). So a plain composition, which is what
+    /// <see cref="Raster"/> is.
+    /// </summary>
+    public static Tex Overlay(PlayerOverlay o)
+    {
+        if (o == null || o.Resource == null) return null;
+        return Raster(new RenderInfo(
+            o,
+            false,                     // ApplyYOffset
+            0,                         // HotspotIndex: the whole overlay
+            RenderInfo.DEFAULTQUALITY,
+            false,                     // ScalePow2
+            0, 0,                      // no box: the art's own size
+            false, false));            // not centred either way
     }
 
     /// <summary>

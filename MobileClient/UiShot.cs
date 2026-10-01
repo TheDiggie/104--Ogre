@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using Godot;
@@ -30,6 +30,11 @@ public partial class UiShot : Node
         // an object composed from its HEAD hotspot beside the same object
         // composed whole, which is what makes a face out of a body.
         if (Arg("--portrait", null) != null) { Portrait(layer, res, outPath); return; }
+
+        // --overlays shows the first-person player overlays at every
+        // hotspot at once, so the placement arithmetic can be looked at
+        // rather than reasoned about.
+        if (Arg("--overlays", null) != null) { Overlays(res, outPath); return; }
 
         var bag = new InventoryPanel { FontSize = 18 };
         layer.AddChild(bag);
@@ -120,6 +125,63 @@ public partial class UiShot : Node
             layer.AddChild(l);
         }
 
+        Shoot(outPath);
+    }
+
+    /// <summary>
+    /// Every player-overlay hotspot at once, with whatever art is to
+    /// hand standing in for a hand or a sword. The point is the geometry:
+    /// nine pictures, one per compass point plus the centre, each flush
+    /// against the edges its name says and scaled by the reference's
+    /// width/800 factor.
+    ///
+    /// It drives the real widget through the real data layer - a
+    /// DataController with overlays added to Data.PlayerOverlays - so
+    /// what is being looked at is the client's own code path and not a
+    /// drawing of it.
+    /// </summary>
+    void Overlays(string res, string outPath)
+    {
+        // Under the widget, so the pictures can be seen against
+        // something rather than floating on grey.
+        var layer = new CanvasLayer { Layer = 0 };
+        AddChild(layer);
+        var bg = new ColorRect { Color = new Color(0.10f, 0.12f, 0.16f) };
+        bg.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        layer.AddChild(bg);
+
+        var view = new PlayerOverlays { Verbose = true };
+        layer.AddChild(view);
+
+        var data = new Meridian59.Data.DataController();
+        string[] files = System.IO.Directory.Exists(res)
+            ? System.IO.Directory.GetFiles(res, "*.bgf")
+            : new string[0];
+        Array.Sort(files);
+
+        uint id = 1;
+        foreach (PlayerOverlayHotspot at in new[]
+        {
+            PlayerOverlayHotspot.HOTSPOT_NW, PlayerOverlayHotspot.HOTSPOT_N,
+            PlayerOverlayHotspot.HOTSPOT_NE, PlayerOverlayHotspot.HOTSPOT_E,
+            PlayerOverlayHotspot.HOTSPOT_SE, PlayerOverlayHotspot.HOTSPOT_S,
+            PlayerOverlayHotspot.HOTSPOT_SW, PlayerOverlayHotspot.HOTSPOT_W,
+            PlayerOverlayHotspot.HOTSPOT_CENTER,
+        })
+        {
+            if (files.Length == 0) break;
+            var ov = new PlayerOverlay();
+            ov.ID = id;
+            ov.RenderPosition = at;
+            try { ov.Resource = new BgfFile(files[(int)(id - 1) % files.Length]); }
+            catch (Exception e) { GD.Print($"[UiShot] overlay art: {e.Message}"); continue; }
+            ov.Tick(0, 1);
+            data.PlayerOverlays.Add(ov);
+            id++;
+        }
+        GD.Print($"[UiShot] {data.PlayerOverlays.Count} overlays from {files.Length} bgf in {res}");
+
+        view.Sync(data);
         Shoot(outPath);
     }
 
