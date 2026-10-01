@@ -511,50 +511,6 @@ public sealed class Renderer
                     break;
                 }
 
-                // A two-sided wall carrying a middle texture is either a
-                // solid wall stored with sectors on both sides, or a grate,
-                // railing or doorway you are meant to see through. The room
-                // says which: WF_TRANSPARENT means "has some transparency"
-                // and WF_NOLOOKTHROUGH means "even so, you cannot see
-                // past it". 33788 of the 40586 such walls across all 362
-                // rooms are the see-through kind, and every one of them
-                // used to be a solid wall.
-                if (side != null && side.MiddleTexture != 0)
-                {
-                    bool seeThrough = SeeThroughWalls
-                                   && side.Flags.IsTransparent && !side.Flags.IsNoLookThrough;
-
-                    if (!seeThrough)
-                    {
-                        Tex mid = _tex.Get(side.MiddleTexture, texGroup);
-                        if (mid != null)
-                        {
-                            DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc, mid,
-                                     along, xOff, yOff, side.Flags.IsNormalTopDown, fog, tpp,
-                                     false, null, 0f, 0,
-                                     HonourNoVTile && side.Flags.IsNoVTile,
-                                     side.Flags.ScrollSpeed, side.Flags.ScrollDirection, Time);
-                            _depth[sx] = perp;
-                            closed = true;
-                            break;
-                        }
-                    }
-                    else
-                    {
-                        Tex mid = _tex.GetMasked(side.MiddleTexture, texGroup);
-                        if (mid != null)
-                            sc.Masked.Add(new Masked {
-                                Sx = sx, Depth = perp,
-                                Y0 = yTop, Y1 = yBot, SpanTopY = ceilY, SpanBotY = floorY,
-                                SpanTopH = nc, SpanBotH = nf, Along = along, XOff = xOff,
-                                YOff = yOff, TopDown = side.Flags.IsNormalTopDown,
-                                NoVTile = HonourNoVTile && side.Flags.IsNoVTile,
-                                ScrollSpeed = side.Flags.ScrollSpeed,
-                                ScrollDir = side.Flags.ScrollDirection,
-                                Fog = fog, Tpp = tpp, T = mid });
-                    }
-                }
-
                 float ff = M59Geo.FloorXY(far, hx, hy), fc = M59Geo.CeilingXY(far, hx, hy);
 
                 if (fc < nc)
@@ -588,6 +544,70 @@ public sealed class Renderer
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
                              Time);
                     yBot = Math.Min(yBot, farFloorY);
+                }
+
+                // The middle span of a two-sided wall is the OPENING, not
+                // the near sector's whole wall. `RooWall.GetVertexData`
+                // bounds it by z1..z2 (RooWall.cs:1129-1132), and
+                // `CalculateWallSideHeights` fills those with the HIGHER of
+                // the two floors and the LOWER of the two ceilings
+                // (RooWall.cs:719-720, :800-801) - the see-through aperture,
+                // exactly. Drawing it across the near span instead stretched
+                // a doorway's grate from this room's floor to this room's
+                // ceiling, and hid the fact that the upper and lower parts
+                // above and below it were never drawn at all.
+                //
+                // Which is why the upper and lower parts are drawn first now:
+                // they leave yTop and yBot sitting on the opening.
+                float midTopH = MathF.Min(nc, fc), midBotH = MathF.Max(nf, ff);
+                int midTopY = ScreenY(midTopH, camZ, horizon, proj, perp);
+                int midBotY = ScreenY(midBotH, camZ, horizon, proj, perp);
+
+                // A two-sided wall carrying a middle texture is either a
+                // solid wall stored with sectors on both sides, or a grate,
+                // railing or doorway you are meant to see through. The room
+                // says which: WF_TRANSPARENT means "has some transparency"
+                // and WF_NOLOOKTHROUGH means "even so, you cannot see
+                // past it". 33788 of the 40586 such walls across all 362
+                // rooms are the see-through kind, and every one of them
+                // used to be a solid wall.
+                if (side != null && side.MiddleTexture != 0)
+                {
+                    bool seeThrough = SeeThroughWalls
+                                   && side.Flags.IsTransparent && !side.Flags.IsNoLookThrough;
+
+                    if (!seeThrough)
+                    {
+                        Tex mid = _tex.Get(side.MiddleTexture, texGroup);
+                        if (mid != null)
+                        {
+                            DrawWall(px, W, H, sx,
+                                     Math.Max(yTop, midTopY), Math.Min(yBot, midBotY),
+                                     midTopY, midBotY, midBotH, midTopH, mid,
+                                     along, xOff, yOff, side.Flags.IsNormalTopDown, fog, tpp,
+                                     false, null, 0f, 0,
+                                     HonourNoVTile && side.Flags.IsNoVTile,
+                                     side.Flags.ScrollSpeed, side.Flags.ScrollDirection, Time);
+                            _depth[sx] = perp;
+                            closed = true;
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        Tex mid = _tex.GetMasked(side.MiddleTexture, texGroup);
+                        if (mid != null)
+                            sc.Masked.Add(new Masked {
+                                Sx = sx, Depth = perp,
+                                Y0 = Math.Max(yTop, midTopY), Y1 = Math.Min(yBot, midBotY),
+                                SpanTopY = midTopY, SpanBotY = midBotY,
+                                SpanTopH = midTopH, SpanBotH = midBotH, Along = along, XOff = xOff,
+                                YOff = yOff, TopDown = side.Flags.IsNormalTopDown,
+                                NoVTile = HonourNoVTile && side.Flags.IsNoVTile,
+                                ScrollSpeed = side.Flags.ScrollSpeed,
+                                ScrollDir = side.Flags.ScrollDirection,
+                                Fog = fog, Tpp = tpp, T = mid });
+                    }
                 }
 
                 cur = far;
