@@ -1,5 +1,7 @@
 using System;
+#if GODOT
 using Godot;
+#endif
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -324,6 +326,21 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
         UseCharacter(pick);
     }
 
+    /// <summary>
+    /// Prints where it can be seen. The engine's own console when
+    /// there is an engine; the terminal when this file is compiled
+    /// into one of the offline tools, which is the only reason the
+    /// Godot import above is conditional.
+    /// </summary>
+    static void Complain(string text)
+    {
+#if GODOT
+        GD.PrintErr(text);
+#else
+        Console.Error.WriteLine(text);
+#endif
+    }
+
     /// <summary>Enters the world as this character.</summary>
     public void UseCharacter(CharSelectItem pick)
     {
@@ -440,6 +457,6 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
     {
         Say($"Connection error: {Error.GetType().Name}: {Error.Message}");
         try { ConnectionLost?.Invoke($"{Error.GetType().Name}: {Error.Message}"); }
-        catch (Exception e) { GD.PrintErr($"[M59Client] lost: {e.Message}"); }
+        catch (Exception e) { Complain($"[M59Client] lost: {e.Message}"); }
     }
 }

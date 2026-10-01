@@ -8,6 +8,8 @@
   <ItemGroup>
     <Compile Include="../../MobileClient/M59Geo.cs" Link="M59Geo.cs" />
     <Compile Include="../../MobileClient/Renderer.cs" Link="Renderer.cs" />
+    <Compile Include="../../MobileClient/M59Water.cs" Link="M59Water.cs" />
+    <Compile Include="../../MobileClient/WaterNoise.cs" Link="WaterNoise.cs" />
     <Compile Include="../../MobileClient/WallGrid.cs" Link="WallGrid.cs" />
     <Compile Include="../../MobileClient/FlatAnchors.cs" Link="FlatAnchors.cs" />
     <ProjectReference Include="../../Meridian59/net8.csproj" />
