@@ -67,6 +67,31 @@ public sealed class Renderer
     public const float FogFar = 4500f;
 
     /// <summary>
+    /// Whether distant surfaces are darkened. Off, because the game does
+    /// not do it.
+    ///
+    /// This renderer used to scale every texel by <c>FogFar / distance</c>,
+    /// which is a plausible-looking invention and nothing more. The Ogre
+    /// client turns fog off in as many words - "use only 1 directional
+    /// light and no fog", `ControllerRoom.cpp:139`, followed by
+    /// <c>setManageSceneFog(FOG_NONE)</c> - and the DirectX path disables
+    /// D3DRS_FOGENABLE and D3DRS_RANGEFOGENABLE outright
+    /// (`ImageBuilders.cpp:578,587`). Light in Meridian comes from the
+    /// room's ambient and the avatar's own, both distance-independent, so
+    /// a far wall in a lit room is exactly as bright as a near one. The
+    /// falloff made long rooms read as much deeper than they are, which is
+    /// half of "the rooms seem bigger than they are ingame".
+    ///
+    /// Kept as a switch rather than deleted so the two can be photographed
+    /// side by side; the game's answer is false.
+    /// </summary>
+    public static bool DistanceFalloff = false;
+
+    /// <summary>How much light reaches a surface this far away: all of it.</summary>
+    public static float Falloff(float distance)
+        => DistanceFalloff ? MathF.Min(1f, FogFar / MathF.Max(distance, 1f)) : 1f;
+
+    /// <summary>
     /// How bright the room is, 0 to 1, from the server.
     ///
     /// The reference client does exactly one thing with light: it takes
@@ -464,7 +489,7 @@ public sealed class Renderer
                 ushort texGroup = side?.Animation != null ? side.Animation.CurrentGroup : (ushort)1;
                 int xOff = h.Right ? h.Wall.RightXOffset : h.Wall.LeftXOffset;
                 int yOff = h.Right ? h.Wall.RightYOffset : h.Wall.LeftYOffset;
-                float fog = MathF.Min(1f, FogFar / perp) * Brightness;
+                float fog = Falloff(perp) * Brightness;
                 // World units one screen pixel spans on this wall. Turning
                 // that into texels needs the texture's shrink, so DrawWall
                 // finishes it - the old constant here quietly assumed
@@ -735,7 +760,7 @@ public sealed class Renderer
             S = sp, T = t, Depth = depth,
             Left = cxs - wPx * 0.5f, WPx = wPx, HPx = hPx,
             YTop = yTop, YBot = yTop + hPx,
-            Fog = MathF.Min(1f, FogFar / depth) * Brightness,
+            Fog = Falloff(depth) * Brightness,
         };
         return true;
     }
@@ -1048,7 +1073,7 @@ public sealed class Renderer
                 d = straight / cosFixMax;
             }
             float wx = camX + rdx * d, wy = camY + rdy * d;
-            float fog = MathF.Min(1f, FogFar / MathF.Max(straight, 1f)) * bright;
+            float fog = Falloff(straight) * bright;
             // How much world space one screen pixel covers here, in texels.
             // Rows near the horizon cover enormous distances, which is what
             // made ceilings streak before mipmapping.
