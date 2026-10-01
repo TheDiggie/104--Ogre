@@ -80,14 +80,47 @@ public partial class InventoryPanel : Control
     public event Action<InventoryObject> Picked;
 
     /// <summary>
-    /// The selection changed, including to nothing.
+    /// Asked for something and then backed out - the Close button while
+    /// PickMode was still set.
     ///
-    /// `UIInventory.cpp` sets `Data.TargetID` to the clicked item's id,
-    /// and the library resolves a target id against the room first and
-    /// your own inventory second - so a carried thing is a legitimate
-    /// target and the game's target window shows it. Keeping the
-    /// selection purely local meant that picking an item and then
-    /// casting a spell aimed at whatever was last tapped in the world.
+    /// Whoever turned PickMode on also remembers WHY, and that note was
+    /// only ever torn up by a tap. Closing the bag instead left both
+    /// standing: the next time the bag was opened normally the first tap
+    /// on anything closed it again and handed the item to whoever had
+    /// asked last - and if that was the trade, the item joined
+    /// Trade.ItemsYou with no trade window anywhere and went out in the
+    /// next offer.
+    /// </summary>
+    public event Action PickCancelled;
+
+    /// <summary>
+    /// A tap has settled into a target, one double-tap window after it.
+    ///
+    /// Not the same event as Selected, and that is the whole of finding
+    /// two. The reference's click does NOT target: it sets DoClick and
+    /// remembers the object (`UIInventory.cpp:332-334`), and Tick writes
+    /// Data.TargetID only once CanInventoryClick() is true again -
+    /// 250 milliseconds later (`:294-300`, `GameTickOgre.h:39,47`). A
+    /// double click inside that window clears DoClick and applies
+    /// instead (`:350-352`), so the target never moved and SendReqApply
+    /// aims at whatever you had chosen in the world
+    /// (`BaseClient.cs:2080-2084`).
+    ///
+    /// Setting TargetID on the tap itself - which this did - meant an
+    /// applyable item could only ever be applied to itself.
+    /// </summary>
+    public event Action<InventoryObject> Targeted;
+
+    /// <summary>
+    /// The selection changed, including to nothing. Raised at the tap.
+    ///
+    /// The clicked item does become `Data.TargetID` - the library
+    /// resolves a target id against the room first and your own
+    /// inventory second, so a carried thing is a legitimate target and
+    /// the game's target window shows it. But not on the click:
+    /// `UIInventory.cpp` sets it from Tick, a double-click window later
+    /// (`:294-300`). That half is Targeted; this one is only what the tap
+    /// changes on screen at once.
     /// </summary>
     public event Action<InventoryObject> Selected;
     /// <summary>One tap chooses and closes, instead of select-then-use.</summary>
@@ -101,7 +134,20 @@ public partial class InventoryPanel : Control
     Label _selected;
     Button _use, _drop, _look, _bind, _close;
 
+    /// <summary>
+    /// UI_INTERVALINVENTORYCLICK: how long a second tap has to arrive
+    /// within to count as a double one, and how long a single tap waits
+    /// before it becomes the target. 250 milliseconds, which is the
+    /// reference's own number (`GameTickOgre.h:39,47`) and the only
+    /// thing telling a double click from two clicks there.
+    /// </summary>
+    const ulong DoubleTapMs = 250;
+
     InventoryObject _picked;
+    /// <summary>A tap waiting out the double-tap window to become the target.</summary>
+    InventoryObject _arming;
+    ulong _armedAt;
+    ulong _lastTapAt;
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
     int _lastCount = -1;
     string _lastSignature = "";
@@ -234,7 +280,23 @@ public partial class InventoryPanel : Control
         _lastSignature = "";     // force a rebuild on the next sync
     }
 
-    public void Close() { Show(false); Pick(null); }
+    /// <summary>
+    /// Shuts the bag, and drops the picking mode with it.
+    ///
+    /// PickMode was cleared only by a tap, so backing out of "pick an
+    /// item" with Close left it set - and the note saying who had asked
+    /// stayed with it. See PickCancelled. The tap path clears PickMode
+    /// itself before calling this, so a pick that succeeded raises
+    /// nothing here.
+    /// </summary>
+    public void Close()
+    {
+        bool wasPicking = PickMode;
+        PickMode = false;
+        Show(false);
+        Pick(null);
+        if (wasPicking) PickCancelled?.Invoke();
+    }
 
     void Show(bool on)
     {
@@ -280,6 +342,33 @@ public partial class InventoryPanel : Control
         sb.Append('@').Append(Across());
         string signature = sb.ToString();
         if (signature == _lastSignature && items.Count == _lastCount) return;
+
+        // The selection is dropped when what it pointed at has left the
+        // bag, and re-pointed at the fresh instance when it has not.
+        //
+        // Nothing did either. _picked held the object the slot was built
+        // with, so dropping the last of a stack, selling it or handing it
+        // over left the buttons live over a dead id - Use, Drop and Look
+        // all went out naming an object the server no longer had. And a
+        // surviving item is a NEW instance after a rebuild, so the count
+        // the Drop prompt opened with was the count that item had at the
+        // last tap, not the count it has now.
+        if (_picked != null)
+        {
+            InventoryObject still = null;
+            foreach (InventoryObject o in items)
+                if (o != null && o.ID == _picked.ID) { still = o; break; }
+
+            if (still == null) Pick(null);
+            else if (!ReferenceEquals(still, _picked))
+            {
+                // Not through Pick: the item was not tapped, so this must
+                // not re-arm the target or move the selection.
+                _picked = still;
+                Relabel(still);
+            }
+        }
+
         _lastSignature = signature; _lastCount = items.Count;
 
         foreach (Node n in _grid.GetChildren()) { _grid.RemoveChild(n); n.QueueFree(); }
@@ -349,7 +438,15 @@ public partial class InventoryPanel : Control
         if (o != null && _picked != null && o.ID == _picked.ID)
         {
             box.BgColor = new Color(0.22f, 0.24f, 0.32f);
-            box.BorderColor = new Color(0.75f, 0.85f, 1f);
+            // The two marks are not exclusive. Picking an item used to
+            // overwrite its in-use border, which hid the one thing the
+            // Use button is about to change - the selected slot said
+            // "Unuse" underneath and looked exactly like a slot holding
+            // something idle. The lit background says picked; the colour
+            // of the border still says worn.
+            box.BorderColor = o.IsInUse
+                ? new Color(1f, 0.8f, 0.35f)
+                : new Color(0.75f, 0.85f, 1f);
             box.SetBorderWidthAll(3);
         }
         else if (o != null && o.IsInUse)
@@ -377,7 +474,16 @@ public partial class InventoryPanel : Control
         icon.OffsetLeft = 6; icon.OffsetTop = 6; icon.OffsetRight = -6; icon.OffsetBottom = -6;
         slot.AddChild(icon);
 
-        if (o.Count > 1)
+        // Every stack is badged, including one holding a single item.
+        //
+        // The reference prints the count whenever Count > 0
+        // (`UIInventory.cpp:223-224` on add, `:287-288` on change), and
+        // Count > 0 is exactly what IsStackable means
+        // (`ObjectID.cs:202-205`). Hiding the badge at 1 made a stack of
+        // one look like a plain object, so Drop opened an amount prompt
+        // for something that by every visible sign was not a stack - and
+        // the same stack becoming two items grew a number out of nowhere.
+        if (o.Count > 0)
         {
             var count = new Label
             {
@@ -404,13 +510,35 @@ public partial class InventoryPanel : Control
         slot.Tapped += item =>
         {
             if (PickMode) { PickMode = false; Close(); Picked?.Invoke(item); return; }
+
+            ulong now = Time.GetTicksMsec();
+            ulong since = now - _lastTapAt;
+            _lastTapAt = now;
+
             // By id. The slot holds the object it was built with and a
             // rebuild can hand out another instance for the same item,
             // so an identity test made the second tap on a slot select
             // it again instead of using it - and the selection border
             // never appeared either, which is how this was found.
-            if (_picked != null && _picked.ID == item.ID) UseItem?.Invoke(item);
-            else Pick(item);
+            //
+            // And only inside the double-tap window. The reference uses
+            // or applies on a DOUBLE click (`UIInventory.cpp:344-353`,
+            // reached only while CanInventoryClick() is false); a slow
+            // second click falls into the single-click branch and just
+            // re-targets (`:327-335`). Without the window, a tap to see
+            // what something is and a tap a minute later to read the
+            // name again wielded it, unwielded it, or drank it.
+            if (_picked != null && _picked.ID == item.ID && since < DoubleTapMs)
+            {
+                // The double tap cancels the target the first one armed,
+                // exactly as the reference's `DoClick = false` does
+                // (`UIInventory.cpp:351`). That is what leaves the world
+                // target standing for an Apply.
+                _arming = null;
+                UseItem?.Invoke(item);
+                return;
+            }
+            Pick(item);
         };
         slot.Moved += (from, to) => MoveItem?.Invoke(from, to);
 
@@ -427,6 +555,10 @@ public partial class InventoryPanel : Control
     {
         bool moved = !ReferenceEquals(_picked, item);
         _picked = item;
+        // Arm the target rather than set it. Tick does the setting, one
+        // window later - see Targeted.
+        _arming = item;
+        _armedAt = Time.GetTicksMsec();
         // The grid draws the selection, so it has to be rebuilt when
         // the selection moves.
         if (moved) _lastSignature = "";
@@ -436,10 +568,36 @@ public partial class InventoryPanel : Control
         _selected.Visible = on;
         if (!on) return;
 
+        Relabel(item);
+    }
+
+    /// <summary>
+    /// What the buttons say about the item that is picked. Split out so a
+    /// rebuild can re-point the selection at a fresh instance of the same
+    /// object without pretending it was tapped again.
+    /// </summary>
+    void Relabel(InventoryObject item)
+    {
+        if (item == null) return;
         // The library decides between use, unuse and apply; the label
         // should say which of those it is about to do.
         _use.Text = item.Flags.IsApplyable ? "Apply" : (item.IsInUse ? "Unuse" : "Use");
         _selected.Text = string.IsNullOrWhiteSpace(item.Name) ? "(unnamed)" : item.Name;
+    }
+
+    /// <summary>
+    /// The reference's Inventory::Tick: a tap that was not answered by a
+    /// second one inside the window becomes the target
+    /// (`UIInventory.cpp:292-301`).
+    /// </summary>
+    public override void _Process(double delta)
+    {
+        if (_arming == null) return;
+        if (Time.GetTicksMsec() - _armedAt < DoubleTapMs) return;
+
+        InventoryObject landing = _arming;
+        _arming = null;
+        Targeted?.Invoke(landing);
     }
 
     /// <summary>The frame the library says to show for this object.</summary>

@@ -76,8 +76,52 @@ public partial class TradePanel : Control
     /// </summary>
     readonly Dictionary<uint, uint> _amounts = new Dictionary<uint, uint>();
 
-    uint Offering(ObjectBase o) =>
-        _amounts.TryGetValue(o.ID, out uint n) ? n : (o.Count > 0 ? o.Count : 1u);
+    /// <summary>
+    /// How many of this line go on the wire - and ZERO for anything that
+    /// is not a stack, which is not a cosmetic difference.
+    ///
+    /// `ObjectID.WriteTo` (`ObjectID.cs:69-88`, and the pointer twin at
+    /// `:113-128`) sets the multi-count flag on the id and appends a
+    /// second uint **whenever Count > 0** - so a sword sent as
+    /// ObjectID(id, 1) goes out eight bytes with a number attached
+    /// instead of four bytes with none. The server pushes one entry onto
+    /// number_list per flagged object and no entry for the others
+    /// (`Server-104/blakserv/parsecli.c:342-351`), and the kod then
+    /// walks item_list handing those numbers out to the NumberItems in
+    /// order, advancing the number list only when the item IS one
+    /// (`user.kod:6873-6880` for an offer, `:7217-7253` for a counter).
+    ///
+    /// So a stray number does not go to the item that carried it - it
+    /// SHIFTS the list. Both lists are built with Cons as the packet is
+    /// read (`parsecli.c:339,347`), so both arrive reversed and a
+    /// non-stackable sent AFTER a stackable is seen first: it eats
+    /// nothing, and the stackable behind it takes its "1". Offering 50
+    /// coins and a sword offered one coin. On the counter-offer path it
+    /// is worse than a silent loss - a shifted number larger than the
+    /// stack cancels the whole trade (`user.kod:7237-7244`).
+    ///
+    /// The reference gets this right without saying so: it fills the
+    /// row's amount box from obj->Count (`UITrade.cpp:207`), which is
+    /// "0" for a non-stackable, hides the box (`:208`) but still reads
+    /// its text back on Offer (`:404-414`) - "0" is not empty, so the
+    /// STRINGEMPTY fallback to "1" never applies and the item goes out
+    /// as ObjectID(id, 0), unflagged.
+    /// </summary>
+    uint Offering(ObjectBase o)
+    {
+        // IsStackable is Count > 0 (`ObjectID.cs:202-205`), the same
+        // test the reference's box visibility uses.
+        if (o == null || !o.IsStackable) return 0u;
+
+        uint have = o.Count;
+        uint n = _amounts.TryGetValue(o.ID, out uint set) ? set : have;
+        if (n < 1) n = 1;
+        // Never more than the stack holds: the offer path silently
+        // Bounds it (`user.kod:6877-6878`) but the counter-offer path
+        // cancels the trade outright (`user.kod:7237-7244`).
+        if (n > have) n = have;
+        return n;
+    }
 
     /// <summary>Sets how many of one line to offer.</summary>
     public void SetAmount(uint id, uint count)
@@ -138,6 +182,13 @@ public partial class TradePanel : Control
         // count at the moment you offer is the closest thing to it -
         // and it is still better than the count the stack happened to
         // have when you first added it.
+        //
+        // Offering() decides the number, and for anything that is not a
+        // stack that number is 0 - see the long note on it. The same
+        // list goes to ReqOffer and to ReqCounterOffer (GameView.cs,
+        // the `_trade.Offer +=` block), as it does in the reference
+        // (`UITrade.cpp:417-421`), so both paths are fixed by the one
+        // rule rather than by two.
         _offer = Act("Offer", () =>
         {
             var send = new List<ObjectID>();

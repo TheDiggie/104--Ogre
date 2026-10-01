@@ -23,6 +23,18 @@ public partial class AmountPrompt : Control
     /// <summary>Confirmed: this many of the object it was opened for.</summary>
     public event Action<uint, int> Chosen;
 
+    /// <summary>
+    /// Backed out of, with nothing chosen.
+    ///
+    /// More than one thing asks this question now - a drop, a trade
+    /// line, a shop line - and which one asked is remembered by the
+    /// caller while the prompt is up. Cancel used to raise nothing, so
+    /// that note was never torn up: the next drop of a stack was
+    /// answered into whichever window had asked last, the drop was never
+    /// sent, and nothing said so.
+    /// </summary>
+    public event Action Cancelled;
+
     ColorRect _panel;
     Label _title;
     LineEdit _entry;
@@ -76,11 +88,25 @@ public partial class AmountPrompt : Control
     }
 
     /// <summary>Opens for a stack. Count is what the game prefills.</summary>
-    public void Ask(uint id, int count, string name)
+    public void Ask(uint id, int count, string name) => Ask(id, count, count, name);
+
+    /// <summary>
+    /// Opens for a stack, prefilled with <paramref name="count"/> and
+    /// capped at <paramref name="most"/>.
+    ///
+    /// The two are not the same number once something can ask twice. A
+    /// shop line keeps the amount you chose in the line itself, which is
+    /// what the game does (`UIBuy.cpp:255`) - so re-opening the prompt
+    /// with that as BOTH the value and the ceiling made every choice a
+    /// ratchet: three of a hundred, and three was the most you could
+    /// ever ask for again. The reference has no clamp at all there; the
+    /// stack is the ceiling here, and the value is where you left it.
+    /// </summary>
+    public void Ask(uint id, int count, int most, string name)
     {
         _id = id;
-        _max = Math.Max(1, count);
-        _entry.Text = _max.ToString();
+        _max = Math.Max(1, most);
+        _entry.Text = Math.Clamp(Math.Max(1, count), 1, _max).ToString();
         _title.Text = string.IsNullOrWhiteSpace(name) ? "How many?" : $"{name} - how many?";
         Show(true);
         // A modal has to be over whatever opened it, and what opened
@@ -91,7 +117,17 @@ public partial class AmountPrompt : Control
         _entry.SelectAll();
     }
 
-    public void Close() => Show(false);
+    /// <summary>
+    /// Backs out. Raises Cancelled, so whoever asked can forget that it
+    /// did - and only when the prompt was actually up, so closing an
+    /// already-closed prompt is not a cancellation.
+    /// </summary>
+    public void Close()
+    {
+        bool wasOpen = IsOpen;
+        Show(false);
+        if (wasOpen) Cancelled?.Invoke();
+    }
 
     void Show(bool on)
     {
@@ -142,7 +178,9 @@ public partial class AmountPrompt : Control
     {
         Clamp(true);
         if (!int.TryParse(_entry.Text, out int n)) return;
-        Close();
+        // Show, not Close: accepting is not cancelling, and Close now
+        // tells the caller to forget which window asked.
+        Show(false);
         Chosen?.Invoke(_id, Math.Clamp(n, 1, _max));
     }
 

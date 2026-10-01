@@ -67,6 +67,21 @@ public partial class BuyPanel : Control
     readonly HashSet<uint> _ticked = new HashSet<uint>();
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
     readonly List<TradeOfferObject> _stock = new List<TradeOfferObject>();
+    /// <summary>
+    /// How many of each line the merchant actually has, by id - the
+    /// ceiling for "how many", which the line's own count stops being
+    /// the moment you choose fewer.
+    ///
+    /// Choosing an amount writes it into the line, which is what the
+    /// reference does (`UIBuy.cpp:255`). The reference can get away with
+    /// it because its amount box has no maximum at all - you type over
+    /// it. Here the amount prompt is clamped to the number it is opened
+    /// with, so re-opening it on the line's current count made every
+    /// choice one-way: three of a hundred, and three was the ceiling
+    /// from then on. Kept beside the model rather than in it, the way
+    /// TradePanel keeps its own amounts.
+    /// </summary>
+    readonly Dictionary<uint, uint> _stockMost = new Dictionary<uint, uint>();
     string _signature = "";
 
     public bool IsOpen => _panel != null && _panel.Visible;
@@ -184,7 +199,20 @@ public partial class BuyPanel : Control
     {
         Show(false);
         _ticked.Clear();
+        _stockMost.Clear();
         _signature = "";
+    }
+
+    /// <summary>
+    /// The most of this line there is to buy - the ceiling for the
+    /// amount prompt, which is not the line's current count once you
+    /// have chosen fewer than all of them.
+    /// </summary>
+    public uint Most(TradeOfferObject line)
+    {
+        if (line == null) return 1u;
+        return _stockMost.TryGetValue(line.ID, out uint most) && most > line.Count
+            ? most : line.Count;
     }
 
     void Show(bool on)
@@ -255,7 +283,19 @@ public partial class BuyPanel : Control
             foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
 
             foreach (TradeOfferObject o in buy.Items)
-                if (o != null) { _stock.Add(o); _rows.AddChild(Row(o)); }
+                if (o != null)
+                {
+                    // The high-water mark, because our own writes only
+                    // ever lower a line's count and the server's can
+                    // raise it. Never lowered here, so choosing fewer
+                    // does not shrink the ceiling - which is the bug -
+                    // and a shop that genuinely restocks upwards still
+                    // lets you ask for the lot.
+                    if (!_stockMost.TryGetValue(o.ID, out uint had) || o.Count > had)
+                        _stockMost[o.ID] = o.Count;
+
+                    _stock.Add(o); _rows.AddChild(Row(o));
+                }
 
             string who = buy.TradePartner != null && !string.IsNullOrWhiteSpace(buy.TradePartner.Name)
                 ? buy.TradePartner.Name : "For sale";
@@ -365,18 +405,11 @@ public partial class BuyPanel : Control
             many.Pressed += () => AmountWanted?.Invoke(o);
             line.AddChild(many);
         }
-        else if (o.Count > 1)
-        {
-            var many = new Label
-            {
-                Text = $"x{o.Count}",
-                VerticalAlignment = VerticalAlignment.Center,
-                MouseFilter = MouseFilterEnum.Ignore,
-            };
-            many.AddThemeFontSizeOverride("font_size", FontSize);
-            many.AddThemeColorOverride("font_color", new Color(0.7f, 0.7f, 0.75f));
-            line.AddChild(many);
-        }
+        // There is no second branch. IsStackable IS Count > 0
+        // (`ObjectID.cs:202-205`), so an `else if (o.Count > 1)` behind
+        // that test can never run: what stood here was a label for a
+        // count that the branch above had already claimed. Deleted
+        // rather than left looking like a case that is handled.
 
         var price = new Label
         {
