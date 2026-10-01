@@ -611,8 +611,22 @@ static class FakeServer
                     {
                         // A real server makes the character and answers
                         // with its id; the client logs it in on that.
-                        Console.WriteLine("     (new character accepted)");
-                        Send(ns, ctrl, new CharInfoOkMessage(1001));
+                        //
+                        // M59_NAMETAKEN=1 refuses it instead, which is
+                        // the case the client had no answer for: the
+                        // wizard used to close on hope and leave an
+                        // empty screen and no message behind.
+                        if (Environment.GetEnvironmentVariable("M59_NAMETAKEN") == "1")
+                        {
+                            Console.WriteLine("     (new character refused: name in use)");
+                            Send(ns, ctrl, new CharInfoNotOkMessage(
+                                CharInfoNotOkError.NameInUse));
+                        }
+                        else
+                        {
+                            Console.WriteLine("     (new character accepted)");
+                            Send(ns, ctrl, new CharInfoOkMessage(1001));
+                        }
                     }
                     break;
                 }

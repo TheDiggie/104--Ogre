@@ -498,7 +498,14 @@ public partial class GameView : Node2D
         // in the background - so it needs a sentence and a way back in.
         _client.ConnectionLost += why =>
         {
-            if (!_wasInGame) return;
+            // Shown whenever there is nothing else that will say it.
+            // The login screen says its own piece and hands the Connect
+            // button back, so a drop while it is up needs nothing here
+            // - but when the account came out of the environment there
+            // IS no login screen, and a drop before entering the world
+            // left the client silent with a dead last frame. The
+            // reference always shows its popup (OgreClient.cpp:646-654).
+            if (!_wasInGame && _login != null) return;
             // Disconnect first. Nothing else marks the connection
             // offline after a broken pipe, and Connect refuses to run
             // while it thinks it is still up - so without this the
@@ -510,8 +517,12 @@ public partial class GameView : Node2D
         {
             _state = $"playing as {name}";
             _wasInGame = true;
-            // In the world - the login screen has done its job.
+            // In the world - the login screen has done its job, and so
+            // has the creation wizard if that is how we got here. The
+            // wizard no longer closes when Create is pressed, because
+            // the server may refuse; this is the yes.
             if (_login != null) { _login.QueueFree(); _login = null; }
+            _newChar?.Close();
         };
 
         // Each overlay is built on its own. None of this has run on a
@@ -1290,7 +1301,22 @@ public partial class GameView : Node2D
             // screen empty.
             _newChar.Cancelled += () => _client.SendSendCharactersMessage();
             _ui.AddChild(_newChar);
-            _client.CharacterPalette += info => _newChar.Open(info);
+            _client.CharacterPalette += info =>
+            {
+                _newChar.Open(info);
+                // The server's refusal arrives as a property change on
+                // the same object the wizard is showing
+                // (DataController.cs:2741-2744). The reference watches
+                // it (`UIAvatarCreateWizard.cpp:411-490`); nothing here
+                // did, so a refused name was silence and a closed
+                // window.
+                info.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName != CharCreationInfo.PROPNAME_CHARINFONOTOKERROR) return;
+                    _newChar.Refused(info.CharInfoNotOkError);
+                    info.CharInfoNotOkError = CharInfoNotOkError.NoError;
+                };
+            };
         });
 
         // RootClient.Start loads the config before calling Init, and this

@@ -333,18 +333,94 @@ public class M59Client : BaseClient<GameTick, ResourceManager, DataController, C
         EnteredGame?.Invoke(pick.Name);
     }
 
+    /// <summary>
+    /// A character made in the wizard enters the world too.
+    ///
+    /// The library does not go back through UseCharacter for this - it
+    /// calls SendUseCharacterMessage itself (BaseClient.cs:565-573) -
+    /// so the view was never told, and the consequences were both
+    /// invisible and serious: the login screen's own opaque background
+    /// stayed drawn over the world for the whole session, and the
+    /// "were we ever in the game?" flag stayed false, which meant every
+    /// later disconnect was swallowed without a word. A player's first
+    /// session on a new account got both.
+    /// </summary>
+    protected override void HandleCharInfoOKMessage(CharInfoOkMessage Message)
+    {
+        base.HandleCharInfoOKMessage(Message);
+        try { EnteredGame?.Invoke(""); }
+        catch (Exception e) { Say($"entering: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// The password was wrong, or the account has no room for a
+    /// character.
+    ///
+    /// The library's own handlers only close the socket
+    /// (BaseClient.cs:527-542) - the reference puts a sentence in front
+    /// of the player and disconnects on OK (OgreClient.cpp:885-909),
+    /// and disconnecting is what re-enables its login window. Neither
+    /// was overridden here, so a mistyped password left the player
+    /// looking at a login screen with a dead Connect button and no
+    /// message at all. Nothing in the client said anything.
+    /// </summary>
+    protected override void HandleLoginFailedMessage(LoginFailedMessage Message)
+    {
+        base.HandleLoginFailedMessage(Message);
+        Trouble("Login failed: that account name or password is not right.");
+    }
+
+    protected override void HandleNoCharactersMessage(NoCharactersMessage Message)
+    {
+        base.HandleNoCharactersMessage(Message);
+        Trouble("Login failed: this account has no character slots.");
+    }
+
     protected override void HandleGetClientMessage(GetClientMessage Message)
     {
         // The server wants a different client build than we claim to be.
-        Say($"Server refused version {VersionMajor}.{VersionMinor} and wants a patch. " +
-            "Either log in once with the classic client to update, or set " +
-            "Version Major / Version Minor on the node to match what the " +
-            "server expects.");
+        // It is a dead end, so the socket goes with the message: the
+        // reference disconnects when its popup is dismissed
+        // (OgreClient.cpp:921-929), and that is what lets you try again.
+        Trouble($"Login failed: the server refused version {VersionMajor}.{VersionMinor} " +
+                "and wants a patch. Either log in once with the classic client to " +
+                "update, or set Version Major / Version Minor to match what the " +
+                "server expects.");
     }
 
     protected override void HandleLoginModeMessageMessage(LoginModeMessageMessage Message)
     {
-        Say(Message.Message);
+        // Whatever the server wants to say at login - maintenance, an
+        // account held, a full server. The reference shows it and then
+        // disconnects (OgreClient.cpp:911-919). Said as a failure so it
+        // reaches the login screen rather than a chat log nobody is
+        // looking at yet.
+        Trouble("Login failed: " + Message.Message);
+    }
+
+    /// <summary>
+    /// The resources on disk are not the ones the server expects.
+    /// Handled here only so it does not pass in silence; there is no
+    /// patcher on a phone.
+    /// </summary>
+    protected override void HandleDownloadMessage(DownloadMessage Message)
+    {
+        Trouble("Login failed: the server wants a different set of game files " +
+                "than this device has.");
+    }
+
+    /// <summary>
+    /// Says why the login did not work, and lets go of the socket.
+    ///
+    /// The wording begins with "Login failed" on purpose: that is what
+    /// the view watches for to put the message on the login screen and
+    /// give the Connect button back. Without the disconnect the client
+    /// sits on a half-open socket with nothing to press.
+    /// </summary>
+    void Trouble(string why)
+    {
+        Say(why);
+        try { Disconnect(); } catch { }
     }
 
     /// <summary>

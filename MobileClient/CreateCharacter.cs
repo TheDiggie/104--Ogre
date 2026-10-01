@@ -187,6 +187,10 @@ public partial class CreateCharacter : Control
 
         _rows.AddChild(Section("Who"));
         _name = new LineEdit { PlaceholderText = "name", CustomMinimumSize = new Vector2(0, RowHeight) };
+        // The game's own cap (`UIAvatarCreateWizard.cpp:82`). Without
+        // it an over-long name went to the server and came back as
+        // NameTooLong - which, until now, was silence.
+        _name.MaxLength = Meridian59.Common.Constants.BlakservStringLengths.MAX_CHAR_NAME_LEN;
         _name.AddThemeFontSizeOverride("font_size", FontSize);
         _name.Name = "charName";
         _rows.AddChild(_name);
@@ -534,8 +538,52 @@ public partial class CreateCharacter : Control
         if (name.Trim().Length == 0) { Complain?.Invoke("Your character needs a name."); return; }
 
         Create?.Invoke(name, _description.Text ?? "");
-        Show(false);
+        // The window stays up until the server says yes. It used to
+        // close here, hopefully, so "that name is taken" left an empty
+        // screen, no message, and every choice you had made gone. The
+        // server answers CharInfoOk - which enters the world and takes
+        // this with it - or CharInfoNotOk, which Refused() explains.
     }
+
+    /// <summary>
+    /// The server's reason for refusing a new character, in its own
+    /// words: EN_CHARINFONOTOKERROR_OKDIALOG (Language.cpp:74-90),
+    /// which the reference shows in a popup and then clears
+    /// (`UIAvatarCreateWizard.cpp:411-490`). Nothing here read the
+    /// flag at all, so a refusal was silence.
+    /// </summary>
+    public void Refused(CharInfoNotOkError why)
+    {
+        if (why == CharInfoNotOkError.NoError) return;
+        Complain?.Invoke(Excuse(why));
+    }
+
+    static string Excuse(CharInfoNotOkError why) => why switch
+    {
+        CharInfoNotOkError.NotFirstTime =>
+            "That character slot is already in use. Try a different one.",
+        CharInfoNotOkError.NameTooLong =>
+            "Character names must be between 3 and 30 characters long, "
+            + "or your name is already in use.",
+        CharInfoNotOkError.NameBadCharacters => "Invalid character used in name.",
+        CharInfoNotOkError.NameInUse => "Your character name is already taken by someone else.",
+        CharInfoNotOkError.NoMobName => "You may not pick the name of a Meridian 59 monster.",
+        CharInfoNotOkError.NoNPCName => "You may not pick the name of a Meridian 59 NPC.",
+        CharInfoNotOkError.NoGuildName =>
+            "You may not name your character after an existing Meridian 59 guild.",
+        CharInfoNotOkError.NoBadWords =>
+            "You may not use offensive language in your character name.",
+        CharInfoNotOkError.NoConfusingName =>
+            "Please pick another name - this one could cause confusion in game.",
+        CharInfoNotOkError.NoRetiredName =>
+            "Please pick another name: this one belongs to a former Meridian 59 "
+            + "developer or staff member and is reserved for their future use.",
+        CharInfoNotOkError.DescriptionTooLong =>
+            "Player descriptions cannot be more than 1000 characters.",
+        CharInfoNotOkError.InvalidGender =>
+            "You must select either male or female when creating your character.",
+        _ => "Character creation failed. Try again, and ask an admin if it keeps happening.",
+    };
 
     static string Slug(string s) => s.Replace("'", "").Replace(" ", "");
 }
