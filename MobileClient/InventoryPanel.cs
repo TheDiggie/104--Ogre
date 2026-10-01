@@ -168,7 +168,7 @@ public partial class InventoryPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _open = new Button { Text = "Bag" };
+        _open = new Button { Text = "Inventory" };
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);

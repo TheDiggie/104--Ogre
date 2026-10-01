@@ -80,11 +80,11 @@ public partial class ActionsPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _open = new Button { Text = "Acts" };
+        _open = new Button { Text = "Actions" };
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);
-        Panels.Opener(_open, "Emotes & actions", 30);
+        Panels.Opener(_open, "Emotes and poses", 30);
 
         // The scrim eats the touch that would otherwise reach the world
         // behind, and puts the card in front of something rather than

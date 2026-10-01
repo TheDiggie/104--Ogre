@@ -893,7 +893,21 @@ public partial class ActionButtons : Control
         // and can go.
         if (_nextBtn == null)
         {
-            _nextBtn = new Button { Text = "Next", ClipText = true };
+            // Two words in a 96-point circle, so it wraps rather than
+            // clipping: "Target Next" on one line inside a round seat
+            // is "Targ...", which names nothing.
+            _nextBtn = new Button
+            {
+                // Broken by hand rather than left to autowrap: wrapping
+                // happens at the CONTROL's width, and a round seat's
+                // width is its diameter, so "Target Next" measured as
+                // fitting and then drew past the rim on both sides. The
+                // break is where it has to be, so the words sit inside
+                // the circle rather than across it.
+                Text = "Target\nNext",
+                AutowrapMode = TextServer.AutowrapMode.Off,
+                ClipText = false,
+            };
             _nextBtn.Name = "hotnext";
             _nextBtn.TooltipText = "Next target";
             _nextBtn.Pressed += PressNext;
@@ -901,7 +915,9 @@ public partial class ActionButtons : Control
         }
         // Dressed on every rebuild rather than once, so the caption
         // follows the player's size.
-        _nextBtn.AddThemeFontSizeOverride("font_size", Pt(FontSize, sc));
+        // Smaller than a slot's caption, because this one is two lines
+        // inside the same circle.
+        _nextBtn.AddThemeFontSizeOverride("font_size", Pt(FontSize - 3, sc));
         Rect2 nextCell = Round(Seat(v, 0), Btn);
         _nextBtn.Position = nextCell.Position;
         _nextBtn.Size = nextCell.Size;

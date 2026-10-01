@@ -91,11 +91,11 @@ public partial class SpellsPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
-        _open = new Button { Text = "Book" };
+        _open = new Button { Text = "Spells & Skills" };
         _open.AddThemeFontSizeOverride("font_size", FontSize);
         _open.Pressed += Open;
         AddChild(_open);
-        Panels.Opener(_open, "Spells & skills", 20);
+        Panels.Opener(_open, "What you can cast", 20);
 
         // The scrim eats the touch that would reach the world behind.
         // The card is opaque, which the old 0.94 panel was not - the
