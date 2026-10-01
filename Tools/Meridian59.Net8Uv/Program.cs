@@ -72,8 +72,70 @@ static class Oracle{ static void Main(string[] a){
  foreach(var kv in vBadBy.OrderByDescending(x=>x.Value).Take(6))
   Console.WriteLine($"   {kv.Value,6}  vertical {kv.Key}");
 
+ Sides(dir,rm);
  Flats(dir);
 }
+
+// Which end of a wall its texture starts from, per side. GetVertexData
+// puts u1 at P1 for the right side and at P2 for the left, so the two
+// sides run their texture in opposite directions along the same wall.
+// This renderer measures every hit from P1, so the left side has to
+// count back. Check the whole texture coordinate, origin included, at
+// three points along every wall that has both sides.
+static void Sides(string dir, ResourceManager rm){
+ int both=0, rOk=0, rBad=0, lOk=0, lBad=0, lWouldFail=0, rBack=0, lBack=0;
+ double worst=0; string worstWhere="";
+ foreach(string p in Directory.GetFiles(dir,"*.roo").OrderBy(x=>x)){
+  RooFile roo; try{ roo=new RooFile(p); roo.ResolveResources(rm);}catch{continue;}
+  foreach(RooWall w in roo.Walls){
+   if(w.RightSide==null||w.LeftSide==null) continue;
+   ushort num=w.RightSide.MiddleTexture; if(num==0) continue;
+   ushort lnum=w.LeftSide.MiddleTexture; if(lnum==0) continue;
+   var bgf=rm.GetRoomTexture(num); if(bgf==null||bgf.Frames.Count==0) continue;
+   var lbgf=rm.GetRoomTexture(lnum); if(lbgf==null||lbgf.Frames.Count==0) continue;
+   var f=bgf.Frames[0]; var lf=lbgf.Frames[0];
+   int tw=(int)f.Width, th=(int)f.Height, shrink=(int)(bgf.ShrinkFactor<1?1:bgf.ShrinkFactor);
+   int ltw=(int)lf.Width, lth=(int)lf.Height, lshrink=(int)(lbgf.ShrinkFactor<1?1:lbgf.ShrinkFactor);
+   RooWall.VertexData rv, lv;
+   try{ rv=w.GetVertexData(WallPartType.Middle,false,tw,th,shrink);
+        lv=w.GetVertexData(WallPartType.Middle,true,ltw,lth,lshrink);}catch{continue;}
+   both++;
+   double len=w.ClientLength;                 // 1:64, the units xoffset is in
+   foreach(double frac in new[]{0.0,0.37,1.0}){
+    // The library: u runs from UV0.X at its own P0 to UV3.X at its P3,
+    // and P0 is P1 on the right side but P2 on the left.
+    double libR = rv.UV0.X + frac*(rv.UV3.X-rv.UV0.X);
+    double libL = lv.UV0.X + (1.0-frac)*(lv.UV3.X-lv.UV0.X);
+    // This renderer: (along + xoffset) * shrink / texH, along measured
+    // from P1 and turned round for the left side.
+    // The renderer measures from P1 when exactly one of "left side" and
+    // WF_BACKWARDS holds, and adds the offset either way.
+    bool rBackF = w.RightSide.Flags.IsBackwards, lBackF = w.LeftSide.Flags.IsBackwards;
+    double rAlong = (true ^ rBackF) ? frac*len : (1.0-frac)*len;
+    double lAlong = (false ^ lBackF) ? frac*len : (1.0-frac)*len;
+    double mineR = (rAlong + w.RightXOffset) * shrink / (double)th;
+    double mineL = (lAlong + w.LeftXOffset) * lshrink / (double)lth;
+    // What it did before the fix, for scale: always from P1, negated when
+    // the wall was backwards.
+    double oldL  = ((lBackF ? -frac*len : frac*len) + w.LeftXOffset) * lshrink / (double)lth;
+    if(Near(libR,mineR)) rOk++; else { rBad++; if(rBackF) rBack++; Worse(ref worst, ref worstWhere, libR, mineR,
+      $"{Path.GetFileName(p)} wall {w.Num} right @{frac}"); }
+    if(Near(libL,mineL)) lOk++; else { lBad++; if(lBackF) lBack++; Worse(ref worst, ref worstWhere, libL, mineL,
+      $"{Path.GetFileName(p)} wall {w.Num} left @{frac}"); }
+    if(!Near(libL,oldL)) lWouldFail++;
+   }
+  }
+ }
+ Console.WriteLine($"{both} two-sided wall middles, texture coordinate checked at 3 points each");
+ Console.WriteLine($"  right side agrees       : {rOk}   disagrees: {rBad}");
+ Console.WriteLine($"  left side agrees        : {lOk}   disagrees: {lBad}");
+ Console.WriteLine($"  left side before the fix disagreed: {lWouldFail}");
+ if(worst>0) Console.WriteLine($"  worst: {worstWhere} off by {worst:F4} of a texture");
+}
+static bool Near(double a,double b)=>Math.Abs(a-b)<=1e-4*Math.Max(1.0,Math.Abs(a));
+static void Worse(ref double worst, ref string where, double lib, double mine, string what){
+ double e=Math.Abs(lib-mine); if(e>worst){worst=e; where=$"{what}: lib {lib:F4}, here {mine:F4}";}}
+
 
 // RooSubSector.UpdateVertexUV is the authority on floor and ceiling UVs.
 // It fills FloorUV per leaf vertex, so every vertex of every leaf is a

@@ -105,7 +105,7 @@ public sealed class Renderer
     /// </summary>
     public float Brightness = 1f;
 
-    public struct Hit { public RooWall Wall; public float Dist, Along; public bool Right; }
+    public struct Hit { public RooWall Wall; public float Dist, Along, Len; public bool Right; }
 
     /// <summary>A billboarded object standing on the floor at X,Y.</summary>
     public sealed class Sprite
@@ -259,6 +259,12 @@ public sealed class Renderer
     /// how the difference gets looked at.
     /// </summary>
     public bool HonourBackwards { get; set; } = true;
+
+    /// <summary>
+    /// Whether the left side of a wall starts its texture from the other
+    /// end, as the library does. See the note at the call site.
+    /// </summary>
+    public static bool HonourSides = true;
 
     /// <summary>
     /// WF_NO_VTILE: the texture is drawn once and does not repeat up
@@ -475,11 +481,31 @@ public sealed class Renderer
                 yBot = Math.Min(yBot, floorY);
                 if (yTop > yBot) { closed = true; break; }
 
-                // WF_BACKWARDS is "draw bitmap right/left reversed", set on
-                // 1108 sidedefs across the 362 rooms. The offset is applied
-                // after the reversal, not reversed with it, or the texture
-                // slides the wrong way along the wall.
-                float along = (HonourBackwards && side != null && side.Flags.IsBackwards) ? -h.Along : h.Along;
+                // Which end of the wall the texture starts from depends on
+                // which side of it you are standing on. `GetVertexData`
+                // takes P1 as the u origin for the right side
+                // (RooWall.cs:1104 `RI.P0.X = P1.X; RI.P3.X = P2.X;`) and
+                // P2 for the left (RooWall.cs:1156, the same two lines with
+                // the points exchanged), then assigns u identically for
+                // both. `Split` says so out loud while fixing up offsets:
+                // "Do this backwards, because client exchanges vertices of
+                // negative walls" (RooWall.cs:1441). The hit's Along is
+                // measured from P1 either way, so the left side counts back
+                // from the far end. Without this every left-facing wall in
+                // the game wore its texture mirrored.
+                //
+                // WF_BACKWARDS, "draw bitmap right/left reversed", is the
+                // same question asked again. The library bakes the offset
+                // into u1 and then swaps the two ends (RooWall.cs:1289),
+                // which works out to measuring from the OTHER end with the
+                // offset still added the same way - not to negating the
+                // distance, which is what this renderer did and which
+                // slides the texture by a whole wall length. So the two
+                // conditions simply combine: the texture starts at P1 when
+                // exactly one of "left side" and "backwards" holds.
+                bool backwards = HonourBackwards && side != null && side.Flags.IsBackwards;
+                bool fromP1 = HonourSides ? (h.Right ^ backwards) : !backwards;
+                float along = fromP1 ? h.Along : h.Len - h.Along;
                 // The texture's own size and shrink set the scale, so the
                 // UVs cannot be worked out until the texture is known - see
                 // DrawWall. What travels is the distance along the wall and
@@ -1196,7 +1222,8 @@ public sealed class Renderer
         float s = ((x1 - ox) * dy - (y1 - oy) * dx) / den;
         if (t <= 1f || s < 0f || s > 1f) return;
         outHits.Add(new Hit {
-            Wall = w, Dist = t, Along = s * MathF.Sqrt(ex * ex + ey * ey),
+            Wall = w, Dist = t, Len = MathF.Sqrt(ex * ex + ey * ey),
+            Along = s * MathF.Sqrt(ex * ex + ey * ey),
             Right = (ex * (oy - y1) - ey * (ox - x1)) > 0f
         });
     }
