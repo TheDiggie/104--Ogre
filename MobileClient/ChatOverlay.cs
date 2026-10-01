@@ -30,7 +30,45 @@ public partial class ChatOverlay : Control
     /// How much of the bottom of the screen this occupies, so other
     /// widgets can stay clear of it rather than each guessing.
     /// </summary>
-    public float BlockHeight => FontSize * 2.4f + 12f * 2f + (FontSize + 6) * Lines + 12f;
+    public float BlockHeight =>
+        (FontSize * 2.4f + 12f * 2f + (FontSize + 6) * Lines + 12f) * HudScale();
+
+
+    /// <summary>
+    /// Everything the layout store says about this piece, as one value.
+    ///
+    /// Compared every frame on the cheap entry point below, because a
+    /// piece that lays itself out only on an event cannot see a layout
+    /// LOADED after it was built, or an editor that changed a piece
+    /// without raising Changed - and the failure is silent: the piece
+    /// draws itself exactly where it used to be.
+    /// </summary>
+    static string HudStamp(string id)
+    {
+        M59Hud.Piece p = M59Hud.Get(id);
+        if (p == null) return "";
+        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
+    }
+
+    string _stamp = "";
+
+    /// <summary>The player's size for this cluster, inside the model's band.</summary>
+    static float HudScale()
+    {
+        M59Hud.Piece p = M59Hud.Get("chat");
+        return p == null ? 1f : Mathf.Clamp(p.Scale, M59Hud.MinScale, M59Hud.MaxScale);
+    }
+
+    /// <summary>
+    /// The smallest a control a thumb presses may become. Say and Log are
+    /// pressed with the other thumb on the stick, so the scale's floor of
+    /// 0.7 is not allowed to take them under the 44 points a thumb needs:
+    /// the entry row is 38 points high at 0.7 and is clamped here.
+    /// </summary>
+    const float TapFloor = 44f;
+
+    /// <summary>The size the strip and the row were last dressed at.</summary>
+    float _dressedAt;
 
     /// <summary>True while the text field has focus and owns the keyboard.</summary>
     public bool Capturing => _entry != null && _entry.Visible;
@@ -327,6 +365,12 @@ public partial class ChatOverlay : Control
         _fullClose.Pressed += HideHistory;
         AddChild(_fullClose);
 
+        // The strip and the say/log row are one movable cluster; the
+        // full-screen history is not, so no node is handed over and the
+        // transparency is applied by HudDress. See M59Hud.
+        M59Hud.Register("chat", "Chat");
+        M59Hud.Changed += Layout;
+
         GetViewport().SizeChanged += Layout;
         Layout();
     }
@@ -355,30 +399,46 @@ public partial class ChatOverlay : Control
     void Layout()
     {
         Vector2 v = GetViewportRect().Size;
-        float pad = 12f;
-        float entryH = FontSize * 2.4f;
-        float btnW = FontSize * 5f;
+        // Everything the strip and the row are made of multiplies: the
+        // padding, the entry's height, the button widths, the line pitch
+        // and the font in all of them. The entry row carries the touch
+        // floor, because Say, Log and the recall arrow are pressed.
+        float sc = HudScale();
+        Redress(sc);
+        float pad = 12f * sc;
+        float entryH = Mathf.Max(TapFloor, FontSize * 2.4f * sc);
+        float btnW = Mathf.Max(TapFloor, FontSize * 5f * sc);
         float blockW = BlockWidth;
+        float logH = (FontSize + 6) * Lines * sc;
+
+        // THE NATURAL RECT is the whole block, strip and row together:
+        // the log sits on the entry's line and the two read as one thing,
+        // so they move and scale as one. The full-screen history is NOT
+        // part of it - that is a panel, and panels do not move.
+        float blockH = logH + pad * 2f + entryH;
+        var natural = new Rect2(pad, v.Y - entryH - pad - (logH + pad), blockW, blockH);
+        Rect2 at = M59Hud.Place("chat", natural, v);
+        float x = at.Position.X;
+        float rowY = at.Position.Y + at.Size.Y - entryH;
 
         // The recall arrow stops short of whatever owns the corner -
         // the minimap's own button sits there, and the two were drawn
         // on top of one another.
         float recallW = entryH;
         float right = pad + RightReserve;
-        _entry.Position = new Vector2(pad, v.Y - entryH - pad);
+        _entry.Position = new Vector2(x, rowY);
         _entry.Size = new Vector2(Mathf.Min(v.X - pad - right, blockW), entryH);
 
         // Inside the entry's own right edge rather than beyond it. Put
         // outside, it sat over a menu button, and the button's text
         // showed through the arrow.
-        _back.Position = new Vector2(_entry.Position.X + _entry.Size.X - recallW - 3f,
-                                     v.Y - entryH - pad);
+        _back.Position = new Vector2(_entry.Position.X + _entry.Size.X - recallW - 3f * sc, rowY);
         _back.Size = new Vector2(recallW, entryH);
 
-        _open.Position = new Vector2(pad, v.Y - entryH - pad);
+        _open.Position = new Vector2(x, rowY);
         _open.Size = new Vector2(btnW, entryH);
 
-        _history.Position = new Vector2(pad + btnW + 8f, v.Y - entryH - pad);
+        _history.Position = new Vector2(x + btnW + 8f * sc, rowY);
         _history.Size = new Vector2(btnW, entryH);
 
         // Sized here rather than left on anchors. This overlay lives in
@@ -432,17 +492,87 @@ public partial class ChatOverlay : Control
         _fullNote.Position = foot.Position;
         _fullNote.Size = new Vector2(Mathf.Max(0f, left - foot.Position.X), foot.Size.Y);
 
-        float logH = (FontSize + 6) * Lines;
-        _log.Position = new Vector2(pad, v.Y - entryH - pad * 2 - logH);
+        _log.Position = new Vector2(x, rowY - pad - logH);
         _log.Size = new Vector2(blockW, logH);
-        _logBack.Position = _log.Position - new Vector2(6f, 4f);
-        _logBack.Size = _log.Size + new Vector2(12f, 8f);
+        _logBack.Position = _log.Position - new Vector2(6f * sc, 4f * sc);
+        _logBack.Size = _log.Size + new Vector2(12f * sc, 8f * sc);
         _logBack.Visible = _log.Visible && !ShowingHistory;
+        HudDress();
         // The scrollbar itself is not wanted on the HUD - the full log
         // has its own screen - so it is given no width.
         VScrollBar bar = _log.GetVScrollBar();
         if (bar != null) { bar.CustomMinimumSize = Vector2.Zero; bar.Modulate = new Color(1, 1, 1, 0); }
     }
+
+    /// <summary>
+    /// Re-applies the font sizes when the player's scale moved. A Godot
+    /// control keeps whatever size it was given, so a strip that grew its
+    /// box and not its lines would be the obvious failure.
+    /// </summary>
+    void Redress(float sc)
+    {
+        if (Mathf.IsEqualApprox(_dressedAt, sc)) return;
+        _dressedAt = sc;
+        int pt = Mathf.Max(8, Mathf.RoundToInt(FontSize * sc));
+        // Every family the markup can switch to, not only the normal
+        // one: a line the server styled bold would otherwise keep its
+        // shipped size while the strip around it scaled.
+        _log.AddThemeFontSizeOverride("normal_font_size", pt);
+        _log.AddThemeFontSizeOverride("bold_font_size", pt);
+        _log.AddThemeFontSizeOverride("italics_font_size", pt);
+        _log.AddThemeFontSizeOverride("bold_italics_font_size", pt);
+        _log.AddThemeFontSizeOverride("mono_font_size", pt);
+        _entry.AddThemeFontSizeOverride("font_size", Mathf.Max(8, Mathf.RoundToInt((FontSize + 2) * sc)));
+        _back.AddThemeFontSizeOverride("font_size", Mathf.Max(8, Mathf.RoundToInt((FontSize + 2) * sc)));
+        _history.AddThemeFontSizeOverride("font_size", pt);
+        _open.AddThemeFontSizeOverride("font_size", pt);
+    }
+
+    /// <summary>
+    /// The player's transparency and their hide, over the strip and the
+    /// row and nothing else.
+    ///
+    /// The node is not handed to <see cref="M59Hud.Register"/> and this is
+    /// done by hand, because this control also carries the full-screen
+    /// history: fading or hiding the root would fade a panel, and a panel
+    /// is not part of the piece. The hide is ANDed under the existing
+    /// rules rather than replacing them - which of the entry and the Say
+    /// row is up is still the chat's own business.
+    /// </summary>
+    void HudDress()
+    {
+        M59Hud.Piece p = M59Hud.Get("chat");
+        float a = p == null || M59Hud.Editing ? 1f
+                : Mathf.Clamp(p.Alpha, M59Hud.MinAlpha, M59Hud.MaxAlpha);
+        var tint = new Color(1f, 1f, 1f, a);
+        _logBack.Modulate = tint; _log.Modulate = tint;
+        _entry.Modulate = tint; _back.Modulate = tint;
+        _open.Modulate = tint; _history.Modulate = tint;
+
+        bool show = M59Hud.Shows("chat");
+        _log.Visible = show;
+        _logBack.Visible = show && !ShowingHistory;
+        // Which half of the row is up is the chat's own state, kept in
+        // _typing so this can put it back: hiding the piece and showing
+        // it again must not leave both halves away, which would be a chat
+        // the player cannot open.
+        _entry.Visible = show && _typing;
+        _back.Visible = show && _typing;
+        _history.Visible = show && !_typing;
+        // Say is NOT touched here. It is a registered opener, so
+        // Panels.ShowOpeners sets its Visible every frame - including the
+        // player's hide, which that file ANDs in for this piece - and a
+        // write here would be undone next frame.
+    }
+
+    /// <summary>
+    /// Whether the entry box is the half of the row that is up. The same
+    /// fact <see cref="Capturing"/> reads off the box, kept separately so
+    /// the player's hide can be undone without losing it.
+    /// </summary>
+    bool _typing;
+
+    public override void _ExitTree() => M59Hud.Changed -= Layout;
 
     /// <summary>True while the full log is covering the screen.</summary>
     public bool ShowingHistory => _fullBack != null && _fullBack.Visible;
@@ -624,6 +754,7 @@ public partial class ChatOverlay : Control
         // part of the menu and a thumb aiming for the text landed on
         // Settings.
         Panels.ToFront(this);
+        _typing = true;
         _entry.Visible = true;
         _back.Visible = true;
         _open.Visible = false;
@@ -632,10 +763,12 @@ public partial class ChatOverlay : Control
         _history.Visible = false;
         _entry.GrabFocus();
         Keyboard(true);
+        HudDress();
     }
 
     public void Close()
     {
+        _typing = false;
         _entry.Visible = false;
         _back.Visible = false;
         _entry.Text = "";
@@ -646,6 +779,7 @@ public partial class ChatOverlay : Control
         HistoryReset?.Invoke();
         _entry.ReleaseFocus();
         Keyboard(false);
+        HudDress();
     }
 
     /// <summary>
@@ -725,6 +859,12 @@ public partial class ChatOverlay : Control
     public void Sync(IList<ServerString> messages)
     {
         if (_log == null || messages == null) return;
+
+        // The player's layout, before the early-out: the strip is rebuilt
+        // only when a message arrives, and a drag is not a message.
+        string stamp = HudStamp("chat");
+        if (stamp != _stamp) { _stamp = stamp; Layout(); }
+
         if (!_dirty && messages.Count == _seen) return;
         _dirty = false;
         _seen = messages.Count;

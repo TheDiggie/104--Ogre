@@ -60,7 +60,7 @@ public partial class ActionBar : Control
     /// under the 44 points a thumb needs - and Attack is held down. 56 is
     /// the skin's own row height and comfortably over it.
     /// </summary>
-    float RowH => Mathf.Max(56f, FontSize * 2.6f);
+    float RowH => Mathf.Max(TapFloor, Mathf.Max(56f, FontSize * 2.6f) * HudScale());
 
     /// <summary>
     /// Between two of the seven. Twelve rather than the six it was: above
@@ -103,10 +103,10 @@ public partial class ActionBar : Control
     /// verbs. Anything else that wants to sit above it has to know, or it
     /// lands on top of the portrait.
     /// </summary>
-    public float BlockHeight => PlateH + 6f + RowH * 2f + Gap;
+    public float BlockHeight => PlateH + 6f * HudScale() + RowH * 2f + Gap * HudScale();
 
     /// <summary>The plate the portrait and the name sit on.</summary>
-    float PlateH => PortraitSize + 12f;
+    float PlateH => (PortraitSize + 12f) * HudScale();
 
     /// <summary>
     /// Whether there is anything to act on. The row hides itself
@@ -186,10 +186,53 @@ public partial class ActionBar : Control
         _loot     = Make("Get",    () => LootTarget?.Invoke());
         _quest    = Make("Quest",  () => AskQuests?.Invoke());
 
+        // One cluster: the portrait, the name and the seven verbs are
+        // the game's target window and read as one block. See M59Hud.
+        M59Hud.Register("target", "Target", this);
+        M59Hud.Changed += Layout;
+
         GetViewport().SizeChanged += Layout;
         Layout();
         SetTarget(null, 0);
     }
+
+    public override void _ExitTree() => M59Hud.Changed -= Layout;
+
+
+    /// <summary>
+    /// Everything the layout store says about this piece, as one value.
+    ///
+    /// Compared every frame on the cheap entry point below, because a
+    /// piece that lays itself out only on an event cannot see a layout
+    /// LOADED after it was built, or an editor that changed a piece
+    /// without raising Changed - and the failure is silent: the piece
+    /// draws itself exactly where it used to be.
+    /// </summary>
+    static string HudStamp(string id)
+    {
+        M59Hud.Piece p = M59Hud.Get(id);
+        if (p == null) return "";
+        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
+    }
+
+    string _stamp = "";
+
+    /// <summary>The player's size for this cluster, inside the model's band.</summary>
+    static float HudScale()
+    {
+        M59Hud.Piece p = M59Hud.Get("target");
+        return p == null ? 1f : Mathf.Clamp(p.Scale, M59Hud.MinScale, M59Hud.MaxScale);
+    }
+
+    /// <summary>
+    /// The smallest a control a thumb presses may become. Attack is held
+    /// down, so the scale's floor of 0.7 is not allowed to take the verb
+    /// rows under the 44 points a thumb needs.
+    /// </summary>
+    const float TapFloor = 44f;
+
+    /// <summary>The size everything in here was last dressed at.</summary>
+    float _dressedAt;
 
     // Hold-to-repeat on Attack. The reference reads the attack key every
     // input tick with isKeyDown(...)->Activate()
@@ -227,6 +270,10 @@ public partial class ActionBar : Control
         // the arc for as long as the target lives.
         float ceiling = ActionButtons.Ceiling;
         if (ceiling > 0f && !Mathf.IsEqualApprox(ceiling, _ceiling)) Layout();
+
+        // And the player's own layout, for the same reason.
+        string stamp = HudStamp("target");
+        if (stamp != _stamp) { _stamp = stamp; Layout(); }
 
         if (!_attackDown || !HasTarget || _attack.Disabled) return;
         if (Time.GetTicksMsec() - _attackSince < RepeatDelayMs) return;
@@ -305,39 +352,61 @@ public partial class ActionBar : Control
     {
         if (_name == null) return;
         Vector2 v = GetViewportRect().Size;
-        const float edge = 16f, inset = 6f, xs = 36f;
+        const float edge = 16f;
+
+        // Every metric inside the block multiplies: the plate, the
+        // portrait and its slot, the two gaps, the verb width and the
+        // font. The dismiss and the verb rows are clamped - see where.
+        float sc = HudScale();
+        float inset = 6f * sc, gap = Gap * sc;
+        // The round dismiss is 36 points at the shipped size, under the
+        // 44-point target already and deliberately - it is the one
+        // control here that does not act - so the scale may grow it but
+        // not shrink it below what ships.
+        float xs = Mathf.Max(36f, 36f * sc);
+        float colW = ColW * sc;
+        float plateH = PlateH, rowH = RowH, portrait = PortraitSize * sc;
+        Redress(sc);
 
         Button[] top = { _inspect, _attack, _activate, _buy };
         Button[] under = { _trade, _loot, _quest };
 
-        float block = Mathf.Min(v.X - edge * 2f, ColW * top.Length + Gap * (top.Length - 1));
-        float w = (block - Gap * (top.Length - 1)) / top.Length;
-        float x = v.X - edge - block;
+        float block = Mathf.Min(v.X - edge * 2f, colW * top.Length + gap * (top.Length - 1));
+        float w = (block - gap * (top.Length - 1)) / top.Length;
 
         // The cluster's ceiling when it has laid itself out, and the
         // fraction it uses otherwise - the first frame, or a harness that
         // builds this row without a hotbar.
         _ceiling = ActionButtons.Ceiling > 0f ? ActionButtons.Ceiling : v.Y * 0.58f;
         float bottom = Mathf.Max(BlockHeight + edge, _ceiling - M59Skin.Gap);
-        float plateY = Mathf.Round(bottom - BlockHeight);
-        float rowY = plateY + PlateH + 6f;
+
+        // THE NATURAL RECT: where the designer puts the block - right
+        // edge, standing on the cluster's ceiling - handed over before
+        // anything inside it is placed, and everything below laid out
+        // from what comes back.
+        var natural = new Rect2(v.X - edge - block, Mathf.Round(bottom - BlockHeight),
+                                block, BlockHeight);
+        Rect2 at = M59Hud.Place("target", natural, v);
+        float x = at.Position.X;
+        float plateY = at.Position.Y;
+        float rowY = plateY + plateH + 6f * sc;
 
         // The head of the block: portrait and name on one plate, with the
         // dismiss at its far end.
         _plate.Position = new Vector2(x, plateY);
-        _plate.Size = new Vector2(block, PlateH);
+        _plate.Size = new Vector2(block, plateH);
 
-        _slot.Position = new Vector2(x + inset, plateY + (PlateH - PortraitSize) * 0.5f);
-        _slot.Size = new Vector2(PortraitSize, PortraitSize);
+        _slot.Position = new Vector2(x + inset, plateY + (plateH - portrait) * 0.5f);
+        _slot.Size = new Vector2(portrait, portrait);
         // Inside the slot's rim, so the picture does not sit on it.
-        _face.Position = _slot.Position + new Vector2(3f, 3f);
-        _face.Size = new Vector2(PortraitSize - 6f, PortraitSize - 6f);
+        _face.Position = _slot.Position + new Vector2(3f * sc, 3f * sc);
+        _face.Size = new Vector2(portrait - 6f * sc, portrait - 6f * sc);
 
-        float nameX = x + inset + PortraitSize + 10f;
+        float nameX = x + inset + portrait + 10f * sc;
         _name.Position = new Vector2(nameX, plateY);
-        _name.Size = new Vector2(Mathf.Max(0f, x + block - inset - xs - 8f - nameX), PlateH);
+        _name.Size = new Vector2(Mathf.Max(0f, x + block - inset - xs - 8f * sc - nameX), plateH);
 
-        _clear.Position = new Vector2(x + block - inset - xs, plateY + (PlateH - xs) * 0.5f);
+        _clear.Position = new Vector2(x + block - inset - xs, plateY + (plateH - xs) * 0.5f);
         _clear.Size = new Vector2(xs, xs);
 
         // Four over three, and the short row is RIGHT-aligned: its three
@@ -345,24 +414,71 @@ public partial class ActionBar : Control
         // middle of the screen.
         for (int i = 0; i < top.Length; i++)
         {
-            top[i].Position = new Vector2(Mathf.Round(x + i * (w + Gap)), rowY);
-            top[i].Size = new Vector2(w, RowH);
+            top[i].Position = new Vector2(Mathf.Round(x + i * (w + gap)), rowY);
+            top[i].Size = new Vector2(w, rowH);
         }
-        float x2 = x + block - under.Length * w - (under.Length - 1) * Gap;
+        float x2 = x + block - under.Length * w - (under.Length - 1) * gap;
         for (int i = 0; i < under.Length; i++)
         {
-            under[i].Position = new Vector2(Mathf.Round(x2 + i * (w + Gap)), rowY + RowH + Gap);
-            under[i].Size = new Vector2(w, RowH);
+            under[i].Position = new Vector2(Mathf.Round(x2 + i * (w + gap)), rowY + rowH + gap);
+            under[i].Size = new Vector2(w, rowH);
         }
+
+        HudDress();
 
         if (OS.GetEnvironment("M59HUDRECTS") != "")
         {
-            GD.Print($"[hud] target block {x:0},{plateY:0} {block:0}x{BlockHeight:0}" +
+            GD.Print($"[hud] target block {x:0},{plateY:0} {block:0}x{BlockHeight:0} scale={sc:0.00}" +
                      $" ceiling={_ceiling:0} reserve={_reserve:0}");
             foreach (Button b in new[] { _inspect, _attack, _activate, _buy, _trade, _loot, _quest, _clear })
                 GD.Print($"[hud] {b.Text,-9} {b.Position.X,6:0},{b.Position.Y,6:0}" +
                          $" {b.Size.X,4:0}x{b.Size.Y,4:0} gap={Gap:0}");
         }
+    }
+
+    /// <summary>
+    /// Re-applies the font sizes when the player's scale moved. A Godot
+    /// control keeps whatever size it was given, so a block that grew its
+    /// boxes and not its captions is the obvious failure.
+    /// </summary>
+    void Redress(float sc)
+    {
+        if (Mathf.IsEqualApprox(_dressedAt, sc)) return;
+        _dressedAt = sc;
+        int pt = Mathf.Max(8, Mathf.RoundToInt(FontSize * sc));
+        _name.AddThemeFontSizeOverride("font_size", Mathf.Max(8, Mathf.RoundToInt((FontSize + 4) * sc)));
+        foreach (Button b in new[] { _inspect, _attack, _activate, _buy, _trade, _loot, _quest })
+            b.AddThemeFontSizeOverride("font_size", pt);
+        // The portrait is COMPOSED at a size, not stretched, so a scale
+        // change has to compose it again: the cache is keyed by that size
+        // and the row is refreshed to pick the new picture up.
+        _icons.Clear();
+        if (_target != null) Refresh();
+    }
+
+    /// <summary>
+    /// The player's transparency and their hide, applied to the block's
+    /// own parts.
+    ///
+    /// NOT to this control's own Visible: the host sets that every frame
+    /// from whether there is a target and whether a panel is up, and the
+    /// two are different questions - a piece the player put away must
+    /// still disappear when a panel covers the screen, and must not come
+    /// back when one closes. So the player's choice is applied to the
+    /// children, under everything the client already decided.
+    /// </summary>
+    void HudDress()
+    {
+        M59Hud.Dress("target");
+        bool show = M59Hud.Shows("target");
+        _plate.Visible = show;
+        _name.Visible = show;
+        _clear.Visible = show;
+        foreach (Button b in new[] { _inspect, _attack, _activate, _buy, _trade, _loot, _quest })
+            b.Visible = show;
+        // The portrait and its slot keep their own rule - an invisible
+        // object shows neither - so this only takes them away.
+        if (!show) { _face.Visible = false; _slot.Visible = false; }
     }
 
     /// <summary>
@@ -457,16 +573,21 @@ public partial class ActionBar : Control
         // a phone the caption is the only thing telling you whether the
         // button pulls a lever or opens a bag.
         _activate.Text = f != null && f.IsContainer ? "Items" : "Activate";
+
+        // Refresh has just set _face and _slot from the target's flags,
+        // so the player's hide is re-applied over the top of it.
+        HudDress();
     }
 
     ImageTexture Face(ObjectBase o)
     {
         if (o?.Resource == null) return null;
-        string key = $"{o.Resource.Filename}:{PortraitSize}";
+        int px = Mathf.RoundToInt(PortraitSize * HudScale());
+        string key = $"{o.Resource.Filename}:{px}";
         if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
 
         ImageTexture tex = null;
-        try { tex = M59Assets.FromTex(M59Compose.Icon(o, PortraitSize)); }
+        try { tex = M59Assets.FromTex(M59Compose.Icon(o, px)); }
         catch (Exception e) { GD.PrintErr($"[ActionBar] portrait: {e.Message}"); }
         _icons[key] = tex;
         return tex;

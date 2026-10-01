@@ -211,10 +211,42 @@ public static class Panels
             // pinned ones have nothing above them, so they are told to
             // stand down while the grid is over them.
             b.Visible = Seats[i].Where == Where.Drawer ? on : on && !drawerUp;
+            // The player's own choice, ANDed on after the client's
+            // reasons - never instead of them. Which piece decides
+            // depends on where the seat is: the pinned ones ARE the
+            // "openers" piece, while an Owner seat is Say, which sits in
+            // the chat's own row and belongs to that piece. A tile
+            // belongs to neither - it lives in the drawer, which is a
+            // panel. This is where it has to happen for the Owner seat
+            // too: its owner's write would be undone the next frame,
+            // because this runs every frame.
+            if (Seats[i].Where == Where.Top)
+            {
+                if (!M59Hud.Shows(TopId)) b.Visible = false;
+            }
+            else if (Seats[i].Where == Where.Left)
+            {
+                if (!M59Hud.Shows(SideId)) b.Visible = false;
+            }
+            else if (Seats[i].Where == Where.Owner && !M59Hud.Shows("chat")) b.Visible = false;
         }
 
         if (Drawer != null && GodotObject.IsInstanceValid(Drawer)) Drawer.Allowed(on);
+        // After Allowed, which sets the Menu control's own Visible every
+        // time this runs: the player's hide has to be applied on top of
+        // it or it would be undone the next frame.
+        if (_menu != null && GodotObject.IsInstanceValid(_menu) && !M59Hud.Shows(TopId))
+            _menu.Visible = false;
     }
+
+    /// <summary>
+    /// The Menu control, kept from <see cref="PlacePinned"/>. It belongs
+    /// to <see cref="MenuDrawer"/>, which is the only thing that builds
+    /// one; this file is the only thing that places it, and the player's
+    /// piece covers it, so the reference is held here rather than asked
+    /// for twice.
+    /// </summary>
+    static Button _menu;
 
     // ---- placement -------------------------------------------------
 
@@ -266,29 +298,98 @@ public static class Panels
         b.ClipText = true;
     }
 
+    /// <summary>
+    /// The smallest a pinned control may become. Everything here is
+    /// pressed, several of them while the other thumb is busy, so the
+    /// scale's floor of 0.7 is not allowed to take them under the 44
+    /// points a thumb needs.
+    /// </summary>
+    const float TapFloor = 44f;
+
+    /// <summary>
+    /// The two pinned pieces. The top band and the left edge used to be
+    /// one, which gave the store an L-shaped bounding box running from the
+    /// top of the screen to half way down it - so the piece permanently
+    /// "overlapped" the status bar and the editor flagged it on every
+    /// launch for a crossing that does not exist. They are also what a
+    /// player would separate first: the band is Menu and Map, the edge is
+    /// Auto beside the walking thumb.
+    /// </summary>
+    const string TopId = "openers", SideId = "sidekeys";
+
+    /// <summary>The player's size for a piece, inside the model's band.</summary>
+    static float HudScale(string id)
+    {
+        M59Hud.Piece p = M59Hud.Get(id);
+        return p == null ? 1f : Mathf.Clamp(p.Scale, M59Hud.MinScale, M59Hud.MaxScale);
+    }
+
+    /// <summary>The size the pinned controls were last dressed at.</summary>
+    static float _dressedAt = 1f, _dressedAtLeft = 1f;
+
     public static void PlacePinned(Vector2 v, Button menu)
     {
+        _menu = menu;
+        M59Hud.Register(TopId, "Menu buttons");
+        M59Hud.Register(SideId, "Side buttons");
+
+        // Everything a pinned control is made of scales together: its
+        // height, its width, the gap between two of them and the font in
+        // them. The gaps are what the research is actually about, so a
+        // scaled group keeps its separation rather than crowding.
+        float sc = HudScale(TopId);
+        float tapH = Mathf.Max(TapFloor, TapH * sc);
+        float gap = TapGap * sc;
+        float menuW = Mathf.Max(TapFloor, MenuW * sc);
+        float pinW = Mathf.Max(TapFloor, PinW * sc);
+
+        // The edge column is its own piece, so it carries its own size.
+        float lsc = HudScale(SideId);
+        float ltapH = Mathf.Max(TapFloor, TapH * lsc);
+        float lgap = TapGap * lsc;
+        float lpinW = Mathf.Max(TapFloor, PinW * lsc);
+
         // The top band, centred: Menu, then whatever is pinned beside
         // it. Seats are computed from the FULL group whether or not
         // every member is visible, so hiding one does not slide the
         // others out from under a thumb that was already moving.
-        float width = MenuW;
+        float width = menuW;
         int top = 0;
-        foreach (Seat s in Ordered(Where.Top)) { width += TapGap + PinW; top++; }
+        foreach (Seat s in Ordered(Where.Top)) { width += gap + pinW; top++; }
 
-        float x = Mathf.Round((v.X - width) * 0.5f);
+        var left = new System.Collections.Generic.List<Seat>(Ordered(Where.Left));
+        float leftH = left.Count > 0 ? left.Count * ltapH + (left.Count - 1) * lgap : 0f;
+        float leftY = Mathf.Round(v.Y * 0.46f - leftH * 0.5f);
+
+        // THE NATURAL RECT of each piece is just that piece's own box -
+        // the band across the top, the column down the edge - so a handle
+        // sits on the buttons and nowhere else.
+        float bandX = Mathf.Round((v.X - width) * 0.5f);
+        Vector2 shift = M59Hud.Place(TopId, new Rect2(bandX, Edge, width, tapH), v).Position
+                      - new Vector2(bandX, Edge);
+        Vector2 lshift = left.Count > 0
+            ? M59Hud.Place(SideId, new Rect2(Edge, leftY, lpinW, leftH), v).Position
+              - new Vector2(Edge, leftY)
+            : Vector2.Zero;
+
+        float alpha = Alpha(TopId);
+        float lalpha = Alpha(SideId);
+        float x = bandX + shift.X;
+        float y = Edge + shift.Y;
         if (menu != null)
         {
-            menu.Position = new Vector2(x, Edge);
-            menu.Size = new Vector2(MenuW, TapH);
+            menu.Position = new Vector2(x, y);
+            menu.Size = new Vector2(menuW, tapH);
+            menu.Modulate = new Color(1f, 1f, 1f, alpha);
         }
-        x += MenuW + TapGap;
+        x += menuW + gap;
         foreach (Seat s in Ordered(Where.Top))
         {
             DressPinned(s.Button);
-            s.Button.Position = new Vector2(x, Edge);
-            s.Button.Size = new Vector2(PinW, TapH);
-            x += PinW + TapGap;
+            s.Button.Position = new Vector2(x, y);
+            s.Button.Size = new Vector2(pinW, tapH);
+            s.Button.Modulate = new Color(1f, 1f, 1f, alpha);
+            x += pinW + gap;
         }
 
         // The left edge, at the height of the hand rather than at the
@@ -297,19 +398,52 @@ public static class Panels
         // in the corner where the thumb RESTS would eat the gesture the
         // client exists for. Half way up the edge is within reach and
         // is not where anyone plants a thumb to walk.
-        var left = new System.Collections.Generic.List<Seat>(Ordered(Where.Left));
         if (left.Count > 0)
         {
-            float h = left.Count * TapH + (left.Count - 1) * TapGap;
-            float y = Mathf.Round(v.Y * 0.46f - h * 0.5f);
+            float ly = leftY + lshift.Y;
             foreach (Seat s in left)
             {
                 DressPinned(s.Button);
-                s.Button.Position = new Vector2(Edge, y);
-                s.Button.Size = new Vector2(PinW, TapH);
-                y += TapH + TapGap;
+                s.Button.Position = new Vector2(Edge + lshift.X, ly);
+                s.Button.Size = new Vector2(lpinW, ltapH);
+                s.Button.Modulate = new Color(1f, 1f, 1f, lalpha);
+                ly += ltapH + lgap;
             }
         }
+
+        // The font last, and only when the size moved: a control keeps
+        // whatever size it was given, so a group that scaled its boxes
+        // and not its captions is the obvious failure.
+        if (!Mathf.IsEqualApprox(_dressedAt, sc) || !Mathf.IsEqualApprox(_dressedAtLeft, lsc))
+        {
+            _dressedAt = sc;
+            _dressedAtLeft = lsc;
+            int pt = Mathf.Max(8, Mathf.RoundToInt((M59Skin.BodySize + 2) * sc));
+            int lpt = Mathf.Max(8, Mathf.RoundToInt((M59Skin.BodySize + 2) * lsc));
+            foreach (Button b in Dressed)
+                if (GodotObject.IsInstanceValid(b)) b.AddThemeFontSizeOverride("font_size", pt);
+            // The edge column last, over the top of the loop above: its
+            // buttons are in Dressed too, and its caption follows its own
+            // piece's size rather than the band's.
+            foreach (Seat s in left)
+                if (GodotObject.IsInstanceValid(s.Button))
+                    s.Button.AddThemeFontSizeOverride("font_size", lpt);
+            if (menu != null)
+                menu.AddThemeFontSizeOverride("font_size",
+                    Mathf.Max(8, Mathf.RoundToInt((M59Skin.TitleSize - 2) * sc)));
+        }
+    }
+
+    /// <summary>
+    /// The player's transparency for this piece. Applied here rather than
+    /// through <see cref="M59Hud.Dress"/> because these controls have no
+    /// common parent: each one belongs to the panel it opens.
+    /// </summary>
+    static float Alpha(string id)
+    {
+        M59Hud.Piece p = M59Hud.Get(id);
+        if (p == null) return 1f;
+        return M59Hud.Editing ? 1f : Mathf.Clamp(p.Alpha, M59Hud.MinAlpha, M59Hud.MaxAlpha);
     }
 
     /// <summary>The seats in one place, in the order the panels asked for.</summary>
@@ -323,9 +457,31 @@ public static class Panels
         return list;
     }
 
+    /// <summary>
+    /// What the layout store says about the pinned piece, as one value.
+    /// The drawer asks TakeDirty every frame and is the only thing that
+    /// can place these, so this is where a moved piece is noticed - an
+    /// event alone would miss a layout LOADED after the row was built.
+    /// </summary>
+    static string HudStamp()
+    {
+        return One(TopId) + "|" + One(SideId);
+
+        static string One(string id)
+        {
+            M59Hud.Piece p = M59Hud.Get(id);
+            if (p == null) return "";
+            return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
+        }
+    }
+
+    static string _stamp = "";
+
     /// <summary>True once, after the registry changed - the drawer rebuilds on it.</summary>
     internal static bool TakeDirty()
     {
+        string stamp = HudStamp();
+        if (stamp != _stamp) { _stamp = stamp; _dirty = true; }
         if (!_dirty) return false;
         _dirty = false;
         return true;

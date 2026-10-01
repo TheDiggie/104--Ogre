@@ -137,7 +137,61 @@ public partial class Vitals : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
         SetProcess(true);
+
+        // One movable cluster: the four bars and their plate read as a
+        // column, so they move and scale together. See M59Hud.
+        M59Hud.Register("vitals", "Vitals", this);
+        M59Hud.Changed += QueueRedraw;
     }
+
+    public override void _ExitTree() => M59Hud.Changed -= QueueRedraw;
+
+    /// <summary>
+    /// Everything the layout store says about this piece, as one value.
+    ///
+    /// Compared every frame on the cheap entry point below, because a
+    /// piece that lays itself out only on an event cannot see a layout
+    /// LOADED after it was built, or an editor that changed a piece
+    /// without raising Changed - and the failure is silent: the piece
+    /// draws itself exactly where it used to be.
+    /// </summary>
+    static string HudStamp(string id)
+    {
+        M59Hud.Piece p = M59Hud.Get(id);
+        if (p == null) return "";
+        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
+    }
+
+    string _stamp = "";
+
+    /// <summary>The player's size for this cluster, inside the model's band.</summary>
+    static float HudScale()
+    {
+        M59Hud.Piece p = M59Hud.Get("vitals");
+        return p == null ? 1f : Mathf.Clamp(p.Scale, M59Hud.MinScale, M59Hud.MaxScale);
+    }
+
+    /// <summary>
+    /// The font size the labels were last built at, so a scale change
+    /// re-applies the override. A Label keeps whatever size it was given;
+    /// without this the plate and the bars would scale and the digits on
+    /// them would not, which is the obvious failure.
+    /// </summary>
+    float _dressedAt;
+
+    void Redress(float scale)
+    {
+        if (Mathf.IsEqualApprox(_dressedAt, scale)) return;
+        _dressedAt = scale;
+        for (int i = 0; i < _names.Length; i++)
+        {
+            _names[i].AddThemeFontSizeOverride("font_size", Pt(FontSize, scale));
+            _values[i].AddThemeFontSizeOverride("font_size", Pt(FontSize + 1, scale));
+        }
+    }
+
+    /// <summary>A scaled font size, never small enough to stop being text.</summary>
+    static int Pt(int at1, float scale) => Mathf.Max(8, Mathf.RoundToInt(at1 * scale));
 
     /// <summary>
     /// Where the block sits, in the top-left corner. The game keeps its
@@ -167,6 +221,13 @@ public partial class Vitals : Control
     public void Follow(DataController data)
     {
         _data = data;
+        // The player's transparency, every frame: it is the one part of
+        // this that does not come out of the data.
+        M59Hud.Dress("vitals");
+        // And their layout, before the signature test below: a drag does
+        // not change a number, so nothing else would redraw.
+        string stamp = HudStamp("vitals");
+        if (stamp != _stamp) { _stamp = stamp; QueueRedraw(); }
         if (data?.AvatarCondition == null) return;
 
         // Every field _Draw actually reads has to be in here, or the bar
@@ -195,17 +256,36 @@ public partial class Vitals : Control
     public override void _Draw()
     {
         if (_data?.AvatarCondition == null) return;
+        // The player's own choice, and separate from the client's: the
+        // host still hides this control out of the world, and this only
+        // says whether the player wants to see it while it is up.
+        if (!M59Hud.Shows("vitals")) { HideLabels(0); return; }
 
         int count = _data.AvatarCondition.Count;
         if (count == 0) return;
 
         EnsureLabels(count);
 
-        float pitch = BarHeight + RowGap;
-        float barX = Left + Pad + NameW + NameGap;
-        float plateW = Pad + NameW + NameGap + BarWidth + Pad;
-        float plateH = Pad * 2f + pitch * count - RowGap;
-        DrawStyleBox(Plate(), new Rect2(Left, Top, plateW, plateH));
+        // THE NATURAL RECT, now computed at the player's size: every
+        // metric inside the plate is multiplied, so the plate, the
+        // gutter, the bars, the gaps and the two labels grow together -
+        // a plate that scaled on its own would be a bigger box round the
+        // same small bars. Nothing here is pressed (the whole control
+        // ignores the mouse), so no touch-target floor applies.
+        float sc = HudScale();
+        Redress(sc);
+        float pad = Pad * sc, nameW = NameW * sc, nameGap = NameGap * sc;
+        float barW = BarWidth * sc, barH = BarHeight * sc;
+        float pitch = barH + RowGap * sc;
+        float plateW = pad + nameW + nameGap + barW + pad;
+        float plateH = pad * 2f + pitch * count - RowGap * sc;
+
+        // Where the designer put it, then where the player dragged it.
+        Rect2 at = M59Hud.Place("vitals", new Rect2(Left, Top, plateW, plateH),
+                                GetViewportRect().Size);
+        float left = at.Position.X, top = at.Position.Y;
+        float barX = left + pad + nameW + nameGap;
+        DrawStyleBox(Plate(), new Rect2(at.Position, at.Size));
 
         _lowSomething = false;
         int i = 0;
@@ -233,11 +313,12 @@ public partial class Vitals : Control
                 c = c.Lerp(new Color(1f, 1f, 1f), 0.35f * pulse);
             }
 
-            float row = Top + Pad + pitch * i;
-            var bar = new Rect2(barX, row, BarWidth, BarHeight);
+            float row = top + pad + pitch * i;
+            var bar = new Rect2(barX, row, barW, barH);
             DrawRect(bar, Back);
-            DrawRect(new Rect2(barX + 1f, row + 1f, (BarWidth - 2f) * fill, BarHeight - 2f), c);
-            DrawRect(bar, Edge, false, 1f);
+            float rim = Mathf.Max(1f, Mathf.Round(sc));
+            DrawRect(new Rect2(barX + rim, row + rim, (barW - rim * 2f) * fill, barH - rim * 2f), c);
+            DrawRect(bar, Edge, false, rim);
 
             // The low mark, outside the bar: a ring that pulses with the
             // fill. A player glancing at the corner of the eye sees the
@@ -245,7 +326,7 @@ public partial class Vitals : Control
             // the game's own blink cannot say on a phone, where the bar
             // is a third the size it is on a monitor.
             if (low)
-                DrawRect(bar.Grow(2f), new Color(Warn.R, Warn.G, Warn.B, 0.35f + 0.5f * pulse), false, 2f);
+                DrawRect(bar.Grow(2f * sc), new Color(Warn.R, Warn.G, Warn.B, 0.35f + 0.5f * pulse), false, 2f * sc);
 
             // The name as well as the numbers. `UIAvatar.cpp` puts the
             // condition's own icon beside each bar - Resource.Frames[0]
@@ -263,8 +344,8 @@ public partial class Vitals : Control
             string name = s.ResourceName;
             Label label = _names[i];
             label.Text = string.IsNullOrWhiteSpace(name) ? "" : name;
-            label.Position = new Vector2(Left + Pad, row);
-            label.Size = new Vector2(NameW, BarHeight);
+            label.Position = new Vector2(left + pad, row);
+            label.Size = new Vector2(nameW, barH);
             label.Visible = true;
 
             Label value = _values[i];
@@ -272,14 +353,21 @@ public partial class Vitals : Control
             // Inset from the bar's right rim so the digits are not
             // against the edge, and sized to the whole bar so the right
             // alignment lands in the same column on all four rows.
-            value.Position = new Vector2(barX + 4f, row);
-            value.Size = new Vector2(BarWidth - 8f, BarHeight);
+            value.Position = new Vector2(barX + 4f * sc, row);
+            value.Size = new Vector2(barW - 8f * sc, barH);
             value.AddThemeColorOverride("font_color", low ? Warn : M59Skin.Text);
             value.Visible = true;
             i++;
         }
 
-        for (; i < _names.Length; i++) { _names[i].Visible = false; _values[i].Visible = false; }
+        HideLabels(i);
+    }
+
+    /// <summary>Puts away the rows past <paramref name="from"/>.</summary>
+    void HideLabels(int from)
+    {
+        for (int i = from; i < _names.Length; i++)
+        { _names[i].Visible = false; _values[i].Visible = false; }
     }
 
     /// <summary>The client's own bar colours, by stat.</summary>
@@ -304,8 +392,8 @@ public partial class Vitals : Control
         Array.Copy(_values, values, _values.Length);
         for (int i = _names.Length; i < count; i++)
         {
-            names[i] = Text(FontSize, M59Skin.GoldDim, HorizontalAlignment.Left);
-            values[i] = Text(FontSize + 1, M59Skin.Text, HorizontalAlignment.Right);
+            names[i] = Text(Pt(FontSize, _dressedAt > 0f ? _dressedAt : 1f), M59Skin.GoldDim, HorizontalAlignment.Left);
+            values[i] = Text(Pt(FontSize + 1, _dressedAt > 0f ? _dressedAt : 1f), M59Skin.Text, HorizontalAlignment.Right);
         }
         _names = names;
         _values = values;

@@ -203,10 +203,74 @@ public partial class ActionButtons : Control
     /// <summary>Hotbar seats: the arc, less the one Next takes.</summary>
     public const int HotSeats = ArcSeats - 1;
 
+    // ---- the player's size, applied to that geometry ----------------
+    //
+    // THE ARC STAYS AN ARC because the radius and the buttons scale by
+    // the SAME factor. The seat count and the angles above are a
+    // statement about a CHORD over a radius - 112 points of chord at 240
+    // subtending 26.9 degrees - and multiplying both terms leaves that
+    // ratio alone, so five seats still sit where the arithmetic says and
+    // the rim-to-rim separation scales with everything else rather than
+    // closing up. Scaling the radius alone would crowd the seats; scaling
+    // the buttons alone would overlap them.
+
+    /// <summary>The player's size for this cluster, inside the model's band.</summary>
+    static float HudScale()
+    {
+        M59Hud.Piece p = M59Hud.Get("combat");
+        return p == null ? 1f : Mathf.Clamp(p.Scale, M59Hud.MinScale, M59Hud.MaxScale);
+    }
+
+    /// <summary>
+    /// The smallest anything here may become. Every control in the
+    /// cluster is pressed, and the primary is leant on, so the scale's
+    /// floor of 0.7 is not allowed to take one under the 44 points a
+    /// thumb needs - at the shipped sizes it does not come close (96,
+    /// 160 and 72 scale to 67, 112 and 50), so this is a guard rather
+    /// than a clamp that fires.
+    /// </summary>
+    const float TapFloor = 44f;
+
+    /// <summary>The arc's radius at the player's size.</summary>
+    float Arc => ArcR * HudScale();
+    /// <summary>An arc seat's diameter at the player's size.</summary>
+    float Btn => Mathf.Max(TapFloor, ButtonSize * HudScale());
+    /// <summary>The primary's diameter at the player's size.</summary>
+    float Atk => Mathf.Max(TapFloor, AttackSize * HudScale());
+    /// <summary>The page stepper's diameter at the player's size.</summary>
+    float Turn => Mathf.Max(TapFloor, TurnSize * HudScale());
+    /// <summary>The composed icon's edge at the player's size.</summary>
+    int IconPx => Mathf.Max(8, Mathf.RoundToInt(IconSize * HudScale()));
+    /// <summary>A scaled font size, never small enough to stop being text.</summary>
+    static int Pt(int at1, float sc) => Mathf.Max(8, Mathf.RoundToInt(at1 * sc));
+
+    /// <summary>
+    /// The player's drag, as the last layout resolved it. Added to the
+    /// pivot, so the primary, the arc and the stepper all move together
+    /// and the geometry above is untouched by it.
+    /// </summary>
+    Vector2 _shift;
+
     /// <summary>The primary's centre, which the whole cluster hangs off.</summary>
     Vector2 Pivot(Vector2 v) => new Vector2(
-        v.X - EdgeRight - AttackSize * 0.5f,
-        v.Y - BottomReserve - EdgeBottom - AttackSize * 0.5f);
+        v.X - EdgeRight - Atk * 0.5f,
+        v.Y - BottomReserve - EdgeBottom - Atk * 0.5f) + _shift;
+
+    /// <summary>
+    /// The cluster's own box, before the player has dragged it: the
+    /// primary and every arc seat. This is the natural rect the layout
+    /// store is handed, and the whole cluster moves by the difference
+    /// between it and what comes back.
+    /// </summary>
+    Rect2 Natural(Vector2 v)
+    {
+        Vector2 held = _shift;
+        _shift = Vector2.Zero;
+        Rect2 box = Round(Pivot(v), Atk);
+        for (int i = 0; i < ArcSeats; i++) box = box.Merge(Round(Seat(v, i), Btn));
+        _shift = held;
+        return box;
+    }
 
     /// <summary>
     /// Seat 0 is the top of the arc and holds Next; 1 upwards are the
@@ -215,7 +279,7 @@ public partial class ActionButtons : Control
     Vector2 Seat(Vector2 v, int i)
     {
         float a = Mathf.DegToRad(ArcFrom + (ArcTo - ArcFrom) * i / (ArcSeats - 1));
-        return Pivot(v) + new Vector2(Mathf.Cos(a), -Mathf.Sin(a)) * ArcR;
+        return Pivot(v) + new Vector2(Mathf.Cos(a), -Mathf.Sin(a)) * Arc;
     }
 
     /// <summary>
@@ -228,7 +292,7 @@ public partial class ActionButtons : Control
     Vector2 TurnSeat(Vector2 v)
     {
         float a = Mathf.DegToRad(ArcFrom + (ArcTo - ArcFrom) * 2.5f / (ArcSeats - 1));
-        return Pivot(v) + new Vector2(Mathf.Cos(a), -Mathf.Sin(a)) * (ArcR * 0.625f);
+        return Pivot(v) + new Vector2(Mathf.Cos(a), -Mathf.Sin(a)) * (Arc * 0.625f);
     }
 
     /// <summary>A round control's rect, from its centre and diameter.</summary>
@@ -292,10 +356,25 @@ public partial class ActionButtons : Control
 
     public override void _Ready()
     {
+        // ONE piece, and that is the designer's ruling: the arc is
+        // computed around the primary and the stepper sits inside it, so
+        // the cluster moves and scales as a unit. See M59Hud.
+        M59Hud.Register("combat", "Combat buttons", this);
+        M59Hud.Changed += OnHudChanged;
+
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
         GetViewport().SizeChanged += () => { _signature = ""; Sync(_data); };
     }
+
+    public override void _ExitTree() => M59Hud.Changed -= OnHudChanged;
+
+    /// <summary>
+    /// The player moved something. The cluster is rebuilt from a
+    /// signature, so the way to re-lay it is to spend the signature -
+    /// exactly as the reserves and the viewport do.
+    /// </summary>
+    void OnHudChanged() { _signature = ""; Sync(_data); }
 
     /// <summary>
     /// A kind the hotbar holds that the library has no
@@ -563,6 +642,9 @@ public partial class ActionButtons : Control
     public void Sync(DataController data)
     {
         _data = data;
+        // The player's transparency, every frame: it is the one part of
+        // the cluster that no rebuild signature can carry.
+        M59Hud.Dress("combat");
         // No list means no world yet: the whole cluster goes, rings and
         // Next included. A ring left on screen over the character picker
         // is the sort of thing that reads as a renderer fault.
@@ -581,6 +663,13 @@ public partial class ActionButtons : Control
             if (b != null && b.ButtonType != ActionButtonType.Unset) set.Add(b);
 
         Vector2 v = GetViewportRect().Size;
+        float sc = HudScale();
+
+        // Where the player put the cluster, resolved before anything in
+        // it is placed: the natural box is the designer's, and everything
+        // below hangs off a pivot that carries the difference.
+        Rect2 nat = Natural(v);
+        _shift = M59Hud.Place("combat", nat, v).Position - nat.Position;
 
         // The primary is the slot that holds the game's Attack action -
         // the same config, the same press, the same hold - drawn at
@@ -664,6 +753,15 @@ public partial class ActionButtons : Control
         sb.Append('@').Append((int)v.X).Append('x').Append((int)v.Y)
           .Append('@').Append((int)BottomReserve).Append('@').Append((int)LeftReserve)
           .Append('@').Append(_page).Append('/').Append(pages);
+        // And where the player has put it. Without these a drag, a resize
+        // or a hide would leave the cluster exactly where it was: the
+        // rebuild is what applies them, as it is for the reserve above.
+        M59Hud.Piece piece = M59Hud.Get("combat");
+        if (piece != null)
+            sb.Append('@').Append((int)piece.Offset.X).Append(',').Append((int)piece.Offset.Y)
+              .Append('@').Append(piece.Scale.ToString("0.###"))
+              .Append('@').Append(piece.Hidden ? 1 : 0)
+              .Append('@').Append(M59Hud.Editing ? 1 : 0);
 
         string now = sb.ToString();
         if (now == _signature) return;
@@ -682,7 +780,7 @@ public partial class ActionButtons : Control
             bool primary = i < 0;
             if (primary && anchor == null) continue;
             ActionButtonConfig cfg = primary ? anchor : arc[first + i];
-            float d = primary ? AttackSize : ButtonSize;
+            float d = primary ? Atk : Btn;
             Rect2 cell = Round(primary ? Pivot(v) : Seat(v, i + 1), d);
             Button b = Take(at0);
 
@@ -716,7 +814,7 @@ public partial class ActionButtons : Control
             // picture to show - the seeded set is all actions - so the
             // word IS the icon here, and "Attack" at body size in a
             // 160-point circle is the row of small text buttons again.
-            b.AddThemeFontSizeOverride("font_size", primary ? M59Skin.TitleSize : FontSize);
+            b.AddThemeFontSizeOverride("font_size", Pt(primary ? M59Skin.TitleSize : FontSize, sc));
             // The reference's tooltip is the name over "Key: <label>"
             // (`:177-183`); Label is the keyboard binding, which a phone
             // does not have, so the second line is spent on the thing
@@ -732,7 +830,7 @@ public partial class ActionButtons : Control
                 : cfg.Name;
             b.Position = cell.Position;
             b.Size = cell.Size;
-            SlotEdge(b, d, primary);
+            SlotEdge(b, d, primary, false, sc);
             b.Visible = true;
 
             // The slot, not the button number and not the config object.
@@ -798,14 +896,16 @@ public partial class ActionButtons : Control
             _nextBtn = new Button { Text = "Next", ClipText = true };
             _nextBtn.Name = "hotnext";
             _nextBtn.TooltipText = "Next target";
-            _nextBtn.AddThemeFontSizeOverride("font_size", FontSize);
             _nextBtn.Pressed += PressNext;
             AddChild(_nextBtn);
         }
-        Rect2 nextCell = Round(Seat(v, 0), ButtonSize);
+        // Dressed on every rebuild rather than once, so the caption
+        // follows the player's size.
+        _nextBtn.AddThemeFontSizeOverride("font_size", Pt(FontSize, sc));
+        Rect2 nextCell = Round(Seat(v, 0), Btn);
         _nextBtn.Position = nextCell.Position;
         _nextBtn.Size = nextCell.Size;
-        SlotEdge(_nextBtn, ButtonSize, false, true);
+        SlotEdge(_nextBtn, Btn, false, true, sc);
         _nextBtn.Visible = true;
 
         // The page button, saying where you are.
@@ -820,7 +920,6 @@ public partial class ActionButtons : Control
                 // A stepper, not a slot: it moves the cluster rather
                 // than doing anything in the world.
                 M59Skin.Dress(_turn, M59Skin.Kind.Step);
-                _turn.AddThemeFontSizeOverride("font_size", 18);
                 _turn.Name = "hotpage";
                 _turn.TooltipText = "More buttons";
                 _turn.Pressed += () =>
@@ -834,18 +933,19 @@ public partial class ActionButtons : Control
                 AddChild(_turn);
             }
             _turn.Text = $"{_page + 1}/{pages}";
+            _turn.AddThemeFontSizeOverride("font_size", Pt(18, sc));
             // Round, like everything else in the cluster - the skin's
             // Step is a rounded square, and one square among six circles
             // reads as a thing that failed to load rather than as a
             // stepper. Its COLOURS stay the stepper's, which is what
             // says it is not another action.
-            var face = Cell(M59Skin.Rule, new Color(0.157f, 0.141f, 0.118f, 0.94f), 2, TurnSize);
-            var hit = Cell(M59Skin.GoldDim, new Color(0.267f, 0.224f, 0.157f, 0.96f), 2, TurnSize);
+            var face = Cell(M59Skin.Rule, new Color(0.157f, 0.141f, 0.118f, 0.94f), Rim(2, sc), Turn);
+            var hit = Cell(M59Skin.GoldDim, new Color(0.267f, 0.224f, 0.157f, 0.96f), Rim(2, sc), Turn);
             _turn.AddThemeStyleboxOverride("normal", face);
             _turn.AddThemeStyleboxOverride("hover", face);
             _turn.AddThemeStyleboxOverride("focus", face);
             _turn.AddThemeStyleboxOverride("pressed", hit);
-            Rect2 turnCell = Round(TurnSeat(v), TurnSize);
+            Rect2 turnCell = Round(TurnSeat(v), Turn);
             _turn.Position = turnCell.Position;
             _turn.Size = turnCell.Size;
             _turn.Visible = true;
@@ -859,17 +959,33 @@ public partial class ActionButtons : Control
         // this page - and none at all while the page is full, which is
         // the usual case with the seeded set.
         int ring = 0;
-        if (anchor == null) Ring(ring++, Round(Pivot(v), AttackSize));
-        for (int i = count; i < HotSeats; i++) Ring(ring++, Round(Seat(v, i + 1), ButtonSize));
+        if (anchor == null) Ring(ring++, Round(Pivot(v), Atk), sc);
+        for (int i = count; i < HotSeats; i++) Ring(ring++, Round(Seat(v, i + 1), Btn), sc);
         for (int i = ring; i < _rings.Count; i++) _rings[i].Visible = false;
 
         // The highest seat, not seat 0: the arc's top is one step round
         // from the end that leans towards the screen edge.
+        //
+        // Still published when the player has hidden the cluster: it is
+        // where the cluster WOULD be, and the target block stands on it,
+        // so hiding this one must not make that one jump down the screen.
         float top = v.Y * 0.58f;
         for (int i = 0; i < ArcSeats; i++)
-            top = Mathf.Min(top, Round(Seat(v, i), ButtonSize).Position.Y - M59Skin.Gap);
+            top = Mathf.Min(top, Round(Seat(v, i), Btn).Position.Y - M59Skin.Gap);
         Ceiling = top;
         Measure(v, anchor, count, paged);
+
+        // The player's own hide, last and under everything the client
+        // decided: the host still hides the whole control when a panel is
+        // up or the drawer is open, and this only says whether the player
+        // wants to see the cluster while it is allowed to be there.
+        if (!M59Hud.Shows("combat"))
+        {
+            HideFrom(0);
+            for (int i = 0; i < _rings.Count; i++) _rings[i].Visible = false;
+            if (_turn != null) _turn.Visible = false;
+            if (_nextBtn != null) _nextBtn.Visible = false;
+        }
     }
 
     /// <summary>
@@ -1151,11 +1267,14 @@ public partial class ActionButtons : Control
         if (cfg.Data is not ObjectBase o || o.Resource == null) return null;
 
         int frame = o.ViewerFrameIndex >= 0 ? o.ViewerFrameIndex : 0;
-        string key = $"{o.Resource.Filename}:{frame}:{IconSize}:{o.ColorTranslation}:{o.Effect}";
+        // The composed size is in the key, so a scaled cluster composes
+        // its pictures again rather than stretching the small ones.
+        int px = IconPx;
+        string key = $"{o.Resource.Filename}:{frame}:{px}:{o.ColorTranslation}:{o.Effect}";
         if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
 
         ImageTexture tex = null;
-        try { tex = M59Assets.FromTex(M59Compose.Icon(o, IconSize)); }
+        try { tex = M59Assets.FromTex(M59Compose.Icon(o, px)); }
         catch (Exception e) { GD.PrintErr($"[ActionButtons] icon: {e.Message}"); }
         _icons[key] = tex;
         return tex;
@@ -1205,6 +1324,7 @@ public partial class ActionButtons : Control
         {
             var b = new Button { Visible = false, ClipText = true };
             M59Skin.Dress(b, M59Skin.Kind.Slot);
+            // A placeholder: the rebuild sets the real size, scaled.
             b.AddThemeFontSizeOverride("font_size", FontSize);
             // An alias shows its picture AND its key, and a 24px
             // sprite with a word beside it does not fit a 96 circle.
@@ -1244,13 +1364,19 @@ public partial class ActionButtons : Control
     /// cell, so it reads as holding something; Next is dressed apart, dim
     /// gold on a darker cell, because it acquires rather than acts.
     /// </summary>
-    static void SlotEdge(Button b, float d, bool primary, bool target = false)
+    /// <summary>
+    /// A rim width at the player's size. A two-pixel rim on a cell half
+    /// again as wide is a hairline, so the frame scales with the cell.
+    /// </summary>
+    static int Rim(int at1, float sc) => Mathf.Max(1, Mathf.RoundToInt(at1 * sc));
+
+    static void SlotEdge(Button b, float d, bool primary, bool target = false, float sc = 1f)
     {
         StyleBoxFlat normal, down;
         if (primary)
         {
-            normal = Cell(M59Skin.Gold, new Color(0.286f, 0.231f, 0.129f, 0.96f), 3, d);
-            down = Cell(M59Skin.GoldBright, new Color(0.420f, 0.329f, 0.169f, 0.98f), 4, d);
+            normal = Cell(M59Skin.Gold, new Color(0.286f, 0.231f, 0.129f, 0.96f), Rim(3, sc), d);
+            down = Cell(M59Skin.GoldBright, new Color(0.420f, 0.329f, 0.169f, 0.98f), Rim(4, sc), d);
             b.AddThemeColorOverride("font_color", M59Skin.GoldBright);
             b.AddThemeColorOverride("font_pressed_color", M59Skin.GoldBright);
             b.AddThemeColorOverride("font_hover_color", M59Skin.GoldBright);
@@ -1258,16 +1384,16 @@ public partial class ActionButtons : Control
         }
         else if (target)
         {
-            normal = Cell(M59Skin.GoldDim, new Color(0.110f, 0.100f, 0.086f, 0.94f), 2, d);
-            down = Cell(M59Skin.Gold, M59Skin.RowPick, 3, d);
+            normal = Cell(M59Skin.GoldDim, new Color(0.110f, 0.100f, 0.086f, 0.94f), Rim(2, sc), d);
+            down = Cell(M59Skin.Gold, M59Skin.RowPick, Rim(3, sc), d);
             b.AddThemeColorOverride("font_color", M59Skin.Gold);
             b.AddThemeColorOverride("font_pressed_color", M59Skin.GoldBright);
             b.AddThemeColorOverride("font_hover_color", M59Skin.Gold);
         }
         else
         {
-            normal = Cell(M59Skin.EdgeLit, new Color(0.078f, 0.071f, 0.063f, 0.94f), 2, d);
-            down = Cell(M59Skin.Gold, M59Skin.RowPick, 3, d);
+            normal = Cell(M59Skin.EdgeLit, new Color(0.078f, 0.071f, 0.063f, 0.94f), Rim(2, sc), d);
+            down = Cell(M59Skin.Gold, M59Skin.RowPick, Rim(3, sc), d);
             b.AddThemeColorOverride("font_color", M59Skin.Text);
             b.AddThemeColorOverride("font_pressed_color", M59Skin.GoldBright);
             b.AddThemeColorOverride("font_hover_color", M59Skin.Text);
@@ -1304,7 +1430,7 @@ public partial class ActionButtons : Control
     /// third of the rim's strength and with no caption it says "a seat"
     /// without saying it louder than the bindings beside it.
     /// </summary>
-    void Ring(int index, Rect2 cell)
+    void Ring(int index, Rect2 cell, float sc = 1f)
     {
         while (_rings.Count <= index)
         {
@@ -1317,7 +1443,7 @@ public partial class ActionButtons : Control
         }
         Panel ring = _rings[index];
         var s = Cell(new Color(M59Skin.Rule.R, M59Skin.Rule.G, M59Skin.Rule.B, 0.35f),
-                     new Color(0f, 0f, 0f, 0.18f), 2, cell.Size.X);
+                     new Color(0f, 0f, 0f, 0.18f), Rim(2, sc), cell.Size.X);
         ring.AddThemeStyleboxOverride("panel", s);
         ring.Position = cell.Position;
         ring.Size = cell.Size;
@@ -1359,19 +1485,20 @@ public partial class ActionButtons : Control
             $"  up={(v.Y - r.Position.Y - r.Size.Y * 0.5f) / v.Y * 100f,4:0}%");
 
         GD.Print($"[hud] viewport {v.X}x{v.Y} reserve b={BottomReserve} l={LeftReserve}" +
-                 $" ceiling={Ceiling:0} page={_page + 1} paged={paged}");
-        Say(anchor != null ? "ATTACK" : "attack(-)", Round(Pivot(v), AttackSize));
-        Say("next", Round(Seat(v, 0), ButtonSize));
+                 $" ceiling={Ceiling:0} page={_page + 1} paged={paged}" +
+                 $" scale={HudScale():0.00} shift={_shift.X:0},{_shift.Y:0}");
+        Say(anchor != null ? "ATTACK" : "attack(-)", Round(Pivot(v), Atk));
+        Say("next", Round(Seat(v, 0), Btn));
         for (int i = 1; i < ArcSeats; i++)
-            Say(i <= count ? $"seat{i}" : $"seat{i}(-)", Round(Seat(v, i), ButtonSize));
-        if (paged) Say("page", Round(TurnSeat(v), TurnSize));
+            Say(i <= count ? $"seat{i}" : $"seat{i}(-)", Round(Seat(v, i), Btn));
+        if (paged) Say("page", Round(TurnSeat(v), Turn));
 
         // The gaps that the rules are actually about: rim to rim, which
         // is what a thumb feels, not centre to centre.
-        float rim = ArcR - AttackSize * 0.5f - ButtonSize * 0.5f;
-        float step = (Seat(v, 1) - Seat(v, 0)).Length() - ButtonSize;
-        float turn = (TurnSeat(v) - Pivot(v)).Length() - AttackSize * 0.5f - TurnSize * 0.5f;
-        float near = (TurnSeat(v) - Seat(v, 2)).Length() - TurnSize * 0.5f - ButtonSize * 0.5f;
+        float rim = Arc - Atk * 0.5f - Btn * 0.5f;
+        float step = (Seat(v, 1) - Seat(v, 0)).Length() - Btn;
+        float turn = (TurnSeat(v) - Pivot(v)).Length() - Atk * 0.5f - Turn * 0.5f;
+        float near = (TurnSeat(v) - Seat(v, 2)).Length() - Turn * 0.5f - Btn * 0.5f;
         GD.Print($"[hud] gaps primary-to-arc={rim:0} arc-to-arc={step:0}" +
                  $" primary-to-page={turn:0} page-to-arc={near:0}");
     }

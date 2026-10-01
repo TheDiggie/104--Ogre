@@ -92,8 +92,49 @@ public partial class AvatarPanel : Control
         Tight(_head);
 
         GetViewport().SizeChanged += Layout;
+
+        // The portrait and the enchantments under it are one piece in the
+        // layout store, named for the thing the player grabs. It is its
+        // own piece rather than part of "vitals" because the game keeps
+        // them in one panel but they are two controls here, and a player
+        // who wants the bars somewhere else usually wants the face where
+        // it was. See M59Hud.
+        M59Hud.Register("portrait", "Portrait", this);
+        M59Hud.Changed += Layout;
         Layout();
     }
+
+    public override void _ExitTree() => M59Hud.Changed -= Layout;
+
+    /// <summary>
+    /// Everything the layout store says about this piece, as one value.
+    /// Compared on the per-frame entry point, because a layout LOADED
+    /// after _Ready leaves the piece drawn where it used to be and says
+    /// nothing about it.
+    /// </summary>
+    static string HudStamp()
+    {
+        M59Hud.Piece p = M59Hud.Get("portrait");
+        if (p == null) return "";
+        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
+    }
+
+    string _stamp = "";
+
+    /// <summary>The player's size for this piece, inside the model's band.</summary>
+    static float HudScale()
+    {
+        M59Hud.Piece p = M59Hud.Get("portrait");
+        return p == null ? 1f : Mathf.Clamp(p.Scale, M59Hud.MinScale, M59Hud.MaxScale);
+    }
+
+    /// <summary>
+    /// Where the portrait actually sits this frame, scale included. The
+    /// enchantment row is laid out from here too, so the whole piece
+    /// travels together.
+    /// </summary>
+    Vector2 _at;
+    float _head1 = 72f;
 
     /// <summary>
     /// Takes the theme's padding off an icon-only button, so the control
@@ -129,8 +170,47 @@ public partial class AvatarPanel : Control
     void Layout()
     {
         if (_head == null) return;
-        _head.Position = new Vector2(Margin, Margin + TopReserve);
-        _head.Size = new Vector2(HeadSize, HeadSize);
+
+        // THE NATURAL RECT - where the designer put the portrait - handed
+        // to the store, which answers with where the player dragged it,
+        // clamped onto the screen. The square is scaled first, so the
+        // rect the editor draws a handle over is the picture's own.
+        float sc = HudScale();
+        _head1 = HeadSize * sc;
+        Rect2 at = M59Hud.Place("portrait",
+            new Rect2(Margin, Margin + TopReserve, _head1, _head1),
+            GetViewportRect().Size);
+        _at = at.Position;
+        _head.Position = _at;
+        _head.Size = at.Size;
+        M59Hud.Dress("portrait");
+        // The player's own hide is ANDed under the client's: the host sets
+        // Visible on this root every frame out of the world, so the hide
+        // lands on the children instead.
+        bool show = M59Hud.Shows("portrait");
+        if (_head.Icon != null) _head.Visible = show;
+        if (!show) HideBuffs(0);
+        else RelayBuffs();
+    }
+
+    /// <summary>
+    /// Puts the enchantments back under the portrait at the piece's
+    /// current place and size, without recomposing any art. Called when
+    /// the layout moves; SyncBuffs does it when the list moves.
+    /// </summary>
+    void RelayBuffs()
+    {
+        float sc = HudScale();
+        float size = BuffSize * sc;
+        int cols = Columns();
+        for (int i = 0; i < _buffs.Count; i++)
+        {
+            if (!_buffs[i].Visible) continue;
+            _buffs[i].Position = _at + new Vector2(
+                (i % cols) * (size + 8f * sc),
+                _head1 + 6f * sc + (i / cols) * (size + 8f * sc));
+            _buffs[i].Size = new Vector2(size + 6f * sc, size + 6f * sc);
+        }
     }
 
     /// <summary>
@@ -142,15 +222,25 @@ public partial class AvatarPanel : Control
     public void Follow(DataController data)
     {
         _data = data;
+        // The player's layout, every frame: a drag does not change the
+        // appearance hash, so nothing below would move the portrait.
+        string stamp = HudStamp();
+        if (stamp != _stamp) { _stamp = stamp; Layout(); }
+
         RoomObject me = data?.AvatarObject;
         if (me == null) { _head.Visible = false; return; }
+        if (!M59Hud.Shows("portrait")) { _head.Visible = false; return; }
 
-        if (me.AppearanceHash == _shown && _head.Icon != null) return;
-        _shown = me.AppearanceHash;
+        // The composed size is part of what is on screen, so a scale
+        // change has to recompose - the hash alone would keep the old,
+        // smaller picture stretched into the bigger button.
+        uint want = me.AppearanceHash ^ (uint)Mathf.RoundToInt(_head1 * 16f);
+        if (want == _shown && _head.Icon != null) return;
+        _shown = want;
 
         try
         {
-            Tex t = M59Compose.Icon(me, HeadSize, (byte)KnownHotspot.HEAD);
+            Tex t = M59Compose.Icon(me, Mathf.RoundToInt(_head1), (byte)KnownHotspot.HEAD);
             _head.Icon = M59Assets.FromTex(t);
             _head.Visible = _head.Icon != null;
         }
@@ -167,7 +257,7 @@ public partial class AvatarPanel : Control
     /// </summary>
     public void SyncBuffs(DataController data)
     {
-        if (data?.AvatarBuffs == null) { HideBuffs(0); return; }
+        if (data?.AvatarBuffs == null || !M59Hud.Shows("portrait")) { HideBuffs(0); return; }
 
         var sb = new System.Text.StringBuilder();
         // Resolution state is in the signature as well as the id: a
@@ -211,10 +301,14 @@ public partial class AvatarPanel : Control
             Button icon = TakeBuff(used);
             icon.Icon = tex;
             icon.TooltipText = b.Name;
-            icon.Position = new Vector2(
-                Margin + (used % cols) * (BuffSize + 8f),
-                Margin + TopReserve + HeadSize + 6f + (used / cols) * (BuffSize + 8f));
-            icon.Size = new Vector2(BuffSize + 6f, BuffSize + 6f);
+            // Laid out from where the piece actually is, at the player's
+            // size - see RelayBuffs, which does the same on a drag.
+            float bsc = HudScale();
+            float bs = BuffSize * bsc;
+            icon.Position = _at + new Vector2(
+                (used % cols) * (bs + 8f * bsc),
+                _head1 + 6f * bsc + (used / cols) * (bs + 8f * bsc));
+            icon.Size = new Vector2(bs + 6f * bsc, bs + 6f * bsc);
             icon.Visible = true;
 
             // Slots are reused as the list changes, so the old handler

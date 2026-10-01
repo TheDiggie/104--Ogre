@@ -301,6 +301,7 @@ public partial class GameView : Node2D
     NewsPanel _news;
     OptionsPanel _options;
     AliasEditor _aliases;
+    HudEditor _hudEditor;
     float _bright = 0f;
     GuildPanel _guild;
     GuildShieldPanel _shieldDesigner;
@@ -497,6 +498,13 @@ public partial class GameView : Node2D
 
         _ui = new CanvasLayer();
         AddChild(_ui);
+
+        // Where the player put their HUD. Read before any piece lays
+        // itself out, so the first frame is already the layout they
+        // saved rather than the designer's with a jump a frame later.
+        // Registering late is still safe - see M59Hud.Register - this is
+        // only about the first frame.
+        M59Hud.Load();
 
         // Everything on this layer is kept off the glass's edge - the
         // system's own cutouts, plus a margin for the curve, which
@@ -777,6 +785,10 @@ public partial class GameView : Node2D
         // reference (`UIOptions.cpp:1241`); here they are their own
         // panel, so Settings closes and it takes its place.
         _options.EditAliases += () => { _options.Close(); _aliases?.Open(); };
+        // The HUD editor draws over the live HUD, so Settings has to
+        // get out of the way first - otherwise the thing being
+        // arranged is underneath the window it was reached from.
+        _options.EditHud += () => { _options.Close(); _hudEditor?.Open(); };
         // Whatever the panel has to say goes through the client's own one
         // popup, which is what the reference does with all four of its
         // password refusals (`ConfirmPopup::ShowOK` at
@@ -1643,6 +1655,16 @@ public partial class GameView : Node2D
                     _chat?.Local($"\"{a.Key}\" is on the hotbar. Drag the button off the row to clear it.");
             };
             _ui.AddChild(_aliases);
+        });
+        Widget("hudEditor", () =>
+        {
+            // No button of its own, for the same reason the alias editor
+            // has none: Settings is the door, and coming back out of the
+            // editor puts Settings back, so the trip is reversible with
+            // the control the player already found.
+            _hudEditor = new HudEditor();
+            _hudEditor.Closed += () => _options?.Open();
+            _ui.AddChild(_hudEditor);
         });
         Widget("guild", () =>
         {
@@ -3156,6 +3178,24 @@ public partial class GameView : Node2D
     {
         RoomObject avatar = _client.Data?.AvatarObject;
         if (avatar == null || _world.Room == null) return;
+
+        // Rearranging the HUD is not playing.
+        //
+        // The editor is a full-screen Control with MouseFilter.Stop, so
+        // a drag on the glass is eaten by it and never reaches
+        // _UnhandledInput - which means TouchControls has nothing to
+        // report and the stick and the look drag are already silent.
+        // This is the other half, for the two inputs that do NOT come
+        // through the touch layer: the keyboard, and autorun, which
+        // keeps walking with nothing touching the screen at all. A
+        // player who stops to move their health bar should come back to
+        // where they stopped, not to a wall.
+        //
+        // Settle() is on the entering edge only and is the right thing:
+        // it is the stop message for a stride already taken, and
+        // SendReqMoveMessage says nothing at all when the position has
+        // not changed (BaseClient.cs:1620-1626).
+        if (M59Hud.Editing) { Settle(); return; }
         // Anything covering the screen or owning the keyboard stops
         // movement, so a drag meant for a list does not also walk you.
         //

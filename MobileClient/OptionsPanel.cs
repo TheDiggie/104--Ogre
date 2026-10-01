@@ -80,6 +80,18 @@ public partial class OptionsPanel : Control
     /// </summary>
     public event Action EditAliases;
 
+    /// <summary>
+    /// The way into the HUD editor.
+    ///
+    /// Settings is where it lives in every mobile game that has one, and
+    /// it is where a player goes looking - not least because the thing
+    /// being edited is the row of buttons they would otherwise have to
+    /// press to get here. Like the aliases, it has no button of its own
+    /// over the world: this row is the only door, and closing the editor
+    /// puts Settings back.
+    /// </summary>
+    public event Action EditHud;
+
     /// <summary>Sound and music, 0..1 after the game's 0..10 scale.</summary>
     public event Action<float> SoundVolume;
     public event Action<float> MusicVolume;
@@ -548,6 +560,13 @@ public partial class OptionsPanel : Control
         // does nothing, which is worse than a row that says why.
         if (Playing) _rows.AddChild(Opens("Aliases", "Edit", () => EditAliases?.Invoke()));
         else _rows.AddChild(Note("You must be logged in to edit your aliases."));
+
+        // The HUD is the interface over the WORLD, so there is nothing to
+        // arrange until there is a world: the pieces register themselves
+        // as they lay out, and before login none of them have.
+        _rows.AddChild(Section("Interface"));
+        if (Playing) _rows.AddChild(Opens("HUD layout", "Arrange", () => EditHud?.Invoke()));
+        else _rows.AddChild(Note("You must be logged in to arrange your HUD."));
 
         Account();
     }

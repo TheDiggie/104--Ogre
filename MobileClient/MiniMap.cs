@@ -251,9 +251,67 @@ public partial class MiniMap : Control
         }
         catch (Exception e) { GD.PrintErr($"[MiniMap] no dial: {e.Message}"); }
 
+        // The dial and its three satellites are ONE cluster: the zoom
+        // pair and the size button sit on the dial's own face, so a
+        // player who moved the dial and left them behind would have
+        // three buttons standing on the world. See M59Hud.
+        M59Hud.Register("minimap", "Map", this);
+        M59Hud.Changed += OnHudChanged;
+
         GetViewport().SizeChanged += Layout;
         Layout();
     }
+
+    public override void _ExitTree() => M59Hud.Changed -= OnHudChanged;
+
+    void OnHudChanged() { Layout(); Redraw(); }
+
+
+    /// <summary>
+    /// Everything the layout store says about this piece, as one value.
+    ///
+    /// Compared every frame on the cheap entry point below, because a
+    /// piece that lays itself out only on an event cannot see a layout
+    /// LOADED after it was built, or an editor that changed a piece
+    /// without raising Changed - and the failure is silent: the piece
+    /// draws itself exactly where it used to be.
+    /// </summary>
+    static string HudStamp(string id)
+    {
+        M59Hud.Piece p = M59Hud.Get(id);
+        if (p == null) return "";
+        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
+    }
+
+    string _stamp = "";
+
+    /// <summary>The player's size for this cluster, inside the model's band.</summary>
+    static float HudScale()
+    {
+        M59Hud.Piece p = M59Hud.Get("minimap");
+        return p == null ? 1f : Mathf.Clamp(p.Scale, M59Hud.MinScale, M59Hud.MaxScale);
+    }
+
+    /// <summary>
+    /// The dial's drawn size: the size the player chose with the size
+    /// button, times the size they gave the whole cluster in the editor.
+    ///
+    /// The two are different things and both are kept. The size button
+    /// walks the reference's 32-pixel grid (`UIMiniMap.cpp:67-77`) and is
+    /// saved with the character; the scale is the editor's, applies to
+    /// the satellites too, and is saved with the layout. Growing the dial
+    /// shows more room at the same zoom, exactly as resizing the
+    /// reference's window does - reach is half the drawn width times the
+    /// zoom.
+    /// </summary>
+    float DialSize => MapSize * HudScale();
+
+    /// <summary>
+    /// Where the dial actually sits, after the player's drag. Written by
+    /// Layout and read by the two draw passes, which used to compute the
+    /// corner from the viewport themselves.
+    /// </summary>
+    Rect2 _dialAt;
 
     /// <summary>
     /// The reference's zoom step: `zoom += wheelChange * -0.2f`, clamped
@@ -328,6 +386,12 @@ public partial class MiniMap : Control
     /// </summary>
     public override void _Process(double delta)
     {
+        // The player's layout. The dial redraws when you move and when
+        // the room changes, neither of which a drag is.
+        string stamp = HudStamp("minimap");
+        if (stamp != _stamp) { _stamp = stamp; Layout(); Redraw(); }
+        Chrome();
+
         if (_held == null) return;
         // A button that lost its press without a release - hidden under a
         // panel, say - must not keep zooming for ever.
@@ -413,36 +477,82 @@ public partial class MiniMap : Control
         // viewport does not turn ninety degrees under it - so the dial
         // is pulled back inside what fits whenever the screen changes.
         MapSize = Mathf.Clamp(MapSize, MinMapSize, FittingMax());
+        float sc = HudScale();
+        float d = DialSize;
         // On the dial's own face rather than under it. Below the dial
         // they sat over the world, where a dark button on a dark wall is
         // barely a shape; the face is pale and holds them.
-        float w = 40f, h = 34f;
-        float left = v.X - MapSize - Margin;
-        float y = Margin + MapSize * 0.72f;
+        //
+        // These three GROW with the cluster and do not shrink below the
+        // size they ship at. 40x34 is already under the 44-point target,
+        // deliberately - they are on the dial's face and there is only so
+        // much face - so the scale's floor is allowed to make the dial
+        // smaller but not these: a map at 0.7 with 28-point buttons on it
+        // would be a map you cannot zoom.
+        float w = Mathf.Max(40f, 40f * sc), h = Mathf.Max(34f, 34f * sc);
+
+        // THE NATURAL RECT is the dial's square, plus whatever the size
+        // button hangs below it - the satellites belong to this piece, so
+        // the box the player drags has to contain them.
+        float drop = d * 0.72f + h * 2f + 4f * sc;
+        var natural = new Rect2(v.X - d - Margin, Margin, d, Mathf.Max(d, drop));
+        _dialAt = M59Hud.Place("minimap", natural, v);
+        float left = _dialAt.Position.X, top = _dialAt.Position.Y;
+        float y = top + d * 0.72f;
+
         _out.Size = _in.Size = new Vector2(w, h);
-        _out.Position = new Vector2(left + MapSize * 0.5f - w - 6f, y);
-        _in.Position = new Vector2(left + MapSize * 0.5f + 6f, y);
+        _out.Position = new Vector2(left + d * 0.5f - w - 6f * sc, y);
+        _in.Position = new Vector2(left + d * 0.5f + 6f * sc, y);
         // The dial's own controls follow the opener row, not just the
         // dial: with the Menu drawer open the Map TOGGLE was hidden and
         // these three were left floating outside the card over the
         // grid. They were never pressable - the drawer's scrim eats the
         // tap - so this is a look rather than a dead control, but a
         // button standing on a modal is a button that looks broken.
-        bool chrome = _shown && Panels.OpenersShown;
-        _in.Visible = _out.Visible = chrome;
+        //
+        // The player's own choice is ANDed on, never substituted: the
+        // opener gate and the map's own toggle still decide first.
+        int glyph = Mathf.Max(8, Mathf.RoundToInt(24f * sc));
+        _in.AddThemeFontSizeOverride("font_size", glyph);
+        _out.AddThemeFontSizeOverride("font_size", glyph);
 
         // The drawsurface fills the dial's square, as the layout's
         // {{0,0},{0,0},{1,0},{1,0}} does (`Meridian59.layout:1272`).
-        _group.Position = new Vector2(left, Margin);
-        _surface.Size = new Vector2(MapSize, MapSize);
-        _group.Visible = _shown;
+        _group.Position = new Vector2(left, top);
+        _surface.Size = new Vector2(d, d);
 
         // The size button sits a row below the zoom pair, still on the
         // dial's pale face for the same reason they are: a dark glyph on
         // a dark wall is not a button.
         _bigger.Size = new Vector2(w, h);
-        _bigger.Position = new Vector2(left + MapSize * 0.5f - w * 0.5f, y + h + 4f);
-        _bigger.Visible = chrome;
+        _bigger.Position = new Vector2(left + d * 0.5f - w * 0.5f, y + h + 4f * sc);
+        _bigger.AddThemeFontSizeOverride("font_size", Mathf.Max(8, Mathf.RoundToInt(18f * sc)));
+
+        Chrome();
+        M59Hud.Dress("minimap");
+    }
+
+    /// <summary>
+    /// What is shown, as against where it is.
+    ///
+    /// Asked every frame rather than only when the dial is laid out, and
+    /// that is a fix rather than a flourish: the dial's own controls
+    /// follow the OPENER ROW, which comes and goes with a panel many
+    /// times a session, while Layout runs on a resize and a button press.
+    /// A layout that happened to land on a frame with the row down left
+    /// the three buttons hidden until the next resize - which is exactly
+    /// what a scaled run showed, a dial with no zoom on it.
+    ///
+    /// The player's own hide is ANDed in here, under the row's gate and
+    /// the map's own toggle, never instead of them.
+    /// </summary>
+    void Chrome()
+    {
+        if (_toggle == null) return;
+        bool shows = M59Hud.Shows("minimap");
+        bool chrome = _shown && Panels.OpenersShown && shows;
+        _in.Visible = _out.Visible = _bigger.Visible = chrome;
+        _group.Visible = _shown && shows;
     }
 
     const string PrefsPath = "user://view.cfg";
@@ -553,14 +663,18 @@ public partial class MiniMap : Control
     {
         // Only the dial's face lives here; the map is on the drawsurface
         // (see <see cref="_group"/>), which is what carries the 0.9.
-        if (!_shown) return;
+        // The player may also have put the whole cluster away, which is
+        // separate from the map's own toggle.
+        if (!_shown || !M59Hud.Shows("minimap")) return;
 
-        Vector2 v = GetViewportRect().Size;
-        var origin = new Vector2(v.X - MapSize - Margin, Margin);
-        float half = MapSize * 0.5f;
+        // Where Layout put it, rather than the corner it used to compute
+        // here: the player may have dragged and scaled the cluster.
+        var origin = _dialAt.Position;
+        float d = DialSize;
+        float half = d * 0.5f;
 
         if (_dial != null)
-            DrawTextureRect(_dial, new Rect2(origin, new Vector2(MapSize, MapSize)), false);
+            DrawTextureRect(_dial, new Rect2(origin, new Vector2(d, d)), false);
         else
             DrawCircle(origin + new Vector2(half, half), half * ClipFraction, Back);
     }
@@ -571,11 +685,14 @@ public partial class MiniMap : Control
         // map-never still has you in it, and the game always draws the
         // dial and the arrow (`MiniMapCEGUI.cpp:274`, `:337`). Bailing
         // on an empty wall list turned that into a blank corner.
-        if (!_shown) return;
+        if (!_shown || !M59Hud.Shows("minimap")) return;
 
         // Local to the drawsurface: it is positioned at the dial's corner.
+        // Half the DRAWN width, so a scaled dial reaches further into the
+        // room at the same zoom - which is what resizing the reference's
+        // window does too.
         var origin = Vector2.Zero;
-        float half = MapSize * 0.5f;
+        float half = DialSize * 0.5f;
         Vector2 centre = origin + new Vector2(half, half);
         // Cut to the game's own pie, `UI_MINIMAP_CLIPPADDING` in from the
         // window edge (`Constants.h:932`, `MiniMapCEGUI.h:173-184`) - see

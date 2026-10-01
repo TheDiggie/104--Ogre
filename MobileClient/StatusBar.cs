@@ -138,8 +138,73 @@ public partial class StatusBar : Control
             Small(">:(", () => Mood?.Invoke(ActionType.Angry), M59Skin.Kind.Step),
         };
 
+        // One cluster: the room, the clock and the four controls read as
+        // one line, so they move and scale together. See M59Hud.
+        M59Hud.Register("status", "Status bar", this);
+        M59Hud.Changed += Layout;
+
         GetViewport().SizeChanged += Layout;
         Layout();
+    }
+
+    public override void _ExitTree() => M59Hud.Changed -= Layout;
+
+
+    /// <summary>
+    /// Everything the layout store says about this piece, as one value.
+    ///
+    /// Compared every frame on the cheap entry point below, because a
+    /// piece that lays itself out only on an event cannot see a layout
+    /// LOADED after it was built, or an editor that changed a piece
+    /// without raising Changed - and the failure is silent: the piece
+    /// draws itself exactly where it used to be.
+    /// </summary>
+    static string HudStamp(string id)
+    {
+        M59Hud.Piece p = M59Hud.Get(id);
+        if (p == null) return "";
+        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
+    }
+
+    string _stamp = "";
+
+    /// <summary>The player's size for this cluster, inside the model's band.</summary>
+    static float HudScale()
+    {
+        M59Hud.Piece p = M59Hud.Get("status");
+        return p == null ? 1f : Mathf.Clamp(p.Scale, M59Hud.MinScale, M59Hud.MaxScale);
+    }
+
+    /// <summary>
+    /// The smallest a control a thumb presses may become. Four of these
+    /// six are pressed mid-fight, so the scale's floor of 0.7 is not
+    /// allowed to take them under it - see where it clamps in Layout.
+    /// </summary>
+    const float TapFloor = 44f;
+
+    /// <summary>A scaled font size, never small enough to stop being text.</summary>
+    static int Pt(int at1, float scale) => Mathf.Max(8, Mathf.RoundToInt(at1 * scale));
+
+    /// <summary>
+    /// The size every label and button was last built at. A Godot control
+    /// keeps whatever font size it was given, so a scale change has to
+    /// re-apply all of them - otherwise the row grows and the text in it
+    /// does not.
+    /// </summary>
+    float _dressedAt;
+
+    void Redress(float s)
+    {
+        if (Mathf.IsEqualApprox(_dressedAt, s)) return;
+        _dressedAt = s;
+        _room.AddThemeFontSizeOverride("font_size", Pt(FontSize + 4, s));
+        _time.AddThemeFontSizeOverride("font_size", Pt(FontSize, s));
+        _fps.AddThemeFontSizeOverride("font_size", Pt(FontSize - 2, s));
+        _rtt.AddThemeFontSizeOverride("font_size", Pt(FontSize - 2, s));
+        if (_note != null) _note.AddThemeFontSizeOverride("font_size", Pt(FontSize, s));
+        _players.AddThemeFontSizeOverride("font_size", Pt(FontSize, s));
+        _safety.AddThemeFontSizeOverride("font_size", Pt(FontSize, s));
+        foreach (Button b in _moods) b.AddThemeFontSizeOverride("font_size", Pt(FontSize + 3, s));
     }
 
     /// <summary>
@@ -196,72 +261,124 @@ public partial class StatusBar : Control
     void Layout()
     {
         if (_fps == null) return;
-        float y = TopReserve;
-        float x = Margin;
 
-        // ---- the player's line ----------------------------------------
+        // THE NATURAL RECT IS MEASURED BEFORE IT IS PLACED, which is the
+        // one structural change here: the row used to walk x along as it
+        // went, and a piece has to know how wide it is before it can be
+        // told where it goes. So the widths are computed first, handed to
+        // M59Hud as the rect the designer wants, and the row is laid out
+        // from what comes back.
+        //
+        // Every metric is multiplied by the player's scale - the plate's
+        // padding, the gaps, the control height, the mood squares and the
+        // font sizes - with a floor of 44 points on anything pressed.
+        float s = HudScale();
+        Redress(s);
+        float ctrlH = Mathf.Max(TapFloor, CtrlH * s);
+        float plateP = PlatePad * s, gap = Gap * s;
+        float moodW = Mathf.Max(TapFloor, 54f * s);
+        float moodGap = 4f * s;
+        float split = 14f * s;
+
         // Widths come from the combined minimum, not from Size: Size is
         // whatever was last assigned and lags a frame behind a text that
         // has just changed, which would put the clock inside the room
         // name on the frame you walk through a door.
         float roomW = string.IsNullOrEmpty(_room.Text) ? 0f : _room.GetCombinedMinimumSize().X;
         float clockW = string.IsNullOrEmpty(_time.Text) ? 0f : _time.GetCombinedMinimumSize().X;
-        float inner = roomW + clockW + (roomW > 0f && clockW > 0f ? 14f : 0f);
+        float inner = roomW + clockW + (roomW > 0f && clockW > 0f ? split : 0f);
+        float plateW = inner + plateP * 2f;
 
-        _plate.Visible = inner > 0f;
+        float playersW = Mathf.Max(96f * s, _players.GetCombinedMinimumSize().X + 26f * s);
+        float safetyW = Mathf.Max(96f * s, _safety.GetCombinedMinimumSize().X + 26f * s);
+
+        float wide = (inner > 0f ? plateW + gap + 4f * s : 0f)
+                   + playersW + gap + safetyW + gap
+                   + 6f * s + _moods.Length * (moodW + moodGap);
+
+        Rect2 at = M59Hud.Place("status", new Rect2(Margin, TopReserve, wide, BlockHeight),
+                                GetViewportRect().Size);
+        float x = at.Position.X, y = at.Position.Y;
+        _rowY = y;
+
+        // The player's own choice, separate from the client's: the host
+        // still hides the whole control out of the world.
+        bool show = M59Hud.Shows("status");
+        M59Hud.Dress("status");
+
+        // ---- the player's line ----------------------------------------
+        _plate.Visible = show && inner > 0f;
         _plate.Position = new Vector2(x, y);
-        _plate.Size = new Vector2(inner + PlatePad * 2f, CtrlH);
+        _plate.Size = new Vector2(plateW, ctrlH);
 
-        _room.Position = new Vector2(x + PlatePad, y);
-        _room.Size = new Vector2(roomW, CtrlH);
-        _time.Position = new Vector2(x + PlatePad + roomW + (roomW > 0f ? 14f : 0f), y);
-        _time.Size = new Vector2(clockW, CtrlH);
+        _room.Visible = _time.Visible = show;
+        _room.Position = new Vector2(x + plateP, y);
+        _room.Size = new Vector2(roomW, ctrlH);
+        _time.Position = new Vector2(x + plateP + roomW + (roomW > 0f ? split : 0f), y);
+        _time.Size = new Vector2(clockW, ctrlH);
 
-        if (inner > 0f) x += _plate.Size.X + Gap + 4f;
+        if (inner > 0f) x += plateW + gap + 4f * s;
 
         foreach (Button b in new[] { _players, _safety })
         {
-            float w = Mathf.Max(96f, b.GetCombinedMinimumSize().X + 26f);
+            float w = b == _players ? playersW : safetyW;
+            b.Visible = show;
             b.Position = new Vector2(x, y);
-            b.Size = new Vector2(w, CtrlH);
-            x += w + Gap;
+            b.Size = new Vector2(w, ctrlH);
+            x += w + gap;
         }
 
         // A set, so a wider gap before it and a narrow one inside it.
-        x += 6f;
+        x += 6f * s;
         foreach (Button b in _moods)
         {
+            b.Visible = show;
             b.Position = new Vector2(x, y);
-            b.Size = new Vector2(54f, CtrlH);
-            x += 54f + 4f;
+            b.Size = new Vector2(moodW, ctrlH);
+            x += moodW + moodGap;
         }
-        _noteX = x + 10f;
-        if (_note != null && _note.Visible) PlaceNote();
+        _noteX = x + 10f * s;
+        if (_note != null) { _note.Visible = _note.Visible && show; if (_note.Visible) PlaceNote(); }
 
         // ---- the diagnostics line, under it ---------------------------
-        float y2 = y + CtrlH + 4f;
-        float dx = Margin + 2f;
+        float y2 = y + ctrlH + 4f * s;
+        float dx = at.Position.X + 2f * s;
         foreach (Label l in new[] { _fps, _rtt })
         {
+            l.Visible = show;
             l.Position = new Vector2(dx, y2);
             l.Size = new Vector2(l.GetCombinedMinimumSize().X, DiagH);
-            dx += l.Size.X + 14f;
+            dx += l.Size.X + 14f * s;
         }
     }
 
     /// <summary>The second line's height: the small print.</summary>
-    float DiagH => FontSize * 1.5f;
+    float DiagH => FontSize * 1.5f * HudScale();
 
     /// <summary>Where a note would start, right of the last control.</summary>
     float _noteX;
 
-    /// <summary>How tall this is, so the next thing down can clear it.</summary>
-    public float BlockHeight => CtrlH + 4f + DiagH + 8f;
+    /// <summary>The row's top, wherever the player left it.</summary>
+    float _rowY;
+
+    /// <summary>
+    /// How tall this is, so the next thing down can clear it. Scaled with
+    /// the piece: the debug line is placed under it and would be drawn
+    /// through a scaled-up row otherwise.
+    /// </summary>
+    public float BlockHeight =>
+        Mathf.Max(TapFloor, CtrlH * HudScale()) + 4f * HudScale() + DiagH + 8f * HudScale();
 
     public void Sync(DataController data)
     {
         if (data == null || _fps == null) return;
         _data = data;
+
+        // The player's layout, before the early-out below: this line
+        // changes only when they move something, and the row is not
+        // rebuilt for anything else.
+        string stamp = HudStamp("status");
+        if (stamp != _stamp) { _stamp = stamp; Layout(); }
 
         uint tps = data.TPS, rtt = data.RTT;
         int online = data.OnlinePlayers != null ? data.OnlinePlayers.Count : 0;
@@ -322,8 +439,9 @@ public partial class StatusBar : Control
     void PlaceNote()
     {
         if (_note == null) return;
-        _note.Position = new Vector2(_noteX, TopReserve);
-        _note.Size = new Vector2(_note.GetCombinedMinimumSize().X, CtrlH);
+        _note.Position = new Vector2(_noteX, _rowY);
+        _note.Size = new Vector2(_note.GetCombinedMinimumSize().X,
+                                 Mathf.Max(TapFloor, CtrlH * HudScale()));
     }
 
     /// <summary>
@@ -357,14 +475,15 @@ public partial class StatusBar : Control
     {
         if (_note == null)
         {
-            _note = Text("", FontSize, Yellow);
+            _note = Text("", Pt(FontSize, HudScale()), Yellow);
         }
         _note.Text = text;
         // On the controls' own row, past the last of them: the line
         // below belongs to the diagnostics and then to the debug text,
         // and a note drawn over either cannot be read.
         PlaceNote();
-        _note.Visible = true;
+        // Shown only if the player has not put this cluster away.
+        _note.Visible = M59Hud.Shows("status");
         int token = ++_noteToken;
         GetTree().CreateTimer(6.0).Timeout += () =>
         {

@@ -231,3 +231,29 @@ Two traps, both hit:
   over a fifth of the screen is refused whatever the answer.
 
 See also: SafeArea.cs | the client -> mobile-client.md
+
+## An editor's own chrome is a piece too
+
+The HUD editor's bar started as one strip across the top of the
+screen. Every piece under it became undraggable, and on a full HUD
+that is not a corner case: the Menu/Map band is pinned to the top
+centre by design, so the one group a player most wants moved was the
+one group they could not touch. Moving the bar does not fix it -
+there is no strip of a full HUD that belongs to nobody. Two answers,
+both needed:
+
+- The bar is two plates, left and right, with the centre of the
+  strip left clear.
+- The bar FOLDS. One button takes it down to a pill and gives the
+  whole glass back, which is the only answer that works for a piece
+  dragged under a plate.
+
+And the trap that followed: `Dodge` took its floor from the bar's
+rectangle. Folded, that rectangle is the pill at the BOTTOM, so
+every candidate was below the bottom edge, none passed the floor
+test, and the card fell back to a default that was half off screen.
+A candidate that fails a bound is clamped into the screen, never
+skipped - a filter that can reject every candidate has no answer at
+all for the case it rejects.
+
+See also: HudEditor.cs, M59Hud.cs | the HUD store -> mobile-client.md
