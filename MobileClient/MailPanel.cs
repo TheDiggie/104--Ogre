@@ -65,7 +65,12 @@ public partial class MailPanel : Control
 
     MailList _mails;
     readonly List<Button> _buttons = new List<Button>();
-    int _picked = -1;
+    // The chosen letter, by its Num and not by its place in the list: the
+    // list is newest first, so a letter arriving at index 0 would shift an
+    // index onto a different letter, and Reply / Delete would act on it.
+    // The reference binds the row to its item (`UIMail.cpp:86-128`).
+    // -1 is no selection, which is where the reference starts.
+    long _pickedNum = -1;
     string _signature = "";
     bool _composing;
 
@@ -122,7 +127,7 @@ public partial class MailPanel : Control
         _close = Push("Close", Close);
 
         _send = Push("Send", Ask);
-        _cancel = Push("Cancel", () => { _composing = false; Show(true); });
+        _cancel = Push("Cancel", () => { _composing = false; _asked = null; Show(true); });
 
         GetViewport().SizeChanged += Layout;
         Layout();
@@ -154,8 +159,12 @@ public partial class MailPanel : Control
         return b;
     }
 
-    public void Open() { _composing = false; Show(true); Refresh?.Invoke(); _signature = ""; }
-    public void Close() { _composing = false; Show(false); }
+    public void Open() { _composing = false; _pickedNum = -1; _asked = null; Show(true); Refresh?.Invoke(); _signature = ""; }
+    // Close forgets the selection and any lookup in flight, so the next
+    // open starts with nothing chosen (`UIMail.cpp:182`, `:266`: Respond
+    // and Delete do nothing without a selection) and a late LookupNames
+    // answer cannot send a letter the player walked away from.
+    public void Close() { _composing = false; _pickedNum = -1; _asked = null; Show(false); }
 
     void Show(bool on)
     {
@@ -269,7 +278,7 @@ public partial class MailPanel : Control
                 _buttons.Clear();
                 _title.Text = "Mail (none)";
                 _body.Text = "";
-                _picked = -1;
+                _pickedNum = -1;
             }
             return;
         }
@@ -312,7 +321,16 @@ public partial class MailPanel : Control
         }
 
         _title.Text = $"Mail ({mails.Count})";
-        Pick(_picked >= 0 && _picked < mails.Count ? _picked : 0);
+        // Nothing is selected until the player taps a row, as in the
+        // reference (`UIMail.cpp:182`, `:266`). Delete is permanent on
+        // both sides - the server's copy went when the letter arrived
+        // (`Meridian59/Client/BaseClient.cs:609-619`) - so a letter the
+        // player never chose must never be the one it acts on. A
+        // selection that is still in the list stays on its letter.
+        int keep = -1;
+        for (int i = 0; i < _sorted.Count; i++)
+            if (_sorted[i].Num == _pickedNum) { keep = i; break; }
+        Pick(keep);
     }
 
     /// <summary>The mailbox in the order it is shown, newest first.</summary>
@@ -336,7 +354,7 @@ public partial class MailPanel : Control
 
     void Pick(int index)
     {
-        _picked = index;
+        _pickedNum = index >= 0 && index < _sorted.Count ? (long)_sorted[index].Num : -1;
         for (int i = 0; i < _buttons.Count; i++) _buttons[i].Flat = i != index;
 
         // Indexes are into the SORTED list, which is what the rows were
@@ -346,18 +364,27 @@ public partial class MailPanel : Control
         _body.Text = text != null ? text.Replace("[", "[lb]") : "";
     }
 
+    /// <summary>The selected letter, found by Num, or null.</summary>
+    Mail Picked()
+    {
+        if (_pickedNum < 0) return null;
+        foreach (Mail m in _sorted) if (m.Num == _pickedNum) return m;
+        return null;
+    }
+
     void Remove()
     {
-        if (_mails == null || _picked < 0 || _picked >= _sorted.Count) return;
-        _mails.Remove(_sorted[_picked]);
-        _picked = -1;
+        Mail m = Picked();
+        if (_mails == null || m == null) return;
+        _mails.Remove(m);
+        _pickedNum = -1;
         _signature = "";
     }
 
     void Reply(bool all)
     {
-        if (_picked < 0 || _picked >= _sorted.Count) return;
-        Mail m = _sorted[_picked];
+        Mail m = Picked();
+        if (m == null) return;
 
         string title = m.Title ?? "";
         // Reply keeps an existing Re:/Aw:; reply-all always prefixes.
@@ -376,6 +403,7 @@ public partial class MailPanel : Control
         _subject.Text = subject ?? "";
         _text.Text = "";
         _error.Text = "";
+        _asked = null;
         _composing = true;
         Show(true);
     }
@@ -409,6 +437,9 @@ public partial class MailPanel : Control
                        out ObjectID[] to, out string subject, out string text)
     {
         to = null; subject = null; text = null;
+        // Cancel and Close clear _asked; an answer with nobody waiting
+        // for it is dropped, not sent and not allowed to reopen the panel.
+        if (!_composing || !IsOpen) return false;
         if (_asked == null || ids == null || ids.Length != _asked.Length) return false;
 
         string missing = "";
@@ -436,6 +467,7 @@ public partial class MailPanel : Control
         _to.Text = ""; _subject.Text = ""; _text.Text = "";
         _error.Text = "";
         _composing = false;
+        _asked = null;
         // Only the compose form closes; the mailbox stays up, as it does
         // in the reference (`UIMailCompose.cpp:91-97`). Closing the whole
         // panel made sending two letters in a row needlessly slow.

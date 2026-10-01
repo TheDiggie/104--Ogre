@@ -227,6 +227,7 @@ public partial class PlayersPanel : Control
             Name = $"mute{index}",
         };
         ignore.AddThemeFontSizeOverride("font_size", FontSize - 3);
+        TickStyle.Apply(ignore, 28);  // dark-on-dark by default; see TickStyle in BuyPanel.cs
         string name = p.Name;
         ignore.Toggled += on => Ignore?.Invoke(name, on);
         line.AddChild(ignore);

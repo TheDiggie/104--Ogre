@@ -53,6 +53,7 @@ public partial class NpcQuestsPanel : Control
     ScrollContainer _scroll;
     VBoxContainer _rows;
     Button _accept, _close, _help;
+    TextureRect _portrait;
 
     /// <summary>Show this text to the player. Raised by Help.</summary>
     public event System.Action<string> Helped;
@@ -81,7 +82,16 @@ public partial class NpcQuestsPanel : Control
     readonly List<Button> _buttons = new List<Button>();
     string _signature = "";
     int _picked = -1;
+    // The quest being read, by its object id: the list is rebuilt from
+    // scratch whenever the server re-sends it, and a row index would
+    // land on a different quest (or none) after that.
+    long _pickedId = -1;
+    // The portrait is composed once per giver, not once per rebuild.
+    uint _portraitFor = uint.MaxValue;
     uint _giver;
+
+    /// <summary>Side of the quest giver's picture.</summary>
+    [Export] public int PortraitSize = 96;
 
     public bool IsOpen => _panel != null && _panel.Visible;
 
@@ -95,6 +105,18 @@ public partial class NpcQuestsPanel : Control
 
         _title = Heading("Quests", FontSize + 4, new Color(1, 0.92f, 0.6f));
         _who = Heading("", FontSize, new Color(0.75f, 0.78f, 0.84f));
+        // The quest giver's picture. The reference composes one and sets
+        // it as the window image (`UINPCQuestList.cpp:33-42`, `:98-104`,
+        // `:115-118`); it is the only thing that window shows of the NPC.
+        _portrait = new TextureRect
+        {
+            Visible = false,
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = MouseFilterEnum.Ignore,
+            Name = "giverPortrait",
+        };
+        AddChild(_portrait);
         _descLabel = Heading("Description", FontSize, new Color(1, 0.86f, 0.45f));
         _reqLabel = Heading("Requirements", FontSize, new Color(1, 0.86f, 0.45f));
 
@@ -175,8 +197,15 @@ public partial class NpcQuestsPanel : Control
         _panel.Size = new Vector2(v.X - side, height + 12f);
 
         float y = top;
-        _title.Position = new Vector2(side, y); y += FontSize * 1.6f;
-        _who.Position = new Vector2(side, y); y += FontSize * 1.8f;
+        // The picture on the left, the title and the giver's name beside it.
+        float pic = PortraitSize;
+        _portrait.Position = new Vector2(side, y);
+        _portrait.Size = new Vector2(pic, pic);
+        float tx = side + pic + 12f;
+        float headTop = y;
+        _title.Position = new Vector2(tx, y); y += FontSize * 1.6f;
+        _who.Position = new Vector2(tx, y); y += FontSize * 1.8f;
+        y = Mathf.Max(y, headTop + pic + 6f);
 
         // The list takes a third of what is left; the two text blocks
         // share the rest. A phone cannot show the game's side-by-side
@@ -210,7 +239,7 @@ public partial class NpcQuestsPanel : Control
     {
         // Above whatever else is open - see Panels.ToFront.
         if (on) Panels.ToFront(this);
-        _panel.Visible = on; _title.Visible = on; _who.Visible = on;
+        _panel.Visible = on; _title.Visible = on; _who.Visible = on; _portrait.Visible = on;
         _scroll.Visible = on; _descLabel.Visible = on; _desc.Visible = on;
         _reqLabel.Visible = on; _req.Visible = on;
         _accept.Visible = on; _help.Visible = on; _close.Visible = on;
@@ -221,7 +250,7 @@ public partial class NpcQuestsPanel : Control
     {
         Show(false);
         _signature = "";
-        _picked = -1;
+        _picked = -1; _pickedId = -1;
         Dismissed?.Invoke();
     }
 
@@ -234,7 +263,7 @@ public partial class NpcQuestsPanel : Control
 
         if (info == null || !info.IsVisible || info.QuestList == null || info.QuestList.Count == 0)
         {
-            if (IsOpen) { Show(false); _signature = ""; _picked = -1; }
+            if (IsOpen) { Show(false); _signature = ""; _picked = -1; _pickedId = -1; }
             return;
         }
 
@@ -244,7 +273,13 @@ public partial class NpcQuestsPanel : Control
         sb.Append(info.QuestGiver?.ID).Append('|');
         foreach (QuestObjectInfo q in info.QuestList)
             sb.Append(q?.ObjectBase?.ID).Append(':')
-              .Append((int)(q?.ObjectBase?.Flags?.Player ?? 0)).Append(';');
+              .Append((int)(q?.ObjectBase?.Flags?.Player ?? 0)).Append(':')
+              // The text too: a quest offered again with the same id and
+              // flags but new words would otherwise keep the old ones on
+              // screen. The reference clears and re-adds the whole list
+              // on every QuestUIList (`DataController.cs:3040-3052`).
+              .Append(q?.Description?.FullString).Append('\u0001')
+              .Append(q?.Requirements?.FullString).Append('\u0002').Append(';');
         string now = sb.ToString();
         if (now == _signature) return;
         _signature = now;
@@ -252,6 +287,12 @@ public partial class NpcQuestsPanel : Control
         _giver = info.QuestGiver != null ? info.QuestGiver.ID : 0u;
         _who.Text = info.QuestGiver != null && !string.IsNullOrWhiteSpace(info.QuestGiver.Name)
             ? info.QuestGiver.Name : "";
+
+        if (_portraitFor != _giver)
+        {
+            _portraitFor = _giver;
+            _portrait.Texture = Portrait(info.QuestGiver);
+        }
 
         _quests.Clear();
         _buttons.Clear();
@@ -268,8 +309,16 @@ public partial class NpcQuestsPanel : Control
 
         _title.Text = $"Quests ({_quests.Count})";
 
-        // The game selects the first row as it is added; so does this.
-        Pick(_quests.Count > 0 ? 0 : -1);
+        // The game selects row 0 only when the list goes from empty to
+        // one item (`UINPCQuestList.cpp:165-166`). Here a rebuild is
+        // not an empty list, it is the same list with something
+        // changed, so the quest being read stays selected when it is
+        // still offered, and the first row is the fallback - which is
+        // also the first open, when nothing was selected.
+        int keep = 0;
+        for (int i = 0; i < _quests.Count; i++)
+            if (_quests[i].ObjectBase.ID == _pickedId) { keep = i; break; }
+        Pick(_quests.Count > 0 ? keep : -1);
     }
 
     Button Row(QuestObjectInfo q, int index)
@@ -301,6 +350,7 @@ public partial class NpcQuestsPanel : Control
     void Pick(int index)
     {
         _picked = index;
+        _pickedId = index >= 0 && index < _quests.Count ? _quests[index].ObjectBase.ID : -1;
 
         for (int i = 0; i < _buttons.Count; i++)
             _buttons[i].Flat = i != index;
@@ -346,6 +396,23 @@ public partial class NpcQuestsPanel : Control
             _accept.Text = "Accept";
             _accept.Disabled = kind == ObjectFlags.PlayerType.QuestInvalid;
         }
+    }
+
+    /// <summary>
+    /// The giver's picture, composed as `UINPCQuestList.cpp:33-42` does:
+    /// viewer frame, no Y offset, no power-of-two padding, centred both
+    /// ways in a box. The giver arrives as a plain ObjectBase (`new
+    /// ObjectBase(true, ...)`, QuestUIListMessage.cs:68), and the
+    /// ObjectBase route of <see cref="M59Compose.Icon"/> composes with
+    /// the viewer frame unconditionally (RenderInfo.cs:217), which
+    /// is exactly that. Nothing is cached across givers: a giver's art
+    /// is one picture, composed once per change of giver.
+    /// </summary>
+    ImageTexture Portrait(ObjectBase o)
+    {
+        if (o?.Resource == null) return null;
+        try { return M59Assets.FromTex(M59Compose.Icon(o, PortraitSize)); }
+        catch (Exception e) { GD.PrintErr($"[NpcQuestsPanel] portrait: {e.Message}"); return null; }
     }
 
     ImageTexture Icon(ObjectBase o)

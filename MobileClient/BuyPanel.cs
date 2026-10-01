@@ -5,6 +5,88 @@ using Meridian59.Data.Models;
 using Meridian59.Drawing2D;
 
 /// <summary>
+/// A check box that can be seen. Godot's default CheckBox draws its
+/// box and tick in dark grey strokes meant for a light theme, and every
+/// panel here is a near-black sheet: the Players panel's "mute" box and
+/// the Buy panel's row selector were a few dark pixels on dark, and on
+/// Buy the tick appeared only once the row's own "pressed" fill lit the
+/// background behind it. These two pictures carry their own light
+/// border and their own fill, so the box reads on any background and
+/// the tick reads in every state - unchecked, checked, disabled.
+/// </summary>
+public static class TickStyle
+{
+    static readonly System.Collections.Generic.Dictionary<(int, bool, bool), ImageTexture> _cache =
+        new System.Collections.Generic.Dictionary<(int, bool, bool), ImageTexture>();
+
+    static ImageTexture Get(int n, bool ticked, bool dim)
+    {
+        if (!_cache.TryGetValue((n, ticked, dim), out ImageTexture t))
+            _cache[(n, ticked, dim)] = t = Make(n, ticked, dim);
+        return t;
+    }
+
+    public static void Apply(CheckBox box, int size = 32)
+    {
+        box.AddThemeIconOverride("unchecked", Get(size, false, false));
+        box.AddThemeIconOverride("checked", Get(size, true, false));
+        box.AddThemeIconOverride("unchecked_disabled", Get(size, false, true));
+        box.AddThemeIconOverride("checked_disabled", Get(size, true, true));
+        // The default icon colours tint by state and are not pure
+        // white, which would dim the tick again.
+        foreach (string c in new[] { "icon_normal_color", "icon_hover_color", "icon_pressed_color",
+                                     "icon_hover_pressed_color", "icon_focus_color" })
+            box.AddThemeColorOverride(c, Colors.White);
+    }
+
+    static ImageTexture Make(int n, bool ticked, bool dim)
+    {
+        float a = dim ? 0.45f : 1f;
+        var border = new Color(0.92f, 0.94f, 1f, a);
+        var fill = ticked ? new Color(0.16f, 0.5f, 0.24f, a) : new Color(0.22f, 0.24f, 0.30f, a);
+        var tick = new Color(1f, 1f, 1f, a);
+
+        var img = Image.CreateEmpty(n, n, false, Image.Format.Rgba8);
+        int m = Mathf.Max(2, n / 12);       // border width
+        int pad = Mathf.Max(1, n / 16);
+        for (int y = pad; y < n - pad; y++)
+            for (int x = pad; x < n - pad; x++)
+            {
+                bool edge = x < pad + m || y < pad + m || x >= n - pad - m || y >= n - pad - m;
+                img.SetPixel(x, y, edge ? border : fill);
+            }
+
+        if (ticked)
+        {
+            // A check mark: down-right to the foot, then up-right, three
+            // pixels thick.
+            Vector2 p0 = new Vector2(n * 0.24f, n * 0.52f);
+            Vector2 p1 = new Vector2(n * 0.43f, n * 0.72f);
+            Vector2 p2 = new Vector2(n * 0.78f, n * 0.30f);
+            Line(img, p0, p1, tick, m + 1);
+            Line(img, p1, p2, tick, m + 1);
+        }
+        return ImageTexture.CreateFromImage(img);
+    }
+
+    static void Line(Image img, Vector2 a, Vector2 b, Color c, int w)
+    {
+        int steps = (int)(a.DistanceTo(b) * 2f);
+        for (int i = 0; i <= steps; i++)
+        {
+            Vector2 p = a.Lerp(b, i / (float)Math.Max(1, steps));
+            for (int dy = -w / 2; dy <= w / 2; dy++)
+                for (int dx = -w / 2; dx <= w / 2; dx++)
+                {
+                    int x = (int)p.X + dx, y = (int)p.Y + dy;
+                    if (x >= 0 && y >= 0 && x < img.GetWidth() && y < img.GetHeight())
+                        img.SetPixel(x, y, c);
+                }
+        }
+    }
+}
+
+/// <summary>
 /// The shopkeeper's stock.
 ///
 /// `UIBuy.cpp`: a multi-select list of what the merchant sells, each row
@@ -335,6 +417,7 @@ public partial class BuyPanel : Control
             Name = $"buy{o.ID}",
         };
         tick.AddThemeFontSizeOverride("font_size", FontSize);
+        TickStyle.Apply(tick);
         tick.ButtonDown += () => _downAt = Time.GetTicksMsec();
         tick.Toggled += on =>
         {
