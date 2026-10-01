@@ -32,6 +32,14 @@ using Meridian59.Drawing2D;
 /// </summary>
 public partial class LootPanel : Control
 {
+    /// <summary>
+    /// Air under the last button row. Without it the button's bottom
+    /// edge and the panel's own are the same line, and the only way out
+    /// of the window reads as cut off while every row above it has a
+    /// gap.
+    /// </summary>
+    const float Foot = 12f;
+
     [Export] public int FontSize = 16;
     [Export] public int IconSize = 40;
     [Export] public int RowHeight = 56;
@@ -167,7 +175,7 @@ public partial class LootPanel : Control
         _scroll.Position = new Vector2(side, top + FontSize * 2.2f);
         _scroll.Size = new Vector2(v.X - side * 2f, height - FontSize * 2.2f - rowH - 16f);
 
-        float y = top + height - rowH;
+        float y = top + height - rowH - Foot;
         Button[] row = ShowGetAll
             ? new[] { _get, _getAll, _close }
             : (AllowPut ? new[] { _get, _put, _close } : new[] { _get, _close });

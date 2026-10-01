@@ -38,6 +38,14 @@ using Meridian59.Drawing2D;
 /// </summary>
 public partial class TradePanel : Control
 {
+    /// <summary>
+    /// Air under the last button row. Without it the button's bottom
+    /// edge and the panel's own are the same line, and the only way out
+    /// of the window reads as cut off while every row above it has a
+    /// gap.
+    /// </summary>
+    const float Foot = 12f;
+
     [Export] public int FontSize = 16;
     [Export] public int IconSize = 36;
     [Export] public int RowHeight = 48;
@@ -219,7 +227,7 @@ public partial class TradePanel : Control
         _scrollTheirs.Size = new Vector2(w, listH);
         _rowsTheirs.CustomMinimumSize = new Vector2(w, 0);
 
-        float y = top + height - rowH;
+        float y = top + height - rowH - Foot;
         Button[] row = { _add, _offer, _accept, _cancel };
         float bw = (w - 6f * (row.Length - 1)) / row.Length;
         for (int i = 0; i < row.Length; i++)

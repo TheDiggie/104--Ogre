@@ -27,6 +27,14 @@ using Meridian59.Drawing2D;
 /// </summary>
 public partial class BuyPanel : Control
 {
+    /// <summary>
+    /// Air under the last button row. Without it the button's bottom
+    /// edge and the panel's own are the same line, and the only way out
+    /// of the window reads as cut off while every row above it has a
+    /// gap.
+    /// </summary>
+    const float Foot = 12f;
+
     [Export] public int FontSize = 16;
     [Export] public int IconSize = 40;
     [Export] public int RowHeight = 56;
@@ -134,10 +142,10 @@ public partial class BuyPanel : Control
         _scroll.Position = new Vector2(side, top + FontSize * 2.2f);
         _scroll.Size = new Vector2(v.X - side * 2f, height - FontSize * 2.2f - rowH * 2f - 20f);
 
-        _sum.Position = new Vector2(side, top + height - rowH * 2f - 6f);
+        _sum.Position = new Vector2(side, top + height - rowH * 2f - 6f - Foot);
         _sum.Size = new Vector2(v.X - side * 2f, rowH);
 
-        float y = top + height - rowH;
+        float y = top + height - rowH - Foot;
         Button[] row = { _ok, _close };
         float w = (v.X - side * 2f - 8f) / row.Length;
         for (int i = 0; i < row.Length; i++)

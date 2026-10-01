@@ -1851,7 +1851,24 @@ public partial class GameView : Node2D
                 if (o.Name == null ||
                     !o.Name.Contains(name, StringComparison.OrdinalIgnoreCase)) continue;
 
-                screen = new Vector2(bx / (float)_w * view.X, by / (float)_h * view.Y);
+                // In WINDOW pixels, not the viewport's.
+                //
+                // The project stretches a 1920x1080 viewport over
+                // whatever window it gets, so GetViewportRect is 1920
+                // wide in a 1280-wide window and a point taken from it
+                // is half again too far right and too far down. Fed
+                // back as a touch - which is measured in window pixels
+                // - a duskrat's own position landed on the Inspect
+                // button, and a coin's landed off the bottom of the
+                // screen entirely. Every scripted tap on a named object
+                // was quietly aimed at the wrong thing, and the ones
+                // that hit something looked like the client doing
+                // something odd.
+                Vector2 window = DisplayServer.WindowGetSize();
+                float sx = view.X > 0f ? window.X / view.X : 1f;
+                float sy = view.Y > 0f ? window.Y / view.Y : 1f;
+                screen = new Vector2(bx / (float)_w * view.X * sx,
+                                     by / (float)_h * view.Y * sy);
                 return true;
             }
 

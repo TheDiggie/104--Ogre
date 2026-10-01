@@ -280,7 +280,16 @@ public partial class MailPanel : Control
         // departure, and the only one this panel makes.
         _sorted.Clear();
         foreach (Mail m in mails) if (m != null) _sorted.Add(m);
-        _sorted.Sort((a, b2) => b2.Timestamp.CompareTo(a.Timestamp));
+        // Newest first, and the letter number breaks a tie: two
+        // letters delivered in the same minute carry the same
+        // timestamp, and sorting on the date alone left those pairs in
+        // whatever order the list happened to hold them - 40, 39, then
+        // 37, 38, then 36, 35.
+        _sorted.Sort((a, b2) =>
+        {
+            int byDate = b2.Timestamp.CompareTo(a.Timestamp);
+            return byDate != 0 ? byDate : b2.Num.CompareTo(a.Num);
+        });
 
         var sb = new System.Text.StringBuilder();
         foreach (Mail m in _sorted) sb.Append(m.Num).Append(';');

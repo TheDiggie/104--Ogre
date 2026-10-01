@@ -354,6 +354,28 @@ public partial class SceneShot : Node
         GetTree().Quit();
     }
 
+    /// <summary>
+    /// A point taken from a node, in the window pixels that
+    /// Input.ParseInputEvent expects.
+    ///
+    /// The project stretches a 1920x1080 viewport over whatever window
+    /// it is given, so a Control's own rectangle is in viewport pixels
+    /// and is half again too large in a 1280-wide window. A tap
+    /// synthesised straight from GetGlobalRect landed two thirds of the
+    /// way to where it was aimed - an inventory slot tap missed the
+    /// slot entirely, and the run reported "tapped slot 2" while
+    /// nothing had been selected. Every test that taps a node by its
+    /// position was quietly wrong until this.
+    /// </summary>
+    static Vector2 ToWindow(Vector2 viewportPoint)
+    {
+        Vector2 window = DisplayServer.WindowGetSize();
+        Vector2 view = ((SceneTree)Engine.GetMainLoop()).Root.GetVisibleRect().Size;
+        if (view.X <= 0f || view.Y <= 0f) return viewportPoint;
+        return new Vector2(viewportPoint.X * window.X / view.X,
+                           viewportPoint.Y * window.Y / view.Y);
+    }
+
     static void Collect(Node from, List<InventorySlot> into)
     {
         if (from is InventorySlot s) into.Add(s);
@@ -585,7 +607,7 @@ public partial class SceneShot : Node
                 Collect(GetTree().Root, slots);
                 if (n >= 0 && n < slots.Count && slots[n].Item != null)
                 {
-                    Vector2 at = slots[n].GetGlobalRect().GetCenter();
+                    Vector2 at = ToWindow(slots[n].GetGlobalRect().GetCenter());
                     Input.ParseInputEvent(new InputEventMouseButton
                     { ButtonIndex = MouseButton.Left, Position = at, GlobalPosition = at, Pressed = true });
                     await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);

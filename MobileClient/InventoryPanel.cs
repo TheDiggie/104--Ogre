@@ -335,7 +335,24 @@ public partial class InventoryPanel : Control
         box.SetBorderWidthAll(1);
         box.SetCornerRadiusAll(3);
 
-        if (o != null && o.IsInUse)
+        // The one you have chosen. The buttons and the name label at
+        // the bottom said which item was picked, and the grid said
+        // nothing - with a hundred slots of the same three icons, the
+        // name was the only way to know what was selected and there was
+        // no way at all to see WHERE. The reference has the row
+        // highlighted by the list widget itself (`UIInventory.cpp` puts
+        // the selection on the ItemListbox), so this is the same thing
+        // said in a grid.
+        // By id, not by instance: the slot keeps the object it was
+        // built with, and a rebuild can hand out a different one for
+        // the same item.
+        if (o != null && _picked != null && o.ID == _picked.ID)
+        {
+            box.BgColor = new Color(0.22f, 0.24f, 0.32f);
+            box.BorderColor = new Color(0.75f, 0.85f, 1f);
+            box.SetBorderWidthAll(3);
+        }
+        else if (o != null && o.IsInUse)
         {
             // The game glows the background of an item in use - the
             // composer turns its background on for exactly that. A warm
@@ -387,7 +404,12 @@ public partial class InventoryPanel : Control
         slot.Tapped += item =>
         {
             if (PickMode) { PickMode = false; Close(); Picked?.Invoke(item); return; }
-            if (ReferenceEquals(_picked, item)) UseItem?.Invoke(item);
+            // By id. The slot holds the object it was built with and a
+            // rebuild can hand out another instance for the same item,
+            // so an identity test made the second tap on a slot select
+            // it again instead of using it - and the selection border
+            // never appeared either, which is how this was found.
+            if (_picked != null && _picked.ID == item.ID) UseItem?.Invoke(item);
             else Pick(item);
         };
         slot.Moved += (from, to) => MoveItem?.Invoke(from, to);
@@ -403,7 +425,11 @@ public partial class InventoryPanel : Control
 
     void Pick(InventoryObject item)
     {
+        bool moved = !ReferenceEquals(_picked, item);
         _picked = item;
+        // The grid draws the selection, so it has to be rebuilt when
+        // the selection moves.
+        if (moved) _lastSignature = "";
         Selected?.Invoke(item);
         bool on = item != null && IsOpen;
         _use.Visible = on; _drop.Visible = on; _look.Visible = on; _bind.Visible = on;

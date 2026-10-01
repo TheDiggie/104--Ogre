@@ -59,6 +59,8 @@ public partial class ChatOverlay : Control
     // because that is what you want while walking; the whole thing is what
     // you want when you missed something, and the library keeps 200.
     ColorRect _fullBack;
+    Label _fullTitle;
+    ColorRect _logBack;
     ScrollContainer _fullScroll;
     RichTextLabel _full;
     Button _fullClose;
@@ -68,6 +70,14 @@ public partial class ChatOverlay : Control
     {
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;      // taps fall through to the view
+
+        // A dim strip behind the HUD log. The reference's chat is a
+        // framed window with its own background; here the lines sit on
+        // the world, and the server styles some of them red - which on
+        // the inn's red carpet was one colour on itself. An outline
+        // alone was not enough.
+        _logBack = new ColorRect { Color = new Color(0f, 0f, 0f, 0.45f), MouseFilter = MouseFilterEnum.Ignore };
+        AddChild(_logBack);
 
         _log = new RichTextLabel
         {
@@ -144,8 +154,16 @@ public partial class ChatOverlay : Control
         AddChild(_history);
         Panels.Opener(_history);
 
-        _fullBack = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 0.95f), Visible = false };
+        // Opaque. At 0.95 the minimap ring, both button rows, the
+        // vitals and the wall behind them all read through the text -
+        // a log you have to squint past is not a log.
+        _fullBack = new ColorRect { Color = new Color(0.02f, 0.02f, 0.03f, 1f), Visible = false };
         AddChild(_fullBack);
+
+        _fullTitle = new Label { Text = "Chat log", Visible = false };
+        _fullTitle.AddThemeFontSizeOverride("font_size", FontSize + 4);
+        _fullTitle.AddThemeColorOverride("font_color", new Color(1f, 0.92f, 0.6f));
+        AddChild(_fullTitle);
 
         _full = new RichTextLabel
         {
@@ -228,8 +246,11 @@ public partial class ChatOverlay : Control
         _fullBack.Position = Vector2.Zero;
         _fullBack.Size = v;
 
-        _fullScroll.Position = new Vector2(side, side);
-        _fullScroll.Size = new Vector2(v.X - side * 2f, v.Y - side * 2f - entryH - 8f);
+        float titleH = FontSize + 12f;
+        _fullTitle.Position = new Vector2(side, side * 0.5f);
+        _fullScroll.Position = new Vector2(side, side * 0.5f + titleH);
+        _fullScroll.Size = new Vector2(v.X - side * 2f,
+                                       v.Y - side * 0.5f - titleH - entryH - side * 0.8f);
         // The label wraps against a width; without one it has no height
         // either and the scroll stays empty.
         _full.CustomMinimumSize = new Vector2(_fullScroll.Size.X, 0);
@@ -239,6 +260,9 @@ public partial class ChatOverlay : Control
         float logH = (FontSize + 6) * Lines;
         _log.Position = new Vector2(pad, v.Y - entryH - pad * 2 - logH);
         _log.Size = new Vector2(blockW, logH);
+        _logBack.Position = _log.Position - new Vector2(6f, 4f);
+        _logBack.Size = _log.Size + new Vector2(12f, 8f);
+        _logBack.Visible = _log.Visible && !ShowingHistory;
         // The scrollbar itself is not wanted on the HUD - the full log
         // has its own screen - so it is given no width.
         VScrollBar bar = _log.GetVScrollBar();
@@ -252,6 +276,7 @@ public partial class ChatOverlay : Control
     {
         _full.Text = string.Join("\n", _lines);
         _fullBack.Visible = true; _fullScroll.Visible = true; _fullClose.Visible = true;
+        _fullTitle.Visible = true;
         // Above the panels built after this one, or the Close button
         // sits under the hotbar and cannot be pressed.
         GetParent()?.MoveChild(this, -1);
@@ -265,6 +290,7 @@ public partial class ChatOverlay : Control
     void HideHistory()
     {
         _fullBack.Visible = false; _fullScroll.Visible = false; _fullClose.Visible = false;
+        _fullTitle.Visible = false;
     }
 
     /// <summary>

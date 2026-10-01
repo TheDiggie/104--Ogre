@@ -40,6 +40,14 @@ using Meridian59.Data.Models;
 /// </summary>
 public partial class NewsPanel : Control
 {
+    /// <summary>
+    /// Air under the last button row. Without it the button's bottom
+    /// edge and the panel's own are the same line, and the only way out
+    /// of the window reads as cut off while every row above it has a
+    /// gap.
+    /// </summary>
+    const float Foot = 12f;
+
     [Export] public int FontSize = 16;
     [Export] public int RowHeight = 52;
 
@@ -154,12 +162,12 @@ public partial class NewsPanel : Control
             _text.Position = new Vector2(side, y);
             _text.Size = new Vector2(w, bodyH);
 
-            Row(new[] { _send, _cancel }, side, top + height - rowH, w, rowH);
+            Row(new[] { _send, _cancel }, side, top + height - rowH - Foot, w, rowH);
             return;
         }
 
         float buttons = rowH * 2f + 8f;
-        float rest = top + height - buttons - 8f - y;
+        float rest = top + height - buttons - 8f - Foot - y;
         float listH = rest * 0.45f;
 
         _scroll.Position = new Vector2(side, y);

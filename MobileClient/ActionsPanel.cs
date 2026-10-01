@@ -22,6 +22,14 @@ using Meridian59.Common.Enums;
 /// </summary>
 public partial class ActionsPanel : Control
 {
+    /// <summary>
+    /// Air under the last button row. Without it the button's bottom
+    /// edge and the panel's own are the same line, and the only way out
+    /// of the window reads as cut off while every row above it has a
+    /// gap.
+    /// </summary>
+    const float Foot = 12f;
+
     [Export] public int FontSize = 16;
     [Export] public int RowHeight = 52;
     [Export] public float ButtonRight = 12f;
@@ -180,7 +188,7 @@ public partial class ActionsPanel : Control
         _scroll.Size = new Vector2(v.X - side * 2f, height - FontSize * 2.2f - rowH - 16f);
         _rows.CustomMinimumSize = new Vector2(_scroll.Size.X, 0);
 
-        _close.Position = new Vector2(side, top + height - rowH);
+        _close.Position = new Vector2(side, top + height - rowH - Foot);
         _close.Size = new Vector2(v.X - side * 2f, rowH);
     }
 }
