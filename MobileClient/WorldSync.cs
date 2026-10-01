@@ -67,14 +67,41 @@ public sealed class WorldSync
 
     /// <summary>
     /// Rebuilds the renderer when the server puts us in a different room.
-    /// Returns true if it rebuilt. Compares by reference: the library hands
-    /// back the same RooFile instance for the same room, so this is a
-    /// pointer check per frame rather than a string compare.
+    /// Returns true if the room changed. Compares by reference: the
+    /// library hands back the same RooFile instance for the same room, so
+    /// this is a pointer check per frame rather than a string compare.
+    ///
+    /// A null room - the server sent us somewhere whose .roo the client
+    /// does not have, so `RoomInfo.ResourceRoom` never resolved - UNLOADS
+    /// and returns true. It used to `return false` with the old RooFile
+    /// still in `Room`, which left the player in a ghost of the room they
+    /// had left: the caller's own null guard passed, the minimap was
+    /// rebuilt from the old room's walls, and the status read the new
+    /// room - while `BaseClient.CurrentRoom` IS
+    /// `Data.RoomInformation.ResourceRoom` (RootClient.cs:98) and so was
+    /// null, which fails `TryMove`'s guard (BaseClient.cs:2830) and froze
+    /// the player where they stood with no message anywhere. The
+    /// reference unloads unconditionally on every Player message and only
+    /// then refuses, with a logged error
+    /// (ControllerRoom.cpp:1604-1611, LoadRoom :396-410, UnloadRoom
+    /// :497-535): an empty scene, and it says so.
     /// </summary>
     public bool SyncRoom(RooFile current)
     {
-        if (current == null || ReferenceEquals(current, Room)) return false;
+        if (ReferenceEquals(current, Room)) return false;
         Room = current;
+        // Unload before anything else, and whether or not there is a new
+        // room to put up - as UnloadRoom does. Object ids belong to a
+        // room, so a flame must not carry over to whatever now has the
+        // same id, and a renderer left standing over a room we are no
+        // longer in is the ghost this used to leave behind.
+        _particles.Reset();
+        if (current == null)
+        {
+            Renderer = null;
+            RoomChanges++;
+            return true;
+        }
         // The replacement room textures, when the player has them. Found
         // once: the folder does not move, and a miss must not be looked
         // for again on every room change. See TexCache.RoomTextureDir.
@@ -94,10 +121,6 @@ public sealed class WorldSync
             _grassLooked = true;
         }
         Renderer.Grass = M59Grass.Build(current, _grassDefs, M59Grass.Intensity);
-        // Object ids belong to a room, and the reference destroys every
-        // node - and its particle systems - when the room unloads, so a
-        // flame must not carry over to whatever now has the same id.
-        _particles.Reset();
         RoomChanges++;
         return true;
     }

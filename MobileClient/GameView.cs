@@ -2402,6 +2402,17 @@ public partial class GameView : Node2D
         RoomObject me = _client.Data?.AvatarObject;
         if (me != null && _map != null)
         {
+            // The walls first, and only now: SyncRoom leaves the rebuild
+            // owed so that the new room's walls and the player's place in
+            // them go up in the same frame. Rebuilt before SetPlayer,
+            // because Build redraws from the pose it already has.
+            if (!ReferenceEquals(_mapRoom, _world.Room))
+            {
+                _map.Build(_world.Room);
+                _mapRoom = _world.Room;
+                GD.Print($"[M59] map -> {_world.Room?.Filename ?? "nothing"} " +
+                         $"({_map.MappedWalls} walls on the map)");
+            }
             // The map works in the server's own units, as the game's does -
             // it is drawing the same numbers the objects arrive in.
             _map.SetObjects(_client.Data?.RoomObjects);
@@ -2434,25 +2445,39 @@ public partial class GameView : Node2D
     /// <summary>
     /// Comes to a stop, and tells the server where.
     ///
-    /// Setting HorizontalSpeed to zero is not enough on its own:
-    /// `SendReqMoveMessage` returns early when the speed is zero
-    /// (BaseClient.cs:1625), so the last stride - up to a whole 100ms
-    /// throttle window of it - is never sent, and the server keeps you
-    /// where you were when it last heard. That is the rubberband on
-    /// every stop. The reference forces a send on the movement-key
-    /// release (`ControllerInput.cpp:604`); this does it on the same
-    /// edge, before the speed is cleared, because clearing it first
-    /// would suppress the very message being forced.
+    /// All this does is force the last stride out. `SendReqMoveMessage`
+    /// is throttled, so without a forced send on the release edge the
+    /// last part of a stride - up to a whole 100ms window of it - never
+    /// reaches the server and it keeps you where it last heard. That is
+    /// the rubberband on every stop, and the reference forces the same
+    /// send on the movement-key release (`ControllerInput.cpp:601-604`).
+    ///
+    /// It does NOT touch the avatar's HorizontalSpeed, and must not.
+    /// Zero is `MovementSpeed.Teleport` (SPEED_NONE,
+    /// MovementSpeed.cs:26,38), and `RoomObject.UpdatePosition` gates
+    /// its whole gravity and step-up block on
+    /// `horizontalSpeed != MovementSpeed.Teleport`
+    /// (RoomObject.cs:1102): with the speed zeroed, hDiff comes out 0,
+    /// neither the falling branch nor the stepping-up branch runs, and
+    /// the else branch snaps Position3D.Y straight onto the new floor.
+    /// So letting go of the stick in mid-air used to TELEPORT you to the
+    /// ground in one tick instead of falling - a 64-unit drop measured
+    /// off the library itself is 41 ticks of 16ms at speed 55 and 1 tick
+    /// at speed 0 - and the eased step-up was lost with it. Nothing in the reference ever writes the
+    /// avatar's speed; only StartMoveTo does, with 25 or 55
+    /// (ControllerInput.cpp:934-951).
+    ///
+    /// The write was not buying the throttle anything either:
+    /// `SendReqMoveMessage` already returns early when the kod position
+    /// has not changed (BaseClient.cs:1620-1626), so a standing avatar
+    /// puts nothing on the wire whatever its speed says.
     /// </summary>
-    void Settle(RoomObject avatar)
+    void Settle()
     {
-        if (_wasMoving)
-        {
-            try { _client.SendReqMoveMessage(true); }
-            catch (Exception e) { _chat?.Local($"stop: {e.GetType().Name}: {e.Message}"); }
-            _wasMoving = false;
-        }
-        avatar.HorizontalSpeed = 0f;
+        if (!_wasMoving) return;
+        try { _client.SendReqMoveMessage(true); }
+        catch (Exception e) { _chat?.Local($"stop: {e.GetType().Name}: {e.Message}"); }
+        _wasMoving = false;
     }
 
     /// <summary>
@@ -2491,7 +2516,7 @@ public partial class GameView : Node2D
             if (look != 0f) _client.TryYaw(look);
             if (_wasTurning && look == 0f) _client.SendReqTurnMessage(true);
             _wasTurning = look != 0f;
-            Settle(avatar);
+            Settle();
             return;
         }
 
@@ -2502,7 +2527,7 @@ public partial class GameView : Node2D
         // moves you locally, tells the server nothing, and snaps you
         // back the moment the wait ends.
         if (_client.Data != null && _client.Data.IsWaiting)
-        { Settle(avatar); return; }
+        { Settle(); return; }
 
         float turn = 0f, fwd = 0f, strafe = 0f;
         if (Input.IsKeyPressed(Key.Left)) turn -= 1f;
@@ -2559,7 +2584,7 @@ public partial class GameView : Node2D
         if (_wasTurning && !turning) _client.SendReqTurnMessage(true);
         _wasTurning = turning;
 
-        if (!moving) { Settle(avatar); return; }
+        if (!moving) { Settle(); return; }
         _wasMoving = true;
 
         // The library's own avatar movement, not a hand-rolled one. It
@@ -3285,16 +3310,69 @@ public partial class GameView : Node2D
         // and they played for the rest of the session over a room that
         // was not there.
         _sound?.StopAll();
-        if (_world.Room == null) return;
-        // Rebuilt even on a second visit: RooFile.Reset puts every
-        // sidedef's flags back to FlagsOrig (RooSideDef.cs:768-774), so
-        // which walls belong on the map can have changed since the
-        // first time.
-        _map?.Build(_world.Room);
+
+        // The room the server sent has no .roo behind it: the resource
+        // id resolved to a filename and nothing on disk matched, so
+        // `RoomInfo.ResourceRoom` is null. WorldSync has already
+        // unloaded, so there is no ghost of the last room left to walk
+        // around in - but there is also nothing to play, and the player
+        // has to be told, because `BaseClient.CurrentRoom` is that same
+        // null and `TryMove` refuses every step against it
+        // (BaseClient.cs:2830). Frozen and unwarned is the worst of the
+        // two, and it is what this did before.
+        //
+        // The full-screen report, not the status line: it is the same
+        // report a corrupt room gets (see PumpFailed), it can be
+        // scrolled and selected on a phone that has no console, and the
+        // .roo is named because the likeliest cause by far is a
+        // half-installed resource folder - one missing file out of the
+        // pack. In-page, as everything in this client is.
+        if (_world.Room == null)
+        {
+            string want = _client.Data?.RoomInformation?.RoomFile;
+            uint id = _client.Data?.RoomInformation?.RoomID ?? 0;
+            _state = $"room {id} unavailable";
+            _map?.Build(null);
+            _mapRoom = null;
+            GD.PrintErr($"[M59] room {id} ({want ?? "unnamed"}) has no .roo - " +
+                        $"nothing loaded, movement will be refused");
+            Boom("entering the room",
+                 $"room: {id}\n" +
+                 $"room file: {want ?? "not named by the server"}\n" +
+                 $"resources: {_resDir ?? "unknown"}\n\n" +
+                 $"The server moved you into this room and the client has no " +
+                 $"room file for it, so there is nothing to draw and nothing " +
+                 $"to walk in - the server will refuse every step.\n\n" +
+                 $"The likeliest cause is an incomplete copy of the game " +
+                 $"files: one room missing out of the resource folder above. " +
+                 $"Clearing the app's data and letting it unpack again " +
+                 $"replaces them.");
+            return;
+        }
+
+        // The minimap is NOT rebuilt here if the new avatar has not
+        // arrived yet. Player and RoomContents are two messages, and in
+        // between them the library has AvatarObject null with
+        // ResourceRoom already the new room (DataController.cs:2328-2368),
+        // so a rebuild now would put the new room's walls under the
+        // previous room's coordinates - the dial drawing one room centred
+        // on another. Held instead until there is somebody to centre it
+        // on, which is the same thing the view does across that gap; see
+        // _camHeld in RenderFrame. Rebuilt even on a second visit:
+        // RooFile.Reset puts every sidedef's flags back to FlagsOrig
+        // (RooSideDef.cs:768-774), so which walls belong on the map can
+        // have changed since the first time.
+        _mapRoom = null;
         _state = $"in room {_client.Data.RoomInformation.RoomID}";
         GD.Print($"[M59] room -> {_world.Room.Filename} " +
-                 $"({_world.Room.Walls.Count} walls, {_map?.MappedWalls ?? 0} on the map)");
+                 $"({_world.Room.Walls.Count} walls)");
     }
+
+    /// <summary>
+    /// The room the minimap's walls were built from, so the rebuild can
+    /// wait for the avatar. Null means "owed a rebuild".
+    /// </summary>
+    RooFile _mapRoom;
 
     /// <summary>Mirrors the server's object list into the renderer each frame.</summary>
     void SyncSprites()
@@ -3333,9 +3411,34 @@ public partial class GameView : Node2D
         _texture = ImageTexture.CreateFromImage(_image);
     }
 
+    /// <summary>
+    /// The last camera pose there was an avatar to take one from, held
+    /// across the gap between a Player message and its RoomContents.
+    /// See RenderFrame.
+    /// </summary>
+    float _camX, _camY, _camZ, _camAng;
+    bool _camHeld;
+
     void RenderFrame()
     {
-        if (_world.Renderer == null || _px == null) return;
+        if (_px == null || _image == null || _texture == null) return;
+
+        // No room loaded - we were moved somewhere whose .roo is missing,
+        // and WorldSync has unloaded. Leaving the buffer alone would hold
+        // the last frame of the room we are no longer in on screen, which
+        // is the ghost this client used to live in. An empty scene is
+        // what UnloadRoom leaves behind (ControllerRoom.cpp:497-535), and
+        // it is the honest picture.
+        if (_world.Renderer == null)
+        {
+            Array.Clear(_rgba, 0, _rgba.Length);
+            _image.SetData(_w, _h, false, Image.Format.Rgba8, _rgba);
+            _texture.Update(_image);
+            if (_status != null)
+                _status.Text = Debugging ? $"{_state}\n" + string.Join("\n", _log)
+                                         : string.Join("\n", _log);
+            return;
+        }
 
         RoomObject avatar = _client.Data?.AvatarObject;
         float cx, cy, cz, ang;
@@ -3343,10 +3446,32 @@ public partial class GameView : Node2D
         {
             _world.Camera(avatar, out cx, out cy, out cz);
             ang = avatar.Angle;
+            _camX = cx; _camY = cy; _camZ = cz; _camAng = ang; _camHeld = true;
+        }
+        else if (_camHeld)
+        {
+            // Between Player and RoomContents there is no avatar: the
+            // library clears AvatarObject and the object list on Player
+            // (DataController.cs:2328-2368) and only RoomContents puts
+            // them back, while ResourceRoom - and so the renderer - is
+            // already the new room. This used to render it from
+            // `cx = cy = 0, ang = 0`, and (0,0) is outside every room in
+            // the game, so a doorway threw the view out into the void for
+            // as long as the second message took.
+            //
+            // The reference does not have a pose of its own to reset: the
+            // camera node is a CHILD of the avatar's scene node and is
+            // merely detached when that node dies, keeping its last
+            // transform until the new avatar re-attaches it
+            // (RemoteNode.cpp:36-45, :73-80). Holding the last pose here
+            // is that, in the one place this renderer keeps a camera.
+            cx = _camX; cy = _camY; cz = _camZ; ang = _camAng;
         }
         else
         {
-            // Not in the world yet - sit still rather than render nothing.
+            // Never had an avatar at all - nothing to hold. Only
+            // reachable before the first RoomContents of the session,
+            // where there is no room either and Render is not called.
             cx = cy = 0; cz = Renderer.EyeHeight; ang = 0;
         }
 
