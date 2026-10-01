@@ -192,6 +192,13 @@ public partial class ActionButtons : Control
     /// when pressed is the dispatch in BaseClient - not a second copy of
     /// it here.
     /// </summary>
+    /// <summary>
+    /// The slot the last successful <see cref="Bind"/> used, so the row
+    /// can turn to the page it landed on. The game has room for all 48
+    /// at once (`UIActionButtons.cpp:23-26`) and never needs this.
+    /// </summary>
+    public static int LastBound { get; private set; } = -1;
+
     public static bool Bind(DataController data, object what)
     {
         if (data?.ActionButtons == null || what == null) return false;
@@ -223,6 +230,7 @@ public partial class ActionButtons : Control
             default: return false;
         }
 
+        LastBound = slot.Num;
         HotbarStore.Save(data);
         return true;
     }
@@ -243,12 +251,44 @@ public partial class ActionButtons : Control
         Vector2 v = GetViewportRect().Size;
         float gap = 6f;
         int across = Math.Max(1, (int)((v.X - LeftReserve - gap) / (ButtonSize + gap)));
-        int count = Math.Min(set.Count, across);
+
+        // The game draws all forty-eight buttons at once, twelve by four
+        // (`UIActionButtons.cpp:23-26`). A phone has one row, and what
+        // this did was draw the first `across` of them and silently drop
+        // the rest - so once the row was full, binding a spell from the
+        // book said "it is on the hotbar" and nothing appeared, and the
+        // only way to reach it was to turn the device sideways. The
+        // bindings were saved the whole time; they were just invisible.
+        //
+        // So the row pages. The last cell becomes the page button when
+        // there is more than one page, which costs a slot and is worth
+        // it: a button you cannot see is worth less than none.
+        bool paged = set.Count > across;
+        int perPage = paged ? Math.Max(1, across - 1) : across;
+        int pages = paged ? (set.Count + perPage - 1) / perPage : 1;
+
+        // A binding just made is worth more than whatever page you were
+        // on: turn to it, so pressing "+" in the spell book shows you
+        // where the spell went.
+        if (LastBound >= 0)
+        {
+            int at = set.FindIndex(b => b.Num == LastBound);
+            if (at >= 0) _page = at / perPage;
+            LastBound = -1;
+        }
+
+        if (_page >= pages) _page = pages - 1;
+        if (_page < 0) _page = 0;
+
+        int first = _page * perPage;
+        int count = Math.Min(perPage, Math.Max(0, set.Count - first));
 
         var sb = new System.Text.StringBuilder();
         for (int i = 0; i < count; i++)
-            sb.Append(set[i].Num).Append(':').Append(set[i].ButtonType).Append(':').Append(set[i].Name).Append(';');
-        sb.Append('@').Append(across).Append('@').Append((int)LeftReserve);
+            sb.Append(set[first + i].Num).Append(':').Append(set[first + i].ButtonType)
+              .Append(':').Append(set[first + i].Name).Append(';');
+        sb.Append('@').Append(across).Append('@').Append((int)LeftReserve)
+          .Append('@').Append(_page).Append('/').Append(pages);
 
         string now = sb.ToString();
         if (now == _signature) return;
@@ -259,7 +299,7 @@ public partial class ActionButtons : Control
         float y = v.Y - BottomReserve - ButtonSize - 8f;
         for (int i = 0; i < count; i++)
         {
-            ActionButtonConfig cfg = set[i];
+            ActionButtonConfig cfg = set[first + i];
             Button b = Take(i);
 
             // Label is an empty string rather than null when unset, so a
@@ -315,6 +355,28 @@ public partial class ActionButtons : Control
             b.ButtonDown += () => _downAt = Time.GetTicksMsec();
             b.Pressed += () => Fire(slot);
         }
+
+        // The page button, last in the row, saying where you are.
+        // Its own button, not one out of the pool: a pooled button
+        // already carries a Pressed handler that fires whatever action
+        // sat in that position, and turning the page would cast a spell.
+        if (paged)
+        {
+            if (_turn == null)
+            {
+                _turn = new Button();
+                _turn.AddThemeFontSizeOverride("font_size", 18);
+                _turn.Name = "hotpage";
+                _turn.TooltipText = "More buttons";
+                _turn.Pressed += () => { _page++; _signature = ""; };
+                AddChild(_turn);
+            }
+            _turn.Text = $"{_page + 1}/{pages}";
+            _turn.Position = new Vector2(LeftReserve + gap + count * (ButtonSize + gap), y);
+            _turn.Size = new Vector2(ButtonSize, ButtonSize);
+            _turn.Visible = true;
+        }
+        else if (_turn != null) _turn.Visible = false;
 
         HideFrom(count);
     }
@@ -402,6 +464,12 @@ public partial class ActionButtons : Control
         }
         return _pool[index];
     }
+
+    /// <summary>Which page of bindings the row is showing.</summary>
+    int _page;
+
+    /// <summary>The page button, when there is more than one page.</summary>
+    Button _turn;
 
     void HideFrom(int from)
     {
