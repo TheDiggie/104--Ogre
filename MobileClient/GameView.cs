@@ -475,6 +475,7 @@ public partial class GameView : Node2D
             VersionMinor = (byte)Math.Clamp(VersionMinor, 0, 255),
         };
         _world = new WorldSync(_client.ResourceManager);
+        _world.RootPath = _resDir;
         // Every arrival in a room, the same one included - see the note
         // on _arrived.
         _client.Arrived += () => _arrived = true;
@@ -2178,6 +2179,10 @@ public partial class GameView : Node2D
 
     void SyncRoom()
     {
+        // Before the room, so a rebuild starts with the right sky: the
+        // background can change without the room changing, and the room
+        // can change without the background changing.
+        _world.SetBackground(_client.Data?.RoomInformation?.BackgroundFile);
         bool fresh = _world.SyncRoom(_client.Data?.RoomInformation?.ResourceRoom);
         if (!fresh && !_arrived) return;
         _arrived = false;

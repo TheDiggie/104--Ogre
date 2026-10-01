@@ -38,7 +38,93 @@ static class RenderCheck
         if (mode == "scroll"  || mode == "all") bad += Scrolling(dir);
         if (mode == "anim"    || mode == "all") bad += Animated(dir);
         if (mode == "anchor"  || mode == "all") Anchor(dir);
+        if (mode == "sky"     || mode == "all") bad += Sky(dir);
         return bad == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// The cube faces are laid out by a convention read off the art
+    /// rather than quoted from Ogre, so it is checked rather than
+    /// trusted: the sky is continuous, therefore two directions a hair
+    /// apart must give nearly the same colour even when they land on
+    /// different faces. A face stored rotated, mirrored or on the wrong
+    /// axis breaks that at the seam and nowhere else, which is exactly
+    /// what this walks.
+    ///
+    /// The bar is the picture's own roughness: the same test run at
+    /// pairs that stay INSIDE one face gives the noise floor, and a
+    /// seam is only wrong if it is far worse than that.
+    /// </summary>
+    static int Sky(string dir)
+    {
+        string skyDir = M59Sky.FindDir(dir);
+        if (skyDir == null) { Console.WriteLine("  no sky art here, skipped"); return 0; }
+
+        int bad = 0;
+        foreach (string set in new[] { "skya", "skyb", "skyc", "skyd", "redsky" })
+        {
+            M59Sky sky = M59Sky.Load(skyDir, set);
+            if (sky == null) { Console.WriteLine($"  {set}: missing a face"); bad++; continue; }
+
+            // A direction just either side of a boundary, and the same
+            // pair rotated well clear of one, over the whole sphere.
+            const float Eps = 0.004f;
+            double seam = 0, inside = 0; int seamN = 0, insideN = 0, worst = 0;
+            string where = "";
+            for (int i = 0; i < 20000; i++)
+            {
+                // A deterministic spread over the sphere.
+                double t = i * 2.399963229728653;               // golden angle
+                double z = 1.0 - 2.0 * (i + 0.5) / 20000.0;
+                double r = Math.Sqrt(Math.Max(0, 1 - z * z));
+                float x = (float)(r * Math.Cos(t)), y = (float)(r * Math.Sin(t)), zz = (float)z;
+
+                // Nudge along each axis in turn; a nudge that crosses a
+                // face boundary is a seam sample, one that does not is
+                // the noise floor.
+                for (int ax = 0; ax < 3; ax++)
+                {
+                    float dx = ax == 0 ? Eps : 0, dy = ax == 1 ? Eps : 0, dz = ax == 2 ? Eps : 0;
+                    uint c0 = sky.Sample(x - dx, y - dy, zz - dz);
+                    uint c1 = sky.Sample(x + dx, y + dy, zz + dz);
+                    int d = Diff(c0, c1);
+                    if (Face(x - dx, y - dy, zz - dz) != Face(x + dx, y + dy, zz + dz))
+                    {
+                        seam += d; seamN++;
+                        if (d > worst) { worst = d; where = $"({x:F3},{y:F3},{zz:F3})"; }
+                    }
+                    else { inside += d; insideN++; }
+                }
+            }
+            double sAvg = seamN > 0 ? seam / seamN : 0, iAvg = insideN > 0 ? inside / insideN : 0;
+            // Ten times the picture's own roughness is a seam you would
+            // see; anything at or under that is the art, not the layout.
+            bool ok = seamN > 0 && sAvg <= Math.Max(4.0, iAvg * 10.0);
+            if (!ok) bad++;
+            Console.WriteLine($"  {set}: across {seamN} seam samples {sAvg:F2}, "
+                            + $"within a face {iAvg:F2}, worst {worst} at {where}"
+                            + (ok ? "" : "   <-- the faces do not join"));
+        }
+        Console.WriteLine(bad == 0 ? "OK" : "PROBLEM");
+        return bad;
+    }
+
+    static int Diff(uint a, uint b)
+    {
+        int r = Math.Abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255));
+        int g = Math.Abs((int)((a >>  8) & 255) - (int)((b >>  8) & 255));
+        int bl= Math.Abs((int)( a        & 255) - (int)( b        & 255));
+        return Math.Max(r, Math.Max(g, bl));
+    }
+
+    /// <summary>Which of the six the direction lands on, for the seam test.</summary>
+    static int Face(float x, float y, float z)
+    {
+        float ox = x, oy = z, oz = y;
+        float ax = Math.Abs(ox), ay = Math.Abs(oy), az = Math.Abs(oz);
+        if (ax >= ay && ax >= az) return ox > 0 ? 0 : 1;
+        if (ay >= az)             return oy > 0 ? 2 : 3;
+        return oz < 0 ? 4 : 5;
     }
 
     /// <summary>

@@ -64,10 +64,38 @@ public sealed class WorldSync
     {
         if (current == null || ReferenceEquals(current, Room)) return false;
         Room = current;
-        Renderer = new Renderer(current, new TexCache(_rm));
+        Renderer = new Renderer(current, new TexCache(_rm)) { Sky = _sky };
         RoomChanges++;
         return true;
     }
+
+    /// <summary>Where the sky faces are, once one has been looked for.</summary>
+    string _skyDir;
+    bool _skyLooked;
+    /// <summary>The set the current sky was built from, so it is loaded once.</summary>
+    string _skySet;
+    M59Sky _sky;
+
+    /// <summary>
+    /// The background the server asked for. It arrives with RoomInfo
+    /// (RoomInfo.cs:806-807) and can be replaced at any time by
+    /// BP_CHANGE_BACKGROUND (DataController.cs:2371-2375), so this is
+    /// called with whatever the data model currently says rather than
+    /// only on a room change - the reference calls UpdateSky from both
+    /// places too (ControllerRoom.cpp:427-428 and :1628-1631).
+    /// </summary>
+    public void SetBackground(string bgfFile)
+    {
+        string set = M59Sky.SetFor(bgfFile);
+        if (set == _skySet) return;
+        _skySet = set;
+        if (!_skyLooked) { _skyDir = M59Sky.FindDir(RootPath); _skyLooked = true; }
+        _sky = set == null ? null : M59Sky.Load(_skyDir, set);
+        if (Renderer != null) Renderer.Sky = _sky;
+    }
+
+    /// <summary>Where the game's resources were loaded from, for finding the sky.</summary>
+    public string RootPath;
 
     /// <summary>
     /// Mirrors the server's objects into the renderer, converting the

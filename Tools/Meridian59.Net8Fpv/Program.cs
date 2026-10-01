@@ -20,7 +20,7 @@ static class Fpv
         {
             if (a[i].StartsWith("--"))
             {
-                if (a[i] == "--sprite" || a[i] == "--time" || a[i] == "--pitch") i++;   // takes a value
+                if (a[i] == "--sprite" || a[i] == "--time" || a[i] == "--pitch" || a[i] == "--sky") i++;   // takes a value
                 continue;
             }
             pos.Add(a[i]);
@@ -51,6 +51,27 @@ static class Fpv
         // which is what this renderer did before it read
         // RooSubSector.UpdateVertexUV. For comparing.
         if (flags.Contains("--worldflats")) r.LeafAnchoredFlats = false;
+        if (flags.Contains("--secdbg"))
+        {
+            foreach (var g in roo.Sectors.GroupBy(x => x.CeilingTexture).OrderByDescending(x => x.Count()).Take(8))
+                Console.WriteLine($"  ceiling {g.Key} x{g.Count()} {(g.First().ResourceCeiling == null ? "MISSING" : "ok")}");
+            foreach (var g in roo.Sectors.GroupBy(x => x.FloorTexture).OrderByDescending(x => x.Count()).Take(6))
+                Console.WriteLine($"  floor   {g.Key} x{g.Count()} {(g.First().ResourceFloor == null ? "MISSING" : "ok")}");
+        }
+
+        // --sky <set> puts one of the shipped skyboxes behind the holes
+        // in the geometry. The game picks the set from the background
+        // BGF the server sends; here it is named directly.
+        int ski = Array.IndexOf(flags, "--sky");
+        if (ski >= 0 && ski + 1 < flags.Length)
+        {
+            string skyDir = M59Sky.FindDir(dir);
+            r.Sky = M59Sky.Load(skyDir, flags[ski + 1]);
+            Console.WriteLine(r.Sky != null
+                ? $"sky {r.Sky.Name} from {skyDir}"
+                : $"no sky: {flags[ski + 1]} not found under {skyDir ?? "(nowhere)"}");
+        }
+
         // --time <seconds> advances scrolling floors and walls.
         int ti = Array.IndexOf(flags, "--time");
         if (ti >= 0 && ti + 1 < flags.Length) r.Time = float.Parse(flags[ti + 1]);

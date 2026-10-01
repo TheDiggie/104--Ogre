@@ -134,6 +134,35 @@ public sealed class Renderer
     /// </summary>
     public float Brightness = 1f;
 
+    /// <summary>
+    /// The sky behind every hole in the geometry, or null for the void.
+    /// Which one it is comes from the server, not the room - see
+    /// M59Sky - so the game sets this when RoomInfo arrives and again
+    /// on BP_CHANGE_BACKGROUND.
+    /// </summary>
+    public M59Sky Sky;
+
+    /// <summary>
+    /// The sky colour for one pixel of a column, or <paramref
+    /// name="fallback"/> when there is no sky loaded.
+    ///
+    /// The ray through row y drops by (y - horizon)/proj per unit of
+    /// distance along the camera's forward axis, and this column's
+    /// horizontal ray is 1/cosFix as long as that axis, so the vertical
+    /// component of the direction is that slope times cosFix. Anchoring
+    /// the sky to Horizon() rather than to a true rotation of the
+    /// camera keeps it level with the geometry, whose own pitch is the
+    /// same shear (Renderer.Horizon) - the reference has a real 3D
+    /// camera and rotates both together.
+    /// </summary>
+    static uint SkyAt(M59Sky sky, uint fallback, float rayA, float cosFix,
+                      int y, float horizon, float proj)
+    {
+        if (sky == null) return fallback;
+        float up = (horizon - y) / proj * cosFix;
+        return sky.Sample(MathF.Cos(rayA), MathF.Sin(rayA), up);
+    }
+
     public struct Hit { public RooWall Wall; public float Dist, Along, Len; public bool Right; }
 
     /// <summary>A billboarded object standing on the floor at X,Y.</summary>
@@ -500,11 +529,11 @@ public sealed class Renderer
                 FillFlat(px, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
-                         Brightness);
+                         Brightness, Sky);
                 FillFlat(px, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
-                         Brightness);
+                         Brightness, Sky);
 
                 yTop = Math.Max(yTop, ceilY);
                 yBot = Math.Min(yBot, floorY);
@@ -576,7 +605,7 @@ public sealed class Renderer
                              HonourNoVTile && side != null && side.Flags.IsNoVTile,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time);
+                             Time, Sky, rayA, cosFix, horizon, proj);
                     _depth[sx] = perp;
                     closed = true;
                     break;
@@ -604,11 +633,11 @@ public sealed class Renderer
                     // it, and yTop moves past it either way - so those
                     // rows kept whatever the last frame left there and
                     // smeared as you turned. The reference has nothing
-                    // to draw there either (`ControllerRoom.cpp:690`),
-                    // but behind it is a skybox; here it is the void.
+                    // to draw there either (`ControllerRoom.cpp:690`);
+                    // behind it is the skybox, which is what shows here.
                     else for (int y = Math.Max(0, yTop);
                               y < Math.Min(H, Math.Min(yBot + 1, farCeilY)); y++)
-                        px[y * W + sx] = Tex.Void;
+                        px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
                     yTop = Math.Max(yTop, farCeilY);
                 }
                 if (ff > nf)
@@ -625,7 +654,7 @@ public sealed class Renderer
                              Time);
                     else for (int y = Math.Max(0, Math.Max(yTop, farFloorY));
                               y < Math.Min(H, yBot + 1); y++)
-                        px[y * W + sx] = Tex.Void;
+                        px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
                     yBot = Math.Min(yBot, farFloorY);
                 }
 
@@ -670,7 +699,8 @@ public sealed class Renderer
                                      along, xOff, yOff, side.Flags.IsNormalTopDown, fog, tpp,
                                      false, null, 0f, 0,
                                      HonourNoVTile && side.Flags.IsNoVTile,
-                                     side.Flags.ScrollSpeed, side.Flags.ScrollDirection, Time);
+                                     side.Flags.ScrollSpeed, side.Flags.ScrollDirection, Time,
+                                     Sky, rayA, cosFix, horizon, proj);
                             _depth[sx] = perp;
                             closed = true;
                             break;
@@ -704,7 +734,8 @@ public sealed class Renderer
                 // than the untouched float.MaxValue - the same reason as
                 // above.
                 _depth[sx] = _depth[sx] == float.MaxValue ? 1e9f : _depth[sx];
-                for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0) px[y * W + sx] = Tex.Void;
+                for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0)
+                    px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
             }
         }
     }
@@ -1042,7 +1073,9 @@ public sealed class Renderer
                          bool noVTile = false,
                          TextureScrollSpeed scrollSpeed = TextureScrollSpeed.NONE,
                          TextureScrollDirection scrollDir = TextureScrollDirection.N,
-                         float time = 0f)
+                         float time = 0f,
+                         M59Sky sky = null, float rayA = 0f, float cosFix = 1f,
+                         float horizon = 0f, float proj = 1f)
     {
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
@@ -1105,10 +1138,10 @@ public sealed class Renderer
             // clears the texture and the material together
             // (`RooSideDef.cs:472`) and the Ogre client returns from
             // CreateSidePart before making anything
-            // (`ControllerRoom.cpp:686`). So the void shows, which is
-            // what a shortened quad leaves. A grey fill instead made
-            // every missing texture look like a wall that is there.
-            if (t == null) c = Tex.Void;
+            // (`ControllerRoom.cpp:686`). So what is behind the missing
+            // quad shows through, which is the sky. A grey fill instead
+            // made every missing texture look like a wall that is there.
+            if (t == null) c = SkyAt(sky, Tex.Void, rayA, cosFix, y, horizon, proj);
             else
             {
                 float f = (y - spanTopY) / span;                 // 0 at top of span
@@ -1135,10 +1168,11 @@ public sealed class Renderer
                     //
                     // A see-through wall lets the column carry on and
                     // shows whatever is behind. A solid one has nothing
-                    // behind it - the library's shortened quad would
-                    // show the void there - so the void is what goes
-                    // in, rather than the previous frame's pixels.
-                    if (!masked) px[y * W + sx] = 0xFF000000u;
+                    // behind it: the library's shortened quad ends, and
+                    // what the reference shows past the end of the
+                    // geometry is the skybox - so that, rather than the
+                    // previous frame's pixels.
+                    if (!masked) px[y * W + sx] = SkyAt(sky, 0xFF000000u, rayA, cosFix, y, horizon, proj);
                     continue;
                 }
                 uint texel = masked ? t.Sample(v, u) : t.Sample(v, u, tpp);
@@ -1221,7 +1255,7 @@ public sealed class Renderer
                          RooSector sec, float camX, float camY, float camZ,
                          float horizon, float proj, float angle, float rayA, TexCache tc,
                          bool skip, bool noSample, float time, FlatAnchors anchors,
-                         float bright)
+                         float bright, M59Sky sky)
     {
         if (sec == null || skip) return;
         if (y0 < 0) y0 = 0;
@@ -1270,7 +1304,13 @@ public sealed class Renderer
 
         for (int y = y0; y <= y1; y++)
         {
-            if (t == null) { px[y * W + sx] = flat; continue; }
+            // Texture 0 leaves the sector with no resource and no
+            // material (RooSector.cs:663-691) and CreateSectorPart
+            // builds nothing for it (ControllerRoom.cpp:789-790), so
+            // the skybox is what fills the hole. Floors as well as
+            // ceilings: the early-out is the same for both.
+            if (t == null)
+            { px[y * W + sx] = SkyAt(sky, flat, rayA, cosFix, y, horizon, proj); continue; }
             float dy = y - horizon;
             if (MathF.Abs(dy) < 0.5f) { px[y * W + sx] = flat; continue; }
 
