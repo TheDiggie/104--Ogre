@@ -42,6 +42,50 @@ public partial class MiniMap : Control
     [Export] public float Margin = 12f;
 
     /// <summary>
+    /// How big the dial itself may get, and in what increments.
+    ///
+    /// The reference lets the player resize the minimap WINDOW as well
+    /// as zoom it, and the two are separate gestures: the wheel alone
+    /// changes zoom, the wheel with the self-target key held changes the
+    /// window's size (`UIMiniMap.cpp:62-101`). Its band is 256 to 512
+    /// pixels and it insists on 32-pixel steps - "MUST step in 32
+    /// pixel-steps (tex requirement for DYN DISCARD)"
+    /// (`UIMiniMap.cpp:67-77`) - because the map is redrawn into a
+    /// dynamic-discard texture whose dimensions have to stay on that
+    /// grid. The size is then written back into the client's own
+    /// configuration with the rest of the window's layout
+    /// (`ControllerUI.cpp:643-644`, `OgreClientConfig.cpp:781-784`) and
+    /// read again on startup (`UIMiniMap.cpp:12-17`), so a player's
+    /// chosen size survives the session.
+    ///
+    /// Two deliberate divergences, both forced by the screen rather than
+    /// chosen:
+    ///
+    ///  - the floor is 160 rather than the reference's 256. The
+    ///    reference is sizing a floating window inside a desktop
+    ///    viewport that is at least 1024 wide; a phone held upright is
+    ///    often under 400 points across, where a 256-point dial is most
+    ///    of the width and cannot be made smaller - which is the one
+    ///    thing a player on a small screen actually wants. The existing
+    ///    default of 220 sits inside this band, so the shipped map does
+    ///    not jump the first time the button is pressed.
+    ///  - the ceiling is additionally capped to what fits the viewport
+    ///    (see <see cref="FittingMax"/>). The reference's 512 is fine on
+    ///    a monitor and would swallow a phone screen whole.
+    ///
+    /// The 32-pixel step is kept as the reference has it, and so is the
+    /// clamping; what is dropped is the reference's habit of moving the
+    /// window by half the size change so it grows about its centre
+    /// (`UIMiniMap.cpp:90-95`). Here the dial is pinned to the top-right
+    /// corner by <see cref="Layout"/> rather than dragged anywhere by the
+    /// player, so there is no free position to compensate: it grows down
+    /// and to the left, away from the corner it is anchored to.
+    /// </summary>
+    public const int MinMapSize = 160;
+    public const int MaxMapSize = 512;
+    public const int MapSizeStep = 32;
+
+    /// <summary>
     /// Server units per pixel, and how much of the room you can see: the
     /// map covers MapSize * Zoom units across.
     ///
@@ -81,7 +125,7 @@ public partial class MiniMap : Control
     // Fallback face, for when the dial cannot be loaded.
     static readonly Color Back   = new Color(0.82f, 0.82f, 0.80f, 0.92f);
 
-    Button _toggle, _in, _out;
+    Button _toggle, _in, _out, _bigger;
     bool _shown = true;
     Texture2D _dial;
 
@@ -110,6 +154,26 @@ public partial class MiniMap : Control
         // and a pinch stand in for the wheel.
         _in = Step("+", 1f / 1.25f);
         _out = Step("-", 1.25f);
+
+        // The resize control. The reference's gesture for this is the
+        // self-target key held down while the wheel turns
+        // (`UIMiniMap.cpp:65`), which is two hands and a wheel: a
+        // chorded modifier has no touch equivalent at all, and a second
+        // pinch cannot be told apart from the zoom pinch this map
+        // already reads. So the discrete 32-pixel steps the reference
+        // insists on become one button that walks up through them and
+        // wraps round to the smallest at the top. A single control
+        // reaches every size the reference offers, which two arrows
+        // would also do but at twice the clutter on a dial this small.
+        _bigger = new Button { Text = "□", Name = "mapSize" };
+        _bigger.AddThemeFontSizeOverride("font_size", 18);
+        _bigger.AddThemeColorOverride("font_color", new Color(0.1f, 0.1f, 0.1f));
+        _bigger.AddThemeColorOverride("font_hover_color", new Color(0.1f, 0.1f, 0.1f));
+        _bigger.AddThemeColorOverride("font_outline_color", new Color(1f, 1f, 1f));
+        _bigger.AddThemeConstantOverride("outline_size", 4);
+        _bigger.TooltipText = "Map size";
+        _bigger.Pressed += NextSize;
+        AddChild(_bigger);
 
         Load();
 
@@ -167,10 +231,60 @@ public partial class MiniMap : Control
         QueueRedraw();
     }
 
+    /// <summary>
+    /// The largest dial this screen can carry, on the reference's own
+    /// 32-pixel grid.
+    ///
+    /// The reference has no equivalent because it does not need one: its
+    /// hard 512 ceiling (`UIMiniMap.cpp:69`) is comfortably inside any
+    /// desktop viewport. Here the shorter side of the screen is the
+    /// constraint - held upright that is the width, and a dial wider than
+    /// the screen is not a map - so the ceiling is whichever of the
+    /// reference's 512 and four fifths of the shorter side comes first,
+    /// rounded DOWN onto the grid so every reachable size is still a
+    /// multiple of the step.
+    /// </summary>
+    int FittingMax()
+    {
+        Vector2 v = GetViewportRect().Size;
+        float room = Mathf.Min(v.X, v.Y) * 0.8f - Margin * 2f;
+        int fits = (int)(Mathf.Min(MaxMapSize, room) / MapSizeStep) * MapSizeStep;
+        // Never below the floor: a screen too small for even 160 points
+        // of dial gets the floor anyway, because a map that has been
+        // clamped out of existence is worse than one that overhangs.
+        return Mathf.Max(fits, MinMapSize);
+    }
+
+    /// <summary>
+    /// One press of the size button: up a step, wrapping to the smallest
+    /// once the largest size this screen allows has been passed. The step
+    /// and the clamp are the reference's (`UIMiniMap.cpp:74-80`); the wrap
+    /// is what makes one button do the work of a modifier plus a wheel.
+    /// </summary>
+    void NextSize()
+    {
+        int max = FittingMax();
+        // Snap onto the grid first. The shipped default of 220 is not a
+        // multiple of 32 - it predates this control - and stepping from
+        // it would carry that offset for ever, so the first press lands
+        // on the grid and every press after that stays on it.
+        int snapped = (int)Mathf.Round(MapSize / (float)MapSizeStep) * MapSizeStep;
+        int next = (snapped <= MapSize ? snapped + MapSizeStep : snapped);
+        MapSize = next > max ? MinMapSize : Mathf.Clamp(next, MinMapSize, max);
+        Save();
+        Layout();
+        QueueRedraw();
+    }
+
     void Layout()
     {
         if (_toggle == null) return;
         Vector2 v = GetViewportRect().Size;
+        // A size saved on one orientation can be too big for another -
+        // the reference never has to think about this because its
+        // viewport does not turn ninety degrees under it - so the dial
+        // is pulled back inside what fits whenever the screen changes.
+        MapSize = Mathf.Clamp(MapSize, MinMapSize, FittingMax());
         _toggle.Size = new Vector2(70, 40);
         _toggle.Position = new Vector2(v.X - 70 - Margin, v.Y - 40 - Margin);
 
@@ -184,6 +298,13 @@ public partial class MiniMap : Control
         _out.Position = new Vector2(left + MapSize * 0.5f - w - 6f, y);
         _in.Position = new Vector2(left + MapSize * 0.5f + 6f, y);
         _in.Visible = _out.Visible = _shown;
+
+        // The size button sits a row below the zoom pair, still on the
+        // dial's pale face for the same reason they are: a dark glyph on
+        // a dark wall is not a button.
+        _bigger.Size = new Vector2(w, h);
+        _bigger.Position = new Vector2(left + MapSize * 0.5f - w * 0.5f, y + h + 4f);
+        _bigger.Visible = _shown;
     }
 
     const string PrefsPath = "user://view.cfg";
@@ -203,6 +324,13 @@ public partial class MiniMap : Control
             f.Load(PrefsPath);
             f.SetValue("map", "zoom", Zoom);
             f.SetValue("map", "shown", _shown);
+            // Alongside the zoom, in the same file and the same section
+            // the rest of this view's settings live in. The reference
+            // persists the minimap's size the same way - as part of the
+            // window's layout in its own config
+            // (`ControllerUI.cpp:644`, `OgreClientConfig.cpp:781-784`) -
+            // so a chosen size is not a per-session thing there either.
+            f.SetValue("map", "size", MapSize);
             f.Save(PrefsPath);
         }
         catch (Exception e) { GD.PrintErr($"[MiniMap] save: {e.Message}"); }
@@ -216,6 +344,11 @@ public partial class MiniMap : Control
             if (f.Load(PrefsPath) != Error.Ok) return;
             Zoom = Mathf.Clamp((float)f.GetValue("map", "zoom", Zoom), MinZoom, MaxZoom);
             _shown = (bool)f.GetValue("map", "shown", _shown);
+            // Clamped on the way in as the reference clamps on the way
+            // round (`UIMiniMap.cpp:79-80`): a config edited by hand, or
+            // written on a larger screen, must not be able to hand this
+            // a dial bigger than the device can draw.
+            MapSize = Mathf.Clamp((int)f.GetValue("map", "size", MapSize), MinMapSize, MaxMapSize);
         }
         catch (Exception e) { GD.PrintErr($"[MiniMap] load: {e.Message}"); }
     }

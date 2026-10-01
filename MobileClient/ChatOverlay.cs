@@ -63,8 +63,35 @@ public partial class ChatOverlay : Control
     ColorRect _logBack;
     ScrollContainer _fullScroll;
     RichTextLabel _full;
-    Button _fullClose;
+    Button _fullClose, _fullPlain, _fullCopy;
+    Label _fullNote;
     readonly List<string> _lines = new List<string>();
+
+    /// <summary>
+    /// The same log with the styling stripped off - one message per
+    /// entry, exactly as the server sent it, no BBCode.
+    ///
+    /// The reference keeps the log twice over for the same reason. Its
+    /// chat window holds two controls: `Chat.Text`, a StaticText carrying
+    /// CEGUI markup, and `Chat.TextPlain`, a read-only MultiLineEditbox
+    /// (`Meridian59.layout:769-788`, `UIChat.cpp:9-13`). A
+    /// `PlainMode` flag says which of the two is visible
+    /// (`UIChat.cpp:93-116`) and `Util::GetChatString` is handed that
+    /// flag: true and it returns `ChatMessage->FullString` plus a
+    /// newline and nothing else, false and it walks the style list
+    /// building font and colour tags (`Util.h:871-876`). So plain mode is
+    /// not a rendering trick, it is the same text without the markup -
+    /// which is what this list is.
+    /// </summary>
+    readonly List<string> _plain = new List<string>();
+
+    /// <summary>
+    /// Whether the full log is showing the plain text rather than the
+    /// styled text. The reference's `ControllerUI::Chat::PlainMode`
+    /// (`ControllerUI.h:320`), flipped by a right-click anywhere on the
+    /// chat text (`UIChat.cpp:307-317`).
+    /// </summary>
+    bool _plainMode;
 
     public override void _Ready()
     {
@@ -170,6 +197,13 @@ public partial class ChatOverlay : Control
             BbcodeEnabled = true,
             FitContent = true,
             ScrollActive = false,
+            // The reference's plain control is a read-only
+            // MultiLineEditbox, which is selectable by definition
+            // (`Meridian59.layout:784-787`). This is the nearest thing a
+            // RichTextLabel has: it costs nothing where there is no
+            // pointer, and where there is one it gives back the
+            // reference's drag-select exactly.
+            SelectionEnabled = true,
         };
         _full.AddThemeFontSizeOverride("normal_font_size", FontSize);
         _full.SizeFlagsHorizontal = SizeFlags.Fill | SizeFlags.Expand;
@@ -177,6 +211,57 @@ public partial class ChatOverlay : Control
         _fullScroll = new ScrollContainer { Visible = false };
         _fullScroll.AddChild(_full);
         AddChild(_fullScroll);
+
+        // The plain-text switch, and the way off the device with the
+        // text.
+        //
+        // What the reference does: the chat window can be flipped
+        // between its styled StaticText and a read-only
+        // MultiLineEditbox holding the same messages unadorned, by
+        // right-clicking the text (`UIChat.cpp:307-317` flips
+        // `PlainMode` and forces a renew; `UIChat.cpp:93-116` swaps
+        // which control is visible and carries the scroll position
+        // across). Once the editbox is up the player can drag-select in
+        // it and press Ctrl+C: `Chat.TextPlain` subscribes
+        // `OnCopyPasteKeyDown` (`UIChat.cpp:53`), which on Ctrl+C calls
+        // `ControllerUI::CopyToClipboard` (`ControllerUI.cpp:1065-1071`),
+        // which takes the editbox's SELECTION - `getSelectionStartIndex`
+        // and `getSelectionLength` - and hands it to
+        // `Clipboard::SetText` (`ControllerUI.cpp:606-620`). The plain
+        // control exists precisely so that what lands on the clipboard is
+        // text and not a mouthful of `[colour='FF800000']` tags.
+        //
+        // Why this differs: the flip itself ports honestly and is ported
+        // - a button here, a right-click there, both deliberate and both
+        // reversible. The COPY does not. Its two halves are a mouse drag
+        // to select and a chorded keystroke to lift, and a touch screen
+        // has neither: a drag across text is how you scroll the log, and
+        // there is no Ctrl to hold. Rather than fake a selection model
+        // nobody can drive with a thumb, the button copies the whole
+        // visible buffer in one press - which is what a player wanting
+        // to paste a fight or a merchant's price list into a message
+        // was reaching for anyway. Selection is still enabled on the
+        // label for devices that do have a pointer, and a selection, if
+        // there is one, wins over the whole buffer - so on a tablet with
+        // a trackpad the behaviour collapses back onto the reference's.
+        _fullPlain = new Button { Text = "Plain", Visible = false, Name = "chatPlain" };
+        _fullPlain.AddThemeFontSizeOverride("font_size", FontSize);
+        _fullPlain.Pressed += TogglePlain;
+        AddChild(_fullPlain);
+
+        _fullCopy = new Button { Text = "Copy", Visible = false, Name = "chatCopy" };
+        _fullCopy.AddThemeFontSizeOverride("font_size", FontSize);
+        _fullCopy.Pressed += CopyLog;
+        AddChild(_fullCopy);
+
+        // Confirmation, in the client's own UI. A copy that says nothing
+        // is indistinguishable from a copy that failed, and the house
+        // rule - and the reference, which has no OS dialogs anywhere in
+        // its chat path either - rules out asking the platform to say it.
+        _fullNote = new Label { Text = "", Visible = false };
+        _fullNote.AddThemeFontSizeOverride("font_size", FontSize);
+        _fullNote.AddThemeColorOverride("font_color", new Color(0.56f, 0.88f, 0.56f));
+        AddChild(_fullNote);
 
         _fullClose = new Button { Text = "Close", Visible = false };
         _fullClose.AddThemeFontSizeOverride("font_size", FontSize);
@@ -254,8 +339,24 @@ public partial class ChatOverlay : Control
         // The label wraps against a width; without one it has no height
         // either and the scroll stays empty.
         _full.CustomMinimumSize = new Vector2(_fullScroll.Size.X, 0);
-        _fullClose.Position = new Vector2(side, v.Y - entryH - side * 0.5f);
-        _fullClose.Size = new Vector2(v.X - side * 2f, entryH);
+
+        // Three across the bottom where Close alone used to be: the
+        // plain-text switch, the copy, and Close. Close keeps the right
+        // hand end, which is where a thumb has been finding it.
+        float rowW = v.X - side * 2f;
+        float thirdW = Mathf.Min(rowW / 3f - 6f, FontSize * 7f);
+        float rowY = v.Y - entryH - side * 0.5f;
+        _fullPlain.Position = new Vector2(side, rowY);
+        _fullPlain.Size = new Vector2(thirdW, entryH);
+        _fullCopy.Position = new Vector2(side + thirdW + 8f, rowY);
+        _fullCopy.Size = new Vector2(thirdW, entryH);
+        _fullClose.Position = new Vector2(side + rowW - thirdW, rowY);
+        _fullClose.Size = new Vector2(thirdW, entryH);
+
+        // The copy notice above the row, right-aligned into the gap
+        // between Copy and Close so it never sits under a button.
+        _fullNote.Position = new Vector2(side, rowY - FontSize - 10f);
+        _fullNote.Size = new Vector2(rowW, FontSize + 6f);
 
         float logH = (FontSize + 6) * Lines;
         _log.Position = new Vector2(pad, v.Y - entryH - pad * 2 - logH);
@@ -274,9 +375,15 @@ public partial class ChatOverlay : Control
 
     void ShowHistory()
     {
-        _full.Text = string.Join("\n", _lines);
         _fullBack.Visible = true; _fullScroll.Visible = true; _fullClose.Visible = true;
         _fullTitle.Visible = true;
+        _fullPlain.Visible = true; _fullCopy.Visible = true;
+        // Opens styled, as the reference opens styled: `PlainMode`
+        // starts false (`ControllerUI.h:320`). Plain mode is something
+        // you ask for to get the text out, not the everyday view - the
+        // styling is how you tell a shout from a system line.
+        _fullNote.Visible = false;
+        Render();
         // Above the panels built after this one, or the Close button
         // sits under the hotbar and cannot be pressed.
         GetParent()?.MoveChild(this, -1);
@@ -291,6 +398,106 @@ public partial class ChatOverlay : Control
     {
         _fullBack.Visible = false; _fullScroll.Visible = false; _fullClose.Visible = false;
         _fullTitle.Visible = false;
+        _fullPlain.Visible = false; _fullCopy.Visible = false; _fullNote.Visible = false;
+    }
+
+    /// <summary>
+    /// Flips the full log between the styled text and the plain text.
+    ///
+    /// This is the reference's `PlainMode` flip
+    /// (`UIChat.cpp:307-317`), reached by a button rather than by a
+    /// right-click because a touch screen has no second mouse button and
+    /// a long-press on the log is already how a platform offers its own
+    /// text selection. The reference carries the scroll position from one
+    /// control to the other when it flips (`UIChat.cpp:101-115`) so the
+    /// player does not lose their place; there is one control here and
+    /// the two buffers have the same number of lines, so the scroll
+    /// offset is simply left alone and lands in the same place.
+    /// </summary>
+    void TogglePlain()
+    {
+        _plainMode = !_plainMode;
+        _fullNote.Visible = false;
+        Render();
+    }
+
+    /// <summary>
+    /// Writes the log to the system clipboard.
+    ///
+    /// Always the PLAIN buffer, whichever mode the view is in. That is
+    /// the point of the reference's plain control: `Chat.TextPlain` holds
+    /// `FullString` and nothing else (`Util.h:873-874`), so Ctrl+C over
+    /// it lifts text rather than markup. Copying what the styled view
+    /// holds would paste this client's BBCode into whatever the player
+    /// pastes it into, which is not what the reference puts on the
+    /// clipboard.
+    ///
+    /// A selection wins if there is one, which is
+    /// `CopyToClipboard`'s own rule - it copies
+    /// `substr(getSelectionStartIndex(), getSelectionLength())`
+    /// (`ControllerUI.cpp:606-614`) - and falls back to the whole buffer,
+    /// which is the divergence: with no drag-select on a touch screen
+    /// there is never a selection to copy, and a button that does nothing
+    /// unless you first did something impossible is not an affordance.
+    /// </summary>
+    void CopyLog()
+    {
+        string selected = _full != null && _full.GetSelectedText() is string sel && sel.Length > 0
+            ? sel
+            : null;
+
+        // Selection or not, the text that goes out is plain. A selection
+        // made in styled mode is a selection of the RENDERED text -
+        // Godot hands back what is on screen, not the BBCode behind it -
+        // so it is already markup-free and can go as it is.
+        string text = selected ?? string.Join("\n", _plain);
+
+        if (string.IsNullOrEmpty(text))
+        {
+            Note("nothing to copy");
+            return;
+        }
+
+        try
+        {
+            DisplayServer.ClipboardSet(text);
+            Note(selected != null ? "selection copied" : $"{_plain.Count} lines copied");
+        }
+        catch (Exception e)
+        {
+            // Clipboard access is platform-dependent and not worth
+            // taking the log screen down over - the reference's own
+            // clipboard path is equally a platform call. Say so in the
+            // client's own UI and carry on.
+            GD.PrintErr($"[ChatOverlay] clipboard: {e.Message}");
+            Note("could not copy");
+        }
+    }
+
+    /// <summary>
+    /// A line of feedback on the log screen, in the client's own UI
+    /// rather than a platform dialog.
+    /// </summary>
+    void Note(string text)
+    {
+        if (_fullNote == null) return;
+        _fullNote.Text = text;
+        _fullNote.Visible = true;
+    }
+
+    /// <summary>
+    /// Puts the current buffer into the label and labels the switch with
+    /// what pressing it would do next, which is how the reference's flip
+    /// reads: there is no state to guess at, because the text in front of
+    /// you says which one you are looking at.
+    /// </summary>
+    void Render()
+    {
+        if (_full == null) return;
+        _full.BbcodeEnabled = !_plainMode;
+        _full.Text = _plainMode ? string.Join("\n", _plain) : string.Join("\n", _lines);
+        _fullPlain.Text = _plainMode ? "Styled" : "Plain";
+        _fullTitle.Text = _plainMode ? "Chat log - plain text" : "Chat log";
     }
 
     /// <summary>
@@ -447,10 +654,19 @@ public partial class ChatOverlay : Control
         _seen = messages.Count;
 
         _lines.Clear();
+        _plain.Clear();
         foreach (ServerString m in messages)
         {
             string line = Markup(m);
-            if (line != null) _lines.Add(line);
+            if (line == null) continue;
+            _lines.Add(line);
+            // The same message with no markup at all, which is what
+            // `Util::GetChatString` returns in plain mode: `FullString`
+            // and a newline (`Util.h:873-874`). Built here, beside the
+            // styled line, so the two lists stay index-for-index
+            // aligned - the flip between them must not move the
+            // player's place in the log.
+            _plain.Add(m.FullString ?? "");
         }
         // Our own notices are merged back in where they happened. They
         // have to be kept apart and re-added here, because this rebuilds
@@ -471,13 +687,22 @@ public partial class ChatOverlay : Control
         if (_local.Count > 0)
         {
             var server = new List<string>(_lines);
+            var serverPlain = new List<string>(_plain);
             _lines.Clear();
+            _plain.Clear();
             int li = 0;
             for (int i = 0; i <= server.Count; i++)
             {
                 while (li < _local.Count && _local[li].After <= i)
-                    _lines.Add(_local[li++].Line);
-                if (i < server.Count) _lines.Add(server[i]);
+                {
+                    // Both buffers take the notice at the same index, so
+                    // the plain list stays a line-for-line twin of the
+                    // styled one however many notices are folded in.
+                    _lines.Add(_local[li].Line);
+                    _plain.Add(_local[li].Plain);
+                    li++;
+                }
+                if (i < server.Count) { _lines.Add(server[i]); _plain.Add(serverPlain[i]); }
             }
         }
 
@@ -497,7 +722,13 @@ public partial class ChatOverlay : Control
             bool atEnd = bar == null
                       || _fullScroll.ScrollVertical >= (int)(bar.MaxValue - bar.Page) - 5;
 
-            _full.Text = string.Join("\n", _lines);
+            // Through Render rather than straight at the label: while
+            // plain mode is up, new messages have to arrive as plain
+            // text too. The reference has the same obligation and meets
+            // it the same way - its Tick picks the control by
+            // `PlainMode` and appends `GetChatString(msg, PlainMode)`
+            // to it (`UIChat.cpp:120-143`).
+            Render();
 
             if (atEnd)
                 Callable.From(() =>
@@ -635,6 +866,10 @@ public partial class ChatOverlay : Control
         _local.Add(new Notice
         {
             Line = $"[color=#8fe08f]{text.Replace("[", "[lb]")}[/color]",
+            // Unescaped and untinted: this is the copy that goes to the
+            // clipboard, and `[lb]` in a pasted line is this client's
+            // markup leaking out.
+            Plain = text,
             After = _seen,
         });
         // The library caps its own chat list; this follows suit rather
@@ -644,7 +879,7 @@ public partial class ChatOverlay : Control
     }
 
     /// <summary>A line of ours, and how many server lines preceded it.</summary>
-    struct Notice { public string Line; public int After; }
+    struct Notice { public string Line; public string Plain; public int After; }
 
     readonly List<Notice> _local = new List<Notice>();
 }
