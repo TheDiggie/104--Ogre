@@ -67,6 +67,8 @@ Tags: process | Kept so the next session tests something new rather than re-prov
 - NPC quests: `@obj:Alice` then Quest lists her three, with description
   and instructions, and Continue sends `ReqTriggerQuest`.
 - Skills: the Skills tab, row tapped twice, `ReqPerform` on the wire.
+- Actions: the Acts panel lists all eleven, Dance sends an `Action`,
+  and binding Point adds a ninth hotbar button.
 - Autorun: the Auto button walks with nothing touching the screen, and
   a backward stick drag cancels it and releases the button.
 - Casting: target something, open Spells, tap the row TWICE - the first

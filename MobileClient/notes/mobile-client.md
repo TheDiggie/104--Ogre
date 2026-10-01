@@ -125,3 +125,24 @@ touching the screen, and a backward drag afterwards releases the
 button in the next frame.
 
 See also: godot-ui.md | the harness -> harness.md
+
+## The actions window
+Tags: design | UIActions.cpp - eleven actions, three of which had no way in on the phone at all
+
+The hotbar is seeded with eight of the game's eleven avatar actions,
+and nothing reached Dance, Point or GuildInvite - nor restored any of
+the eight once a long press had cleared it. The target row is not the
+same thing: those buttons act on what you tapped, and half of these
+take no target.
+
+`ActionsPanel` is the game's list, in that file's own order
+(`UIActions.cpp:16-26`). A tap performs, as a double click does
+there; the "+" puts it on the hotbar, which is what dragging does
+there and what a phone cannot do while this panel covers the hotbar.
+`ActionButtons.Bind` learned `AvatarAction`, with `SetToAction` for
+the same reason Seed uses it.
+
+Played: Dance puts an `Action` on the wire, and binding Point puts a
+ninth button on the hotbar.
+
+See also: the hotbar -> ActionButtons.cs | godot-ui.md

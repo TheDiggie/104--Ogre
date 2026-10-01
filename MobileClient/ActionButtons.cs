@@ -216,6 +216,10 @@ public partial class ActionButtons : Control
             case SpellObject spell:    slot.SetToSpell(spell); break;
             case SkillObject skill:    slot.SetToSkill(skill); break;
             case InventoryObject item: slot.SetToItem(item);   break;
+            // The actions window binds these. SetToAction, not the
+            // constructor - see Seed: a config with a null Data is a
+            // button BaseClient's dispatch does nothing for.
+            case AvatarAction act:     slot.SetToAction(act);   break;
             default: return false;
         }
 

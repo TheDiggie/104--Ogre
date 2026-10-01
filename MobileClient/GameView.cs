@@ -112,6 +112,7 @@ public partial class GameView : Node2D
     RoomBuffsPanel _roomBuffs;
     Button _loot, _go, _auto;
     LootPanel _lootList;
+    ActionsPanel _acts;
     LootPanel _contents;
     BuyPanel _shop;
     AttributesPanel _sheet;
@@ -832,6 +833,23 @@ public partial class GameView : Node2D
                     _chat?.Local($"{(what as Meridian59.Data.Models.ObjectBase)?.Name} is on the hotbar. Hold the button to clear it.");
             });
             _ui.AddChild(_book);
+        });
+
+        // The game's actions window. Three of its eleven had no way in
+        // on a phone at all, and a long press on the hotbar could
+        // clear one of the other eight for good.
+        Widget("actions list", () =>
+        {
+            // Left of Auto, which is left of Go, which is left of the
+            // panels' own row.
+            _acts = new ActionsPanel { ButtonRight = 12f + 70f + 8f + (76f + 8f) * 7f + 96f + 8f + (76f + 8f) * 2f };
+            _acts.Perform += a => Act(() => _client.ExecAction(a));
+            _acts.Assign += a => Act(() =>
+            {
+                if (ActionButtons.Bind(_client.Data, a))
+                    _chat?.Local($"{a} is on the hotbar. Hold the button to clear it.");
+            });
+            _ui.AddChild(_acts);
         });
         Widget("hotbar", () =>
         {
@@ -1597,6 +1615,7 @@ public partial class GameView : Node2D
         || (_options != null && _options.IsOpen)
         || (_guild != null && _guild.IsOpen)
         || (_wizard != null && _wizard.IsOpen)
+        || (_acts != null && _acts.IsOpen)
         || (_ask != null && _ask.IsOpen);
 
     /// <summary>
