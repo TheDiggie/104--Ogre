@@ -55,6 +55,9 @@ public sealed class TouchControls
     bool _lookMoved, _tapped;
     bool _mouseLook;
 
+    /// <summary>The next mouse event is this device echoing a touch.</summary>
+    bool _mouseIsEcho;
+
     public bool StickActive => _moveFinger != -1;
     public Vector2 StickOrigin => _moveOrigin;
     public Vector2 StickCurrent => _moveCurrent;
@@ -80,6 +83,11 @@ public sealed class TouchControls
                 break;
 
             case InputEventScreenTouch t:                       // released
+                // The emulated mouse release arrives just after this
+                // one, by which time no finger is down and the guard
+                // below would let it through - as a tap, at the place
+                // the thumb left, which retargets whatever is there.
+                _mouseIsEcho = true;
                 if (t.Index == _moveFinger) { _moveFinger = -1; Move = Vector2.Zero; }
                 if (t.Index == _lookFinger)
                 {
@@ -99,7 +107,26 @@ public sealed class TouchControls
                 if ((d.Position - _lookOrigin).Length() > TapSlop) _lookMoved = true;
                 break;
 
-            // Desktop: right mouse button or drag to look.
+            // Desktop: a left drag looks around.
+            //
+            // Godot raises a mouse event for every touch as well, by
+            // default and for a good reason - a Button only reacts to
+            // mouse events, so without it nothing on screen could be
+            // pressed. But it means a thumb on the movement stick
+            // arrives here TWICE: once as a screen drag, which moves
+            // you, and once as mouse motion, which turned the camera.
+            // One push forward and you were looking at the ceiling with
+            // no way back but a drag on the other half. So a mouse
+            // event that arrives while a finger is down is the same
+            // gesture arriving a second time, and is dropped.
+            case InputEventMouseButton when _moveFinger != -1 || _lookFinger != -1 || _mouseIsEcho:
+                _mouseIsEcho = false;
+                _mouseLook = false;
+                break;
+
+            case InputEventMouseMotion when _moveFinger != -1 || _lookFinger != -1:
+                break;
+
             case InputEventMouseButton mb when mb.ButtonIndex == MouseButton.Left:
                 _mouseLook = mb.Pressed;
                 if (mb.Pressed) { _mouseDownAt = mb.Position; _lookMoved = false; }

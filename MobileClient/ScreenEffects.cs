@@ -81,6 +81,10 @@ public partial class ScreenEffects : Control
         // same amount - leaving a lit frame round a blinded screen. The
         // effect belongs to the whole screen, so the layer's transform
         // is undone here.
+        // The layer this sits on is its own and is not inset for the
+        // glass, but the check is kept: if it is ever moved onto the
+        // interface's layer the effect must still cover the screen
+        // rather than the interface's inset rectangle.
         Vector2 scale = Vector2.One, offset = Vector2.Zero;
         if (GetParent() is CanvasLayer layer) { scale = layer.Scale; offset = layer.Offset; }
         if (scale.X <= 0f) scale.X = 1f;

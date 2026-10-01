@@ -190,6 +190,7 @@ public partial class GameView : Node2D
     NameTags _names;
     QuestMarkers _questMarks;
     ScreenEffects _fx;
+    CanvasLayer _fxLayer;
     ActionButtons _hotbar;
     LookPanel _look;
     SpellsPanel _book;
@@ -834,7 +835,21 @@ public partial class GameView : Node2D
         Widget("players", () =>
         {
             // Left of the character sheet button.
-            _players = new PlayersPanel { ButtonRight = 12f + (70f + 8f) + (76f + 8f) * 3f };
+            // Past Next, at the far end of the row.
+            //
+            // The slot arithmetic that put it at 12 + 78 + 84*3 landed
+            // it exactly on top of the spell book's opener, which
+            // reserves 330 and is 76 wide - the two buttons were drawn
+            // one over the other, the Who button was unreachable, and
+            // once the Who panel had been opened once it came to the
+            // front and took every later tap meant for Book. The row
+            // mixes 64, 70, 76, 78 and 96-wide buttons, so counting
+            // slots is not enough; this is measured off the same
+            // expression LayoutLoot uses for Next.
+            const float edge = 12f, map = 70f, gap = 8f, slot = 76f, settings = 96f;
+            float pastSettings = edge + map + gap + (slot + gap) * 7f + settings + gap;
+            _players = new PlayersPanel
+            { ButtonRight = pastSettings + (slot + gap) * 4f };
             _players.Opened += () => Act(() => _client.SendSendPlayers());
             // Nothing goes to the server: HandleSaid consults this list
             // and drops the message before it reaches the log.
@@ -927,7 +942,25 @@ public partial class GameView : Node2D
         // Added before the panels so blindness darkens the world and not
         // the buttons - the reference's compositors run on the 3D
         // viewport, and CEGUI is drawn over the top of them.
-        Widget("effects", () => { _fx = new ScreenEffects(); _ui.AddChild(_fx); });
+        // Its own layer, under the interface and over the world.
+        //
+        // Added to the UI layer it landed wherever it happened to be
+        // built in the widget list, which is to say on top of the nine
+        // widgets made before it and under the seven made after -
+        // blindness blacked out the chat, the status line and six of
+        // the thirteen bottom buttons while leaving Book, Bag and Loot
+        // lit. The reference has no such question to answer: its
+        // compositors run on the 3D viewport and CEGUI is drawn over
+        // all of them. A CanvasLayer numbered below the interface says
+        // the same thing once, for every widget, whatever order they
+        // are built in.
+        Widget("effects", () =>
+        {
+            _fxLayer = new CanvasLayer { Layer = 0 };
+            AddChild(_fxLayer);
+            _fx = new ScreenEffects();
+            _fxLayer.AddChild(_fx);
+        });
         Widget("look", () =>
         {
             _look = new LookPanel();
