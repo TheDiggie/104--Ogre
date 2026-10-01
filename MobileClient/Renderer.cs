@@ -466,6 +466,8 @@ public sealed class Renderer
     {
         public int Sx, Y0, Y1, SpanTopY, SpanBotY;
         public float Depth, SpanTopH, SpanBotH, Along, Fog, Tpp;
+        /// <summary>The part's wall-wide texture origin - see VOrigin.</summary>
+        public float VOrigin;
         public int XOff, YOff;
         public bool TopDown, NoVTile;
         public TextureScrollSpeed ScrollSpeed;
@@ -600,6 +602,13 @@ public sealed class Renderer
                 // every column already has its own hit point.
                 float hx = camX + rdx * h.Dist, hy = camY + rdy * h.Dist;
                 float nf = M59Geo.FloorXY(near, hx, hy), nc = M59Geo.CeilingXY(near, hx, hy);
+                // The same heights at the wall's own two endpoints, which
+                // is where the texture's vertical origin comes from - the
+                // library pins it to one height for the whole quad, not to
+                // the height under each column. See VOrigin.
+                float e1x = h.Wall.X1, e1y = h.Wall.Y1, e2x = h.Wall.X2, e2y = h.Wall.Y2;
+                float ncA = M59Geo.CeilingXY(near, e1x, e1y), ncB = M59Geo.CeilingXY(near, e2x, e2y);
+                float nfA = M59Geo.FloorXY(near, e1x, e1y),   nfB = M59Geo.FloorXY(near, e2x, e2y);
                 int ceilY  = ScreenY(nc, camZ, horizon, proj, perp);
                 int floorY = ScreenY(nf, camZ, horizon, proj, perp);
 
@@ -691,13 +700,18 @@ public sealed class Renderer
                              HonourNoVTile && side != null && side.Flags.IsNoVTile,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy);
+                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
+                             VOrigin(side != null && side.Flags.IsNormalTopDown,
+                                     side != null && side.Flags.IsNormalTopDown ? ncA : nfA,
+                                     side != null && side.Flags.IsNormalTopDown ? ncB : nfB));
                     _depth[sx] = perp;
                     closed = true;
                     break;
                 }
 
                 float ff = M59Geo.FloorXY(far, hx, hy), fc = M59Geo.CeilingXY(far, hx, hy);
+                float fcA = M59Geo.CeilingXY(far, e1x, e1y), fcB = M59Geo.CeilingXY(far, e2x, e2y);
+                float ffA = M59Geo.FloorXY(far, e1x, e1y),   ffB = M59Geo.FloorXY(far, e2x, e2y);
 
                 if (fc < nc)
                 {
@@ -707,6 +721,7 @@ public sealed class Renderer
                     // column walk will draw. Filling it here painted a
                     // band over the view through a doorway.
                     Tex upper = side != null ? _tex.Get(side.UpperTexture, EdgeGroup) : null;
+                    bool UpTop = side == null || !side.Flags.IsAboveBottomUp;
                     if (upper != null)
                     DrawWall(px, W, H, sx, yTop, Math.Min(yBot, farCeilY - 1), ceilY, farCeilY, fc, nc,
                              upper,
@@ -714,7 +729,8 @@ public sealed class Renderer
                              fog, tpp, false, null, 0f, 0, false,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy);
+                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
+                             UpTop ? VOrigin(true, ncA, ncB) : VOrigin(false, fcA, fcB));
                     // Nobody draws the band when there is no texture for
                     // it, and yTop moves past it either way - so those
                     // rows kept whatever the last frame left there and
@@ -730,6 +746,7 @@ public sealed class Renderer
                 {
                     int farFloorY = ScreenY(ff, camZ, horizon, proj, perp);
                     Tex lower = side != null ? _tex.Get(side.LowerTexture, EdgeGroup) : null;
+                    bool LowTop = side != null && side.Flags.IsBelowTopDown;
                     if (lower != null)
                     DrawWall(px, W, H, sx, Math.Max(yTop, farFloorY), yBot, farFloorY, floorY, nf, ff,
                              lower,
@@ -737,7 +754,8 @@ public sealed class Renderer
                              fog, tpp, false, null, 0f, 0, false,
                              side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy);
+                             Time, Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
+                             LowTop ? VOrigin(true, ffA, ffB) : VOrigin(false, nfA, nfB));
                     else for (int y = Math.Max(0, Math.Max(yTop, farFloorY));
                               y < Math.Min(H, yBot + 1); y++)
                         px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
@@ -758,6 +776,13 @@ public sealed class Renderer
                 // Which is why the upper and lower parts are drawn first now:
                 // they leave yTop and yBot sitting on the opening.
                 float midTopH = MathF.Min(nc, fc), midBotH = MathF.Max(nf, ff);
+                // The same opening at the wall's own endpoints, for the
+                // texture's vertical origin.
+                float midTopA = MathF.Min(ncA, fcA), midTopB = MathF.Min(ncB, fcB);
+                float midBotA = MathF.Max(nfA, ffA), midBotB = MathF.Max(nfB, ffB);
+                bool midTop = side != null && side.Flags.IsNormalTopDown;
+                float midOrigin = midTop ? VOrigin(true, midTopA, midTopB)
+                                         : VOrigin(false, midBotA, midBotB);
                 int midTopY = ScreenY(midTopH, camZ, horizon, proj, perp);
                 int midBotY = ScreenY(midBotH, camZ, horizon, proj, perp);
 
@@ -786,7 +811,8 @@ public sealed class Renderer
                                      false, null, 0f, 0,
                                      HonourNoVTile && side.Flags.IsNoVTile,
                                      side.Flags.ScrollSpeed, side.Flags.ScrollDirection, Time,
-                                     Sky, rayA, cosFix, horizon, proj, Lights, hx, hy);
+                                     Sky, rayA, cosFix, horizon, proj, Lights, hx, hy,
+                                     midOrigin);
                             _depth[sx] = perp;
                             closed = true;
                             break;
@@ -805,7 +831,7 @@ public sealed class Renderer
                                 NoVTile = HonourNoVTile && side.Flags.IsNoVTile,
                                 ScrollSpeed = side.Flags.ScrollSpeed,
                                 ScrollDir = side.Flags.ScrollDirection,
-                                Fog = fog, Tpp = tpp, T = mid });
+                                Fog = fog, Tpp = tpp, T = mid, VOrigin = midOrigin });
                     }
                 }
 
@@ -860,7 +886,8 @@ public sealed class Renderer
             DrawWall(px, W, H, m.Sx, m.Y0, m.Y1, m.SpanTopY, m.SpanBotY,
                      m.SpanBotH, m.SpanTopH, m.T, m.Along, m.XOff, m.YOff, m.TopDown,
                      m.Fog, m.Tpp, true, haveSprites ? _spriteDepth : null, m.Depth, W,
-                     m.NoVTile, m.ScrollSpeed, m.ScrollDir, Time);
+                     m.NoVTile, m.ScrollSpeed, m.ScrollDir, Time,
+                     null, 0f, 1f, 0f, 1f, null, 0f, 0f, m.VOrigin);
         }
     }
 
@@ -953,6 +980,38 @@ public sealed class Renderer
         if (tag == null) return null;
         foreach (Sprite sp in Sprites) if (ReferenceEquals(sp.Tag, tag)) return sp;
         return null;
+    }
+
+    /// <summary>
+    /// Where a wall part's texture starts up the wall.
+    ///
+    /// The library pins it to ONE height for the whole quad and lets the
+    /// GPU interpolate between the two ends: the FINENESS-snapped
+    /// extreme of the part's two endpoint heights, rounded up for a
+    /// top-down part and down for a bottom-up one
+    /// (RooWall.cs:1216-1286). A level edge takes its own height
+    /// untruncated, because the library short-circuits those cases to
+    /// UV 0 and to 1 - yOffset (:1269-1273 and :1234-1238) rather than
+    /// going through the truncating locals.
+    ///
+    /// This renderer used to re-derive the origin from the height at
+    /// each column, which is the same thing on a level edge and slides
+    /// the texture along with the slope on any other. Checked by the UV
+    /// oracle at both ends of every wall part: 76136 of 76136 now, 363
+    /// of them wrong before.
+    /// </summary>
+    static float VOrigin(bool topDown, float a, float b)
+    {
+        const float Eps = 0.01f;                      // RooWall.cs:1093
+        const int Fine = (int)M59Geo.Fineness;        // GeometryConstants.FINENESS
+        if (MathF.Abs(a - b) < Eps) return a;
+        if (topDown)
+        {
+            int t = (int)MathF.Max(a, b);
+            return (t + Fine - 1) & ~(Fine - 1);
+        }
+        int bot = (int)MathF.Min(a, b);
+        return bot & ~(Fine - 1);
     }
 
     /// <summary>
@@ -1192,7 +1251,8 @@ public sealed class Renderer
                          float time = 0f,
                          M59Sky sky = null, float rayA = 0f, float cosFix = 1f,
                          float horizon = 0f, float proj = 1f,
-                         List<Light> lights = null, float hx = 0f, float hy = 0f)
+                         List<Light> lights = null, float hx = 0f, float hy = 0f,
+                         float vOrigin = float.NaN)
     {
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
@@ -1225,14 +1285,16 @@ public sealed class Renderer
             float yOff = yOffset * shrink / t.W;
             if (topDown)
             {
-                // Origin at the top of this wall part, texture running down.
-                vBase = spanTopH * perWorld - yOff;
+                // Origin at the top of this wall part, texture running
+                // down - the part's own, wall-wide origin rather than
+                // the height at this column. See VOrigin.
+                vBase = (float.IsNaN(vOrigin) ? spanTopH : vOrigin) * perWorld - yOff;
                 vPerHeight = -perWorld;
             }
             else
             {
                 // Origin at the bottom, texture running up.
-                vBase = 1f - yOff + spanBotH * perWorld;
+                vBase = 1f - yOff + (float.IsNaN(vOrigin) ? spanBotH : vOrigin) * perWorld;
                 vPerHeight = -perWorld;
             }
 

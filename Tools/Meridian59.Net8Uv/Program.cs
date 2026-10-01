@@ -74,7 +74,88 @@ static class Oracle{ static void Main(string[] a){
 
  Slopes(dir,rm);
  Sides(dir,rm);
+ Anchors(dir,rm);
  Flats(dir);
+}
+
+
+// Where the texture STARTS up the wall, which the rate comparison above
+// is deliberately blind to. GetVertexData pins it to one height for the
+// whole quad - the FINENESS-snapped extreme of the two endpoints
+// (RooWall.cs:1216-1286) - and a column renderer that re-derives it from
+// the height at each column instead gets a texture that slides along
+// with the slope. On a flat edge the two are the same, which is why this
+// went unnoticed.
+static void Anchors(string dir, ResourceManager rm){
+ const float Eps = 0.01f;            // RooWall.cs:1093
+ const int Fine = 1024;              // GeometryConstants.FINENESS
+ int parts=0, flat=0, sloped=0, ok=0, bad=0, oldOk=0, oldBad=0;
+ double worst=0; string worstWhere="";
+ foreach(string p in Directory.GetFiles(dir,"*.roo").OrderBy(x=>x)){
+  RooFile roo; try{ roo=new RooFile(p); roo.ResolveResources(rm);}catch{continue;}
+  foreach(RooWall w in roo.Walls){
+   if(w.RightSide==null) continue;
+   foreach(WallPartType part in new[]{WallPartType.Middle,WallPartType.Upper,WallPartType.Lower}){
+    ushort num = part==WallPartType.Middle ? w.RightSide.MiddleTexture
+               : part==WallPartType.Upper  ? w.RightSide.UpperTexture
+                                           : w.RightSide.LowerTexture;
+    if(num==0) continue;
+    if(w.RightSide.Flags.IsNoVTile) continue;      // geometry is clipped, not the UVs
+    var bgf=rm.GetRoomTexture(num); if(bgf==null||bgf.Frames.Count==0) continue;
+    var f=bgf.Frames[0];
+    int tw=(int)f.Width, th=(int)f.Height, shrink=(int)(bgf.ShrinkFactor<1?1:bgf.ShrinkFactor);
+    RooWall.VertexData vd;
+    try{ vd=w.GetVertexData(part,false,tw,th,shrink);}catch{continue;}
+
+    bool topDown = part==WallPartType.Middle ? w.RightSide.Flags.IsNormalTopDown
+                 : part==WallPartType.Upper  ? !w.RightSide.Flags.IsAboveBottomUp
+                                             : w.RightSide.Flags.IsBelowTopDown;
+    // P0/P3 are the top pair, P1/P2 the bottom (RooWall.cs:1118-1149).
+    double hA = topDown ? vd.P0.Z : vd.P1.Z;       // near endpoint
+    double hB = topDown ? vd.P3.Z : vd.P2.Z;       // far endpoint
+    parts++;
+    if(Math.Abs(hA-hB) < Eps){ flat++; } else sloped++;
+
+    double k = (double)shrink/(tw*16.0);
+    double yOff = (double)w.RightYOffset*shrink/tw;
+    double inset = 1.0/tw;                          // RooWall.cs:1340-1343
+
+    // The origin this renderer now uses.
+    double origin;
+    // A level edge takes its own height untruncated: the library
+    // short-circuits to UV 0 (top-down, RooWall.cs:1269-1273) or to
+    // 1 - yOffset (bottom-up, :1234-1238) rather than going through
+    // (int)P0.Z, so the truncation those `top`/`bottom` locals do is
+    // dead code in that case.
+    if(Math.Abs(hA-hB) < Eps) origin = hA;
+    else if(topDown){ int t=(int)Math.Max(hA,hB); origin = (t + Fine - 1) & ~(Fine - 1); }
+    else            { int b=(int)Math.Min(hA,hB); origin = b & ~(Fine - 1); }
+
+    foreach(bool nearEnd in new[]{true,false}){
+     double z = nearEnd ? hA : hB;
+     // The library's own V at that vertex, with the bleed inset undone:
+     // the top pair got +1/W and the bottom pair -1/W.
+     double lib = (topDown ? (nearEnd ? vd.UV0.Y : vd.UV3.Y)
+                           : (nearEnd ? vd.UV1.Y : vd.UV2.Y))
+                + (topDown ? -inset : inset);
+     double mine = topDown ? (origin - z)*k - yOff
+                           : 1.0 - yOff - (z - origin)*k;
+     // What it did before: the origin was the height at this very
+     // column, so at either endpoint the part starts at its own edge.
+     double old  = topDown ? (z - z)*k - yOff
+                           : 1.0 - yOff - (z - z)*k;
+     if(Math.Abs(lib-mine) <= 1e-4*Math.Max(1,Math.Abs(lib))) ok++;
+     else { bad++; double e=Math.Abs(lib-mine);
+       if(e>worst){worst=e; worstWhere=$"{Path.GetFileName(p)} wall {w.Num} {part} {(nearEnd?"near":"far")}: lib {lib:F5} here {mine:F5}";}}
+     if(Math.Abs(lib-old) <= 1e-4*Math.Max(1,Math.Abs(lib))) oldOk++; else oldBad++;
+    }
+   }
+  }
+ }
+ Console.WriteLine($"{parts} wall parts, {flat} with a level edge and {sloped} sloped");
+ Console.WriteLine($"  texture start agrees    : {ok}   disagrees: {bad}");
+ Console.WriteLine($"  before the fix it agreed: {oldOk}   disagreed: {oldBad}");
+ if(worst>0) Console.WriteLine($"  worst: {worstWhere}");
 }
 
 // Which end of a wall its texture starts from, per side. GetVertexData
