@@ -816,12 +816,14 @@ public sealed class ObjectParticles
     const float ParticleMinScale = 0.2f;
 
     /// <summary>
-    /// Ceiling on particle sprites per frame across every system,
-    /// nearest object first (as M59Grass.MaxPerFrame does for grass).
+    /// Ceiling on particle sprites per frame across every system, shared
+    /// max-min fairly in <see cref="End"/> (a small system gets all it
+    /// asks for, a greedy one the rest) rather than nearest-first, which
+    /// let one globe starve every brazier.
     /// Cost: about a third of the near globe's sparks are not drawn (the
     /// rest are drawn denser to compensate; side by side with the full
     /// 1,126 the ball reads the same) and the streaks never fit; in a
-    /// room crowded with globes the furthest ones lose sprites first.
+    /// room crowded with globes they split what the braziers leave.
     /// Bought: near-globe cost 5.0 -> ~3.2 ms at 960x540 (~3.5 -> ~2.1
     /// at 768x432), and a hard ceiling however many
     /// globes are in range - three cost the same as one.
@@ -877,12 +879,18 @@ public sealed class ObjectParticles
     {
         public Emitter E;
         public float Dist;
+        /// <summary>Sprites it would draw with no cap: what the fair share is measured against.</summary>
+        public int Demand;
         public object Tag;
         public List<Renderer.Sprite> Into;
         public float Comp, ToX, ToY;
     }
     readonly List<Cand> _cands = new List<Cand>();
-    static readonly Comparison<Cand> ByDist = (a, b) => a.Dist.CompareTo(b.Dist);
+    static readonly Comparison<Cand> ByDemand = (a, b) =>
+    {
+        int d = a.Demand.CompareTo(b.Demand);
+        return d != 0 ? d : a.Dist.CompareTo(b.Dist);
+    };
 
     /// <summary>
     /// overlay file name -> model entry (null for the great majority of
@@ -939,12 +947,25 @@ public sealed class ObjectParticles
     {
         if (_emitters.Count == 0) { _cands.Clear(); return; }
 
-        // Nearest first, so the cap can only ever cost the furthest.
-        if (_cands.Count > 1) _cands.Sort(ByDist);
-        foreach (Cand c in _cands)
+        // Max-min fair share of the cap (water-filling). Smallest demand
+        // first; each system may take up to an equal share of what is
+        // left, and whatever a small one does not use rolls on to the
+        // larger ones. A brazier asks for ~10 sprites and always gets
+        // them; the globe (demand in the thousands) gets the remainder.
+        // Before this the cap went to the nearest object first, so one
+        // globe's 2,500-particle quota ate all 360 and every brazier in
+        // the room drew nothing (371 sprites, no flames; the same two
+        // braziers alone drew 24 and both burned). Ties go to the
+        // nearer object. Ceiling division: the last systems still get a
+        // sprite or two when there are more systems than the cap.
+        if (_cands.Count > 1) _cands.Sort(ByDemand);
+        for (int i = 0; i < _cands.Count; i++)
         {
-            int room = MaxParticleSprites - Drawn;
-            if (room <= 0) break;
+            Cand c = _cands[i];
+            int left = _cands.Count - i;
+            int remaining = MaxParticleSprites - Drawn;
+            if (remaining <= 0) break;
+            int room = Math.Min(c.Demand, (remaining + left - 1) / left);
             if (c.E.Def.Kind == Kind.Torch) EmitTorch(c.E, c.Into, c.Tag, c.Comp, c.ToX, c.ToY, room);
             else EmitHole(c.E, c.Into, c.Tag, c.Comp, room);
         }
@@ -1032,7 +1053,8 @@ public sealed class ObjectParticles
 
         // Emitted by End, once every object's distance is known and the
         // cap can be spent nearest-first.
-        _cands.Add(new Cand { E = e, Dist = dist, Tag = tag, Into = into, Comp = comp, ToX = toX, ToY = toY });
+        int demand = e.Live.Count + (def.Kind == Kind.Torch ? 0 : e.Rays.Count * RayDots);
+        _cands.Add(new Cand { E = e, Dist = dist, Demand = demand, Tag = tag, Into = into, Comp = comp, ToX = toX, ToY = toY });
     }
 
     // ---- brazier flame ---------------------------------------------

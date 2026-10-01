@@ -304,7 +304,18 @@ public partial class TradePanel : Control
     public void Put(InventoryObject item)
     {
         if (item == null || _trade?.ItemsYou == null) return;
-        if (_trade.ItemsYou.Contains(item)) return;
+        // Already offered? The reference asks the list `Contains` before
+        // it adds (`UITrade.cpp:480-481`), and `Contains` is an identity
+        // test there because the drop handler hands over
+        // `InventoryObjects[index]` itself every time. Here the bag is
+        // rebuilt and the slot can hand back ANOTHER instance of the same
+        // item (`InventoryPanel.cs:518-520` says as much about taps), so
+        // the identity test let a second add of the same stack through:
+        // two rows, one amount box each, and the one ID twice in
+        // ReqCounterOffer. Same test, by ID - two stacks of one name have
+        // two IDs and still both go in.
+        foreach (ObjectBase o in _trade.ItemsYou)
+            if (o != null && o.ID == item.ID) return;
         _trade.ItemsYou.Add(item);
         _mineSignature = "";
     }
