@@ -2804,7 +2804,9 @@ public partial class GameView : Node2D
 
             // Autorun. A toggle rather than a hold, as the reference's
             // key is: press once and walk until something stops you.
-            _auto = new Button { Text = "Auto", ToggleMode = true };
+            // "Auto run", not "Auto": Ashton, 2026-10-02 - a word alone on a
+            // button says what it is only to the person who built it.
+            _auto = new Button { Text = "Auto run", ToggleMode = true };
             _auto.Toggled += on =>
             {
                 _autoMove = on;
