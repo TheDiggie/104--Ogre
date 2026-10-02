@@ -32,9 +32,18 @@ public partial class InventorySlot : Panel
     /// <summary>Dragged onto another slot: move From to where To is.</summary>
     public Action<InventoryObject, InventoryObject> Moved;
 
+    /// <summary>
+    /// Whether a drag may lift the item out of the slot at all. The bag
+    /// says yes - that is how it reorders. The dock says no: it has no
+    /// Moved listener, and its grid scrolls by dragging, so a slot that
+    /// handed Godot drag data would hang a ghost of the icon under the
+    /// finger for the length of every scroll.
+    /// </summary>
+    public bool CanDrag = true;
+
     public override Variant _GetDragData(Vector2 atPosition)
     {
-        if (Item == null) return default;
+        if (Item == null || !CanDrag) return default;
 
         if (Preview != null)
         {

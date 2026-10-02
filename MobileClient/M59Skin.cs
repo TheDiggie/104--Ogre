@@ -675,6 +675,62 @@ public static class M59Skin
     }
 
     /// <summary>
+    /// The slim bar on a grid that sits OVER THE WORLD rather than in a
+    /// panel - the inventory dock - and what it is allowed to take.
+    ///
+    /// Scroller above is 52 wide because its bar shares a right edge
+    /// with every row's bind button and the separation is the point.
+    /// The dock has no button beside its bar - the last column of
+    /// slots is a hand's width of empty square - so it does not need
+    /// the inset, and a 52-point bar on a piece a player has squeezed
+    /// to the corner of the glass would be wider than the gutter the
+    /// piece sits in. 28 is what the thumb gets: above the 24 the
+    /// brief set as the floor, and the same number Scroller's own
+    /// comment calls "still not a thumb, deliberately" - the bar is an
+    /// indicator you CAN grab, the way you scroll is dragging the grid.
+    /// </summary>
+    public const float SlimBarW = 28f;
+
+    /// <summary>
+    /// Dresses a grid's vertical scrollbar at the slim width: the track
+    /// and grabber drawn 16 wide inside a 28-point press, and the
+    /// grabber never shorter than a thumb.
+    ///
+    /// The minimum is the one thing Scroller promises and does not
+    /// keep: Godot sizes a grabber in proportion to the content, with
+    /// no floor of its own - the floor it does respect is the grabber
+    /// stylebox's MINIMUM size, which for a flat box is its content
+    /// margins. So the grabber gets 22 points of margin top and bottom
+    /// and can never draw shorter than 44, a thumb (Apple's 44pt), even
+    /// when the box is two rows of a hundred-item pack.
+    /// </summary>
+    public static void SlimScroller(ScrollContainer sc)
+    {
+        if (sc == null) return;
+        VScrollBar bar = sc.GetVScrollBar();
+        if (bar == null) return;
+        bar.CustomMinimumSize = new Vector2(SlimBarW, 0f);
+
+        const float seen = 16f;
+        float side = (SlimBarW - seen) * 0.5f;
+        var track = Flat(new Color(0f, 0f, 0f, 0.45f), seen * 0.5f);
+        track.ExpandMarginLeft = -side; track.ExpandMarginRight = -side;
+        bar.AddThemeStyleboxOverride("scroll", track);
+        bar.AddThemeStyleboxOverride("scroll_focus", track);
+
+        StyleBoxFlat Grab(Color c)
+        {
+            var g = Flat(c, seen * 0.5f);
+            g.ExpandMarginLeft = -side; g.ExpandMarginRight = -side;
+            g.ContentMarginTop = 22f; g.ContentMarginBottom = 22f;
+            return g;
+        }
+        bar.AddThemeStyleboxOverride("grabber", Grab(GoldDim));
+        bar.AddThemeStyleboxOverride("grabber_highlight", Grab(Gold));
+        bar.AddThemeStyleboxOverride("grabber_pressed", Grab(Gold));
+    }
+
+    /// <summary>
     /// How much of a body a list's rows may use: everything but the bar.
     ///
     /// A FLOOR, not a width - see BarInset. A ScrollContainer sizes its

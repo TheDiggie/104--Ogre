@@ -31,6 +31,24 @@ using Meridian59.Data.Models;
 /// or tall, saved with the layout, backed out by Cancel. Default
 /// visible, because the player asked for it to be there.
 ///
+/// AND HOW MANY DOWN (<see cref="M59Hud.Piece.Rows"/>), which is the
+/// height of the BOX, not of the pack. The player's second request,
+/// with a screenshot of ninety items at seven across running off the
+/// bottom of the glass through the chat: "add an adjustment for
+/// vertical as well. If a player has more than the slots can show just
+/// add a slider." So the piece is a window of Rows x Columns slots,
+/// whatever the pack holds; a pack that needs more rows scrolls inside
+/// it - drag anywhere on the grid, flick, a slim bar on the right edge
+/// you can also drag - and a pack that fits has no bar and does not
+/// scroll. The window is a <see cref="TouchScroll"/>, the same list
+/// every panel scrolls with, holding the grid as its one child: that
+/// is what gives the drag, the flick, the slop that keeps a tap a tap,
+/// the clipping and the bar, for nothing. A ScrollContainer clips its
+/// children and still hands the visible ones their taps, which a
+/// SubViewport would too at the price of a second render target for
+/// a dozen icons; a plain ClipContents Control would have meant
+/// writing the drag, the flick and the bar again.
+///
 /// WHAT A TAP DOES. The bag's selection semantics, not a new set: a
 /// tap picks the item and a strip of the bag's own actions appears
 /// hung off the grid - Use / Look / Hotbar together and Drop at the
@@ -72,6 +90,18 @@ public partial class InventoryDock : Control
     /// <summary>Eight across by default: a thirty-item pack is four rows, which fits over the chat.</summary>
     [Export] public int Columns = 8;
     public const int MinCols = 2, MaxCols = 16;
+    /// <summary>
+    /// Two down by default. Not one, though one is what a six-item pack
+    /// drew before the box had a height of its own: at one row the box
+    /// is 56 points tall, and a grabber that must stay a thumb (44)
+    /// long would have 12 points to travel in it - a bar that cannot
+    /// be dragged. Two rows (118 points) is the smallest box whose bar
+    /// works, and sixteen slots is still a glance, not a bag. A player
+    /// who wants the old strip sets Down to 1; a player with ninety
+    /// items sets it to what fits above their chat.
+    /// </summary>
+    [Export] public int Rows = 2;
+    public const int MinRows = 1, MaxRows = 8;
 
     /// <summary>The gutter between this and the piece it hangs under.</summary>
     const float Gutter = 16f;
@@ -89,7 +119,22 @@ public partial class InventoryDock : Control
     public bool HasSelection => Selection != null;
 
     Control _host;
+    /// <summary>The box: the window onto the grid, and what scrolls it.</summary>
+    TouchScroll _box;
+    /// <summary>The grid itself, the box's one child, as tall as the whole pack.</summary>
+    Control _grid;
     readonly List<InventorySlot> _slots = new List<InventorySlot>();
+    /// <summary>
+    /// Whether a panel, the drawer, the chat's keyboard or the editor
+    /// is over the dock. Written by GameView.Pump from its own Covered
+    /// test, for one reason: the box scrolls from <see cref="TouchScroll"/>'s
+    /// `_Input`, which runs for the whole viewport BEFORE the GUI walk
+    /// (its header says why), so a list drawn over the dock would not
+    /// shield it - a drag on the bag's grid would scroll the dock
+    /// underneath the scrim as well. While covered, the box's input is
+    /// simply off.
+    /// </summary>
+    public bool Covered { get; set; }
     Panel _strip;
     Label _name;
     Button _use, _look, _bind, _drop;
@@ -116,6 +161,16 @@ public partial class InventoryDock : Control
         _host = new Control { Name = "dockHost", MouseFilter = MouseFilterEnum.Ignore };
         AddChild(_host);
 
+        // The box is Ignore so the ground between the slots stays the
+        // world's when the pack fits (the rule in the header); it is
+        // made Stop only while there is something to scroll, in Layout.
+        _box = new TouchScroll { Name = "dockBox", MouseFilter = MouseFilterEnum.Ignore };
+        _box.HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled;
+        _host.AddChild(_box);
+        M59Skin.SlimScroller(_box);
+        _grid = new Control { Name = "dockGrid", MouseFilter = MouseFilterEnum.Ignore };
+        _box.AddChild(_grid);
+
         _strip = M59Skin.Window();
         _strip.Name = "dockStrip";
         _strip.Visible = false;
@@ -140,7 +195,11 @@ public partial class InventoryDock : Control
         _drop = Make("Drop",   "dockDrop", M59Skin.Kind.Danger,    () => { if (Selection != null) DropItem?.Invoke(Selection); });
 
         M59Hud.Piece p = M59Hud.Register(Id, "Inventory dock", _host);
-        if (p != null) { p.MinColumns = MinCols; p.MaxColumns = MaxCols; p.DefaultColumns = Columns; }
+        if (p != null)
+        {
+            p.MinColumns = MinCols; p.MaxColumns = MaxCols; p.DefaultColumns = Columns;
+            p.MinRows = MinRows; p.MaxRows = MaxRows; p.DefaultRows = Rows;
+        }
         M59Hud.Changed += Layout;
         GetViewport().SizeChanged += Layout;
     }
@@ -172,16 +231,22 @@ public partial class InventoryDock : Control
         return p == null ? Columns : p.ColumnsNow;
     }
 
+    int Down()
+    {
+        M59Hud.Piece p = Piece;
+        return p == null ? Rows : p.RowsNow;
+    }
+
     /// <summary>
     /// Everything the layout store says about the piece, as one value,
     /// compared every frame - a layout LOADED after _Ready leaves the
     /// grid where it was and says nothing (AvatarPanel.HudStamp).
     /// </summary>
-    static string HudStamp()
+    string HudStamp()
     {
         M59Hud.Piece p = Piece;
         if (p == null) return "";
-        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{p.Columns},{(M59Hud.Editing ? 1 : 0)}";
+        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{p.Columns},{p.Rows},{(M59Hud.Editing ? 1 : 0)},{(Covered ? 1 : 0)}";
     }
 
     /// <summary>
@@ -209,7 +274,7 @@ public partial class InventoryDock : Control
               .Append(o?.Name).Append(':').Append(o?.ColorTranslation).Append(':')
               .Append(o?.Effect).Append(':').Append(o?.ViewerFrameIndex).Append(';');
         }
-        sb.Append('@').Append(Across()).Append('@').Append(IconPixels())
+        sb.Append('@').Append(Across()).Append('@').Append(Down()).Append('@').Append(IconPixels())
           .Append('@').Append(Selection?.ID);
         string signature = sb.ToString();
 
@@ -242,16 +307,19 @@ public partial class InventoryDock : Control
 
     void Rebuild(IList<InventoryObject> items)
     {
-        foreach (InventorySlot s in _slots) { _host.RemoveChild(s); s.QueueFree(); }
+        foreach (InventorySlot s in _slots) { _grid.RemoveChild(s); s.QueueFree(); }
         _slots.Clear();
         _missed = false;
 
-        // Always at least one full row: an empty pack is still a dock,
-        // in the same place, and the editor has a handle to place it
-        // by. The last row is filled out with empty squares so the
-        // grid reads as a grid rather than a ragged line.
+        // Always the whole box: an empty pack is still a dock, in the
+        // same place, and the editor has a handle to place it by. A
+        // pack that does not fill the box is filled out with empty
+        // squares to the box's last row - and a pack that overflows it,
+        // to its own last row - so the grid reads as a grid rather than
+        // a ragged line, and a box the player set to three rows looks
+        // three rows tall with two items in it.
         int cols = Across();
-        int n = Math.Max(cols, items.Count);
+        int n = Math.Max(cols * Down(), items.Count);
         int slots = (n + cols - 1) / cols * cols;
         int px = IconPixels();
         for (int i = 0; i < slots; i++)
@@ -259,7 +327,7 @@ public partial class InventoryDock : Control
             InventoryObject o = i < items.Count ? items[i] : null;
             InventorySlot s = Slot(o, px);
             s.Name = o != null ? $"dock{o.ID}" : $"dockEmpty{i}";
-            _host.AddChild(s);
+            _grid.AddChild(s);
             _slots.Add(s);
         }
         if (_missed) _retryAt = Time.GetTicksMsec() + 500;
@@ -273,7 +341,7 @@ public partial class InventoryDock : Control
     /// </summary>
     InventorySlot Slot(InventoryObject o, int px)
     {
-        var slot = new InventorySlot { Item = o, MouseFilter = MouseFilterEnum.Stop };
+        var slot = new InventorySlot { Item = o, MouseFilter = MouseFilterEnum.Stop, CanDrag = false };
 
         var box = new StyleBoxFlat
         {
@@ -415,13 +483,41 @@ public partial class InventoryDock : Control
         float sc = HudScale();
         float side = Mathf.Round(SlotSize * sc), sep = Mathf.Round(Sep * sc);
         int cols = Across();
+        // The grid is as tall as the pack; the box is as tall as the
+        // player said (Down), and the difference is what scrolls.
         int rows = Math.Max(1, (_slots.Count + cols - 1) / cols);
-        var size = new Vector2(cols * side + (cols - 1) * sep, rows * side + (rows - 1) * sep);
+        int seen = Down();
+        bool scrolls = rows > seen;
+        float gridW = cols * side + (cols - 1) * sep;
+        float gridH = rows * side + (rows - 1) * sep;
+        // The bar sits in the box beside the grid, so the piece is wider
+        // by the bar only when there is one: a pack that fits draws
+        // exactly the grid, as it did before the box existed.
+        var size = new Vector2(gridW + (scrolls ? M59Skin.SlimBarW : 0f), seen * side + (seen - 1) * sep);
 
         Rect2 at = M59Hud.Place(Id, Natural(v, size), v);
+        _box.Position = at.Position;
+        _box.Size = at.Size;
+        _box.VerticalScrollMode = scrolls ? ScrollContainer.ScrollMode.Auto : ScrollContainer.ScrollMode.Disabled;
+        // Stop while scrollable, so a drag that starts in the gap between
+        // two slots scrolls rather than walks; Ignore when it fits, so
+        // that gap is the world's as it always was. The input gate is
+        // the TouchScroll's `_Input`, which sees the press before any
+        // control does and would eat a stick drag that began in the
+        // gap, scroll the dock under an open panel's list, or fight
+        // the editor's drag of the piece - so it runs only when there
+        // is something to scroll and nothing over it.
+        _box.MouseFilter = scrolls ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
+        _box.SetProcessInput(scrolls && !M59Hud.Editing && !Covered);
+        if (!scrolls) _box.ScrollVertical = 0;
+        // A ScrollContainer lays its child out at the child's MINIMUM
+        // (notes/godot-ui.md); the slots are placed inside it by hand
+        // because a GridContainer would size them to their content,
+        // and an empty slot has none.
+        _grid.CustomMinimumSize = new Vector2(gridW, gridH);
         for (int i = 0; i < _slots.Count; i++)
         {
-            _slots[i].Position = at.Position + new Vector2((i % cols) * (side + sep), (i / cols) * (side + sep));
+            _slots[i].Position = new Vector2((i % cols) * (side + sep), (i / cols) * (side + sep));
             _slots[i].Size = new Vector2(side, side);
         }
 

@@ -74,6 +74,18 @@ public partial class TouchScroll : ScrollContainer
                 // move it, or dragging a window would scroll whatever it
                 // passed over.
                 if (!GetGlobalRect().HasPoint(mb.GlobalPosition)) return;
+                // A press on the bar itself is the bar's. Armed here, the
+                // bar's own drag never arrives - the motion is marked
+                // handled below before the GUI walk reaches the grabber -
+                // and what the finger gets instead is the content drag,
+                // which runs the OTHER way: pulling the grabber down
+                // scrolled the list up. Measured on the inventory dock's
+                // slim bar, where dragging the grabber is one of the two
+                // ways the player was promised; it was true of every
+                // panel's bar before that, unnoticed because the list is
+                // the way you scroll.
+                VScrollBar vbar = GetVScrollBar();
+                if (vbar != null && vbar.Visible && vbar.GetGlobalRect().HasPoint(mb.GlobalPosition)) return;
                 _down = true;
                 _scrolling = false;
                 _startY = _lastY = mb.GlobalPosition.Y;

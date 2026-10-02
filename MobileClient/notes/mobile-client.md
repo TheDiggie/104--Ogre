@@ -450,7 +450,7 @@ scheme and a dragged pad (`dpad=240,0,1,1,0`) survive a relaunch.
 See also: FixedControls.cs | M59Hud.cs | HudEditor.cs | the HUD editor -> godot-ui.md | the harness -> harness.md
 
 ## The inventory dock: the pack on the glass
-Tags: design, architecture | A HUD piece ("dock") that shows the pack over the world with the bag's four verbs on a tap; the arrange screen moves, scales, fades, hides it and sets how many ACROSS - a column count is the fifth verb, for grid pieces only
+Tags: design, architecture | A HUD piece ("dock") that shows the pack over the world with the bag's four verbs on a tap; the arrange screen moves, scales, fades, hides it and sets how many ACROSS and how many DOWN - the box is Rows x Columns and a bigger pack scrolls inside it (TouchScroll + slim bar)
 
 Ashton: "add an inventory window that I can use to always see and
 interact with so I don't need to go through menus to see my items.
@@ -517,6 +517,79 @@ One bug caught by looking: the first "-" on Across took the dock from
 eight to TWO, because the editor started the count from the range's
 bottom when the model held zero. Zero means the piece's default, and
 only the piece knows it - hence `DefaultColumns` on the piece.
+
+### Down, and the scroll (2026-10-02)
+Ashton, with a phone shot of ninety items at seven across running off
+the bottom through the chat: "add an adjustment for vertical as well.
+If a player has more than the slots can show just add a slider."
+
+- `M59Hud.Piece.Rows` with `MinRows/MaxRows/DefaultRows`, `RowsNow`,
+  the same shape as Columns; dock range 1..8, DEFAULT 2. Why 2 and
+  not the 1 a six-item pack drew before: at one row the box is 56
+  tall and a grabber that must stay 44 has 12 points to travel - a
+  bar that cannot be dragged. Two is the smallest box whose bar
+  works. A six-item pack now shows 6 filled + 10 empty squares (the
+  grid is padded to the BOX, `Rebuild`, so a three-row box with two
+  items reads three rows tall); Down 1 gives the old strip back.
+- Saved as the OPTIONAL SEVENTH field: `dock=0,0,1,1,0,0,4` - the
+  sixth is written as 0 ("default") when only rows are set, because
+  the seventh needs a sixth in front of it (`M59Hud.Save`). A 5- or
+  6-field line still reads (`ApplySaved`), proved by hand-writing
+  `dock=0,0,1,1,0,6` and launching: 6 across, 2 down.
+- The box is a `TouchScroll` (`dockBox`) holding one `Control`
+  (`dockGrid`) whose CustomMinimumSize is the whole pack, slots
+  placed by hand inside it. Reused because it IS a ScrollContainer:
+  drag-anywhere, flick with friction, the slop that keeps a tap a
+  tap, clipping and the bar come for free, and the bag already runs
+  `InventorySlot` under one so the tap-vs-scroll split was proven.
+  Place gets the box rect (+28 for the bar when it scrolls), so the
+  editor handle covers the box, Dress fades `dockHost` above it, the
+  slot side still follows Scale. Not a SubViewport: a second render
+  target for a dozen icons buys nothing a ScrollContainer's clip does
+  not, and clipped slots still take taps (Godot's gui hit-test honours
+  clip_contents) - a slot scrolled out of the box cannot be tapped.
+- When the pack fits: no bar, VerticalScrollMode Disabled, the box is
+  MouseFilter.Ignore (the gap between slots stays the world's) and
+  the TouchScroll's input is OFF (`SetProcessInput(false)`). The
+  gate matters because TouchScroll scrolls from `_Input`, before the
+  GUI walk: left on it would eat a stick drag that began in the gap,
+  scroll the dock under an open panel's list, and fight the editor's
+  drag of the piece. So it is also off while `Covered` - one line in
+  `GameView.Pump` sets `_dock.Covered = Covered()` beside the
+  Deselect it already did - and while `M59Hud.Editing`.
+- `InventorySlot.CanDrag = false` on the dock's slots: the slot
+  handed Godot drag data on any motion past 8px and hung a ghost of
+  the icon under the finger for the length of every scroll.
+- The bar: `M59Skin.SlimScroller` - 28 wide to the thumb
+  (`SlimBarW`; the brief's floor was 24), 16 visible, no BarInset
+  because nothing sits beside it, and the grabber never shorter than
+  44: Godot has no grabber minimum of its own but respects the
+  grabber stylebox's minimum size, which for a flat box is its
+  content margins - 22 top and bottom. Scroller's own comment
+  promises this and does not do it.
+- A LESSON that reached every panel: `TouchScroll` armed on a press
+  on the bar too, marked the motion handled, and the grabber never
+  saw its own drag - what the finger got was the content drag, which
+  runs the other way (pull the grabber down, list scrolls up). Now a
+  press inside `GetVScrollBar().GetGlobalRect()` is left to the bar
+  (`TouchScroll._Input`). Found by dragging the dock's grabber in the
+  harness and seeing the first rows still there.
+- Harness: `M59_PACK=n` pads the fixture's pack to n (same pattern as
+  `M59_BUFFS`; `M59_BIGBAG=1` is now `M59_PACK=100`). Screen
+  coordinates are NOT UI coordinates - the safe-area layer sits at
+  ~0.95 scale, so the bar at UI x 506..534 is on screen at ~529..556;
+  the first grabber drag at 520 landed on the eighth slot.
+
+Played (harness, 1920x1080): 6 items -> box (16,543,490,118), two
+rows, no bar. `M59_PACK=40` -> box 518 wide, bar with grabber at the
+top, rows 1-2; `@drag:200x640>200x480@30` -> rows 3-4 shown, grabber
+down, no strip (the lift after a scroll does not pick); `@tap` on a
+slot -> ring + strip under the box + target card; same slot ->
+strip gone. `@drag:542x565>542x650@30` on the grabber -> last rows,
+grabber at the bottom. Arrange: card shows "Across 8 / Down 4" after
+two "+", handle 242 tall over the box, chip "4 down", chat clear;
+Done, relaunch on the same user data -> `dock=0,0,1,1,0,0,4`, box
+242.
 
 See also: InventoryDock.cs | M59Hud.cs | HudEditor.cs | the HUD editor -> godot-ui.md | the bag -> godot-ui.md "A model object held across a rebuild goes stale"
 

@@ -509,7 +509,13 @@ public partial class GameView : Node2D
             a.SetObserved();
         };
 
-        _ui = new CanvasLayer();
+        // Layer 2, said out loud. CanvasLayer's DEFAULT is 1, not 0, and
+        // the world-UI layer below was put at 1 "under _ui's default" -
+        // so the two shared a layer, tree order decided, and the names,
+        // added later, were painted over every panel: an NPC's tag sat
+        // across the Menu card and the Settings list. Seen on a phone,
+        // 2026-10-02. One number above, and the comment below is true.
+        _ui = new CanvasLayer { Layer = 2 };
         AddChild(_ui);
 
         _updater = new Updater();
@@ -553,8 +559,8 @@ public partial class GameView : Node2D
         // a billboard IN the 3D scene (`RemoteNode::UpdateNamePosition`),
         // so it is in the world by construction and CEGUI's own window
         // never touches it. This layer is that, in the terms this client
-        // has. Under _ui's default layer 1 so a panel still covers a
-        // name, over the world at 0.
+        // has. At 1: under _ui at 2 so a panel still covers a name, over
+        // the world, which is this Node2D's own canvas at 0.
         _worldUi = new CanvasLayer { Layer = 1 };
         AddChild(_worldUi);
 
@@ -3490,7 +3496,12 @@ public partial class GameView : Node2D
         // a strip of verbs under a scrim is a strip that cannot be
         // pressed, and the first tap on the world after would have to
         // clear it anyway.
-        if (_dock != null && Covered()) _dock.Deselect();
+        if (_dock != null)
+        {
+            // The dock's scroll box needs to know too - see InventoryDock.Covered.
+            _dock.Covered = Covered();
+            if (_dock.Covered) _dock.Deselect();
+        }
         bool bagOpen = (_bag != null && _bag.IsOpen) || (_dock != null && _dock.HasSelection);
         if (_client.Data != null)
         {

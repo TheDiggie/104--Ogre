@@ -82,6 +82,15 @@ public partial class HudEditor : Control
     /// </summary>
     Label _colsCap, _colsVal;
     Button _colsLess, _colsMore;
+    /// <summary>
+    /// And the sixth, under it: how many DOWN - the height of the box
+    /// the grid is seen through, for a piece that declares a row range
+    /// (M59Hud.Piece.Rows). A row of its own rather than squeezed
+    /// beside Across: two captions, two values and four steppers do
+    /// not fit a 440-point card at thumb size.
+    /// </summary>
+    Label _rowsCap, _rowsVal;
+    Button _rowsLess, _rowsMore;
 
     // ---- the bar ----------------------------------------------------
 
@@ -145,8 +154,9 @@ public partial class HudEditor : Control
     const float CardW = 440f, CardH = 232f;
     /// <summary>What the columns row adds to the card when it is shown.</summary>
     const float ColsRowH = 44f + M59Skin.Gap;
-    float CardHFor(M59Hud.Piece p) => CardH + (HasColumns(p) ? ColsRowH : 0f);
+    float CardHFor(M59Hud.Piece p) => CardH + (HasColumns(p) ? ColsRowH : 0f) + (HasRows(p) ? ColsRowH : 0f);
     static bool HasColumns(M59Hud.Piece p) => p != null && p.MaxColumns > p.MinColumns;
+    static bool HasRows(M59Hud.Piece p) => p != null && p.MaxRows > p.MinRows;
 
     /// <summary>
     /// The bar's plate: two rows of controls and a line of hint, as
@@ -411,6 +421,22 @@ public partial class HudEditor : Control
         _colsLess = Make("-", "hudColsLess", M59Skin.Kind.Step, () => Columns(-1));
         _colsMore = Make("+", "hudColsMore", M59Skin.Kind.Step, () => Columns(+1));
 
+        _rowsCap = M59Skin.Caption("Down");
+        _rowsCap.VerticalAlignment = VerticalAlignment.Center;
+        _rowsCap.MouseFilter = MouseFilterEnum.Ignore;
+        AddChild(_rowsCap);
+        _rowsVal = new Label
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        _rowsVal.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        _rowsVal.AddThemeColorOverride("font_color", M59Skin.GoldBright);
+        AddChild(_rowsVal);
+        _rowsLess = Make("-", "hudRowsLess", M59Skin.Kind.Step, () => Rows(-1));
+        _rowsMore = Make("+", "hudRowsMore", M59Skin.Kind.Step, () => Rows(+1));
+
         _hide = Make("Hide", "hudHide", M59Skin.Kind.Secondary, () =>
         {
             if (_picked == null) return;
@@ -594,6 +620,17 @@ public partial class HudEditor : Control
         Layout(true);
     }
 
+    /// <summary>One row more or fewer, from what the piece is drawing (RowsNow), as Columns.</summary>
+    void Rows(int by)
+    {
+        if (!HasRows(_picked)) return;
+        int now = _picked.RowsNow;
+        _picked.Rows = Mathf.Clamp(now + by, _picked.MinRows, _picked.MaxRows);
+        M59Hud.Touch();
+        Follow();
+        Layout(true);
+    }
+
     /// <summary>A press or a drag on one of the two slider tracks.</summary>
     void Track(InputEvent e, int which, Control hot)
     {
@@ -769,6 +806,9 @@ public partial class HudEditor : Control
         bool cols = card && HasColumns(_picked);
         _colsCap.Visible = cols; _colsVal.Visible = cols;
         _colsLess.Visible = cols; _colsMore.Visible = cols;
+        bool rows = card && HasRows(_picked);
+        _rowsCap.Visible = rows; _rowsVal.Visible = rows;
+        _rowsLess.Visible = rows; _rowsMore.Visible = rows;
         _empty.Visible = !any;
 
         if (card)
@@ -784,6 +824,13 @@ public partial class HudEditor : Control
                 _colsVal.Text = n.ToString();
                 _colsLess.Disabled = n <= _picked.MinColumns;
                 _colsMore.Disabled = n >= _picked.MaxColumns;
+            }
+            if (rows)
+            {
+                int n = _picked.RowsNow;
+                _rowsVal.Text = n.ToString();
+                _rowsLess.Disabled = n <= _picked.MinRows;
+                _rowsMore.Disabled = n >= _picked.MaxRows;
             }
             // NOT a ToggleMode button, deliberately. A Godot toggle
             // changes state through ButtonPressed and raises `toggled`,
@@ -1030,23 +1077,11 @@ public partial class HudEditor : Control
         y = SliderRow(x, y, w, _sizeCap, _sizeBar, _sizeVal, _sizeHot, _sizeLess, _sizeMore);
         y = SliderRow(x, y, w, _fadeCap, _fadeBar, _fadeVal, _fadeHot, _fadeLess, _fadeMore);
 
-        if (HasColumns(_picked))
-        {
-            // Same columns as the slider rows above it - the caption,
-            // the value and the two steppers land under their fellows,
-            // with the track's ground left empty between.
-            const float capW = 52f, stepW = 46f, valW = 62f, h = 44f;
-            _colsCap.Position = new Vector2(x, y);
-            _colsCap.Size = new Vector2(capW + 20f, h);
-            float sx = x + w - stepW * 2f - M59Skin.Gap;
-            _colsVal.Position = new Vector2(sx - M59Skin.Gap - valW, y);
-            _colsVal.Size = new Vector2(valW, h);
-            _colsLess.Position = new Vector2(sx, y);
-            _colsLess.Size = new Vector2(stepW, h);
-            _colsMore.Position = new Vector2(sx + stepW + M59Skin.Gap, y);
-            _colsMore.Size = new Vector2(stepW, h);
-            y += h + M59Skin.Gap;
-        }
+        // Same columns as the slider rows above it - the caption, the
+        // value and the two steppers land under their fellows, with
+        // the track's ground left empty between.
+        if (HasColumns(_picked)) y = StepRow(x, y, w, _colsCap, _colsVal, _colsLess, _colsMore);
+        if (HasRows(_picked)) y = StepRow(x, y, w, _rowsCap, _rowsVal, _rowsLess, _rowsMore);
 
         y += 4f;
         float half = (w - M59Skin.Gap) * 0.5f;
@@ -1054,6 +1089,21 @@ public partial class HudEditor : Control
         _hide.Size = new Vector2(half, 46f);
         _reset.Position = new Vector2(x + half + M59Skin.Gap, y);
         _reset.Size = new Vector2(half, 46f);
+    }
+
+    float StepRow(float x, float y, float w, Label cap, Label val, Button less, Button more)
+    {
+        const float capW = 52f, stepW = 46f, valW = 62f, h = 44f;
+        cap.Position = new Vector2(x, y);
+        cap.Size = new Vector2(capW + 20f, h);
+        float sx = x + w - stepW * 2f - M59Skin.Gap;
+        val.Position = new Vector2(sx - M59Skin.Gap - valW, y);
+        val.Size = new Vector2(valW, h);
+        less.Position = new Vector2(sx, y);
+        less.Size = new Vector2(stepW, h);
+        more.Position = new Vector2(sx + stepW + M59Skin.Gap, y);
+        more.Size = new Vector2(stepW, h);
+        return y + h + M59Skin.Gap;
     }
 
     float SliderRow(float x, float y, float w, Label cap, ProgressBar bar, Label val,
@@ -1139,6 +1189,7 @@ public partial class HudEditor : Control
             if (p.Scale != 1f) tag += $"  {p.Scale:0.00}x";
             if (p.Alpha != 1f) tag += $"  {p.Alpha * 100f:0}%";
             if (p.Columns > 0 && HasColumns(p)) tag += $"  {p.ColumnsNow} across";
+            if (p.Rows > 0 && HasRows(p)) tag += $"  {p.RowsNow} down";
 
             float tw = f.GetStringSize(tag, HorizontalAlignment.Left, -1, 16).X;
             var chip = new Rect2(r.Position.X + 2f, r.Position.Y + 2f, tw + 14f, 22f);
