@@ -170,8 +170,82 @@ public sealed class TouchControls
     public Vector2 StickOrigin => _moveOrigin;
     public Vector2 StickCurrent => _moveCurrent;
 
+    /// <summary>
+    /// Lets go of every finger and forgets what they owed.
+    ///
+    /// Called by the view while a panel, the drawer, the chat box or
+    /// the HUD editor is up, in place of Handle. Two things have to
+    /// happen and dropping the events alone does only one of them. The
+    /// events must not reach the look handler: a drag that starts on
+    /// the dead part of a card - a label, the gap between two rows, a
+    /// slider's track - is not consumed by any Control, so it falls
+    /// through to _UnhandledInput and spins the camera while the player
+    /// is trying to set a volume. And a finger that was ALREADY looking
+    /// when the panel opened must be released, or the turn it had
+    /// banked keeps paying out under the panel and the first touch
+    /// after it closes is read as that finger's release - a tap, which
+    /// retargets whatever is under it.
+    /// </summary>
+    public void Drop()
+    {
+        _moveFinger = _tapFinger = _lookFinger = -1;
+        _moveEngaged = _tapFingerMoved = _lookMoved = false;
+        _tapped = false;
+        Move = Vector2.Zero;
+        _turn = _pitch = 0f;
+    }
+
+    /// <summary>
+    /// Fingers that went down while something was up, and so belong to
+    /// nothing in the world until they lift.
+    ///
+    /// This is the half of the fix that Drop alone misses, and it was
+    /// measured: with the drawer open, a drag starting on the drawer's
+    /// own backdrop still turned the camera by the same amount as with
+    /// nothing open at all. The backdrop closes the drawer on the press.
+    /// By the first drag event the drawer is shut, the gate in the view
+    /// sees nothing up, and the gesture that closed the menu goes on to
+    /// spin the world. A finger's fate is decided at the press, as it is
+    /// everywhere else in this file; one that pressed into a menu is the
+    /// menu's for its whole life, whatever the menu did with it.
+    /// </summary>
+    readonly HashSet<int> _eaten = new HashSet<int>();
+
+    /// <summary>The index a finger or the mouse reports, on one scale.</summary>
+    static int IndexOf(InputEvent e) => e switch
+    {
+        InputEventScreenTouch t => t.Index,
+        InputEventScreenDrag d => d.Index,
+        InputEventMouse => -2,
+        _ => int.MinValue,
+    };
+
+    /// <summary>
+    /// Records a press that landed while something was up. Call instead
+    /// of Handle for every event while the gate is closed.
+    /// </summary>
+    public void Eat(InputEvent e)
+    {
+        if (e is InputEventScreenTouch t && t.Pressed) _eaten.Add(t.Index);
+        else if (e is InputEventMouseButton mb && mb.Pressed) _eaten.Add(-2);
+        else if (e is InputEventScreenTouch tr && !tr.Pressed) _eaten.Remove(tr.Index);
+        else if (e is InputEventMouseButton mr && !mr.Pressed) _eaten.Remove(-2);
+    }
+
+    /// <summary>True, and forgets the finger on its release, when this
+    /// event belongs to a finger that pressed into a menu.</summary>
+    bool Eaten(InputEvent e)
+    {
+        int i = IndexOf(e);
+        if (i == int.MinValue || !_eaten.Contains(i)) return false;
+        if ((e is InputEventScreenTouch t && !t.Pressed) || (e is InputEventMouseButton mb && !mb.Pressed))
+            _eaten.Remove(i);
+        return true;
+    }
+
     public void Handle(InputEvent e, Vector2 viewport)
     {
+        if (Eaten(e)) return;
         float mid = viewport.X * 0.5f;
 
         switch (e)

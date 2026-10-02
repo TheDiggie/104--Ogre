@@ -1576,6 +1576,17 @@ public sealed class Renderer
                     // ties, and a tie is "behind". The flatfloor check
                     // in Net8RenderCheck counts that nothing of such a
                     // creature is lost.
+                    //
+                    // The same test is what makes a creature WADE. In a
+                    // depth sector its feet are under the floor by the
+                    // sector depth (WorldSync.SyncSprites has the cites),
+                    // the floor is the water's surface and it is nearer
+                    // than every row of the body below it, so those rows
+                    // fail here and the body shows from the waterline
+                    // up - the reference's water writes depth for the
+                    // same reason (general.material:414-445). The wade
+                    // check counts that the cut is at the waterline the
+                    // sector solves, and nowhere else.
                     if (ClipFlats && depth >= _flatDepth[y * W + sx]) continue;
                     uint c = lp[ty * lw + tx];
                     if ((c >> 24) == 0) continue;            // transparent texel

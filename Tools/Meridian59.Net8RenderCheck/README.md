@@ -34,4 +34,30 @@ the part that fails if the row conventions ever drift - puts
 creatures on the level floor of the eye's own BSP leaf, where nothing
 can be nearer than they are, and requires that the test takes back
 exactly nothing: 0 of 3.1 million pixels across 705 scenes. It also
-times settled frames with sprites, test on and off.
+times settled frames with sprites, test on and off. The feet case
+skips depth sectors (669 scenes since): the game does not stand a
+creature on a water floor, it sinks it - that is `wade`.
+
+**wade** (`-- wade <resourceDir>`) is what the flat depth does to a
+creature in water. A sector flagged shallow, deep or very deep
+(`RooSectorFlags.cs:35-38`) stands its objects FINENESS/5, 2/5 or 3/5
+under its floor (`RooFile.cs:120-127`, `RooSector.cs:813-841`,
+`RoomObject.cs:1081-1082`), the reference draws them at that height
+(`RemoteNode.cpp:510-515`) with the camera on the same node
+(`:406-425`), and the water surface - the floor at its undepthed
+height - writes depth like any flat (`general.material:414-445`), so
+a wader shows from the waterline up. The check plants a tagged
+creature where the game does, the eye wading too, solves the row the
+surface crosses it on from the camera and the sector alone, and
+requires three things: no tagged pixel more than a row under that
+line with the clip on (0 of them), the clip-on and clip-off renders
+identical above it (0 lost, 0 gained - the billboard is wholly inside
+the eye's own convex leaf, so the water is the only nearer flat), and
+the water hiding SOMETHING (37779 of 171353 sprite pixels across 96
+scenes in 21 rooms when written). Switching the clip off for the
+tight render fails it in every room. A depth sector whose floor
+texture the resource set lacks is skipped and counted (1565 of 1689
+here - this fixture set is missing most of the water art, grd08895
+and the 8911 family among them): the reference builds no floor for
+it either (`ControllerRoom.cpp:789-790`), so a creature standing in
+it IS drawn through the hole, in both clients.

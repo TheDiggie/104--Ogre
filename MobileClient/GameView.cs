@@ -3214,6 +3214,7 @@ public partial class GameView : Node2D
 
     public override void _Process(double delta)
     {
+        _coveredLastFrame = Covered();
         try { Pump(delta); }
         catch (Exception e) { Boom("running", e); }
     }
@@ -3500,8 +3501,45 @@ public partial class GameView : Node2D
 
     // Unhandled, not _Input: the chat box is a Control and has to see keys
     // and taps first, or typing walks you into a wall.
+    //
+    // And nothing at all while something is up. "Unhandled" only means
+    // no Control consumed the event, and a card is mostly things that
+    // consume nothing - labels, the gaps between rows, a slider's track
+    // - so a thumb adjusting a setting was also a thumb dragging the
+    // camera, and the world spun behind every menu. The reference never
+    // meets this because its windows are CEGUI windows that take the
+    // mouse whole; here the world is the unhandled remainder and has to
+    // be told when it is not wanted. Drop, not just return: see
+    // TouchControls.Drop for the finger that was already looking.
     public override void _UnhandledInput(InputEvent e)
-        => _touch.Handle(e, GetViewportRect().Size);
+    {
+        // Covered NOW, or covered when the last frame ended. The second
+        // is the one that matters, and it was found by measuring: with
+        // the drawer open, a drag on its own backdrop turned the camera
+        // exactly as far as with nothing open. Godot delivers an event
+        // to the GUI first and to _UnhandledInput after, in the same
+        // pass - so the backdrop closes the drawer on the press, and by
+        // the time the press reaches here nothing is up and the finger
+        // is armed as a look. Remembering what the previous frame saw
+        // closes that gap: the press is eaten, and TouchControls keeps
+        // the finger eaten until it lifts.
+        bool covered = Covered();
+        if (covered || _coveredLastFrame)
+        {
+            _touch.Drop();
+            _touch.Eat(e);
+            return;
+        }
+        _touch.Handle(e, GetViewportRect().Size);
+    }
+
+    bool Covered() =>
+        PanelUp || Panels.DrawerOpen || M59Hud.Editing
+        || (_chat != null && _chat.Capturing)
+        || (_hudEditor != null && _hudEditor.Visible);
+
+    /// <summary>See _UnhandledInput. Written at the end of every frame.</summary>
+    bool _coveredLastFrame;
 
     /// <summary>
     /// Turns touch and keyboard into avatar movement, then tells the server.

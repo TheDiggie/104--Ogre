@@ -280,6 +280,19 @@ public sealed class WorldSync
             Renderer.Sprite sp = Renderer.NewSprite();
             sp.X = M59Geo.KodToWorld(o.Position3D.X);
             sp.Y = M59Geo.KodToWorld(o.Position3D.Z);     // world Y is Position3D.Z
+            // Position3D.Y and NOT the floor under the object. The
+            // library's height already has the sector depth taken off:
+            // RoomObject asks GetHeightAt with WithSectorDepth on
+            // (RoomObject.cs:1081-1082, :1184-1185), and a shallow, deep
+            // or very deep sector (RooSectorFlags.cs:35-38) stands its
+            // objects FINENESS/5, 2/5 or 3/5 under its floor
+            // (RooFile.cs:120-127, RooSector.cs:813-841) - 204, 409 or
+            // 614 of these units. The reference puts the scene node at
+            // that Position3D unchanged (RemoteNode.cpp:510-515). A
+            // wader's feet are under the water, and the surface - which
+            // writes flat depth like any floor - takes the submerged
+            // part per pixel. Standing a sprite on FloorXY instead
+            // floats it on the surface; the wade oracle counts the cut.
             sp.BaseZ = M59Geo.KodHeightToXY(o.Position3D.Y);
             sp.Height = SpriteHeight;
             // Hanging objects are pinned by their top, not their base.
@@ -516,6 +529,12 @@ public sealed class WorldSync
         float h = Measured(avatar);
         if (h > 0f && MathF.Abs(h - _avatarHeight) * 0.93f > EyeDeadband) _avatarHeight = h;
 
+        // On the avatar's own Position3D.Y, which wades: in a depth
+        // sector the library has the sector depth off it already (see
+        // SyncSprites), and the reference's camera node is a child of
+        // the avatar's scene node at (0, eye, 0) (RemoteNode.cpp:406-425,
+        // :510-515), so the eye drops with the body - 204 units in
+        // shallow water - and the water's surface climbs the view.
         z = M59Geo.KodHeightToXY(avatar.Position3D.Y) + Renderer.Eye(_avatarHeight);
     }
 

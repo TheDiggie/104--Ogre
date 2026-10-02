@@ -697,3 +697,46 @@ over the planks at the bottom of the frame; after, the planks whole and
 the rats cut at the platform's far edge.
 
 See also: Renderer.cs | the oracle -> ../../Tools/Meridian59.Net8RenderCheck/README.md
+
+## Wading is the library's height and the floor's depth, and the fixture has almost no water
+Tags: gotchas, lessons | "Monsters float on water" could not be reproduced where the water has its art; where it has none there is no floor, no depth, and the sprite is drawn through the hole - in the reference too
+
+The report: creatures and players stand ON water instead of wading.
+Traced end to end, nothing in the client stands them up. The library
+takes the sector depth off every non-hanging object's height
+(`RoomObject.cs:1081-1082`, `:1184-1185` -> `RooSector.cs:813-841`,
+FINENESS/5, 2/5, 3/5 from `RooFile.cs:120-127`), the reference draws
+the node at that `Position3D` unchanged (`RemoteNode.cpp:510-515`) with
+the camera on it (`:406-425`), and here `WorldSync.SyncSprites` puts
+`Position3D.Y` straight into `BaseZ`, `Camera` puts it under the eye
+and `NameTags` under the label. A live trace in bergleader_hall's pool
+(`M59_SPAWN=700,920,0`, Depth1 on grd01802) had the far rat lowered to
+4996 under a 5200 surface, painted rows 249-367 against a waterline
+solved at 368, the translucent one cut at 418 against 418. The `wade`
+oracle now proves it in every room with drawn water: 0 px under the
+waterline, 0 lost above it, 37779 of 171353 hidden.
+
+The trap that made it LOOK broken for a whole session: `/tmp/res` is
+missing grd08895 and the 8911 family, most of the game's water, so in
+jixa's fountain, barlsew's channel and barsmith's trough the floor
+texture resolves to null, `FillFlat` paints sky and stores NO depth
+(`Renderer.cs`, the `t == null` early-out), and the sunk rat is drawn
+through the hole to its feet - exactly "floating". The reference
+builds no floor for a sector whose BGF is missing either
+(`ControllerRoom.cpp:789-790`), so that is fidelity, not a bug; the
+shipped pack is the full 4,700 files. Only 124 of the fixture's 1689
+depth sectors have their floor art; the oracle counts the rest as
+skipped and says so. Test wading in bergleader_hall, berg_devroom or
+guildh16, not in the sewers.
+
+What the reference leaves un-reheighted, and so do we: a SectorChange
+that alters a sector's depth while objects stand in it
+(`RooFile.cs:2266-2273` -> `RooSector.ApplyChange`) moves nobody until
+they next move, since `UpdatePosition` gates on `IsMoving`; only a
+sector MOVE re-heights its standers (`DataController.cs:1700-1712`).
+Server-104 sends its depth changes straight after Player and before
+the contents (`user.kod:3395-3399`, the fixture's `SendWade` order),
+so objects are created at the changed depth; a depth that changes
+mid-room would stand them wrong until they step, in both clients.
+
+See also: the oracle -> ../../Tools/Meridian59.Net8RenderCheck/README.md | WorldSync.cs

@@ -11,6 +11,7 @@ using Meridian59.Files;using Meridian59.Files.ROO;using Meridian59.Common.Enums;
 //   dotnet run --project . -- slope      <resourceDir>
 //   dotnet run --project . -- scroll     <resourceDir>
 //   dotnet run --project . -- anim       <resourceDir>
+//   dotnet run --project . -- wade       <resourceDir>
 //   dotnet run --project . -- all     <resourceDir>
 static class RenderCheck
 {
@@ -169,6 +170,7 @@ static class RenderCheck
         if (mode == "holes"   || mode == "all") Holes(dir);
         if (mode == "lintel"  || mode == "all") bad += Lintel(dir);
         if (mode == "flatdepth" || mode == "all") bad += FlatDepth(dir);
+        if (mode == "wade"    || mode == "all") bad += Wade(dir);
         if (mode == "roomtex" || mode == "all") bad += RoomTex(dir);
         return bad == 0 ? 0 : 1;
     }
@@ -253,7 +255,15 @@ static class RenderCheck
             // top is nearer than the flank, as it would be to a depth
             // buffer. Nothing can be nearer than a billboard that lies
             // wholly inside the convex leaf it stands in.
-            if (csec.SlopeInfoFloor == null)
+            //
+            // Not in a depth sector: the game stands a creature there
+            // BELOW the floor, by the sector depth, and the floor - the
+            // water surface - rightly takes the submerged part. That is
+            // the wade check's case, with the loss solved and counted;
+            // here it would be either a creature planted at the surface,
+            // which the game never does, or a loss this check cannot
+            // tell from a bug.
+            if (csec.SlopeInfoFloor == null && csec.Flags.SectorDepth == RooSectorFlags.DepthType.Depth0)
             {
                 for (int k=0;k<4;k++)
                 {
@@ -317,9 +327,11 @@ static class RenderCheck
                     // on bergleader's ramp stood 930 units under the
                     // surface, deeper than it is tall, and this count was
                     // mostly of buried sprites. The game's heights come
-                    // from GetHeightAt, which follows the slope.
+                    // from GetHeightAt, which follows the slope - and
+                    // takes the sector depth off, so a creature in water
+                    // stands under the surface (RooSector.cs:813-841).
                     r.Sprites.Add(new Renderer.Sprite {
-                        X=sx2, Y=sy2, BaseZ = sec!=null ? M59Geo.FloorXY(sec, sx2, sy2) : cz-Renderer.EyeHeight,
+                        X=sx2, Y=sy2, BaseZ = sec!=null ? sec.CalculateFloorHeight(sx2, sy2, true) : cz-Renderer.EyeHeight,
                         Height=600f, Texture=tex, Tag = i });
                 }
                 if (r.Sprites.Count == 0) continue;
@@ -410,6 +422,156 @@ static class RenderCheck
         }
 
         bool ok = feetLost == 0 && (total == 0 || through > 0);
+        Console.WriteLine(ok ? "OK" : "PROBLEM");
+        return ok ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Wading. A sector flagged with a depth (RooSectorFlags.cs:35-38,
+    /// shallow / deep / very deep) stands its objects LOWER than its
+    /// floor: the library takes FINENESS/5, 2/5 or 3/5 off the height
+    /// (RooFile.cs:120-127, RooSector.cs:813-841), RoomObject asks for
+    /// its height with that depth on (RoomObject.cs:1081-1082,
+    /// :1184-1185) and the reference puts the scene node at that
+    /// Position3D unchanged (RemoteNode.cpp:510-515), with the camera a
+    /// child of the same node (:406-425). The water surface - the floor
+    /// at its undepthed height - writes depth like any flat
+    /// (general.material:414-445), so a wader is seen from the waterline
+    /// up. The flatdepth check above plants nothing in a depth sector
+    /// and proves nothing about this; this one plants creatures where
+    /// the game does and counts:
+    ///
+    /// 1. Nothing is painted below the waterline. The row the surface
+    ///    crosses the billboard on is solved here from the camera and
+    ///    the sector alone - not from the renderer - and no tagged
+    ///    pixel may lie more than a row under it.
+    /// 2. Above the waterline, nothing is lost: the whole billboard is
+    ///    inside the camera's own convex leaf, so the water is the only
+    ///    flat nearer than the creature's feet, and the clip-on and
+    ///    clip-off renders must agree on every row above the cut.
+    /// 3. Something IS under water in frame, or the scene is not a
+    ///    test: the feet row is below the surface row and the surface
+    ///    row is inside the frame.
+    ///
+    /// A floor whose texture the resource set lacks is skipped and
+    /// counted: the reference builds no floor for it either
+    /// (ControllerRoom.cpp:789-790), so there is no surface to hide
+    /// behind, and the fixture set here is missing most of the water
+    /// (grd08895 and the 8911 family among them).
+    /// </summary>
+    static int Wade(string dir)
+    {
+        var rm = new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
+        string[] sprites = { "duskrat.bgf", "Knight.bgf" };
+        const int W=640, H=360;
+        float proj = Renderer.Projection(W, H), horizon = H * 0.5f;
+        int scenes=0, below=0, aboveLost=0, aboveGained=0, hidden=0, shown=0;
+        int roomsWithDepth=0, sectorsNoTex=0, sectorsOk=0, byDepth1=0, byDepth2=0, byDepth3=0;
+        var worst = new List<string>();
+
+        foreach (string path in Directory.GetFiles(dir, "*.roo").OrderBy(x=>x))
+        {
+            RooFile roo; try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
+            var deep = roo.Sectors.Where(s => s.Flags.SectorDepth != RooSectorFlags.DepthType.Depth0).ToList();
+            if (deep.Count == 0) continue;
+            roomsWithDepth++;
+            var tc = new TexCache(rm);
+            var withTex = new HashSet<RooSector>();
+            foreach (var s in deep)
+            {
+                if (tc.Get(s.FloorTexture) != null) { withTex.Add(s); sectorsOk++; }
+                else sectorsNoTex++;
+            }
+            if (withTex.Count == 0) continue;
+            // The camera's leaf: the roomiest leaf of a depth sector whose
+            // floor will be drawn. The eye wades too, as the avatar's does.
+            var leaf = roo.BSPTreeLeaves
+                .Where(l => l.Sector != null && withTex.Contains(l.Sector) && l.Vertices != null && l.Vertices.Count >= 3)
+                .OrderByDescending(l => { double s2=0; var v=l.Vertices;
+                    for (int i=0,j=v.Count-1;i<v.Count;j=i++) s2+=(double)v[j].X*v[i].Y-(double)v[i].X*v[j].Y;
+                    return Math.Abs(s2*.5); }).FirstOrDefault();
+            if (leaf == null) continue;
+            RooSector csec = leaf.Sector;
+            float cx = leaf.Vertices.Average(v=>(float)v.X), cy = leaf.Vertices.Average(v=>(float)v.Y);
+            float cz = csec.CalculateFloorHeight(cx, cy, true) + Renderer.EyeHeight;
+            switch (csec.Flags.SectorDepth)
+            {
+                case RooSectorFlags.DepthType.Depth1: byDepth1++; break;
+                case RooSectorFlags.DepthType.Depth2: byDepth2++; break;
+                default: byDepth3++; break;
+            }
+            var r = new Renderer(roo, tc);
+
+            foreach (string sprName in sprites)
+            {
+                var bgf = rm.GetObject(sprName); if (bgf == null) continue;
+                for (int k=0;k<4;k++)
+                {
+                    float ang = k * MathF.PI / 2f;
+                    float ca = MathF.Cos(-ang), sa = MathF.Sin(-ang);
+                    float lx = -MathF.Sin(ang), ly = MathF.Cos(ang);
+                    var rng = new Random(k*17 + path.Length*3 + sprName.Length);
+                    for (int i=0;i<6;i++)
+                    {
+                        // One creature per scene, so every tagged pixel is
+                        // its own. A point part way from the centroid to a
+                        // vertex is inside the convex leaf; the flanks are
+                        // checked as the feet check checks them.
+                        var v = leaf.Vertices[rng.Next(leaf.Vertices.Count)];
+                        float f = 0.2f + 0.75f*(float)rng.NextDouble();
+                        float sx2 = cx + ((float)v.X - cx)*f, sy2 = cy + ((float)v.Y - cy)*f;
+                        if (!ReferenceEquals(r.SectorAtPoint(sx2, sy2), csec)) continue;
+                        float rx = sx2 - cx, ry = sy2 - cy;
+                        float depth = rx * ca - ry * sa;
+                        if (depth < 400f) continue;
+                        var tex = Tag(bgf, rng.Next(0, bgf.Frames.Count));
+                        if (tex == null) continue;
+                        const float Height = 600f;
+                        float half = Height * tex.W / MathF.Max(1, tex.H) * 0.5f;
+                        if (!InLeaf(leaf, sx2 + lx*half, sy2 + ly*half)
+                         || !InLeaf(leaf, sx2 - lx*half, sy2 - ly*half)) continue;
+
+                        // Where the game stands it, and where the water is.
+                        float feetZ = csec.CalculateFloorHeight(sx2, sy2, true);
+                        float surfZ = csec.CalculateFloorHeight(sx2, sy2, false);
+                        float feetRow = horizon + (cz - feetZ) * proj / depth;
+                        float surfRow = horizon + (cz - surfZ) * proj / depth;
+                        if (!(feetRow > surfRow + 1f) || surfRow >= H - 1 || surfRow <= 0f) continue;
+
+                        r.Sprites.Clear();
+                        r.Sprites.Add(new Renderer.Sprite { X=sx2, Y=sy2, BaseZ=feetZ, Height=Height, Texture=tex, Tag=i });
+                        Renderer.ClipFlats = false;
+                        var loose = new uint[W*H]; r.Render(loose, W,H, cx,cy,cz, ang);
+                        Renderer.ClipFlats = true;
+                        var tight = new uint[W*H]; r.Render(tight, W,H, cx,cy,cz, ang);
+                        scenes++;
+                        int under = 0, lost = 0, gained = 0, hid = 0, kept = 0;
+                        int cut = (int)MathF.Floor(surfRow);
+                        for (int y=0;y<H;y++)
+                        for (int x=0;x<W;x++)
+                        {
+                            bool a = Tagged(loose[y*W+x]), b = Tagged(tight[y*W+x]);
+                            if (b && y > cut + 1) under++;
+                            if (y < cut - 1) { if (a && !b) lost++; if (b && !a) gained++; }
+                            if (a && !b) hid++;
+                            if (b) kept++;
+                        }
+                        below += under; aboveLost += lost; aboveGained += gained; hidden += hid; shown += kept;
+                        if ((under > 0 || lost > 0 || gained > 0) && worst.Count < 8)
+                            worst.Add($"{Path.GetFileName(path)} {sprName} {k*90}deg {csec.Flags.SectorDepth}: "
+                                    + $"{under} px under the waterline (row {surfRow:F1}), {lost} lost / {gained} gained above it");
+                    }
+                }
+            }
+            Renderer.ClipFlats = true;
+        }
+        Console.WriteLine($"{roomsWithDepth} rooms with depth sectors; {sectorsOk} sectors with a floor texture here, {sectorsNoTex} without (skipped: no floor, no surface)");
+        Console.WriteLine($"{scenes} scenes of a creature wading, eye wading too ({byDepth1} rooms shallow, {byDepth2} deep, {byDepth3} very deep)");
+        Console.WriteLine($"  painted below the waterline with the clip on: {below}");
+        Console.WriteLine($"  lost above the waterline: {aboveLost}, gained: {aboveGained}");
+        Console.WriteLine($"  hidden by the water: {hidden} of {hidden+shown} sprite pixels");
+        foreach (string s in worst) Console.WriteLine("    " + s);
+        bool ok = scenes > 0 && below == 0 && aboveLost == 0 && aboveGained == 0 && hidden > 0;
         Console.WriteLine(ok ? "OK" : "PROBLEM");
         return ok ? 0 : 1;
     }
