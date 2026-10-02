@@ -76,6 +76,12 @@ public partial class GameView : Node2D
 
     readonly M59Assets _assets = new M59Assets();
     readonly TouchControls _touch = new TouchControls();
+    /// <summary>
+    /// The Fixed scheme's pad and stick. Null until the world's widgets
+    /// are built; nothing it reports is non-zero unless
+    /// M59Hud.Controls is Fixed. See FixedControls.
+    /// </summary>
+    FixedControls _fixed;
     ChatOverlay _chat;
 
     /// <summary>
@@ -2806,7 +2812,7 @@ public partial class GameView : Node2D
                 // release you are about to make is the one you were
                 // already making, and it clears this instead of the
                 // autorun - `ControllerInput.cpp:568`.
-                _autoMoveOnMove = on && _touch.Move.LengthSquared() > 0.0001f;
+                _autoMoveOnMove = on && (_touch.Move + (_fixed?.Move ?? Vector2.Zero)).LengthSquared() > 0.0001f;
             };
             _ui.AddChild(_auto);
             // Movement, so it is pinned to the LEFT edge by the thumb
@@ -2817,6 +2823,24 @@ public partial class GameView : Node2D
             // button follows _autoMove every frame and has to be on
             // screen for that to be worth anything.
             Panels.Opener(_auto, "Walk by itself", 10, Panels.Where.Left);
+        });
+
+        // The Fixed scheme's two controls, on the interface layer with
+        // the rest of the HUD so the arrange screen can move them and
+        // SafeArea keeps them off the glass's edge. Built after Auto and
+        // the chat so they draw over the chat's strip - the pad's
+        // default sits just above it - and before every panel, which
+        // raises itself on open anyway (Panels.ToFront). Switched on
+        // and off each frame from the layout's scheme, in Pump.
+        Widget("fixedcontrols", () =>
+        {
+            _fixed = new FixedControls();
+            // Godot echoes a touch as a mouse event; a thumb the pad
+            // holds must not reach the touch layer as a click. See
+            // TouchControls.OtherFingerDown and EchoComing.
+            _touch.OtherFingerDown = () => _fixed.Holding;
+            _fixed.Lifted += _touch.EchoComing;
+            _ui.AddChild(_fixed);
 
             // NEXT TARGET IS NOT HERE ANY MORE. It was the game's
             // NextTarget key (`ControllerInput.cpp:564`), and a phone
@@ -3240,13 +3264,28 @@ public partial class GameView : Node2D
 
         SyncRoom();
         _chat?.Sync(_client.Data?.ChatMessages);
+
+        // Which scheme is on, read off the layout every frame: it is
+        // part of the saved HUD, it switches with the layout slot, and
+        // the arrange screen flips it live so the pad and the stick
+        // appear the moment the button is pressed. TapOnly is what
+        // takes the floating stick and the look drag away under Fixed.
+        bool fixedOn = M59Hud.Controls == M59Hud.Scheme.Fixed;
+        _touch.TapOnly = fixedOn;
+        if (_fixed != null) _fixed.Active = fixedOn;
+
         ApplyInput(delta);
         SyncSprites();
         ApplyTap();
 
         // Looking up and down, clamped: the horizon shear exaggerates the
-        // further you push it.
-        _pitch = Math.Clamp(_pitch + _touch.TakePitch(delta), -Renderer.MaxPitch, Renderer.MaxPitch);
+        // further you push it. The drag's debt, plus the look stick's
+        // rate: a stick held up pitches at PitchRate times its deflection,
+        // through the same Look speed and Invert look as the drag.
+        float stickPitch = 0f;
+        if (_fixed != null && _fixed.Look.Y != 0f)
+            stickPitch = -_fixed.Look.Y * PitchRate * LookGain() * (float)delta * (_touch.InvertLook ? -1f : 1f);
+        _pitch = Math.Clamp(_pitch + _touch.TakePitch(delta) + stickPitch, -Renderer.MaxPitch, Renderer.MaxPitch);
 
         _clock += (float)delta;
         if (_world.Renderer != null)
@@ -3527,10 +3566,38 @@ public partial class GameView : Node2D
         if (covered || _coveredLastFrame)
         {
             _touch.Drop();
+            _fixed?.Drop();
             _touch.Eat(e);
             return;
         }
+        // The pad and the stick first: a finger that lands on one is
+        // theirs until it lifts, and a finger that lands anywhere else
+        // is the touch layer's - which under the Fixed scheme means a
+        // tap and nothing more (TouchControls.TapOnly).
+        if (_fixed != null && _fixed.Handle(e, UiPoint(e))) return;
         _touch.Handle(e, GetViewportRect().Size);
+    }
+
+    /// <summary>
+    /// An event's position in the interface layer's coordinates. The
+    /// events arrive in viewport coordinates, and SafeArea scales and
+    /// shifts the whole UI layer to keep it off a phone's cutouts
+    /// (notes/godot-ui.md, "The interface keeps off the glass's edge")
+    /// - so a pad drawn at (16, 650) on the layer is under the thumb
+    /// at (16, 650) times the layer's scale plus its offset, and the
+    /// comparison has to be made on one side or the other. The pieces'
+    /// rects are the layer's, so the event is brought to them.
+    /// </summary>
+    Vector2 UiPoint(InputEvent e)
+    {
+        Vector2 p = e switch
+        {
+            InputEventScreenTouch t => t.Position,
+            InputEventScreenDrag d => d.Position,
+            InputEventMouse m => m.Position,
+            _ => Vector2.Zero,
+        };
+        return _ui != null ? _ui.Transform.AffineInverse() * p : p;
     }
 
     bool Covered() =>
@@ -3598,6 +3665,23 @@ public partial class GameView : Node2D
     /// which is what the Run export now is, inverted - stands in.
     /// </summary>
     bool Walking() => Walk || Input.IsKeyPressed(Key.Shift);
+
+    /// <summary>
+    /// Radians a second the look stick pitches at full deflection. Half
+    /// the yaw rate: the pitch is clamped to Renderer.MaxPitch and a
+    /// stick that reached the clamp in a third of a second would read
+    /// as a view that jumps to the ceiling.
+    /// </summary>
+    [Export] public float PitchRate = 1.5f;
+
+    /// <summary>
+    /// The Look speed option as a multiplier. The option is applied to
+    /// the drag as a sensitivity in radians per pixel
+    /// (`_touch.LookSensitivity = 0.006f * v`); the stick has no pixels,
+    /// so the same setting scales its rate instead - one slider, both
+    /// schemes.
+    /// </summary>
+    float LookGain() => _touch.LookSensitivity / 0.006f;
 
     void ApplyInput(double delta)
     {
@@ -3684,7 +3768,16 @@ public partial class GameView : Node2D
         if (Input.IsKeyPressed(Key.A)) strafe -= 1f;
         if (Input.IsKeyPressed(Key.D)) strafe += 1f;
 
-        Vector2 stick = _touch.Move;
+        // The floating stick and the fixed pad report on the same axes
+        // and only one of them is ever non-zero - the scheme decides
+        // which (TouchControls.TapOnly, FixedControls.Active) - so they
+        // are simply added. The pad is the keyboard's touch form: W/S
+        // are forward and back along the avatar's own axis and A/D
+        // strafe along the sideways one (OISKeyBinding.cpp:34-37,
+        // ControllerInput.cpp:681-704), which is exactly what fwd and
+        // strafe are below. Turning is the look stick's, as it is the
+        // arrow keys' there (:975-983).
+        Vector2 stick = _touch.Move + (_fixed?.Move ?? Vector2.Zero);
         strafe += stick.X;
         fwd -= stick.Y;                       // screen Y grows downward
 
@@ -3719,7 +3812,15 @@ public partial class GameView : Node2D
         // spot.
         bool moving = fwd != 0f || strafe != 0f;
         float rate = TurnSpeed * (Walking() ? 0.5f : 1f);
-        float dAngle = turn * rate * (float)delta + _touch.TakeTurn(delta);
+        // The look stick turns at a RATE, scaled by its deflection: hold
+        // it right and you keep turning, centre it and you stop. Full
+        // deflection is the keyboard's own rotate speed, through the
+        // Look speed option - but NOT halved by the walk modifier, which
+        // is a rule about the rotate keys (ControllerInput.cpp:968-972);
+        // the stick stands in for mouse aiming, which the reference
+        // never slows.
+        float stickTurn = _fixed != null ? _fixed.Look.X * TurnSpeed * LookGain() * (float)delta : 0f;
+        float dAngle = turn * rate * (float)delta + stickTurn + _touch.TakeTurn(delta);
         if (dAngle != 0f) _client.TryYaw(dAngle);
 
         // A turn that has just ended has to be sent whether or not the

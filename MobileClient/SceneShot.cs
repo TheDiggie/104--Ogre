@@ -537,6 +537,55 @@ public partial class SceneShot : Node
                 }
                 else GD.Print($"[SceneShot] bad drag step: {step}");
             }
+            else if (step.StartsWith("@drag2:"))
+            {
+                // Two fingers at once: "@drag2:100x700>100x650|1300x990>1370x990@60"
+                // is two @drag steps run together, finger 0 on the
+                // first path and finger 1 on the second, both held for
+                // the count and lifted together. One finger could never
+                // prove that a thumb on the move pad and a thumb on the
+                // look stick work at the same time, which is the whole
+                // claim of a two-control scheme (FixedControls); every
+                // other step in this file is index 0.
+                string body = step.Substring(7);
+                int at = body.IndexOf('@');
+                int frames = 60;
+                if (at >= 0 && int.TryParse(body.Substring(at + 1), out int f)) { frames = f; body = body.Substring(0, at); }
+                string[] paths = body.Split('|');
+                string[] e0 = paths.Length == 2 ? paths[0].Split('>') : null;
+                string[] e1 = paths.Length == 2 ? paths[1].Split('>') : null;
+                if (e0 != null && e1 != null && e0.Length == 2 && e1.Length == 2
+                    && Point(e0[0], out Vector2 from0) && Point(e0[1], out Vector2 to0)
+                    && Point(e1[0], out Vector2 from1) && Point(e1[1], out Vector2 to1))
+                {
+                    foreach (var (p, i) in new[] { (from0, 0), (from1, 1) })
+                    {
+                        Control eater = Swallower(GetTree().Root, p);
+                        if (eater != null)
+                            GD.Print($"[SceneShot] WARNING finger {i} starts on '{eater.Name}' ({eater.GetType().Name}), which will take the touch instead of the world");
+                    }
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = from0, Pressed = true });
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 1, Position = from1, Pressed = true });
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+                    Vector2 last0 = from0, last1 = from1;
+                    const int slide = 10;
+                    for (int i = 1; i <= frames; i++)
+                    {
+                        Vector2 now0 = i <= slide ? from0.Lerp(to0, (float)i / slide) : to0;
+                        Vector2 now1 = i <= slide ? from1.Lerp(to1, (float)i / slide) : to1;
+                        Input.ParseInputEvent(new InputEventScreenDrag { Index = 0, Position = now0, Relative = now0 - last0 });
+                        Input.ParseInputEvent(new InputEventScreenDrag { Index = 1, Position = now1, Relative = now1 - last1 });
+                        last0 = now0; last1 = now1;
+                        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    }
+
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 0, Position = to0, Pressed = false });
+                    Input.ParseInputEvent(new InputEventScreenTouch { Index = 1, Position = to1, Pressed = false });
+                    GD.Print($"[SceneShot] dragged two fingers {from0} -> {to0} and {from1} -> {to1}, held {frames}");
+                }
+                else GD.Print($"[SceneShot] bad drag2 step: {step}");
+            }
             else if (step.StartsWith("@sweep:"))
             {
                 // Continuous motion, photographed WHILE it is happening.

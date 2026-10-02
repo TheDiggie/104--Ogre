@@ -56,7 +56,11 @@ public partial class TradePanel : Control
     /// <summary>How many of this stackable of yours to offer.</summary>
     public event Action<ObjectBase> AmountWanted;
 
-    /// <summary>Describe this row - raised by a hold, the right click's stand-in.</summary>
+    /// <summary>
+    /// Describe this row - raised by its Inspect button, the right
+    /// click's stand-in (`UITrade.cpp:441`, `:453`), and still by a
+    /// hold on the row for the thumb that learned it first.
+    /// </summary>
     public event Action<uint> Look;
 
     /// <summary>How long a press is held before it describes the row.</summary>
@@ -740,6 +744,10 @@ public partial class TradePanel : Control
         name.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
         name.AddThemeColorOverride("font_color", new Color(
             ((argb >> 16) & 0xFF) / 255f, ((argb >> 8) & 0xFF) / 255f, (argb & 0xFF) / 255f));
+        // The name keeps a floor and is cut past it, now that Inspect
+        // sits on the row's end - see M59Skin.NameMin. This matters more
+        // here than on the one-column lists: a trade row is half a card.
+        M59Skin.NameFits(name);
         line.AddChild(name);
 
         if (mine && o.IsStackable)
@@ -777,6 +785,15 @@ public partial class TradePanel : Control
             many.AddThemeColorOverride("font_color", M59Skin.Gold);
             line.AddChild(many);
         }
+
+        // Inspect: the touch-screen form of the right click that looks
+        // at a trade row on either side (`UITrade.cpp:440-442`, `:452-
+        // 454`). Selling to a shopkeeper IS a trade in this game, so
+        // this is also how you see what you are selling - and what they
+        // are actually offering you before you accept it. Same Look,
+        // same id; the row itself still does nothing on a tap - see
+        // M59Skin.Inspect.
+        line.AddChild(M59Skin.Inspect($"inspect{press.Name}", () => Look?.Invoke(o.ID)));
 
         return press;
     }

@@ -70,8 +70,9 @@ public partial class LootPanel : Control
     /// Describe this one. The game looks at a row on a right click
     /// (`UIObjectContents.cpp:259`, `UILootList.cpp`), which is worth
     /// having: knowing what a thing is before you fill your pack with
-    /// it is the whole point of a loot list. A hold stands in for the
-    /// right button, as it does on the hotbar.
+    /// it is the whole point of a loot list. The Inspect button on each
+    /// row stands in for the right button; a held press on the row still
+    /// does the same, as it does on the hotbar.
     /// </summary>
     public event Action<uint> Look;
 
@@ -478,6 +479,9 @@ public partial class LootPanel : Control
         name.AddThemeColorOverride("font_color", colour);
         name.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
         name.AddThemeConstantOverride("outline_size", 3);
+        // The name keeps a floor and is cut past it, now that Inspect
+        // sits on the row's end - see M59Skin.NameMin.
+        M59Skin.NameFits(name);
         line.AddChild(name);
 
         // Every stack is counted, including a stack of one. The
@@ -504,6 +508,15 @@ public partial class LootPanel : Control
             amount.AddThemeColorOverride("font_color", M59Skin.Gold);
             line.AddChild(amount);
         }
+
+        // Inspect: the touch-screen form of the right click that looks
+        // at a row in either window (`UILootList.cpp:256-258`,
+        // `UIObjectContents.cpp:258-260`). Knowing what a thing is
+        // before you fill your pack with it is what the list is for,
+        // and the hold above gave no sign it was there. Same Look, same
+        // id; the row's tick is untouched because the button takes the
+        // press - see M59Skin.Inspect.
+        line.AddChild(M59Skin.Inspect($"inspect{button.Name}", () => Look?.Invoke(captured.ID)));
 
         return button;
     }

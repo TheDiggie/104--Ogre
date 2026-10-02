@@ -162,6 +162,43 @@ public sealed class TouchControls
     bool _mouseIsEcho;
 
     /// <summary>
+    /// Taps only: the stick and the look drag are switched off, and the
+    /// whole glass does what both halves do with a finger that never
+    /// moves - target what it touched. This is the Fixed scheme
+    /// (M59Hud.Scheme.Fixed), where the d-pad and the look stick are
+    /// pieces of the HUD (FixedControls) and claim their own fingers
+    /// before anything reaches here. Everything the class comment says
+    /// about a tap on EITHER half still holds, with no halves.
+    /// </summary>
+    public bool TapOnly
+    {
+        get => _tapOnly;
+        set { if (_tapOnly != value) { _tapOnly = value; Drop(); } }
+    }
+    bool _tapOnly;
+
+    /// <summary>
+    /// Whether some other handler holds a finger right now - the fixed
+    /// pad or stick. Consulted by the mouse guards: Godot echoes every
+    /// touch as a mouse event, and a thumb the pad has claimed still
+    /// arrives here as a mouse press, which with no finger of our own
+    /// down would read as a desktop click and target whatever is under
+    /// the pad.
+    /// </summary>
+    public Func<bool> OtherFingerDown;
+
+    /// <summary>
+    /// A touch some other handler took has just lifted, so the mouse
+    /// release that echoes it is on its way and is not a click.
+    /// </summary>
+    public void EchoComing() => _mouseIsEcho = true;
+
+    /// <summary>Fingers down in TapOnly mode: where each landed, and whether it has wandered.</summary>
+    readonly Dictionary<int, (Vector2 At, bool Moved)> _tapFingers = new Dictionary<int, (Vector2, bool)>();
+
+    bool Foreign() => OtherFingerDown != null && OtherFingerDown();
+
+    /// <summary>
     /// Drawn only once the stick is steering. A tap would otherwise
     /// flash a ring and a knob under the thumb for the frames it is
     /// down, which reads as a control that was about to do something.
@@ -191,6 +228,8 @@ public sealed class TouchControls
         _moveFinger = _tapFinger = _lookFinger = -1;
         _moveEngaged = _tapFingerMoved = _lookMoved = false;
         _tapped = false;
+        _tapFingers.Clear();
+        _mouseLook = false;
         Move = Vector2.Zero;
         _turn = _pitch = 0f;
     }
@@ -246,6 +285,7 @@ public sealed class TouchControls
     public void Handle(InputEvent e, Vector2 viewport)
     {
         if (Eaten(e)) return;
+        if (_tapOnly) { HandleTapOnly(e); return; }
         float mid = viewport.X * 0.5f;
 
         switch (e)
@@ -359,6 +399,56 @@ public sealed class TouchControls
                 Reverse(ref _pitch, -mm.Relative.Y * (InvertLook ? -1f : 1f));
                 _turn  += mm.Relative.X * LookSensitivity;
                 _pitch -= mm.Relative.Y * LookSensitivity * (InvertLook ? -1f : 1f);
+                if ((mm.Position - _mouseDownAt).Length() > TapSlop) _lookMoved = true;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The Fixed scheme's share of the glass: every finger the pad and
+    /// the stick did not take is a tap or nothing. The same slop and
+    /// the same echo guards as the full handler, with no direction
+    /// ever reported - Move stays zero and nothing is owed to TakeTurn.
+    /// </summary>
+    void HandleTapOnly(InputEvent e)
+    {
+        switch (e)
+        {
+            case InputEventScreenTouch t when t.Pressed:
+                _tapFingers[t.Index] = (t.Position, false);
+                break;
+
+            case InputEventScreenTouch t:
+                _mouseIsEcho = true;
+                if (_tapFingers.TryGetValue(t.Index, out var f))
+                {
+                    if (!f.Moved) { _tapped = true; _tapAt = t.Position; }
+                    _tapFingers.Remove(t.Index);
+                }
+                break;
+
+            case InputEventScreenDrag d when _tapFingers.TryGetValue(d.Index, out var g):
+                if (!g.Moved && (d.Position - g.At).Length() > TapSlop)
+                    _tapFingers[d.Index] = (g.At, true);
+                break;
+
+            // The mouse, as in Handle: dropped while any finger is down
+            // - ours or the pad's - because it is that finger again.
+            case InputEventMouseButton when _tapFingers.Count > 0 || Foreign() || _mouseIsEcho:
+                _mouseIsEcho = false;
+                _mouseLook = false;
+                break;
+
+            case InputEventMouseMotion when _tapFingers.Count > 0 || Foreign():
+                break;
+
+            case InputEventMouseButton mb when mb.ButtonIndex == MouseButton.Left:
+                _mouseLook = mb.Pressed;
+                if (mb.Pressed) { _mouseDownAt = mb.Position; _lookMoved = false; }
+                else if (!_lookMoved) { _tapped = true; _tapAt = mb.Position; }
+                break;
+
+            case InputEventMouseMotion mm when _mouseLook:
                 if ((mm.Position - _mouseDownAt).Length() > TapSlop) _lookMoved = true;
                 break;
         }

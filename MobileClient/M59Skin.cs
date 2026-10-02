@@ -715,6 +715,80 @@ public static class M59Skin
     }
 
     /// <summary>
+    /// The Inspect column on an object row. Wider than TapMin because the
+    /// word has to fit inside it as well as the thumb - "Inspect" at
+    /// SmallSize is around seventy points of glyphs - and fixed so the
+    /// button's edge is in the same place on every row. The number is
+    /// CreateCharacter's, where the column was first built.
+    /// </summary>
+    public const float InspectW = 104f;
+
+    /// <summary>
+    /// How much of a row the NAME keeps once Inspect sits on the end of
+    /// it. Past this the name is cut with an ellipsis rather than pushing
+    /// the count, the price and the button off the row's right edge -
+    /// a Label's minimum width is its whole unwrapped line, so without
+    /// a floor and a trim one long name widens the HBox past the row.
+    /// </summary>
+    public const float NameMin = 180f;
+
+    /// <summary>
+    /// The Inspect button at the end of an object row - a shop line, a
+    /// thing on the floor, a thing in a box, a thing in a trade.
+    ///
+    /// WHY A BUTTON. The reference looks at a list row on a RIGHT CLICK:
+    /// `UIBuy.cpp:223`, `UILootList.cpp:257`, `UIObjectContents.cpp:259`
+    /// and `UITrade.cpp:441,453` are the same three lines each -
+    /// `if (args.button == RightButton) SendReqLookMessage(itm->getID())`.
+    /// A phone has no right button. The hold that stood in for it is
+    /// invisible: nothing on the row says it is there, and the player's
+    /// words were that he could not see what he was buying or selling.
+    /// This is the right-click made visible - one Secondary-dressed
+    /// button per row, which sends exactly the look the right click
+    /// sends. The row keeps its own job (tick, pick, nothing).
+    ///
+    /// It must NOT be MouseFilter.Ignore, unlike the labels beside it.
+    /// Godot picks the deepest control under the touch whose filter is
+    /// not Ignore, and a Button stops what it handles there rather than
+    /// passing it up to an ancestor - so this press inspects and the row
+    /// does not also tick. The HBox around it is Ignore and that is
+    /// fine: a parent's Ignore excludes the parent from picking, not
+    /// its children. Same construction as CreateCharacter.Ability,
+    /// driven headless there to be sure (notes/harness.md).
+    ///
+    /// Dressed Secondary rather than as part of the row: a lighter fill
+    /// and a Rule border against the row's flat stripe, so it reads as a
+    /// control sitting ON the row rather than as the row's right end.
+    /// </summary>
+    /// <param name="node">The node name - `inspect` plus the row's, so a scripted run can press one.</param>
+    public static Button Inspect(string node, Action pressed)
+    {
+        var look = new Button
+        {
+            Text = "Inspect",
+            Name = node,
+            CustomMinimumSize = new Vector2(InspectW, TapMin),
+            SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+        };
+        Dress(look, Kind.Secondary);
+        look.AddThemeFontSizeOverride("font_size", SmallSize);
+        look.Pressed += pressed;
+        return look;
+    }
+
+    /// <summary>
+    /// What the name label on a row needs once Inspect shares the row
+    /// with it: a floor it keeps, and a cut rather than a push past it.
+    /// See NameMin.
+    /// </summary>
+    public static void NameFits(Label name)
+    {
+        if (name == null) return;
+        name.CustomMinimumSize = new Vector2(NameMin, name.CustomMinimumSize.Y);
+        name.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+    }
+
+    /// <summary>
     /// The scrim for a screen with no world behind it - login, the
     /// character picker, creation. There is nothing to see through to
     /// except the view's own connection log, which read through the

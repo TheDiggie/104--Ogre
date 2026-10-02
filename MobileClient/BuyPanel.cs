@@ -127,8 +127,9 @@ public partial class BuyPanel : Control
     /// <summary>
     /// Describe this one. The game looks at a row on a right click
     /// (`UIBuy.cpp:223`) - reading what something is before paying
-    /// twelve hundred for it is not a luxury. A hold stands in for the
-    /// right button.
+    /// twelve hundred for it is not a luxury. The Inspect button on
+    /// each row stands in for the right button; a held press on the
+    /// row still does the same, for the thumb that learned it first.
     /// </summary>
     public event Action<uint> Look;
 
@@ -579,6 +580,9 @@ public partial class BuyPanel : Control
         name.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
         name.AddThemeColorOverride("font_color", new Color(
             ((argb >> 16) & 0xFF) / 255f, ((argb >> 8) & 0xFF) / 255f, (argb & 0xFF) / 255f));
+        // The name keeps a floor and is cut past it, now that a fourth
+        // column sits on the row's end - see M59Skin.NameMin.
+        M59Skin.NameFits(name);
         line.AddChild(name);
 
         if (o.IsStackable)
@@ -623,6 +627,14 @@ public partial class BuyPanel : Control
         price.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
         price.AddThemeColorOverride("font_color", M59Skin.Gold);
         line.AddChild(price);
+
+        // Inspect: the touch-screen form of the right click that looks
+        // at a shop line (`UIBuy.cpp:222-224`). Reading what something
+        // is before paying twelve hundred for it is not a luxury, and
+        // the hold above gave no sign it was there. Same Look, same id;
+        // the row's tick is untouched because the button takes the
+        // press - see M59Skin.Inspect.
+        line.AddChild(M59Skin.Inspect($"inspect{tick.Name}", () => Look?.Invoke(captured.ID)));
 
         return tick;
     }

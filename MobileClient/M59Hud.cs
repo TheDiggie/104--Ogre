@@ -193,6 +193,41 @@ public static class M59Hud
 
     public static void Touch() => Changed?.Invoke();
 
+    // ---- the control scheme ----------------------------------------
+
+    /// <summary>
+    /// How the thumbs drive the avatar.
+    ///
+    /// TouchAnywhere is the default and what the client has always done:
+    /// the left half of the glass is a stick that appears under the
+    /// thumb, the right half is drag-to-look (TouchControls). Fixed is
+    /// the other school - a d-pad drawn bottom-left and a look stick
+    /// drawn bottom-right, both always there, both HUD pieces. The
+    /// player's words were that some people do not like the
+    /// touch-anywhere controls, and the guides this editor copies all
+    /// ship both: PUBG Mobile and Call of Duty Mobile each offer a fixed
+    /// pad as an alternative to the floating one.
+    /// </summary>
+    public enum Scheme { TouchAnywhere, Fixed }
+
+    /// <summary>
+    /// The scheme in force. PART OF THE LAYOUT, deliberately: it is
+    /// chosen in the arrange screen, saved in the same file under the
+    /// same slot, and switches with the slot - a layout that puts a
+    /// d-pad on the glass and a layout that does not are different
+    /// HUDs, and keeping the choice anywhere else would let a slot
+    /// switch bring back a pad the player had removed, or remove one
+    /// they had placed. Snapshot and Restore carry it too, so Cancel
+    /// backs out of the switch as it backs out of a drag.
+    /// </summary>
+    public static Scheme Controls { get; set; } = Scheme.TouchAnywhere;
+
+    /// <summary>The key the scheme is saved under. Never a piece id.</summary>
+    const string ControlsKey = "controls";
+
+    static string SchemeName(Scheme s) => s == Scheme.Fixed ? "fixed" : "touch";
+    static Scheme SchemeOf(string s) => s == "fixed" ? Scheme.Fixed : Scheme.TouchAnywhere;
+
     // ---- layouts ---------------------------------------------------
 
     /// <summary>
@@ -253,7 +288,15 @@ public static class M59Hud
         catch { /* a layout is a convenience; never let it stop the client */ }
 
         foreach (Piece p in Order) ApplySaved(p);
+        ApplyScheme();
         Unbrick();
+    }
+
+    /// <summary>The slot's scheme, or the default when the file says nothing.</summary>
+    static void ApplyScheme()
+    {
+        Controls = Saved.TryGetValue(Slot, out var d) && d.TryGetValue(ControlsKey, out string s)
+            ? SchemeOf(s) : Scheme.TouchAnywhere;
     }
 
     /// <summary>
@@ -278,6 +321,10 @@ public static class M59Hud
     {
         if (p == null || !Saved.TryGetValue(Slot, out var d)) return;
         if (!d.TryGetValue(p.Id, out string v)) return;
+        // The scheme line shares the section and is not a piece. A piece
+        // registered under its key would read "fixed" as a position; no
+        // piece is, and this keeps it that way.
+        if (p.Id == ControlsKey) return;
         // x,y,scale,alpha,hidden
         string[] bits = v.Split(',');
         if (bits.Length < 5) return;
@@ -307,6 +354,10 @@ public static class M59Hud
                 else
                     d.Remove(p.Id);   // back at the default: say nothing rather than saying "default"
             }
+            // The scheme, by the same rule: only a choice that is not the
+            // default is written.
+            if (Controls != Scheme.TouchAnywhere) d[ControlsKey] = SchemeName(Controls);
+            else d.Remove(ControlsKey);
 
             var sb = new StringBuilder();
             sb.Append("# Where this player wants the HUD. One section per layout.\n");
@@ -337,6 +388,7 @@ public static class M59Hud
             p.Offset = Vector2.Zero; p.Scale = 1f; p.Alpha = 1f; p.Hidden = false;
             ApplySaved(p);
         }
+        ApplyScheme();
         // And again, now that Slot has moved. The first Save wrote the
         // layout being LEFT along with `slot=` still pointing at it, so
         // without this the choice of layout lived only in memory: a
@@ -373,6 +425,9 @@ public static class M59Hud
     public static string Snapshot()
     {
         var sb = new StringBuilder();
+        // The scheme first, in the piece line's shape with a word where
+        // the numbers go; Restore tells it apart by the key.
+        sb.Append(ControlsKey).Append('=').Append(SchemeName(Controls)).Append(';');
         foreach (Piece p in Order)
             sb.Append(p.Id).Append('=')
               .Append(p.Offset.X).Append(',').Append(p.Offset.Y).Append(',')
@@ -388,6 +443,11 @@ public static class M59Hud
         {
             int eq = row.IndexOf('=');
             if (eq <= 0) continue;
+            if (row.Substring(0, eq) == ControlsKey)
+            {
+                Controls = SchemeOf(row.Substring(eq + 1));
+                continue;
+            }
             Piece p = Get(row.Substring(0, eq));
             if (p == null) continue;
             string[] b = row.Substring(eq + 1).Split(',');
