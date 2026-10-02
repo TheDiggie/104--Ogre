@@ -399,6 +399,56 @@ drag on a panel neither walks nor cancels (`GameView.cs:3096-3104`).
 
 See also: godot-ui.md | the harness -> harness.md
 
+## Two control schemes: touch anywhere, and a fixed pad and stick
+Tags: design, architecture | The scheme is part of the saved HUD layout (M59Hud.Controls); Fixed puts a d-pad and a look stick on the glass as pieces and turns the floating stick and the drag-look off
+
+Ashton: "some people don't like the touch-anywhere controls". The
+default is unchanged - left half a floating stick, right half
+drag-to-look, taps target (TouchControls). The other scheme is
+`M59Hud.Scheme.Fixed`: a d-pad bottom-left and a look stick
+bottom-right (FixedControls.cs), both HUD pieces ("dpad", "lookstick")
+the arrange screen moves, scales, fades and hides like anything else,
+registered always and `Live` only while Fixed so the editor draws no
+handle for them under the default.
+
+- Switched in the arrange screen (`hudControls`, "Controls: Fixed pad
+  + stick" / "Touch anywhere") and mirrored under Settings > Controls;
+  saved per slot in `user://hud.cfg` as `controls=fixed`, only when
+  not the default, and carried by Snapshot/Restore so Cancel backs it
+  out.
+- The d-pad is the keyboard's touch form: W/S/A/D are forward, back,
+  strafe left, strafe right (`OISKeyBinding.cpp:34-37`,
+  `ControllerInput.cpp:681-704`), so `FixedControls.Move` reports on
+  the same axes as `TouchControls.Move` and `GameView.ApplyInput`
+  adds the two (`strafe += stick.X; fwd -= stick.Y`). Eight sectors,
+  a dead centre, a diagonal normalised as two keys held are.
+- The look stick is a RATE: deflection times `TurnSpeed` (the
+  reference's 3 rad/s KEYROTATESPEED) times the Look speed option,
+  pitch at half that, Invert look honoured; hold to keep turning,
+  centre to stop. Not halved by the walk modifier - that rule is the
+  rotate keys' (`ControllerInput.cpp:968-972`).
+- Under Fixed `TouchControls.TapOnly` is on: no floating stick, no
+  drag-look, every finger the pad and stick did not take is a tap or
+  nothing. `GameView._UnhandledInput` offers the event to
+  `FixedControls.Handle` first (the pad and stick own their fingers by
+  index, so both work at once) and the Covered gate drops both layers
+  the same way, so nothing moves or turns under a menu.
+- Defaults are found, not assumed: the pad sits a gutter above the
+  chat block's natural rect, the stick a gutter left of the combat
+  arc's; at 1920x1080 that is (16,648,172,172) and
+  (1246,914,150,150), clear of Chat/Log, Auto and the Door seat.
+
+Played (harness, fixed scheme): pad held forward 60 frames = 17
+`ReqMove`, 0 `ReqTurn`, 21,827 px of the world strip changed; stick
+held right 12 frames = 13 `ReqTurn`, 0 `ReqMove`, 67,061 px; two
+frames at rest after release = 0 px; both fingers at once (`@drag2`)
+walk and turn together; with the drawer open the stick held 60 frames
+sends nothing and changes 0 px; a 400 px right-half drag on bare
+world under Fixed turns 0 px and a tap still targets the duskrat; the
+scheme and a dragged pad (`dpad=240,0,1,1,0`) survive a relaunch.
+
+See also: FixedControls.cs | M59Hud.cs | HudEditor.cs | the HUD editor -> godot-ui.md | the harness -> harness.md
+
 ## The actions window
 Tags: design | UIActions.cpp - eleven actions, three of which had no way in on the phone at all
 
