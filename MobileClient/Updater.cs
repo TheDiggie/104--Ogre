@@ -96,6 +96,16 @@ public partial class Updater : Control
         AddChild(_title);
         _body = M59Skin.Empty("");
         _body.HorizontalAlignment = HorizontalAlignment.Left;
+        _body.VerticalAlignment = VerticalAlignment.Top;
+        // Empty() is built for a one-line "nothing here" caption, and
+        // trims with an ellipsis - which on the first real manifest cut
+        // the release notes off at "the update check says wh...". The
+        // notes are the one sentence a player reads before deciding to
+        // download half a gigabyte, so they wrap, and the card is sized
+        // to them below.
+        _body.ClipText = false;
+        _body.TextOverrunBehavior = TextServer.OverrunBehavior.NoTrimming;
+        _body.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         AddChild(_body);
 
         _later = new Button { Text = "Later", Name = "updateLater" };
@@ -272,7 +282,20 @@ public partial class Updater : Control
         Position = Vector2.Zero;
         Size = v;
 
-        Rect2 card = M59Skin.Frame(v, 96f, true, M59Skin.ListW);
+        // Measured, not fixed: the body is as tall as the notes need at
+        // the width the card will actually give them. Measuring at the
+        // wrong width is the autowrap trap notes/godot-ui.md records,
+        // so the width is taken from a first Frame at the fixed height
+        // and the height from the font directly, then the card is cut
+        // again to fit.
+        float wide = M59Skin.Body(M59Skin.Frame(v, 96f, true, M59Skin.ListW)).Size.X;
+        float need = 96f;
+        Font f = _body.GetThemeFont("font");
+        int fs = _body.GetThemeFontSize("font_size");
+        if (f != null && _body.Text.Length > 0)
+            need = Mathf.Max(need, f.GetMultilineStringSize(
+                _body.Text, HorizontalAlignment.Left, wide, fs).Y + 12f);
+        Rect2 card = M59Skin.Frame(v, need, true, M59Skin.ListW);
         Rect2 body = M59Skin.Body(card);
         Rect2 foot = M59Skin.Foot(card);
 
