@@ -225,6 +225,40 @@ public partial class LoginPrompt : Control
     /// succeeds and then never appears looks exactly like a write that
     /// did not happen.
     /// </summary>
+    /// <summary>
+    /// Turns the card into the one thing a player on a superseded build
+    /// can do: update.
+    ///
+    /// Connect becomes Update, in the primary colour, and pressing it
+    /// hands the download link to the browser exactly as the old "Get
+    /// it" did (OS.ShellOpen - the reasoning about Android's installer
+    /// is in Updater's header). The account boxes are left alone but
+    /// nothing reads them: there is no Connect to press. The note says
+    /// which version is required so the player knows this is the site's
+    /// decision and not a dead button.
+    ///
+    /// Not undoable within a run, deliberately. The check runs once per
+    /// launch; the only way back to Connect is to install the build the
+    /// site names and start again, which is the whole point of the
+    /// gate. Ashton, 2026-10-02: "don't let people play with old
+    /// versions."
+    /// </summary>
+    public void RequireUpdate(string version, string url)
+    {
+        if (_go == null || _required) return;
+        _required = true;
+        _go.Pressed -= Go;
+        _go.Text = "Update";
+        _go.Disabled = false;
+        _go.Pressed += () => { if (url.Length > 0) OS.ShellOpen(url); };
+        _user.Editable = false;
+        _pass.Editable = false;
+        _note.AddThemeColorOverride("font_color", NoteCalm);
+        _note.Text = $"Version {version} is required to play. Tap Update to get it.";
+        Layout();
+    }
+    bool _required;
+
     public void UpdateNote(string text)
     {
         if (_update == null) return;
@@ -344,17 +378,31 @@ public partial class LoginPrompt : Control
         Submitted?.Invoke(u, p);
     }
 
+    /// <summary>
+    /// Fills in the remembered account name. It no longer focuses
+    /// anything.
+    ///
+    /// It used to put the caret in the password box (or the account box
+    /// when nothing was remembered), which on a desktop is a courtesy -
+    /// the next keystroke goes where it is wanted. On a phone focus IS
+    /// the keyboard: the app opened straight onto a soft keyboard
+    /// covering half the card, before the player had decided to log in
+    /// at all. Ashton, 2026-10-02: "soon as I open the app it pulls up my
+    /// keyboard ... make people click on password first." The two
+    /// GrabFocus calls in Go() stay - those answer a press on Connect
+    /// with an empty box, which is a moment the player asked for a
+    /// caret.
+    /// </summary>
     void Recall()
     {
         try
         {
-            if (!FileAccess.FileExists(Remembered)) { _user.GrabFocus(); return; }
+            if (!FileAccess.FileExists(Remembered)) return;
             using FileAccess f = FileAccess.Open(Remembered, FileAccess.ModeFlags.Read);
             string saved = f?.GetAsText()?.Trim();
-            if (!string.IsNullOrEmpty(saved)) { _user.Text = saved; _pass.GrabFocus(); }
-            else _user.GrabFocus();
+            if (!string.IsNullOrEmpty(saved)) _user.Text = saved;
         }
-        catch { _user.GrabFocus(); }
+        catch { }
     }
 
     void Remember(string account)

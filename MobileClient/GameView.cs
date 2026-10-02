@@ -319,6 +319,8 @@ public partial class GameView : Node2D
     LoginPrompt _login;
     /// <summary>The update check's last word, held for a login card that does not exist yet.</summary>
     string _updateSaid = "";
+    /// <summary>The build the site requires, if it has said so; see Updater.Required.</summary>
+    string _requiredVersion = "", _requiredUrl = "";
     /// <summary>The resource sync's, likewise. Two lines because the two checks race and both are owed.</summary>
     string _dataSaid = "";
     RichTextLabel _crash;
@@ -515,6 +517,13 @@ public partial class GameView : Node2D
         // keeps it afterwards for anyone who has already logged in by
         // the time the answer arrives. See Updater.Said.
         _updater.Said += line => Heard(line, ref _updateSaid);
+        // The gate. Held like the verdict line, for the same race: the
+        // answer can beat the login card.
+        _updater.Required += (version, url) =>
+        {
+            _requiredVersion = version; _requiredUrl = url;
+            _login?.RequireUpdate(version, url);
+        };
         _ui.AddChild(_updater);
         // At boot as well as at the login screen. LoginMode is the
         // right MOMENT when there is a login screen to wait for, and
@@ -1010,6 +1019,7 @@ public partial class GameView : Node2D
         // Whatever the update check already concluded, if it got there
         // first. See the Said handler.
         _login.UpdateNote(LoginNote());
+        if (_requiredVersion.Length > 0) _login.RequireUpdate(_requiredVersion, _requiredUrl);
 
         _login.Choices(_servers, _serverPick);
         _login.Server(Chosen.Host, Chosen.Port);

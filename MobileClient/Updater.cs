@@ -74,56 +74,33 @@ public partial class Updater : Control
     /// </summary>
     public event Action<string> Said;
 
+    /// <summary>
+    /// A newer build exists: version and download link. The login card
+    /// turns its Connect button into Update on this and nothing else
+    /// connects - see LoginPrompt.RequireUpdate.
+    ///
+    /// This replaced a popup with Later and Get it. Ashton, 2026-10-02:
+    /// "replace the connect button with an update button when an update
+    /// is needed, don't let people play with old versions." The reason
+    /// is a good one beyond tidiness: an old client against a changed
+    /// server is a client that fails in ways nobody can diagnose, and
+    /// "Later" was an invitation to exactly that. A build the site has
+    /// superseded is not a build to play on.
+    /// </summary>
+    public event Action<string, string> Required;
+
     HttpRequest _http;
-    Panel _card;
-    Label _title, _body;
-    Button _later, _now;
-    string _url = "", _newest = "";
 
     public override void _Ready()
     {
-        SetAnchorsPreset(LayoutPreset.FullRect);
+        // Nothing is drawn by this node any more; it is a check and two
+        // events. It stays a Control only so HttpRequest has a parent in
+        // the UI layer.
         MouseFilter = MouseFilterEnum.Ignore;
-        Visible = false;
 
         _http = new HttpRequest { UseThreads = true, Timeout = 8 };
         AddChild(_http);
         _http.RequestCompleted += Answered;
-
-        _card = M59Skin.Window();
-        AddChild(_card);
-        _title = M59Skin.Title("A newer build is out");
-        AddChild(_title);
-        _body = M59Skin.Empty("");
-        _body.HorizontalAlignment = HorizontalAlignment.Left;
-        _body.VerticalAlignment = VerticalAlignment.Top;
-        // Empty() is built for a one-line "nothing here" caption, and
-        // trims with an ellipsis - which on the first real manifest cut
-        // the release notes off at "the update check says wh...". The
-        // notes are the one sentence a player reads before deciding to
-        // download half a gigabyte, so they wrap, and the card is sized
-        // to them below.
-        _body.ClipText = false;
-        _body.TextOverrunBehavior = TextServer.OverrunBehavior.NoTrimming;
-        _body.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        AddChild(_body);
-
-        _later = new Button { Text = "Later", Name = "updateLater" };
-        M59Skin.Dress(_later, M59Skin.Kind.Secondary);
-        _later.Pressed += () => Show(false);
-        AddChild(_later);
-
-        _now = new Button { Text = "Get it", Name = "updateNow" };
-        M59Skin.Dress(_now, M59Skin.Kind.Primary);
-        _now.Pressed += () =>
-        {
-            if (_url.Length > 0) OS.ShellOpen(_url);
-            Show(false);
-        };
-        AddChild(_now);
-
-        GetViewport().SizeChanged += Layout;
-        Show(false);
     }
 
     /// <summary>This build's version, as the project declares it.</summary>
@@ -234,14 +211,11 @@ public partial class Updater : Control
             return;
         }
 
-        _newest = version;
-        _url = url;
-        _body.Text = notes.Length > 0
-            ? $"You have {Running}. {version} is out:\n{notes}"
-            : $"You have {Running}. {version} is out.";
-        Say($"A newer build is out: {version}.");
-        Show(true);
-        Layout();
+        // The notes are not shown any more - there is no card to show
+        // them on, and a player who cannot play until they update does
+        // not need persuading. They stay in the manifest for the site.
+        Say($"Version {version} is required. You have {Running}.");
+        Required?.Invoke(version, url);
     }
 
     void Say(string line)
@@ -264,47 +238,5 @@ public partial class Updater : Control
             if (xi != yi) return xi > yi ? 1 : -1;
         }
         return 0;
-    }
-
-    void Show(bool on)
-    {
-        Visible = on;
-        MouseFilter = on ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
-        _card.Visible = on; _title.Visible = on; _body.Visible = on;
-        _later.Visible = on; _now.Visible = on;
-        if (on) Panels.ToFront(this);
-    }
-
-    void Layout()
-    {
-        if (!Visible || _card == null) return;
-        Vector2 v = GetViewportRect().Size;
-        Position = Vector2.Zero;
-        Size = v;
-
-        // Measured, not fixed: the body is as tall as the notes need at
-        // the width the card will actually give them. Measuring at the
-        // wrong width is the autowrap trap notes/godot-ui.md records,
-        // so the width is taken from a first Frame at the fixed height
-        // and the height from the font directly, then the card is cut
-        // again to fit.
-        float wide = M59Skin.Body(M59Skin.Frame(v, 96f, true, M59Skin.ListW)).Size.X;
-        float need = 96f;
-        Font f = _body.GetThemeFont("font");
-        int fs = _body.GetThemeFontSize("font_size");
-        if (f != null && _body.Text.Length > 0)
-            need = Mathf.Max(need, f.GetMultilineStringSize(
-                _body.Text, HorizontalAlignment.Left, wide, fs).Y + 12f);
-        Rect2 card = M59Skin.Frame(v, need, true, M59Skin.ListW);
-        Rect2 body = M59Skin.Body(card);
-        Rect2 foot = M59Skin.Foot(card);
-
-        _card.Position = card.Position;
-        _card.Size = card.Size;
-        _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
-        _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f, M59Skin.TitleH);
-        _body.Position = body.Position;
-        _body.Size = body.Size;
-        M59Skin.FootRow(foot, _now, _later);
     }
 }
