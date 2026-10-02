@@ -361,6 +361,7 @@ public partial class GameView : Node2D
     /// draws above the rendered frame whatever order things were added in.
     /// </summary>
     CanvasLayer _ui;
+    Updater _updater;
     /// <summary>The world's own overlay layer - no safe-area inset.</summary>
     CanvasLayer _worldUi;
     ResourcePrompt _prompt;
@@ -501,6 +502,15 @@ public partial class GameView : Node2D
 
         _ui = new CanvasLayer();
         AddChild(_ui);
+
+        _updater = new Updater();
+        _ui.AddChild(_updater);
+        // At boot as well as at the login screen. LoginMode is the
+        // right MOMENT when there is a login screen to wait for, and
+        // there is not always one: a client with saved credentials - and
+        // the harness - goes straight into the world and would never
+        // have asked.
+        _updater.CallDeferred(Updater.MethodName.Check);
 
         // A second layer for the things that belong to the WORLD rather
         // than to the interface: name tags and quest marks. They are
@@ -970,6 +980,10 @@ public partial class GameView : Node2D
         if (_picker != null) _picker.Visible = false;
         _newChar?.Close();
         LoginPromptShown(true);
+        // Once per launch, and here rather than in the world: an update
+        // prompt over a fight is one that gets dismissed unread. See
+        // Updater.
+        _updater?.Check();
     }
 
     /// <summary>
