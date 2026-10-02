@@ -142,7 +142,20 @@ public partial class Updater : Control
         string version, url, notes;
         try
         {
-            var json = Json.ParseString(System.Text.Encoding.UTF8.GetString(body));
+            // TrimStart on U+FEFF before parsing. A UTF-8 byte order
+            // mark decodes to that character, Json.ParseString refuses
+            // a document that starts with it, and the catch below then
+            // swallows the whole check - so a manifest that is correct
+            // in every editor offers nobody an update. Three ways in:
+            // PowerShell 5.1's `Set-Content -Encoding UTF8` writes one
+            // (which is why make-latest.ps1 uses WriteAllText with a
+            // BOM-less encoding instead), Notepad used to, and so does
+            // anything that round-trips the file through Excel. The
+            // generator is fixed; this is the end that cannot be, since
+            // the manifest is a file on a server somebody may edit by
+            // hand at three in the morning.
+            var json = Json.ParseString(
+                System.Text.Encoding.UTF8.GetString(body).TrimStart('\uFEFF'));
             if (json.VariantType != Variant.Type.Dictionary) return;
             var d = json.AsGodotDictionary();
             version = d.TryGetValue("version", out Variant v) ? v.AsString() : "";
