@@ -3846,6 +3846,29 @@ static class FakeServer
                 if (qo.ID == 3104) qo.Flags.IsNPCActiveQuest = true;
                 if (qo.ID == 4002) qo.Flags.IsMobKillQuest = true;
             }
+        // M59_NOMOBS=1 takes every attackable thing out of the room,
+        // leaving the player, the NPCs and the scenery.
+        //
+        // Needed because NextTarget only ever ASSIGNS a target - it
+        // writes TargetID inside `if (found && minObj != null)`
+        // (`DataController.cs:1363`, `:1389`) and does nothing when it
+        // finds nobody - so "the next-target button with nothing to
+        // target" is a case that simply cannot be reached in a room with
+        // three duskrats standing in it. It is also the ONLY case that
+        // tells the self-target fix from the bug it replaces: with a rat
+        // nearby both behave identically, because NextTarget answers.
+        //
+        // Filtered rather than removed from the array, so the objects
+        // every other run depends on keep their ids.
+        if (Environment.GetEnvironmentVariable("M59_NOMOBS") == "1")
+        {
+            var quiet = new List<RoomObject>();
+            foreach (RoomObject o in objects)
+                if (!o.Flags.IsAttackable) quiet.Add(o);
+            objects = quiet.ToArray();
+            Console.WriteLine("     (M59_NOMOBS: nothing attackable in the room)");
+        }
+
         Send(ns, ctrl, new RoomContentsMessage(new ObjectID(1, 0), objects));
         Console.WriteLine($"  -> room {room} with {objects.Length} objects");
 
