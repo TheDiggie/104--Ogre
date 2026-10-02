@@ -55,7 +55,7 @@ public partial class LoginPrompt : Control
     /// </summary>
     public event Action<int> ServerChanged;
 
-    Label _title, _note, _serverLabel, _userLabel, _passLabel;
+    Label _title, _note, _serverLabel, _userLabel, _passLabel, _version, _update;
     ColorRect _bg;
     Panel _card, _bar;
     LineEdit _user, _pass;
@@ -167,6 +167,44 @@ public partial class LoginPrompt : Control
         _note.AddThemeColorOverride("font_color", NoteCalm);
         AddChild(_note);
 
+        // WHICH BUILD THIS IS, in the corner of the title bar.
+        //
+        // Nothing in the client said, and the cost of that showed up the
+        // first time the update prompt did not appear: neither the
+        // player nor anyone helping them could tell whether the manifest
+        // was wrong, the path was wrong, or the phone was simply already
+        // on the newest build and the silence was correct. Three very
+        // different problems with one symptom, and no way to tell them
+        // apart without unpacking the APK.
+        //
+        // The same string the updater compares against - the project's
+        // own config/version, read through Updater.Running - so what is
+        // on screen is by construction what the check used, rather than
+        // a second copy that can disagree with it.
+        //
+        // On the title bar rather than beside the fields: it is wanted
+        // perhaps twice in a client's life and should cost nothing to
+        // ignore the rest of the time.
+        _version = new Label
+        {
+            Text = Updater.Running.Length > 0 ? $"v{Updater.Running}" : "",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        _version.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        _version.AddThemeColorOverride("font_color", M59Skin.TextDim);
+        AddChild(_version);
+
+        // What the update check concluded, on its own line under the
+        // note. It cannot share _note: that line is the server address
+        // and the login errors, and an update verdict that replaces
+        // "wrong password" is worse than no verdict at all.
+        _update = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart, Visible = false };
+        _update.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        _update.AddThemeColorOverride("font_color", M59Skin.TextDim);
+        AddChild(_update);
+
         Recall();
 
         GetViewport().SizeChanged += Layout;
@@ -175,6 +213,25 @@ public partial class LoginPrompt : Control
 
     /// <summary>Where we are connecting, so it is never a mystery.</summary>
     public void Server(string host, int port) { if (_note != null) _note.Text = $"{host}:{port}"; }
+
+    /// <summary>
+    /// The update check's verdict, shown on the card it runs behind.
+    ///
+    /// The connection log would be the obvious home and is the wrong
+    /// one: GameView writes that label from its own _log inside
+    /// RenderFrame, which does not run until there is a world, so a
+    /// line put there at the login screen is never drawn at all. Found
+    /// by shooting the screen and seeing nothing - a write that
+    /// succeeds and then never appears looks exactly like a write that
+    /// did not happen.
+    /// </summary>
+    public void UpdateNote(string text)
+    {
+        if (_update == null) return;
+        _update.Text = text ?? "";
+        _update.Visible = _update.Text.Length > 0;
+        Layout();
+    }
 
     /// <summary>
     /// Fills the picker, the way `UILogin::Initialize` fills its
@@ -385,6 +442,11 @@ public partial class LoginPrompt : Control
         _bar.Size = new Vector2(card.Size.X, M59Skin.TitleH);
         _title.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
         _title.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f, M59Skin.TitleH);
+        if (_version != null)
+        {
+            _version.Position = new Vector2(card.Position.X + M59Skin.Pad, card.Position.Y);
+            _version.Size = new Vector2(card.Size.X - M59Skin.Pad * 2f, M59Skin.TitleH);
+        }
 
         float x = body.Position.X, w = body.Size.X, y = body.Position.Y;
 
@@ -410,8 +472,19 @@ public partial class LoginPrompt : Control
         // outside it - which is where a line at the bottom of the
         // screen would be - it would be the one message a player in
         // trouble never finds.
+        float noteH = Mathf.Max(boxH, body.Position.Y + body.Size.Y - y);
+        if (_update != null && _update.Visible)
+        {
+            // The verdict takes the bottom of the block and the note
+            // keeps the rest, so neither grows over the other when the
+            // sentence is a long one.
+            float updH = Mathf.Min(noteH * 0.5f, CapH * 2f);
+            noteH -= updH;
+            _update.Position = new Vector2(x, y + noteH);
+            _update.Size = new Vector2(w, updH);
+        }
         _note.Position = new Vector2(x, y);
-        _note.Size = new Vector2(w, Mathf.Max(boxH, body.Position.Y + body.Size.Y - y));
+        _note.Size = new Vector2(w, noteH);
 
         // Connect last in the line, as the skin lays a footer out: the
         // primary action is the one nearest the thumb.

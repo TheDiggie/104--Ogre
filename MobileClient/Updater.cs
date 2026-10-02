@@ -56,6 +56,24 @@ public partial class Updater : Control
     /// </summary>
     [Export] public string ManifestUrl = "https://meridian59.us/mobile/latest.json";
 
+    /// <summary>
+    /// What the check did, in one sentence, for the player to read.
+    ///
+    /// Every outcome of this check used to be the same thing on a
+    /// phone: nothing. Up to date, a 404 because the file is a folder
+    /// too deep, a manifest that will not parse, a server that never
+    /// answers - four different problems, one symptom, and no log to
+    /// look at. Diagnosing it meant unpacking the APK to find out which
+    /// version was even running.
+    ///
+    /// A player does not need the detail, but they do need to know the
+    /// check HAPPENED and what it concluded. One line costs nothing on
+    /// a screen that is already showing the connection log, and it is
+    /// the difference between "the updater is broken" and "the updater
+    /// says it got a 404".
+    /// </summary>
+    public event Action<string> Said;
+
     HttpRequest _http;
     Panel _card;
     Label _title, _body;
@@ -128,7 +146,11 @@ public partial class Updater : Control
         if (string.IsNullOrWhiteSpace(where)) where = ManifestUrl;
         if (string.IsNullOrWhiteSpace(where)) return;
         Error e = _http.Request(where);
-        if (e != Error.Ok) GD.Print($"[Updater] no check: {e}");
+        if (e != Error.Ok)
+        {
+            GD.Print($"[Updater] no check: {e}");
+            Say($"Update check could not start ({e}).");
+        }
     }
 
     void Answered(long result, long code, string[] headers, byte[] body)
@@ -136,6 +158,15 @@ public partial class Updater : Control
         if (result != (long)HttpRequest.Result.Success || code != 200)
         {
             GD.Print($"[Updater] no answer (result {result}, http {code})");
+            // The two that actually happen are worth saying apart. A 404
+            // is the manifest not being where the client looks, which is
+            // a five-second fix once somebody knows; anything else is
+            // the request never completing - no network, a name that
+            // does not resolve, TLS refused - which is a different
+            // five-second fix.
+            Say(code == 404
+                ? "Update check: nothing at the update address (404)."
+                : $"Update check failed to reach the server (result {result}, http {code}).");
             return;
         }
 
@@ -162,22 +193,44 @@ public partial class Updater : Control
             url = d.TryGetValue("url", out Variant u) ? u.AsString() : "";
             notes = d.TryGetValue("notes", out Variant n) ? n.AsString() : "";
         }
-        catch (Exception ex) { GD.Print($"[Updater] bad manifest: {ex.Message}"); return; }
+        catch (Exception ex)
+        {
+            GD.Print($"[Updater] bad manifest: {ex.Message}");
+            Say("Update check: the update file could not be read.");
+            return;
+        }
 
         // Only https, and only a link. The manifest is a file on a
         // server this client was pointed at, but it is still content
         // from the network deciding what the player is sent to, so it
         // does not get to name an arbitrary scheme.
-        if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return;
-        if (Newer(version, Running) <= 0) return;
+        if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            Say("Update check: the update file does not name an https download.");
+            return;
+        }
+        if (Newer(version, Running) <= 0)
+        {
+            // SAID, not silent. "You are on the newest build" and "the
+            // check never ran" are the two answers a player most needs
+            // to tell apart, and they looked the same.
+            Say($"You have the newest build ({Running}).");
+            return;
+        }
 
         _newest = version;
         _url = url;
         _body.Text = notes.Length > 0
             ? $"You have {Running}. {version} is out:\n{notes}"
             : $"You have {Running}. {version} is out.";
+        Say($"A newer build is out: {version}.");
         Show(true);
         Layout();
+    }
+
+    void Say(string line)
+    {
+        try { Said?.Invoke(line); } catch { }
     }
 
     /// <summary>

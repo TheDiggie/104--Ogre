@@ -121,6 +121,11 @@ public partial class AvatarPanel : Control
         _head.Pressed += () => SelfTarget?.Invoke();
         AddChild(_head);
         Tight(_head);
+        // The ring that says the latch is on, behind the portrait so the
+        // face still reads. See SelfTargeting.
+        _aimed = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        AddChild(_aimed);
+        MoveChild(_aimed, 0);
 
         GetViewport().SizeChanged += Layout;
 
@@ -185,6 +190,52 @@ public partial class AvatarPanel : Control
     /// state's style is copied rather than replaced, so hover and press
     /// still draw as the theme says.
     /// </summary>
+    /// <summary>
+    /// Whether the next spell is aimed at you - drawn, not just said.
+    ///
+    /// Self-target here is a MODE and not a target: tapping the
+    /// portrait sets DataController.SelfTarget, which SendReqCastMessage
+    /// reads to aim at your avatar without touching TargetID
+    /// (`BaseClient.cs:1735-1741`), and GameView.SpendSelfTarget clears
+    /// it after whatever you send next. The reference needs no indicator
+    /// because its version is a key you are physically holding down
+    /// (`ControllerInput.cpp:776-778`) - let go and it is over, and your
+    /// hand knows.
+    ///
+    /// A latch has no hand. All this mode had to show for itself was one
+    /// line in the chat log, which scrolls, so the honest answer to "am I
+    /// still aimed at myself?" was to cast something and find out. That
+    /// is the whole of the complaint: the latch DOES clear when you press
+    /// Target Next - it goes through HotbarAct with keepLatch false,
+    /// which spends it, and a run confirms the "Self-target off." line -
+    /// but nothing on screen ever said so, so clearing it and failing to
+    /// clear it looked identical.
+    ///
+    /// So the portrait wears it. Gold ring on, nothing off.
+    /// </summary>
+    /// <summary>
+    /// The halo itself and the bloom around it.
+    ///
+    /// Warmer and lighter than the skin's Gold, which is a UI colour
+    /// meant to sit under text: behind a face it reads as a brown panel
+    /// rather than as light. This is the classic client's yellow, pulled
+    /// back far enough that the portrait still reads against it.
+    /// </summary>
+    static readonly Color Halo  = new Color(1.00f, 0.84f, 0.32f, 0.90f);
+    static readonly Color Bloom = new Color(1.00f, 0.80f, 0.25f, 0.55f);
+
+    public bool SelfTargeting
+    {
+        set
+        {
+            if (_selfAimed == value) return;
+            _selfAimed = value;
+            if (_aimed != null) _aimed.Visible = value && _head != null && _head.Visible;
+        }
+    }
+    bool _selfAimed;
+    Panel _aimed;
+
     static void Tight(Button b)
     {
         foreach (string state in new[] { "normal", "hover", "pressed", "hover_pressed", "disabled", "focus" })
@@ -214,12 +265,41 @@ public partial class AvatarPanel : Control
         _at = at.Position;
         _head.Position = _at;
         _head.Size = at.Size;
+        if (_aimed != null)
+        {
+            // Sized to the face and sat BEHIND it, which is what makes
+            // this a glow rather than a border. The portrait art is a
+            // composed head on transparency, so a lit panel underneath
+            // shows through everywhere the head is not - the gold ends
+            // up around the silhouette, following the hair and the
+            // shoulders, exactly as the classic client's halo does.
+            // A border drawn on top would instead trace the rectangle,
+            // which is the version this replaced.
+            float bleed = 5f * HudScale();
+            _aimed.Position = _at - new Vector2(bleed, bleed);
+            _aimed.Size = at.Size + new Vector2(bleed * 2f, bleed * 2f);
+            var glow = new StyleBoxFlat
+            {
+                BgColor = Halo,
+                CornerRadiusTopLeft = 8, CornerRadiusTopRight = 8,
+                CornerRadiusBottomLeft = 8, CornerRadiusBottomRight = 8,
+                // The bloom. StyleBoxFlat's shadow is drawn OUTSIDE the
+                // box and fades, which is the cheapest honest glow Godot
+                // has - no shader, no extra texture, and it scales with
+                // the piece because the size is figured from HudScale.
+                ShadowColor = Bloom,
+                ShadowSize = Mathf.RoundToInt(10f * HudScale()),
+                AntiAliasing = true,
+            };
+            _aimed.AddThemeStyleboxOverride("panel", glow);
+        }
         M59Hud.Dress("portrait");
         // The player's own hide is ANDed under the client's: the host sets
         // Visible on this root every frame out of the world, so the hide
         // lands on the children instead.
         bool show = M59Hud.Shows("portrait");
         if (_head.Icon != null) _head.Visible = show;
+        if (_aimed != null) _aimed.Visible = _selfAimed && _head.Visible;
         if (!show) HideBuffs(0);
         else RelayBuffs();
     }
@@ -285,8 +365,8 @@ public partial class AvatarPanel : Control
         if (stamp != _stamp) { _stamp = stamp; Layout(); }
 
         RoomObject me = data?.AvatarObject;
-        if (me == null) { _head.Visible = false; return; }
-        if (!M59Hud.Shows("portrait")) { _head.Visible = false; return; }
+        if (me == null) { _head.Visible = false; if (_aimed != null) _aimed.Visible = false; return; }
+        if (!M59Hud.Shows("portrait")) { _head.Visible = false; if (_aimed != null) _aimed.Visible = false; return; }
 
         // The composed size is part of what is on screen, so a scale
         // change has to recompose - the hash alone would keep the old,

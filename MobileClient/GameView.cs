@@ -499,6 +499,26 @@ public partial class GameView : Node2D
         AddChild(_ui);
 
         _updater = new Updater();
+        // What the check concluded, where a player at the login screen
+        // can already see it: the connection log is the one thing on
+        // that screen that says what the client is doing, and the chat
+        // keeps it afterwards for anyone who has already logged in by
+        // the time the answer arrives. See Updater.Said.
+        _updater.Said += line =>
+        {
+            // Note, NOT SetStatus. SetStatus writes _status.Text once,
+            // and RenderFrame rewrites that same label from _log every
+            // single frame - so a line set any other way is gone before
+            // it is drawn. Caught by shooting the login screen and
+            // finding it blank, which is the only way a write that
+            // "succeeded" and then vanished ever shows up.
+            Note(line);
+            _chat?.Local(line);
+            // And on the login card, which is the screen this check
+            // actually runs behind - see LoginPrompt.UpdateNote for why
+            // the connection log alone is not enough.
+            _login?.UpdateNote(line);
+        };
         _ui.AddChild(_updater);
         // At boot as well as at the login screen. LoginMode is the
         // right MOMENT when there is a login screen to wait for, and
@@ -3023,6 +3043,13 @@ public partial class GameView : Node2D
         }
         _face?.Follow(_client.Data);
         _face?.SyncBuffs(_client.Data);
+        // The latch, on the portrait. Polled rather than set at the two
+        // places that change it: SpendSelfTarget is reached from Act,
+        // HotbarAct and the hotbar's own SpendLatch, and a view that
+        // updates the ring at the call sites is a view that grows a
+        // fourth call site and forgets. The setter early-outs when
+        // nothing changed.
+        if (_face != null) _face.SelfTargeting = _client.Data.SelfTarget;
         // And the log goes under the enchantments, for the same reason
         // they went under the bars: the top-left corner is a stack, and
         // each thing in it has to ask what is above rather than assume.
