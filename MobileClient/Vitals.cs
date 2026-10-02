@@ -58,11 +58,42 @@ public partial class Vitals : Control
     [Export] public int FontSize = 13;
 
     /// <summary>
-    /// The gutter the names sit in, left of every bar. Fixed, because
-    /// the point of it is that all four bars begin at the same x - a
-    /// name set beside its bar puts each bar wherever that word ended.
+    /// The WIDEST the gutter may be: enough for the longest fallback
+    /// word a condition can be labelled with.
+    ///
+    /// It used to be this wide always, which was right when every row
+    /// held a word. Most rows hold a 16-point ICON now, so a fixed 76
+    /// left sixty points of nothing between the picture and its bar -
+    /// the block read as two columns with a hole down the middle.
     /// </summary>
-    const float NameW = 76f;
+    const float NameMaxW = 76f;
+
+    /// <summary>
+    /// How wide the gutter actually needs to be this frame: the widest
+    /// thing that will go in it.
+    ///
+    /// Still ONE width for all four rows - that is the whole point of a
+    /// gutter, so the bars begin on a line - but measured from what is
+    /// there rather than assumed. All icons and it is an icon wide; one
+    /// condition with no art and it is that word wide; nothing bigger
+    /// than the cap either way.
+    /// </summary>
+    float Gutter(float barH, float sc)
+    {
+        if (_data?.AvatarCondition == null) return barH;
+        float want = 0f;
+        foreach (StatNumeric s in _data.AvatarCondition)
+        {
+            if (StatIcon(s) != null) { want = Mathf.Max(want, barH); continue; }
+            string word = Readable(s.ResourceName);
+            if (word.Length == 0) continue;
+            Font f = _names.Length > 0 && _names[0] != null ? _names[0].GetThemeFont("font") : null;
+            if (f == null) { want = NameMaxW * sc; break; }
+            want = Mathf.Max(want,
+                f.GetStringSize(word, HorizontalAlignment.Left, -1, Pt(FontSize, sc)).X);
+        }
+        return Mathf.Clamp(want, barH, NameMaxW * sc);
+    }
     /// <summary>Inside the plate, on every edge.</summary>
     const float Pad = 8f;
     /// <summary>Between the name gutter and the bar.</summary>
@@ -319,8 +350,9 @@ public partial class Vitals : Control
         // ignores the mouse), so no touch-target floor applies.
         float sc = HudScale();
         Redress(sc);
-        float pad = Pad * sc, nameW = NameW * sc, nameGap = NameGap * sc;
+        float pad = Pad * sc, nameGap = NameGap * sc;
         float barW = BarWidth * sc, barH = BarHeight * sc;
+        float nameW = Gutter(barH, sc);
         float pitch = barH + RowGap * sc;
         float plateW = pad + nameW + nameGap + barW + pad;
         float plateH = pad * 2f + pitch * count - RowGap * sc;

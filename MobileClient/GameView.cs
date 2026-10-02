@@ -2492,7 +2492,7 @@ public partial class GameView : Node2D
             // slot in the arc says "Go" too, and a bare-name press takes
             // whichever comes first in tree order - the trap
             // notes/harness.md calls a caption that exists twice.
-            _go = new Button { Text = "Go", Name = "goButton" };
+            _go = new Button { Text = "Door", Name = "goButton" };
             // true, so the server is told where we are standing and
             // which way we face before it is asked to move us - the
             // reference passes the same, and SendReqGo forces both the

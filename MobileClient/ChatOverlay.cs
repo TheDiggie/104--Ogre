@@ -1032,7 +1032,6 @@ public partial class ChatOverlay : Control
     /// on instead: parchment, close to the skin's own body text colour so
     /// it reads as ink on a page rather than as a highlighter.
     /// </summary>
-    const string ChipHex = "ede7dc";
 
     /// <summary>
     /// Below this against the backing a run is unreadable and needs the
@@ -1054,33 +1053,62 @@ public partial class ChatOverlay : Control
     /// chat is read on, some of them at 1.0:1, so something of this
     /// client's own has to carry them.
     ///
-    /// What that used to be was a 2px #e6e6e6 OUTLINE, and it worked in
-    /// the sense that the letters were legible. But an outline surrounds
-    /// the glyph, so a pale one on a dark page is a halo: on a phone,
-    /// where a 16pt glyph stem is about two pixels wide, the ring is as
-    /// wide as the letter it rings and the eye reads the pale fringe
-    /// rather than the dark shape inside it. The owner's words were
-    /// "weird white around them". That is the halo.
-    ///
-    /// What replaces it is a solid parchment BACKGROUND behind the run -
-    /// one rectangle, not a ring - with the outline explicitly off so the
-    /// label's black edge does not blob the glyph on it. Nothing touches
-    /// the letterform: the edges are the font's own, the fringing has
-    /// nowhere to come from, and the dark colours go from 1.0-2.8:1 to
-    /// 5.2-17.1:1. A pale outline cannot be made to not surround the
-    /// letter; this does not surround it in the first place.
-    ///
-    /// A drop shadow was the other candidate and cannot work here: Godot
-    /// gives a RichTextLabel one shadow for the whole label, not one per
-    /// run, and a shadow dark enough to read as depth does nothing
-    /// whatever for text that is itself black.
+    /// See <see cref="Lift"/> for what carries them, and for the two
+    /// answers that were tried first and thrown away.
     /// </remarks>
     static string Dressed(string hex, string part)
+        => $"[color=#{Lift(hex)}]{part}[/color]";
+
+    /// <summary>
+    /// The same colour, lightened only as far as it has to be to be
+    /// read on this surface.
+    ///
+    /// Third answer to the same problem, and the first two both failed
+    /// the only test that matters, which is what it looks like. A pale
+    /// OUTLINE surrounds the glyph, and at phone sizes the ring is as
+    /// wide as the stem it rings, so the eye reads the fringe - "weird
+    /// white around them". A parchment BACKGROUND behind the run does
+    /// not touch the letterform and is perfectly legible, and it is a
+    /// row of pale blocks down a dark page: it looks terrible, which is
+    /// a real objection and not a matter of taste that can be argued
+    /// with.
+    ///
+    /// Nothing drawn AROUND the text can work. So the text itself
+    /// moves: the colour is blended toward white until it clears the
+    /// floor, which keeps the hue the reference chose - a red stays
+    /// red, a blue stays blue - and changes only how light it is. Black
+    /// has no hue to keep and comes out grey, which is the honest
+    /// answer for a colour that cannot be shown on near-black at all.
+    ///
+    /// DIVERGENCE: the reference's palette is exact (`Constants.h` via
+    /// `Util.h:880-954`) and on its own light-grey chat surface every
+    /// one of those colours reads. This client's chat is dark, so
+    /// fifteen of them land between 1.0:1 and 2.8:1 - black on
+    /// near-black is invisible, not merely dim. Showing an exact colour
+    /// that cannot be seen is not fidelity. The lift is the smallest
+    /// change that keeps the distinction the colour was carrying.
+    /// </summary>
+    static string Lift(string hex)
     {
-        string run = $"[color=#{hex}]{part}[/color]";
-        return Contrast(hex, BackHex) < Floor
-            ? $"[bgcolor=#{ChipHex}][outline_size=0]{run}[/outline_size][/bgcolor]"
-            : run;
+        if (Contrast(hex, BackHex) >= Floor) return hex;
+
+        int r = Convert.ToInt32(hex.Substring(0, 2), 16);
+        int g = Convert.ToInt32(hex.Substring(2, 4 - 2), 16);
+        int b = Convert.ToInt32(hex.Substring(4, 2), 16);
+
+        // Smallest blend toward white that clears the floor, to a
+        // fortieth. Linear search rather than a formula because
+        // contrast is a ratio of non-linear luminances and the
+        // threshold is not worth inverting for forty steps.
+        for (int step = 1; step <= 40; step++)
+        {
+            float t = step / 40f;
+            string tryHex = $"{Mix(r, t):x2}{Mix(g, t):x2}{Mix(b, t):x2}";
+            if (Contrast(tryHex, BackHex) >= Floor) return tryHex;
+        }
+        return "ffffff";
+
+        static int Mix(int c, float t) => Mathf.Clamp(Mathf.RoundToInt(c + (255 - c) * t), 0, 255);
     }
 
     /// <summary>

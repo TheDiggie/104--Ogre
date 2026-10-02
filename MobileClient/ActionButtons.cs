@@ -200,8 +200,18 @@ public partial class ActionButtons : Control
     /// </summary>
     public const int ArcSeats = 5;
 
-    /// <summary>Hotbar seats: the arc, less the one Next takes.</summary>
-    public const int HotSeats = ArcSeats - 1;
+    /// <summary>
+    /// Hotbar seats: the arc, less the two ends.
+    ///
+    /// Both ends of the arc are permanent controls now - Target Next at
+    /// 70 degrees and Door at 180 - so three of the five seats hold
+    /// bindings. That is one fewer per page, and it is the right trade:
+    /// Door is pressed in a corridor, between fights, when the thing you
+    /// want is "take me through" and not whatever the page happens to
+    /// be showing. A control you have to turn a page to reach is a
+    /// control you do not use.
+    /// </summary>
+    public const int HotSeats = ArcSeats - 2;
 
     // ---- the player's size, applied to that geometry ----------------
     //
@@ -428,7 +438,7 @@ public partial class ActionButtons : Control
     }
 
     /// <summary>The Go slot's caption, and its name on disk.</summary>
-    public const string GoName = "Go";
+    public const string GoName = "Door";
 
     /// <summary>
     /// Whether a slot is the Go binding.
@@ -512,7 +522,9 @@ public partial class ActionButtons : Control
             // above returns first and that character's arrangement is
             // his own. The drawer tile and the Acts panel's "+" are how
             // he gets it, which is the other half of why both stay.
-            Extra.Go,
+            // Go is NOT seeded any more: it is the Door control at the
+            // end of the arc, permanently, so a seeded copy would be the
+            // same send twice with one of them paged out of sight.
             AvatarAction.Loot,
             AvatarAction.Activate,
             AvatarAction.Inspect,
@@ -654,6 +666,7 @@ public partial class ActionButtons : Control
             for (int i = 0; i < _rings.Count; i++) _rings[i].Visible = false;
             if (_turn != null) _turn.Visible = false;
             if (_nextBtn != null) _nextBtn.Visible = false;
+            if (_doorBtn != null) _doorBtn.Visible = false;
             _signature = "";
             return;
         }
@@ -810,6 +823,16 @@ public partial class ActionButtons : Control
             // button, so it has to be the name: Label holds the key the
             // game binds the slot to, and there are no keys on a phone.
             b.Text = icon != null && !isAlias ? "" : Short(cfg.Name, isAlias ? 6 : 8);
+            // CENTRED, which a Godot Button does not do by itself: its
+            // IconAlignment defaults to Left, and with no text to push
+            // against, a spell's picture sat against the left rim of a
+            // round seat instead of in the middle of it. Only the
+            // icon-only case: an alias shows a picture AND its key, and
+            // there the picture belongs at the left with the word beside
+            // it rather than the two stacked on the same spot.
+            b.IconAlignment = b.Text.Length == 0
+                ? HorizontalAlignment.Center
+                : HorizontalAlignment.Left;
             // The primary says its name at title size. An action has no
             // picture to show - the seeded set is all actions - so the
             // word IS the icon here, and "Attack" at body size in a
@@ -924,6 +947,33 @@ public partial class ActionButtons : Control
         SlotEdge(_nextBtn, Btn, false, true, sc);
         _nextBtn.Visible = true;
 
+        // DOOR, the other fixed end of the arc.
+        //
+        // It used to be a hotbar binding - Extra.Go, seeded onto page
+        // one - and that was wrong for the same reason Next is not a
+        // binding: it is not a thing you choose between, it is the only
+        // way out of a room. A phone has no space bar, and a Go that
+        // has been paged away, or dragged off by accident, leaves a
+        // player able to walk around one room and never leave it.
+        //
+        // At 180 degrees, the far end of the arc: straight left of the
+        // primary, which is the bottom-left corner of the cluster and
+        // the furthest seat from the thumb that fires Attack.
+        if (_doorBtn == null)
+        {
+            _doorBtn = new Button { Text = "Door" };
+            _doorBtn.Name = "hotdoor";
+            _doorBtn.TooltipText = "Through the door";
+            _doorBtn.Pressed += () => GoSend?.Invoke();
+            AddChild(_doorBtn);
+        }
+        _doorBtn.AddThemeFontSizeOverride("font_size", Pt(FontSize, sc));
+        Rect2 doorCell = Round(Seat(v, ArcSeats - 1), Btn);
+        _doorBtn.Position = doorCell.Position;
+        _doorBtn.Size = doorCell.Size;
+        SlotEdge(_doorBtn, Btn, false, true, sc);
+        _doorBtn.Visible = true;
+
         // The page button, saying where you are.
         // Its own button, not one out of the pool: a pooled button
         // already carries a Pressed handler that fires whatever action
@@ -1001,6 +1051,7 @@ public partial class ActionButtons : Control
             for (int i = 0; i < _rings.Count; i++) _rings[i].Visible = false;
             if (_turn != null) _turn.Visible = false;
             if (_nextBtn != null) _nextBtn.Visible = false;
+            if (_doorBtn != null) _doorBtn.Visible = false;
         }
     }
 
@@ -1505,8 +1556,9 @@ public partial class ActionButtons : Control
                  $" scale={HudScale():0.00} shift={_shift.X:0},{_shift.Y:0}");
         Say(anchor != null ? "ATTACK" : "attack(-)", Round(Pivot(v), Atk));
         Say("next", Round(Seat(v, 0), Btn));
-        for (int i = 1; i < ArcSeats; i++)
+        for (int i = 1; i <= HotSeats; i++)
             Say(i <= count ? $"seat{i}" : $"seat{i}(-)", Round(Seat(v, i), Btn));
+        Say("door", Round(Seat(v, ArcSeats - 1), Btn));
         if (paged) Say("page", Round(TurnSeat(v), Turn));
 
         // The gaps that the rules are actually about: rim to rim, which
@@ -1533,6 +1585,7 @@ public partial class ActionButtons : Control
 
     /// <summary>The target control. Not a binding - see where it is placed.</summary>
     Button _nextBtn;
+    Button _doorBtn;
 
     void HideFrom(int from)
     {
