@@ -54,3 +54,14 @@ When a check skips a case, that case is where the bug is. Make the
 oracle cover it before trusting the code.
 
 See also: the client -> ./mobile-client.md
+
+## Rootstock is where the work is run from
+Tags: process | Standup first, LESSONS.md in the same batch, day file and check before stopping - see /CLAUDE.md at the repo root
+
+Ashton, 2026-10-02, after reminding twice: "why do I keep having to
+tell you to use the rootstock. make it part of everything you do."
+The repo-root CLAUDE.md now says what that means in order; this entry
+exists so a grep of the rulings finds it too. A lesson written only in
+these notes is a lesson the next project never sees.
+
+See also: /CLAUDE.md | C:\ClaudeBrain\CLAUDE.md
