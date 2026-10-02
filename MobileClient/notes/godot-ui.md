@@ -287,3 +287,29 @@ there the name is a billboard in the 3D scene
 construction.
 
 See also: SafeArea.cs, NameTags.cs, QuestMarkers.cs
+
+## A ScrollContainer child ignores CustomMinimumSize when it expands
+Tags: gotchas, lessons | ExpandFill takes the container's whole width, so the minimum is a floor the layout never reaches; and ContentMargin on a scrollbar stylebox insets nothing
+
+Two failed fixes for the same complaint, both of which looked right in
+the code and did nothing in the frame.
+
+Every list's row box is ExpandFill - it has to be, or a VBox shrinks to
+its longest line and every value column lands wherever that row's text
+ended. ScrollContainer fits its child with the child's own size flags,
+so an expanding child takes the full width and draws under the bar.
+`CustomMinimumSize` is therefore a FLOOR, not a width: raising it moved
+nothing. The fix is `SizeFlags.ShrinkBegin` plus an exact minimum, which
+is what M59Skin.RowsFit sets - both calls together, because the one that
+is forgotten is the one that undoes the other.
+
+Separately: `StyleBoxFlat.ContentMargin*` tells a box where its CHILD
+content goes. A ScrollBar has no child, so setting it changed nothing -
+the gold ran the bar's full width. `ExpandMargin*`, negative, is what
+shrinks the box that actually gets DRAWN. M59Skin.BarInset uses it to
+leave a 30-point dead margin on the bar's left that still takes the
+press.
+
+Both were only visible in a screenshot. Neither produced a warning.
+
+See also: the skin -> ../M59Skin.cs

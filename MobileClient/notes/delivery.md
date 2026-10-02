@@ -121,3 +121,19 @@ so the spaces are safe there - but a URL cannot carry a raw space, so
 the manifest spells them `%20`.
 
 See also: the bundle flow -> this file | updates -> ./mobile-client.md
+
+## device_commit_files will not overwrite a path it already wrote
+Tags: gotchas | Second commit to the same name reported written and changed nothing; use a new filename per bundle
+
+Caught on 2026-10-01. The first bundle was cut from the wrong base, so
+a corrected one was committed to the SAME path. The call answered
+`{"written":[...],"rejected":[]}` and the file on disk was still the old
+one - same size, same md5, same mtime. Nothing failed and nothing
+happened.
+
+This is the second way this step has lied (the first was silent binary
+corruption, which is why everything goes as base64 with a checksum
+now). The md5 compare caught both. Never skip it, and never reuse a
+bundle filename within a session: night-12b, not night-12 again.
+
+See also: the bundle flow -> this file
