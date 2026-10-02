@@ -11,18 +11,29 @@ Tags: process | The standing instructions that govern how work is done here
 - In anything built for him, use in-page modals, never browser dialogs.
 - A target that is clicked to attack is outlined in red, as the game does.
 - Use the agents. Long jobs are fanned out, not walked through alone.
+- The game is played in LANDSCAPE ONLY. Portrait is not a case to design for.
+- LOOK AT THE OUTPUT before sending it. Open the screenshot, read the
+  frame, fix what is wrong - do not hand over a draft nobody has looked at.
+- DO NOT TAKE HIS SCREEN without asking, and release the lock afterwards.
+  He games on that machine. The file bridge needs no screen; use it.
 
 See also: the core -> the client -> ../README.md
 
 ## Open questions
 Tags: process | Things deliberately parked, so they are not rediscovered as bugs
 
-- The unsigned commits are not rebased until Ashton is at the keyboard:
-  the rewrite would desync his working copy. See delivery.md.
 - Autorun and the Actions window had nowhere to live while the bottom
   row was full at 1080 wide. Settled: the row is a drawer, Acts is a
   tile in it, and Auto is pinned to the left edge because it is
   movement. See MenuDrawer.cs.
+- Two Attacks when a target is selected - the cluster disc fires the
+  Attack action, the target row sends the request directly. Raised, not
+  yet answered. Both work; they are not the same send.
+- Auto sits on the left edge, which is technically the walking thumb's
+  half. Raised, not yet answered; it is above where a thumb rests.
+
+SETTLED since: the unsigned commits (signed, then deliberately unsigned
+again - see delivery.md, and do not reopen it).
 
 See also: delivery -> ./delivery.md | the client -> ./mobile-client.md
 

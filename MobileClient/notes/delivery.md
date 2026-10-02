@@ -29,16 +29,71 @@ cannot see.
 
 See also: the client -> ../README.md
 
-## Two commits are unsigned and stay that way
-Tags: process | 0462f0e and f522e2c are unsigned; only a rebase fixes them, and a rebase desyncs Ashton's working copy
+## Two commits are unsigned, and that is now a decision, not a backlog
+Tags: process | SETTLED 2026-10-01: signed, then deliberately UNSIGNED again, because origin already had the originals
 
-The stop hook will keep asking. The answer is no until he is at the
-keyboard and wants to pay for it. The count and the hashes change as
-history grows - what does not change is that they sit under everything
-since, so the rewrite is the whole branch and his clone has to be reset
-to match in the same sitting.
+The stop hook keeps naming 0462f0e and f522e2c. It is answered.
 
-See also: the bundle flow -> this file | the stop hook -> the running guide -> ../TRYING-IT.md
+What happened when it was finally done: the rebase signed all 304
+commits and the content came out byte-identical, verified both sides.
+Then the push revealed what a stale local ref had hidden - origin
+ALREADY HELD those two commits, so GitHub Desktop's pull tried to merge
+the pre-rebase history back in and hit real conflicts in SceneShot.cs
+and harness.md. Aborted.
+
+Ashton chose to undo the signing rather than force-push, so GitHub's
+published history was never rewritten: everything was replayed onto
+origin's own f522e2c with `git rebase --onto`. All the work above is
+signed; those two are not, by choice. Do not re-sign them.
+
+THE LESSON THAT COST THE HOUR: `git rev-list origin/net8-core...` reads
+the LOCAL cached ref, which here was days old and said origin was
+behind. It was not. Check the real remote - GitHub Desktop's counter,
+or a fetch - before claiming nothing published will be rewritten.
+
+See also: the bundle flow -> this file | pushing -> this file
+
+## Pushing needs GitHub Desktop
+Tags: process, gotchas | The sandbox proxy refuses the repo and the device VM has no credentials; the push happens in the GUI
+
+Two dead ends, both worth not rediscovering:
+
+- From the container: `remote: access denied by the git proxy:
+  TheDiggie/104--Ogre is not in this session's authorized repository
+  set`. Adding the repo to the session's sources would fix it.
+- From `device_bash`: `could not read Username for https://github.com`.
+  That shell is an isolated Linux VM; the credentials live in GitHub
+  Desktop on Windows.
+
+So: computer use, GitHub Desktop, Repository > Push. It is granted at
+tier "full" (not click-only like the shell and Explorer), so its menus
+work normally. An Explorer window in front of it makes every click fail
+with "the desktop shell is frontmost" - `computer_open_application` on
+"Githubdesktop" raises it, and File Explorer has to be granted too
+before a click can land while the shell has focus.
+
+See also: the bundle flow -> this file
+
+## Verify every bundle by checksum
+Tags: process, gotchas | Binary files crossing device_commit_files were corrupted twice on 2026-10-01; base64 round-trips cleanly
+
+Two bundles arrived with a different md5 than they left with - one of
+them carrying a commit hash that exists nowhere in the history. The
+failure is silent: git still reads the file as a bundle, and the merge
+says "Already up to date" instead of fast-forwarding, which is the only
+reason it was caught.
+
+So bundles travel base64 now:
+
+    base64 -w0 x.bundle > x.b64            # container
+    device_commit_files x.b64
+    tr -d '\r\n' < x.b64 | base64 -d > x.bundle   # device_bash
+    md5sum x.bundle                        # and compare, every time
+
+The `tr` matters: something in the path translates line endings, which
+is the likeliest cause of the corruption in the first place.
+
+See also: the bundle flow -> this file
 
 ## The build watcher has to be running
 Tags: process, gotchas | Writing build.trigger does nothing on its own - a batch file on Windows polls for it, and a reboot kills it
@@ -53,4 +108,16 @@ double-click from Ashton, once, and then builds are self-service again.
 Check `m59_tmp/watch-build.log` and whether `build.trigger` still exists:
 a trigger that is still there a minute later means nothing is watching.
 
-See also: the bundle flow -> this file
+WHY IT KEPT DYING, fixed 2026-10-01: a `goto` whose label sat inside a
+parenthesised `if exist ... ( ... )` block kills cmd.exe outright - no
+error, no log line. It managed exactly one build per launch and then
+vanished. Every label is at the top level now and every branch out of a
+condition is a parenless `if ... goto`; it has survived several builds
+since. If it dies again, that is a new cause, not this one.
+
+The APK is `m59_tmp\Meridian Mobile Client.apk` from 2026-10-01 (it was
+`Meridian59-test.apk`). `%OUT%` is quoted at both uses in build-apk.bat,
+so the spaces are safe there - but a URL cannot carry a raw space, so
+the manifest spells them `%20`.
+
+See also: the bundle flow -> this file | updates -> ./mobile-client.md
