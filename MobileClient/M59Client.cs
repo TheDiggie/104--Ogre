@@ -390,16 +390,40 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
             var real = chars.Where(c => !c.IsEmptySlot).ToList();
             bool room = chars.Any(c => c.IsEmptySlot);
 
-            // A new account is nothing but empty slots, and this used to
-            // stop dead on it - which made the client unusable for
-            // anyone who had not already made a character elsewhere.
-            if (real.Count == 0)
-            {
-                if (!room) { Say("No characters on this account."); return; }
-                Diag("No characters yet - making one.");
-                SendSystemMessageSendCharInfo();
-                return;
-            }
+            // A NEW ACCOUNT GOES TO THE SELECTION SCREEN LIKE ANY OTHER.
+            //
+            // This used to call SendSystemMessageSendCharInfo() the
+            // moment it saw an account with no characters on it, which
+            // dropped a first-time player straight into the creation
+            // wizard with no screen in between. Two things were wrong
+            // with that, and the second one was fatal.
+            //
+            // The player never got to see their own account. The
+            // reference draws the welcome screen on every
+            // CharactersMessage and draws a slot per place, empty ones
+            // included, with the wizard reached by clicking one
+            // (`UIWelcome.cpp:96-130`, `:157`, `:201`, `:287`). Choosing
+            // WHICH slot is part of making a character there; here it
+            // was a screen you arrived at without having asked.
+            //
+            // And the slotless overload defaults SlotID to 0
+            // (`BaseClient.cs:2634-2645`), which is written as the first
+            // field of the NewCharInfo that follows (`:2651-2670`).
+            // Server-104 reads that field as the user object -
+            // `oUser = Nth(client_msg,2)`, then `Send(oUser,
+            // @IsFirstTime)` (`kod/util/system.kod:4570,4572,4579`) - so
+            // a 0 is refused, and creation failed at the very end, after
+            // every choice had been made. That is the "it breaks and
+            // gets rejected" a new account met: not the attribute budget,
+            // which the library caps at 220 by itself
+            // (`CharCreationInfo.cs:41,597-688,698-701`), but a slot id
+            // of zero. The fixture's empty slot happens to BE id 0
+            // (`Tools/Meridian59.Net8FakeServer/Program.cs:1855`), which
+            // is why no harness run ever caught it.
+            //
+            // So: no shortcut, and the whole list goes up - empty slots
+            // and all - because the picker is now what names the slot.
+            if (real.Count == 0 && !room) { Say("No characters on this account."); return; }
 
             // The selection screen, always. It used to be skipped when
             // there was exactly one character and the server reported no
@@ -419,9 +443,18 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
             {
                 Diag($"{real.Count} character{(real.Count == 1 ? "" : "s")} on this account" +
                      $"{(room ? "" : ", no free slot")}.");
-                ChooseCharacter(real);
+                // The WHOLE list, not just the characters that exist.
+                // The picker draws a row per slot the way the reference
+                // draws a button per slot (`UIWelcome.cpp:96-130`), so
+                // the empty ones have to reach it - each one carries the
+                // id the palette request needs.
+                ChooseCharacter(chars);
                 return;
             }
+            // No handler at all means the harness, which asked for a
+            // named character and did not get one. Only a real character
+            // can be used; an empty slot is not something to play.
+            if (real.Count == 0) { Say("No characters on this account."); return; }
             pick = real[0];
         }
 
@@ -569,6 +602,78 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
     public event Action Quitted;
 
     /// <summary>
+    /// The world is gone because the PLAYER asked to leave it, and the
+    /// connection is still up. Raised after the data has been reset, in
+    /// place of <see cref="Quitted"/>: there is nothing left to read, but
+    /// there is also nothing to reconnect, so the view's only job is to
+    /// take the world's furniture down and wait for the character list
+    /// the server is already on its way to sending.
+    /// </summary>
+    public event Action LeftForPicker;
+
+    /// <summary>
+    /// Set between <see cref="LogOut"/> and the Quit it provokes, which
+    /// is the only thing that tells the two kinds of Quit apart - the
+    /// message itself carries nothing (`QuitMessage` has no body at all,
+    /// `Meridian59/Protocol/GameMessages/GameMode/QuitMessage.cs`), and a
+    /// kick and a logout arrive as the same byte.
+    /// </summary>
+    bool _leaving;
+
+    /// <summary>
+    /// Leave the world and go back to choosing a character, without
+    /// dropping the connection and without logging in again.
+    ///
+    /// ReqQuit (54) is the whole of the request, and it is the same one
+    /// the reference sends from its own quit path
+    /// (`Meridian59.Ogre.Client/OgreClient.cpp:1054-1060` overriding
+    /// `Meridian59/Client/BaseClient.cs:2675-2685`). What the server does
+    /// with it is the part worth writing down, because it is not obvious
+    /// and it decides this whole design:
+    ///
+    /// `BP_REQ_QUIT` is answered by `GameClientExit` - one `BP_QUIT` byte
+    /// - and then `SetSessionState(s,STATE_SYNCHED)`
+    /// (`Server-104/blakserv/game.c:423-425`). The state change runs
+    /// `GameExit`, which is what actually takes the character out of the
+    /// world (`ClientHangupToBlakod`, `game.c:71-81`), and then
+    /// `SynchedInit` - which, because the account is known and verified
+    /// by now, does NOT ask for a password again but goes straight to the
+    /// main menu and sends `AP_GETCHOICE`
+    /// (`Server-104/blakserv/synched.c:47-57`, `:818-835`). The socket is
+    /// never touched. So the way back to the picker is one the library
+    /// walks entirely on its own: Quit puts the message controller back
+    /// into login protocol mode
+    /// (`Meridian59/Protocol/MessageController/MessageController.cs:1049-1055`),
+    /// GetChoice is answered with ReqGameState
+    /// (`Meridian59/Client/BaseClient.cs:511-515`), GameState puts it
+    /// back into game mode (`MessageController.cs:1040-1046`), and the
+    /// char module the server then asks for is answered with
+    /// SendCharacters (`BaseClient.cs:584-596`), whose reply lands in
+    /// <see cref="HandleCharactersMessage"/> and puts the list up.
+    ///
+    /// Which is also why `SendSendCharactersMessage` ALONE is wrong from
+    /// inside a live character, tempting as it looks: `BP_SEND_CHARACTERS`
+    /// is answered by `GameTryGetUser` (`game.c:532-534`), which sends the
+    /// list without touching `s->game->object_id`, and `BP_USE_CHARACTER`
+    /// is guarded by `if (s->game->object_id == INVALID_OBJECT)`
+    /// (`game.c:461`). The player would get the list, tap a name, and
+    /// nothing at all would happen - with their old character still stood
+    /// in the room. The wizard's Cancel gets away with that call
+    /// (`GameView.cs`, `_newChar.Cancelled`) only because no character is
+    /// in the world on that path.
+    /// </summary>
+    public void LogOut()
+    {
+        _leaving = true;
+        try { SendReqQuit(); }
+        catch (Exception e)
+        {
+            _leaving = false;
+            Complain($"[M59Client] logging out: {e.Message}");
+        }
+    }
+
+    /// <summary>
     /// Quit (149): the server is ending the session.
     ///
     /// It arrives for an ordinary logout, for a kick, and for a server
@@ -606,6 +711,57 @@ public class M59Client : BaseClient<GameTick, ResourceManager, MobileData, Confi
         catch (Exception e) { Complain($"[M59Client] quitting: {e.Message}"); }
 
         base.HandleQuitMessage(Message);
+
+        // The player asked for this, so the two things the server-driven
+        // path does next are both wrong here. The socket must NOT go: the
+        // session is sitting in STATE_SYNCHED with the account still
+        // verified and the character list already on its way
+        // (`Server-104/blakserv/synched.c:47-57`), and letting go of it
+        // would turn "back to the picker" into "log in again". And the
+        // "you have left the world" notice must not go up, because the
+        // player knows: they pressed the button.
+        if (_leaving)
+        {
+            _leaving = false;
+
+            // The one thing Reset does not let go of, and it has to go
+            // here or the player watches the picker float over the room
+            // they just walked out of.
+            //
+            // `Data.Reset` -> `Invalidate` does clear RoomInformation
+            // (`Meridian59/Data/DataController.cs:1038`), but
+            // `RoomInfo.Clear` zeroes the ids and the strings and never
+            // touches `ResourceRoom`
+            // (`Meridian59/Data/Models/RoomInfo.cs:660-710` - the whole body, against the
+            // property at `:582-593`). So the RooFile the renderer is
+            // built from survives the reset, `GameView.SyncRoom` compares
+            // it against the one it already has, finds them the same
+            // reference and keeps the renderer - and the view goes on
+            // drawing the room from the camera pose it was holding.
+            // Photographed: the character list over a lit, undimmed
+            // barinn, visible around the edges of the list's own
+            // backdrop.
+            //
+            // Nulling it is what makes the next frame's SyncRoom unload,
+            // which is the inverse of the load this client does on
+            // arrival and what the reference does unconditionally when a
+            // player leaves a room (`ControllerRoom.cpp:1604-1611`,
+            // UnloadRoom `:497-535`). It is NOT done by calling
+            // `WorldSync.SyncRoom(null)` directly: that would unload for
+            // one frame and then reload from this same stale pointer on
+            // the next.
+            //
+            // Only on this path. The server-driven quit puts a
+            // full-screen panel over the world (`LeftWorld`, whose
+            // backdrop exists for exactly this ghost) and is a different
+            // change to make.
+            try { if (Data?.RoomInformation != null) Data.RoomInformation.ResourceRoom = null; }
+            catch (Exception e) { Complain($"[M59Client] unloading the room: {e.Message}"); }
+
+            try { LeftForPicker?.Invoke(); }
+            catch (Exception e) { Complain($"[M59Client] leaving: {e.Message}"); }
+            return;
+        }
 
         try { Disconnect(); } catch { }
 

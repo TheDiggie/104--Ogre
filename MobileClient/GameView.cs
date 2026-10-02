@@ -270,11 +270,6 @@ public partial class GameView : Node2D
     ActionBar _actions;
     CharacterPicker _picker;
 
-    /// <summary>
-    /// The id of the first empty character slot the server offered, for
-    /// the creation request to name. See the NewWanted handler.
-    /// </summary>
-    uint _emptySlot;
     MiniMap _map;
     SplashNotifier _splash;
     LostConnection _lost;
@@ -2133,6 +2128,41 @@ public partial class GameView : Node2D
                 LeftTheWorldAudio();
                 left.Open();
             };
+
+            // And the player's own way out, which is the same teardown
+            // without the notice and without the reconnect.
+            //
+            // The exact inverse of coming in, and that is the whole test
+            // of it: EnteredGame sets `_wasInGame`, throws the login
+            // screen away and shuts the wizard, and the world's furniture
+            // then follows `inWorld` every frame - so putting the flag
+            // back is what takes the bars, the hotbar, the minimap, the
+            // combat arc, the chat and the openers down again (see Sync's
+            // `inWorld`), and `Data.Reset` has already taken the room,
+            // the objects, the target and the avatar with it
+            // (`Meridian59/Data/DataController.cs:981-1000` -> `:1006-1060`,
+            // which clears RoomInformation and nulls AvatarObject). The
+            // next SyncRoom therefore unloads the room's nodes as a room
+            // change does (`WorldSync.SyncRoom`, `:89-94`).
+            //
+            // Nothing is shown and nothing is reconnected. The connection
+            // is still up and the server is already walking the client
+            // back to the character list by itself - see M59Client.LogOut
+            // for that chain - so the right behaviour between the Quit
+            // and the Characters that follows it is an empty screen for a
+            // round trip, not a panel the player has to dismiss to get to
+            // the list they asked for.
+            _client.LeftForPicker += () =>
+            {
+                _wasInGame = false;
+                LeftTheWorldAudio();
+                // In the log, because the gap is a round trip long and
+                // "my screen went black" deserves a sentence. It survives
+                // the trip: the chat log is not one of the lists Reset
+                // clears (`DataController.cs:983-986` leaves ChatMessages alone),
+                // and the overlay is hidden rather than emptied.
+                _chat?.Local("Leaving the world...");
+            };
         });
         // InvalidateData (228). The server has thrown away the lists it
         // sent and will send them again
@@ -2628,36 +2658,28 @@ public partial class GameView : Node2D
             // server sends back every face part, colour, spell and
             // skill on offer, and the data layer builds the example
             // model out of it before the wizard has anything to show.
-            // The empty slot's own id, not 0.
             //
-            // `SendSystemMessageSendCharInfo()` defaults SlotID to 0
-            // (`BaseClient.cs:2634-2645`) and that value is written as
+            // The SLOT the player tapped, which the picker now hands
+            // over. `SendSystemMessageSendCharInfo()` defaults SlotID to
+            // 0 (`BaseClient.cs:2634-2645`) and that value is written as
             // the FIRST field of the NewCharInfo that follows
             // (`:2651-2670`). Server-104 reads that field as the user
-            // object - `oUser = Nth(client_msg,2)` then
-            // `Send(oUser, @IsFirstTime)` (`kod/util/system.kod:4570`,
-            // `:4572`, `:4579`) - so a 0 is refused and creating a
-            // character fails every time on the live server. The
-            // reference passes the selected slot's own ID
-            // (`UIWelcome.cpp:159-161`, `:203-205`, `:289-291`).
+            // object - `oUser = Nth(client_msg,2)` then `Send(oUser,
+            // @IsFirstTime)` (`kod/util/system.kod:4570`, `:4572`,
+            // `:4579`) - so a 0 is refused and creating a character
+            // fails every time on the live server. The reference passes
+            // the selected slot's own ID (`UIWelcome.cpp:159-161`,
+            // `:203-205`, `:289-291`).
             //
-            // The picker offers ONE "New character" button rather than
-            // a row per slot (`CharacterPicker.cs:196-204`), so the slot
-            // it means is the first empty one in the list the server
-            // sent - which is remembered here, since the picker's event
-            // carries no argument and that file is not ours to change.
-            // The fixture's empty slot happens to BE id 0
-            // (`Tools/Meridian59.Net8FakeServer/Program.cs:1855`), which
-            // is why no harness run could ever have caught this.
-            _picker.NewWanted += () => Act(() =>
-                _client.SendSystemMessageSendCharInfo(_emptySlot));
+            // The picker draws a row per empty slot now and the event
+            // carries that row's id, so "the first empty slot in the
+            // list" is no longer kept here on the side - which was the
+            // same answer only while an account had exactly one.
+            _picker.NewWanted += slot => Act(() =>
+                _client.SendSystemMessageSendCharInfo(slot));
             _ui.AddChild(_picker);
             _client.ChooseCharacter += chars =>
             {
-                _emptySlot = 0;
-                if (chars != null)
-                    foreach (Meridian59.Data.Models.CharSelectItem c in chars)
-                        if (c != null && c.IsEmptySlot) { _emptySlot = c.ID; break; }
                 LoginPromptShown(false);
                 _picker.Offer(chars);
                 // After Offer, because Offer is what builds the rows -
@@ -2719,7 +2741,39 @@ public partial class GameView : Node2D
         // opener buttons into the grid. Mounting it earlier is not
         // wrong (it raises itself on open, and its Layout adopts
         // whatever has registered since), only pointlessly busier.
-        Widget("menu", () => Panels.Mount(_ui));
+        Widget("menu", () =>
+        {
+            MenuDrawer drawer = Panels.Mount(_ui);
+            if (drawer == null) return;
+
+            // The question, and then the send. Destructive, so Yes is the
+            // red button rather than the gold one, and worded as what it
+            // costs rather than as what it is called: "log out" is the
+            // control's name, "leave the world" is what happens, and the
+            // room is the thing the player is about to stop standing in.
+            //
+            // closeOnInvalidate is left at its default true, which is
+            // right for the same reason it is right everywhere else here:
+            // a server save sweeps the lists this question's world is
+            // made of (`DataController.cs:2947-2951`), and a question
+            // nobody answered before the sweep should not be answerable
+            // after it.
+            drawer.LogOutWanted += () =>
+            {
+                if (_ask == null)
+                {
+                    // Nothing in this client puts a system dialog up, so
+                    // with no popper there is no question - and without a
+                    // question there is no logout. Said out loud rather
+                    // than silently sent: leaving the world unasked is
+                    // the failure this confirmation exists to prevent.
+                    _chat?.Local("Cannot confirm a logout right now - nothing sent.");
+                    return;
+                }
+                _ask.Choice("Leave the world and go back to choosing a character?",
+                            0, _ => Act(() => _client.LogOut()), null, true, true);
+            };
+        });
 
         // RootClient.Start loads the config before calling Init, and this
         // did not load it at all. It is where the player's aliases, ignore
@@ -2953,8 +3007,35 @@ public partial class GameView : Node2D
 
         _vitals?.Follow(_client.Data);
         _purse?.Follow(_client.Data);
+        // The enchantment row starts below EVERYTHING the top-left
+        // corner already owns, not below the head: the row is wider than
+        // the portrait, so at head height it ran under the condition
+        // bars, and one plate lower it ran through the status row. Both
+        // of those move and scale with the player's own HUD layout, so
+        // the floor is asked for rather than assumed. Set before
+        // SyncBuffs, which is what lays them out.
+        if (_face != null)
+        {
+            float floor = 0f;
+            if (_vitals != null) floor = Mathf.Max(floor, _vitals.Bottom);
+            if (_bar != null) floor = Mathf.Max(floor, _bar.Bottom);
+            if (floor > 0f) _face.BuffTop = floor + M59Skin.Gap;
+        }
         _face?.Follow(_client.Data);
         _face?.SyncBuffs(_client.Data);
+        // And the log goes under the enchantments, for the same reason
+        // they went under the bars: the top-left corner is a stack, and
+        // each thing in it has to ask what is above rather than assume.
+        // Moving the row down to clear the status bar put it straight
+        // through this text - photographed, which is the only way any of
+        // these three collisions was ever noticed.
+        if (_status != null && _bar != null)
+        {
+            float under = Mathf.Max(_bar.TopReserve + _bar.BlockHeight,
+                                    _face != null ? _face.BuffBottom + M59Skin.Gap : 0f);
+            if (!Mathf.IsEqualApprox(_status.Position.Y, under))
+                _status.Position = new Vector2(_status.Position.X, under);
+        }
         _bag?.Sync(_client.Data?.InventoryObjects);
         _lootList?.Sync(_client.Data?.RoomObjectsLoot);
         _contents?.Sync(_client.Data?.ObjectContents);
@@ -4152,6 +4233,30 @@ public partial class GameView : Node2D
             _state = $"room {id} unavailable";
             _map?.Build(null);
             _mapRoom = null;
+
+            // Unless there is no room because there is no longer a
+            // PLAYER. Logging out unloads the room on purpose - see
+            // M59Client.LogOut, which nulls the stale ResourceRoom that
+            // Data.Reset leaves behind - and the report below is written
+            // for a different thing entirely: "the server moved you into
+            // this room and the client has no room file for it", which
+            // is false, alarming, and lands as a full-screen page of red
+            // text over the character list the player just asked for.
+            // Photographed before this guard went in.
+            //
+            // Told apart by the same question the rest of this file asks
+            // - is there a player in a world? - rather than by a flag
+            // set on the way out. The error case always has one: the
+            // server only moves you into a room while you are in the
+            // game, and on the first room of a session EnteredGame has
+            // already run (`M59Client.UseCharacter`), so an unplayable
+            // first room still gets its report.
+            if (!(_wasInGame || _client.Data?.AvatarObject != null))
+            {
+                GD.Print($"[M59] room unloaded - nobody is in the world");
+                return;
+            }
+
             GD.PrintErr($"[M59] room {id} ({want ?? "unnamed"}) has no .roo - " +
                         $"nothing loaded, movement will be refused");
             Boom("entering the room",

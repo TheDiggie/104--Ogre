@@ -232,6 +232,12 @@ public partial class Vitals : Control
     /// beside it - the head is at 13,14 and the condition bars start at
     /// x=95 of a 250-wide panel.
     /// </summary>
+    /// <summary>
+    /// Where this block ends, in viewport units, as the last layout
+    /// placed it. See the assignment for why it is published.
+    /// </summary>
+    public float Bottom { get; private set; }
+
     public float Left { get; set; } = 94f;
     public float Top { get; set; } = 14f;
 
@@ -360,6 +366,14 @@ public partial class Vitals : Control
         // Where the designer put it, then where the player dragged it.
         Rect2 at = M59Hud.Place("vitals", new Rect2(Left, Top, plateW, plateH),
                                 GetViewportRect().Size);
+        // Published for whatever has to stand clear of this block. The
+        // enchantment row under the portrait is the one that does: it
+        // runs fourteen icons wide, so past the second it crosses under
+        // the bars. Published rather than computed by the caller
+        // because the height depends on how many conditions the server
+        // sent and on the player's own scale - the same reason
+        // ActionButtons publishes Ceiling.
+        Bottom = at.Position.Y + at.Size.Y;
         float left = at.Position.X, top = at.Position.Y;
         float barX = left + pad + nameW + nameGap;
         DrawStyleBox(Plate(), new Rect2(at.Position, at.Size));

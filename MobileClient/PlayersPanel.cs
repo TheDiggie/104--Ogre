@@ -177,7 +177,7 @@ public partial class PlayersPanel : Control
         // Clear of the scrollbar: a row laid out to the full body
         // runs its last control - a bind "+", a price - under the bar,
         // and a thumb aimed at one hits the other. See M59Skin.RowsW.
-        _rows.CustomMinimumSize = new Vector2(M59Skin.RowsW(body), 0);
+        M59Skin.RowsFit(_rows, body);
 
         // Over the list, where the rows would have been.
         _empty.Position = _scroll.Position;

@@ -451,7 +451,7 @@ public partial class GuildPanel : Control
         _scroll.Size = new Vector2(body.Size.X, listH);
         // The bar is wider than this file's own BarW now; the skin
         // owns that number. See M59Skin.RowsW.
-        _rows.CustomMinimumSize = new Vector2(M59Skin.RowsW(body), 0);
+        M59Skin.RowsFit(_rows, body);
 
         // The guildmaster's controls are a SECTION of this window now,
         // under a rule and a heading, rather than three loose rows

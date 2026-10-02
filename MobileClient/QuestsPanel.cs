@@ -157,8 +157,7 @@ public partial class QuestsPanel : Control
         _scroll.Size = new Vector2(listW, body.Size.Y);
         // 14 was the old bar's width and the bar is 28 now, so the
         // rows ran under the grabber. One number, in the skin.
-        _rows.CustomMinimumSize = new Vector2(
-            M59Skin.RowsW(new Rect2(Vector2.Zero, new Vector2(listW, 0))), 0);
+        M59Skin.RowsFit(_rows, new Rect2(Vector2.Zero, new Vector2(listW, 0)));
         _empty.Position = body.Position;
         _empty.Size = body.Size;
 

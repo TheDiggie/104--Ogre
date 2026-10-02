@@ -216,7 +216,7 @@ public partial class CreateCharacter : Control
         // every field and every + button sat behind it.
         // The bar is wider than this file's own BarW now; the skin
         // owns that number. See M59Skin.RowsW.
-        _rows.CustomMinimumSize = new Vector2(M59Skin.RowsW(body), 0);
+        M59Skin.RowsFit(_rows, body);
 
         // Create last in the line, where the skin puts the one thing a
         // panel is for.
@@ -336,6 +336,33 @@ public partial class CreateCharacter : Control
             () => Step(ref _mouth, -1, Parts("mouth")), () => Step(ref _mouth, 1, Parts("mouth"))));
 
         _rows.AddChild(Section("Attributes"));
+
+        // The budget, said in words before anything that spends it.
+        //
+        // This is the bug the player reported as "the stat points arnt
+        // capped": they are - every setter refuses a raise that would
+        // push the sum past ATTRIBUTE_MAXSUM
+        // (`CharCreationInfo.cs:597-688`, each one testing
+        // `AttributesAvailable + old - new >= 0`) and AttributesAvailable
+        // clamps at zero (:698-701) - but NOTHING ON SCREEN SAID 220, so
+        // a "+" that stops responding is indistinguishable from a "+"
+        // that is broken. The header above says the number now too; this
+        // says what the number IS, once, where the six steppers are.
+        //
+        // Both limits, because they are different walls: the shared 220
+        // and the per-attribute 50. A player who has hit the second with
+        // points still in hand has been told the budget is spent, which
+        // is the wrong fix for the wrong problem.
+        //
+        // Read from the constants rather than typed, so a server that
+        // changes its mind about either number does not leave a sentence
+        // behind telling the player the old one.
+        _rows.AddChild(Prose(
+            $"You have {CharCreationInfo.ATTRIBUTE_MAXSUM} points to share out between these "
+            + $"six, and no single one may pass {CharCreationInfo.ATTRIBUTE_MAXVALUE}. When "
+            + "either limit is reached the \"+\" stops: that is the budget, not a broken "
+            + "button. Take points off one attribute to put them on another."));
+
         // The three presets are the game's own, and they are a kindness
         // rather than a shortcut: a first character spent badly is a
         // character you stop playing.
@@ -424,7 +451,16 @@ public partial class CreateCharacter : Control
             int i = 0;
             foreach (AvatarCreatorSpellObject sp in _info.Spells)
                 if (sp != null) _rows.AddChild(Ability(
-                    $"spell{i++}", sp.SpellName, (int)sp.SpellCost, sp.ExtraID, true));
+                    $"spell{i++}", sp.SpellName, (int)sp.SpellCost, sp.ExtraID, true,
+                    // Read when Inspect is pressed, not when the row is
+                    // built: the name and the description arrive as string
+                    // resource ids and are filled in later by
+                    // ResolveStrings (`AvatarCreatorSpellObject.cs:246`
+                    // is the description, :319-336 the resolve), so a
+                    // string captured at Build time is whatever had been
+                    // resolved by then - which for a row built the moment
+                    // the palette lands is nothing.
+                    () => Detail(sp.SpellListDescription, sp.SpellCost, sp.SpellDescription)));
         }
 
         _rows.AddChild(Section("Skills"));
@@ -433,7 +469,12 @@ public partial class CreateCharacter : Control
             int i = 0;
             foreach (AvatarCreatorSkillObject sk in _info.Skills)
                 if (sk != null) _rows.AddChild(Ability(
-                    $"skill{i++}", sk.SkillName, (int)sk.SkillCost, sk.ExtraID, false));
+                    $"skill{i++}", sk.SkillName, (int)sk.SkillCost, sk.ExtraID, false,
+                    // The skill object says the same things under its own
+                    // names: SkillListDescription
+                    // (`AvatarCreatorSkillObject.cs:243-245`),
+                    // SkillCost (:203), SkillDescription (:230).
+                    () => Detail(sk.SkillListDescription, sk.SkillCost, sk.SkillDescription)));
         }
     }
 
@@ -528,10 +569,59 @@ public partial class CreateCharacter : Control
         var block = new VBoxContainer();
         block.AddThemeConstantOverride("separation", 0);
         block.AddChild(Row(name, () => get().ToString(),
-            () => { set(get() - 1); _signature = ""; },
-            () => { set(get() + 1); _signature = ""; }));
+            () => Nudge(name, get, set, -1),
+            () => Nudge(name, get, set, 1)));
         block.AddChild(Prose(about));
         return block;
+    }
+
+    /// <summary>
+    /// One press of an attribute's + or -, and a sentence when it did
+    /// nothing.
+    ///
+    /// The refusal is found by reading the value back, not by working
+    /// out in advance whether the model would accept it. The rule lives
+    /// in the setters (`CharCreationInfo.cs:597-688`): a raise is taken
+    /// only while the value stays within ATTRIBUTE_MINVALUE..MAXVALUE
+    /// and `AttributesAvailable + old - new >= 0`. A copy of that
+    /// arithmetic here would be a second statement of the same rule, and
+    /// the second one is the one that goes stale the day the first
+    /// changes - so this asks the model what happened instead: write,
+    /// read, compare.
+    ///
+    /// Which wall was hit is worked out only AFTER the press is known to
+    /// have failed, and only from the value we already had. At the
+    /// per-attribute ceiling, 50, the budget is irrelevant - there may be
+    /// plenty left and the number still will not move - and the fix is to
+    /// spend the rest elsewhere. With the budget gone the fix is to take
+    /// points off something. Telling a player the wrong one of those sends
+    /// them looking in the wrong place, which is what silence did.
+    ///
+    /// The "-" is checked the same way for the same reason: a stepper
+    /// that ignores you is a bug report either way round.
+    /// </summary>
+    void Nudge(string name, Func<uint> get, Action<uint> set, int by)
+    {
+        uint was = get();
+        // Through long, so a "-" at zero is a refusal rather than a wrap
+        // to uint.MaxValue - which the setter also refuses, but for the
+        // wrong reason and only by luck.
+        long want = (long)was + by;
+        set(want < 0 ? 0u : (uint)want);
+        uint now = get();
+        _signature = "";
+        if (now != was) return;
+
+        if (by > 0)
+            Complain?.Invoke(was >= CharCreationInfo.ATTRIBUTE_MAXVALUE
+                ? $"{name} is already at {CharCreationInfo.ATTRIBUTE_MAXVALUE}, "
+                  + "which is as high as any one attribute goes."
+                : $"You have spent all {CharCreationInfo.ATTRIBUTE_MAXSUM} attribute points. "
+                  + "Lower another attribute to free some up.");
+        else
+            Complain?.Invoke(
+                $"{name} is already at {CharCreationInfo.ATTRIBUTE_MINVALUE}, "
+                + "which is as low as any one attribute goes.");
     }
 
     /// <summary>
@@ -571,7 +661,13 @@ public partial class CreateCharacter : Control
 
         var pad = new MarginContainer();
         pad.AddThemeConstantOverride("margin_left", (int)M59Skin.Pad);
-        pad.AddThemeConstantOverride("margin_right", 6);
+        // The same right inset the ability rows use (`Ability`'s
+        // OffsetRight), not 6. They differed by twelve points, which put
+        // the "+" steppers closer to the scrollbar than anything else in
+        // the form - the one row where the extra reach was most expensive,
+        // since the thumb aiming at "+" is the thumb that kept landing on
+        // the bar. See M59Skin.BarInset for the gap itself.
+        pad.AddThemeConstantOverride("margin_right", (int)M59Skin.Pad);
         pad.AddThemeConstantOverride("margin_top", 4);
         pad.AddThemeConstantOverride("margin_bottom", 4);
         holder.AddChild(pad);
@@ -626,6 +722,21 @@ public partial class CreateCharacter : Control
     /// <summary>What Godot's vertical scrollbar takes out of the width.</summary>
     const float BarW = 16f;
 
+    /// <summary>
+    /// The Inspect column. Wider than the 44-point minimum because the
+    /// word has to fit inside it as well as the thumb - "Inspect" at
+    /// M59Skin.SmallSize is around seventy points of glyphs - and fixed
+    /// so the button's edge is in the same place on every row.
+    /// </summary>
+    const float InspectW = 104f;
+
+    /// <summary>
+    /// How much of an ability row the name keeps whatever else is on it.
+    /// Enough for most of a spell name; past it the name is trimmed with
+    /// an ellipsis rather than pushing the cost and Inspect off the row.
+    /// </summary>
+    const float NameMin = 180f;
+
     readonly Dictionary<string, Func<string>> _readers = new Dictionary<string, Func<string>>();
     // Held rather than looked up by node name: a name search through a
     // rebuilt tree is one more thing that can quietly return nothing,
@@ -640,8 +751,13 @@ public partial class CreateCharacter : Control
     /// <summary>
     /// One spell or skill. Tapping it takes it; tapping it again gives
     /// it back. The model answers with a reason when it will not.
+    ///
+    /// Tapping the Inspect button on the end does neither: it says what
+    /// the ability is, which is the one thing the row could not.
+    /// <paramref name="detail"/> is the sentence, read at press time -
+    /// see Detail.
     /// </summary>
-    Control Ability(string node, string name, int cost, uint id, bool spell)
+    Control Ability(string node, string name, int cost, uint id, bool spell, Func<string> detail)
     {
         var b = new Button
         {
@@ -655,11 +771,25 @@ public partial class CreateCharacter : Control
         _stripe[b] = alt;
         if (spell) _spellRows[id] = b; else _skillRows[id] = b;
 
-        // The name and the cost as two columns inside the row, rather
-        // than one string with spaces in it: a hundred abilities whose
-        // price lands wherever the name ended is a column you cannot
-        // read down. The labels take no presses, so the whole row is
-        // still one target.
+        // The name, the cost and Inspect as three columns inside the
+        // row, rather than one string with spaces in it: a hundred
+        // abilities whose price lands wherever the name ended is a
+        // column you cannot read down. The two LABELS take no presses,
+        // so the whole row is still one take/untake target; the Inspect
+        // button is the one child that does take them, which is the
+        // whole point of it and is handled where it is built.
+        //
+        // The widths, deliberately: Inspect is a fixed InspectW because
+        // a button that grows with its row is a button whose edge moves
+        // down the list, and the word has to fit at BodySize; the price
+        // keeps its 64 because a cost is two digits and a right-aligned
+        // column of them is the thing being read down; the name takes
+        // everything that is left and is given a floor of NameMin so the
+        // third control cannot squeeze it to an ellipsis on a narrow
+        // card. Those three plus two Gaps come to well under the row's
+        // width at this card size (M59Skin.Measure wide at the
+        // narrowest), so the name's floor is a guarantee rather than an
+        // overflow waiting to happen.
         var line = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
         line.SetAnchorsPreset(LayoutPreset.FullRect);
         line.AddThemeConstantOverride("separation", (int)M59Skin.Gap);
@@ -672,6 +802,12 @@ public partial class CreateCharacter : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             VerticalAlignment = VerticalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore,
+            CustomMinimumSize = new Vector2(NameMin, 0),
+            // Cut rather than pushed: without this a long name widens the
+            // HBox past the row and takes the cost and Inspect off the
+            // right-hand edge with it, because a Label's minimum size is
+            // its whole unwrapped line.
+            TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
         };
         label.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
         label.AddThemeColorOverride("font_color", M59Skin.Text);
@@ -690,6 +826,46 @@ public partial class CreateCharacter : Control
         price.AddThemeColorOverride("font_color", M59Skin.Gold);
         line.AddChild(price);
 
+        // Inspect: what the thing IS, which the row never said.
+        //
+        // The row showed a name and a price, and a name is not enough to
+        // choose by - the one permanent decision in the client was being
+        // made off a word. The reference does not need a button for this
+        // because its two lists are hover-labelled with the object's own
+        // ListDescription (`UIAvatarCreateWizard.cpp:594` for a spell,
+        // :638 for a skill) and it has a description pane beside them;
+        // there is no hover on a phone, so the same text comes out on a
+        // press instead.
+        //
+        // Dressed Secondary rather than as part of the row: a lighter
+        // fill and a Rule border against the row's flat, borderless
+        // stripe, so it reads as a control sitting ON the row rather
+        // than as the row's right-hand end.
+        //
+        // It must NOT be MouseFilter.Ignore, unlike its two neighbours.
+        // Godot picks the deepest control under the touch whose filter is
+        // not Ignore, and a Button stops what it handles there rather
+        // than passing it up to an ancestor - so this press inspects and
+        // the row does not also take the ability. The HBox around it is
+        // Ignore and that is fine: a parent's Ignore excludes the parent
+        // from picking, not its children. Driven headless to be sure
+        // (notes/harness.md): pressing Inspect leaves the ability-point
+        // budget untouched at its full SKILLPOINTS_MAXSUM.
+        var look = new Button
+        {
+            Text = "Inspect",
+            Name = $"inspect{node}",
+            CustomMinimumSize = new Vector2(InspectW, M59Skin.TapMin),
+        };
+        M59Skin.Dress(look, M59Skin.Kind.Secondary);
+        look.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        look.Pressed += () =>
+        {
+            string text = detail != null ? detail() : null;
+            if (!string.IsNullOrWhiteSpace(text)) Complain?.Invoke(text);
+        };
+        line.AddChild(look);
+
         b.Pressed += () =>
         {
             if (_info == null) return;
@@ -706,6 +882,54 @@ public partial class CreateCharacter : Control
             _signature = "";
         };
         return b;
+    }
+
+    /// <summary>
+    /// What Inspect says: which school and rank the ability belongs to,
+    /// what it costs, and what it does.
+    ///
+    /// The first line is the object's own ListDescription -
+    /// `schoolType.ToString() + (cost == 10 ? " 1: " : " 2: ") + name`
+    /// (`AvatarCreatorSpellObject.cs:259-261`,
+    /// `AvatarCreatorSkillObject.cs:243-245`) - rather than a school and
+    /// a rank assembled here. That is the string the reference labels
+    /// these very rows with (`UIAvatarCreateWizard.cpp:594,638`), and it
+    /// is also the only way to learn a SKILL's school from outside the
+    /// library at all: AvatarCreatorSpellObject exposes SchoolType as a
+    /// property (:220) and AvatarCreatorSkillObject does not - its
+    /// schoolType is a protected field (:157) with no getter. Assembling
+    /// the line here would mean copying the rank rule - that 10 points
+    /// buys rank one and 20 buys rank two - into a second place, where it
+    /// would sit until the day the first place changed.
+    ///
+    /// One deliberate divergence: the enum member cannot carry an
+    /// apostrophe, so ToString() spells the first school "Shalille". The
+    /// game spells it Shal'ille wherever it writes it - the stat-change
+    /// wizard's own label (`Meridian59.layout:2411`) and the refusal this
+    /// file already quotes (`Language.cpp:95-96`) - and a player who has
+    /// just read "Shal'ille (good) and Qor (evil) are natural
+    /// antagonists" two screens up should not have to work out that
+    /// Shalille is the same school. So that one word is put back; every
+    /// other school keeps the library's spelling.
+    ///
+    /// The cost is said in words even though the row already shows the
+    /// number, because the number in the row is in a column of other
+    /// numbers and this is the sentence a player reads before spending.
+    ///
+    /// The description can be empty: it arrives as a string resource id
+    /// and ResolveStrings leaves the field String.Empty when the lookup
+    /// finds nothing (`AvatarCreatorSkillObject.cs:302,315-316`). Saying so
+    /// is better than a popup that trails off, which reads as a client
+    /// that lost the text.
+    /// </summary>
+    static string Detail(string listDescription, uint cost, string description)
+    {
+        string head = (listDescription ?? "").Replace("Shalille", "Shal'ille");
+        string body = string.IsNullOrWhiteSpace(description)
+            ? "The server sent no description for this one."
+            : description.Trim();
+        return $"{head}\n\nCosts {cost} ability point{(cost == 1 ? "" : "s")} "
+             + $"of your {CharCreationInfo.SKILLPOINTS_MAXSUM}.\n\n{body}";
     }
 
     bool Has(uint id, bool spell)
@@ -761,8 +985,20 @@ public partial class CreateCharacter : Control
         // points, 45 ability points left" read as one sentence with a
         // comma in it, and which number the "left" belonged to was
         // anyone's guess.
-        _points.Text = $"{_info.AttributesAvailable} attribute points left\n"
-                     + $"{_info.SkillPointsAvailable} ability points left";
+        //
+        // As a fraction, because the reference says it as one: both
+        // budgets are a progress bar labelled "available / maximum"
+        // (`UIAvatarCreateWizard.cpp:197-198` for the attributes against
+        // ATTRIBUTE_MAXSUM, :200-201 for the ability points against
+        // SKILLPOINTS_MAXSUM). Without the denominator "70 attribute
+        // points left" is a number with nothing to measure it against:
+        // the player cannot tell whether 70 is most of the budget or the
+        // tail of it, and cannot tell a spent budget from a stuck button.
+        // The totals come off the constants, never off a literal typed
+        // here, so the sentence cannot outlive the rule.
+        _points.Text =
+            $"{_info.AttributesAvailable} / {CharCreationInfo.ATTRIBUTE_MAXSUM} attribute points left\n"
+            + $"{_info.SkillPointsAvailable} / {CharCreationInfo.SKILLPOINTS_MAXSUM} ability points left";
 
         foreach (KeyValuePair<string, Func<string>> r in _readers)
             if (_values.TryGetValue(r.Key, out Label l)) l.Text = r.Value();

@@ -44,6 +44,37 @@ public partial class AvatarPanel : Control
     /// <summary>Leaves room for whatever owns the top-left corner.</summary>
     [Export] public float TopReserve = 0f;
 
+    /// <summary>
+    /// The lowest the enchantment row may start, in viewport units.
+    ///
+    /// The row hangs under the portrait, and the portrait is 72 points
+    /// wide while the row is fourteen icons wide - so from the third
+    /// icon on it runs out from under the portrait and straight under
+    /// the condition bars, which are drawn over it. The view sets this
+    /// from Vitals.Bottom, so the row starts below the whole block
+    /// rather than below the head alone.
+    ///
+    /// Zero means "under the head", which is what it was.
+    /// </summary>
+    public float BuffTop
+    {
+        get => _buffTop;
+        set
+        {
+            if (Mathf.IsEqualApprox(_buffTop, value)) return;
+            _buffTop = value;
+            // Relaid HERE rather than waiting for the next SyncBuffs.
+            // SyncBuffs rebuilds only when the LIST changes, which is
+            // what makes it cheap - so the first layout happened before
+            // the view had a number to give (Vitals publishes its
+            // bottom when it draws, which is after this), and the row
+            // then sat at its old place for ever. The bug was invisible
+            // with two enchantments and obvious with eight.
+            RelayBuffs();
+        }
+    }
+    float _buffTop;
+
     DataController _data;
     Button _head;
     uint _shown;
@@ -203,15 +234,41 @@ public partial class AvatarPanel : Control
         float sc = HudScale();
         float size = BuffSize * sc;
         int cols = Columns();
+        float low = 0f;
         for (int i = 0; i < _buffs.Count; i++)
         {
             if (!_buffs[i].Visible) continue;
-            _buffs[i].Position = _at + new Vector2(
-                (i % cols) * (size + 8f * sc),
-                _head1 + 6f * sc + (i / cols) * (size + 8f * sc));
+            _buffs[i].Position = new Vector2(
+                _at.X + (i % cols) * (size + 8f * sc),
+                BuffRow(sc) + (i / cols) * (size + 8f * sc));
             _buffs[i].Size = new Vector2(size + 6f * sc, size + 6f * sc);
+            low = Mathf.Max(low, _buffs[i].Position.Y + _buffs[i].Size.Y);
         }
+        BuffBottom = low;
     }
+
+    /// <summary>
+    /// The lowest point the enchantment icons reach, or zero when there
+    /// are none showing.
+    ///
+    /// Published for the same reason Vitals.Bottom and StatusBar.Bottom
+    /// are, and found the same way - by looking at a frame. Moving this
+    /// row down to clear the condition bars and the status row put it
+    /// straight through the connection log, which is the next thing down
+    /// the left edge; the log now asks where the row ended rather than
+    /// assuming the corner is empty below the status bar. The row wraps
+    /// to a second line when there are more enchantments than fit, so
+    /// this is measured from the icons themselves and not worked out
+    /// from a count.
+    /// </summary>
+    public float BuffBottom { get; private set; }
+
+    /// <summary>
+    /// Where the first row of enchantments sits: under the portrait, or
+    /// under whatever the view says is lower. See BuffTop.
+    /// </summary>
+    float BuffRow(float sc)
+        => Mathf.Max(_at.Y + _head1 + 6f * sc, BuffTop);
 
     /// <summary>
     /// Rebuilds the portrait when the avatar's appearance changes. The
@@ -235,7 +292,20 @@ public partial class AvatarPanel : Control
         // change has to recompose - the hash alone would keep the old,
         // smaller picture stretched into the bigger button.
         uint want = me.AppearanceHash ^ (uint)Mathf.RoundToInt(_head1 * 16f);
-        if (want == _shown && _head.Icon != null) return;
+        // Visible, not merely unchanged. The two guards above HIDE the
+        // portrait without forgetting what is in it, so coming back from
+        // either of them lands here with the right picture already
+        // composed and the button still switched off - and this used to
+        // return on that, leaving a permanent hole beside the vitals
+        // bars. Both guards are reachable in an ordinary session: the
+        // player can turn the portrait off and on again in the HUD
+        // editor, and leaving the world nulls AvatarObject
+        // (`Meridian59/Data/DataController.cs:1053`) and the same
+        // character walks back in with the same AppearanceHash, so the
+        // cache hits. Found by logging out and back in and stacking the
+        // two frames: every other piece of the HUD returned and this one
+        // did not.
+        if (want == _shown && _head.Icon != null) { _head.Visible = true; return; }
         _shown = want;
 
         try
@@ -305,9 +375,9 @@ public partial class AvatarPanel : Control
             // size - see RelayBuffs, which does the same on a drag.
             float bsc = HudScale();
             float bs = BuffSize * bsc;
-            icon.Position = _at + new Vector2(
-                (used % cols) * (bs + 8f * bsc),
-                _head1 + 6f * bsc + (used / cols) * (bs + 8f * bsc));
+            icon.Position = new Vector2(
+                _at.X + (used % cols) * (bs + 8f * bsc),
+                BuffRow(bsc) + (used / cols) * (bs + 8f * bsc));
             icon.Size = new Vector2(bs + 6f * bsc, bs + 6f * bsc);
             icon.Visible = true;
 
@@ -321,6 +391,15 @@ public partial class AvatarPanel : Control
             used++;
         }
         HideBuffs(used);
+        // SyncBuffs places the icons itself rather than calling
+        // RelayBuffs, so the published bottom has to be set on this path
+        // too - and the one that forgets is the one that leaves the
+        // connection log sitting on top of the row.
+        float low = 0f;
+        for (int i = 0; i < _buffs.Count; i++)
+            if (_buffs[i].Visible)
+                low = Mathf.Max(low, _buffs[i].Position.Y + _buffs[i].Size.Y);
+        BuffBottom = low;
     }
 
     /// <summary>

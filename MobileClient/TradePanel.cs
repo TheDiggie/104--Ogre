@@ -428,7 +428,7 @@ public partial class TradePanel : Control
         // button - so a row laid out to the full column put a 72x44
         // target under the grabber: a thumb aimed at the bar changed an
         // offer. See M59Skin.RowsW.
-        _rowsMine.CustomMinimumSize = new Vector2(M59Skin.RowsW(new Rect2(Vector2.Zero, new Vector2(colW, 0))), 0);
+        M59Skin.RowsFit(_rowsMine, new Rect2(Vector2.Zero, new Vector2(colW, 0)));
         _noneMine.Position = _scrollMine.Position;
         _noneMine.Size = _scrollMine.Size;
 
@@ -436,7 +436,7 @@ public partial class TradePanel : Control
         _theirs.Size = new Vector2(colW, headH);
         _scrollTheirs.Position = new Vector2(x2, y2 + headH);
         _scrollTheirs.Size = new Vector2(colW, colH);
-        _rowsTheirs.CustomMinimumSize = new Vector2(M59Skin.RowsW(new Rect2(Vector2.Zero, new Vector2(colW, 0))), 0);
+        M59Skin.RowsFit(_rowsTheirs, new Rect2(Vector2.Zero, new Vector2(colW, 0)));
         _noneTheirs.Position = _scrollTheirs.Position;
         _noneTheirs.Size = _scrollTheirs.Size;
 

@@ -62,6 +62,13 @@ using Godot;
 /// open a drawer. It now sits in the combat cluster beside the attack
 /// control, where it is seat zero of the arc.
 ///
+/// LOG OUT is in here but is NOT a tile. It is the only control in the
+/// drawer that does not open a window, and it is the only one that
+/// cannot be taken back, so it sits alone at the left end of a footer
+/// band rather than as the twelfth square in a grid of eleven. The
+/// reasoning, and the precedent it follows, are written where it is
+/// built.
+///
 /// TREE ORDER. The drawer is a child of the view's UI layer, beside the
 /// panels and the ConfirmPopup, and it raises itself with
 /// <see cref="Panels.ToFront"/> exactly as a panel does - which puts an
@@ -86,6 +93,7 @@ public partial class MenuDrawer : Control
     ColorRect _scrim;
     M59Skin.Chrome _chrome;
     Control _host;
+    Button _logout;
     readonly List<Label> _caps = new List<Label>();
     readonly HashSet<Button> _dressed = new HashSet<Button>();
 
@@ -93,6 +101,13 @@ public partial class MenuDrawer : Control
     bool _allowed = true;
 
     public bool IsOpen => _open;
+
+    /// <summary>
+    /// The player wants out of the world and back to the character list.
+    /// The view owns the confirmation and the sending; this only says the
+    /// control was pressed.
+    /// </summary>
+    public event System.Action LogOutWanted;
 
     public override void _Ready()
     {
@@ -135,6 +150,44 @@ public partial class MenuDrawer : Control
         _host.MouseFilter = MouseFilterEnum.Ignore;
         AddChild(_host);
 
+        // Leaving the world, kept OUT of the grid on purpose.
+        //
+        // It is the one thing in here that does not open a window. Every
+        // tile is a reversible look at something - the bag, the spell
+        // book, the map of the room - and shutting the window puts you
+        // back exactly where you were; this one throws the room away and
+        // hands you back to the character list, and on a real server it
+        // leaves your character stood in a dungeon. A thumb aimed at
+        // Settings, which would be its neighbour at the end of the last
+        // row, must not be able to land on it.
+        //
+        // So it goes where the inventory's Drop went, and for the reason
+        // written down there: a destructive control belongs at the far
+        // end of a footer, away from the row of ordinary ones, because
+        // separation is the only thing that helps (`M59Skin.FootLeft`,
+        // and `InventoryPanel`'s Drop, which sat in a row with Use, Look
+        // and Hotbar until a miss by one button started throwing things
+        // away). The drawer had no footer at all - "a footer band here
+        // would be an empty strip under a grid that is already all
+        // buttons" - and that was right while there was nothing to put
+        // in one. There is now, and it is exactly one thing.
+        //
+        // Unlike Drop it also asks first. Drop deliberately does not,
+        // because a prompt answered fifty times a session stops being
+        // read; this is pressed once a session at most, and the failure
+        // it guards against is a mis-tap that dumps a player out of a
+        // fight. The question is the view's, through ConfirmPopup - an
+        // in-page panel, never a system dialog.
+        _logout = new Button { Text = "Log Out", Visible = false, Name = "logoutButton" };
+        M59Skin.Dress(_logout, M59Skin.Kind.Danger);
+        _logout.AddThemeFontSizeOverride("font_size", M59Skin.BodySize + 2);
+        _logout.ClipText = true;
+        // Shut first, so the grid is not left hanging over the question:
+        // the drawer is a scrim and a card, and ConfirmPopup lands on top
+        // of it rather than replacing it.
+        _logout.Pressed += () => { Close(); LogOutWanted?.Invoke(); };
+        AddChild(_logout);
+
         GetViewport().SizeChanged += Layout;
         Layout();
     }
@@ -172,6 +225,7 @@ public partial class MenuDrawer : Control
         _scrim.Visible = _open;
         _chrome.Show(_open);
         _host.Visible = _open;
+        if (_logout != null) _logout.Visible = _open;
         foreach (Label l in _caps) l.Visible = _open;
         // The pinned controls stand down while the grid is over them,
         // and come back when it goes.
@@ -223,12 +277,15 @@ public partial class MenuDrawer : Control
         float wantW = Columns * tileW + (Columns - 1) * TileGap + M59Skin.Pad * 2f;
         float wantH = rows * TileH + (rows - 1) * TileGap;
 
-        // No footer: the close is the round one in the title bar and
-        // the scrim, and a footer band here would be an empty strip
-        // under a grid that is already all buttons.
-        Rect2 card = M59Skin.Frame(v, wantH, false, wantW);
+        // A footer now, where there deliberately was none. The close is
+        // still the round one in the title bar and the scrim - the band
+        // is not here for a Close - it is here to hold Log Out at its far
+        // left end, a thumb's reach away from the last tile. See where
+        // _logout is built for why that separation is the whole point.
+        Rect2 card = M59Skin.Frame(v, wantH, true, wantW);
         _chrome.Place(card);
-        Rect2 body = M59Skin.Body(card, false);
+        Rect2 body = M59Skin.Body(card, true);
+        M59Skin.FootLeft(M59Skin.Foot(card), _logout);
 
         tileW = (body.Size.X - (Columns - 1) * TileGap) / Columns;
 

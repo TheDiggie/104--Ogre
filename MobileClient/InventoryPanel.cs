@@ -291,7 +291,12 @@ public partial class InventoryPanel : Control
 
         // Right to left: Close sits where the thumb that dismisses it
         // is, and Use - the one thing the bag is for - reads last.
-        M59Skin.FootRow(foot, _close, _bind, _look, _drop, _use);
+        // Drop is NOT in the row. It is the one control here that
+        // destroys something, so it goes to the far left of the footer
+        // with the width of the card between it and the others - see
+        // M59Skin.FootLeft.
+        M59Skin.FootRow(foot, _close, _bind, _look, _use);
+        M59Skin.FootLeft(foot, _drop);
     }
 
     /// <summary>

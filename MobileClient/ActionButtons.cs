@@ -177,7 +177,7 @@ public partial class ActionButtons : Control
     /// a hand movement, not a sweep, and a hand movement is the thing
     /// this layout exists to remove.
     /// </summary>
-    public const float ArcR = 240f;
+    public const float ArcR = 300f;
 
     /// <summary>
     /// The arc runs from 70 degrees - just right of straight up, which
@@ -188,24 +188,36 @@ public partial class ActionButtons : Control
     public const float ArcFrom = 70f, ArcTo = 180f;
 
     /// <summary>
-    /// Seats on the arc: Next, then the hotbar's own.
+    /// Seats on the arc: Door, four bindings, Target Next.
     ///
-    /// FIVE, and the arithmetic is the whole argument. Two adjacent seats
-    /// must be <see cref="ButtonSize"/> apart plus a gap - 96 + 16 = 112
-    /// points of chord - and a chord of 112 at radius 240 subtends
-    /// 2*asin(56/240) = 26.9 degrees, so the 110 degrees of arc hold
-    /// floor(110/26.9) + 1 = 5. Six would mean either 22-degree steps,
-    /// which puts the rims 92 points apart and breaks the separation
-    /// rule, or a smaller button.
+    /// SIX, and the arithmetic is the whole argument - the same
+    /// arithmetic that said five, run again after the radius moved.
+    /// Two adjacent seats must be <see cref="ButtonSize"/> apart plus a
+    /// gap, 96 + 16 = 112 points of chord. Six seats over 110 degrees
+    /// is a 22-degree step, and a 22-degree step subtends 112 points
+    /// only at radius 112 / (2*sin(11deg)) = 293.5. At the old 240 it
+    /// subtended 92, which is why this said five and why six was
+    /// refused.
+    ///
+    /// So the radius went to 300 rather than the seat count down to
+    /// five: 2*300*sin(11deg) = 114.5 points of chord, an 18.5-point
+    /// rim gap, which is slightly MORE room than the five-seat layout
+    /// had at 18.1. Both ends of the arc are permanent controls, so
+    /// four seats hold bindings and a page is four - which is what was
+    /// asked for, and what the pager was written around.
+    ///
+    /// The cost is a bigger cluster: the arc reaches 60 points further
+    /// from the primary, so Ceiling rises and the target block sits
+    /// higher. That is the trade for a fourth binding on every page.
     /// </summary>
-    public const int ArcSeats = 5;
+    public const int ArcSeats = 6;
 
     /// <summary>
     /// Hotbar seats: the arc, less the two ends.
     ///
-    /// Both ends of the arc are permanent controls now - Target Next at
-    /// 70 degrees and Door at 180 - so three of the five seats hold
-    /// bindings. That is one fewer per page, and it is the right trade:
+    /// Both ends of the arc are permanent controls - Target Next at
+    /// 70 degrees and Door at 180 - so four of the six seats hold
+    /// bindings. The ends are fixed because:
     /// Door is pressed in a corridor, between fights, when the thing you
     /// want is "take me through" and not whatever the page happens to
     /// be showing. A control you have to turn a page to reach is a

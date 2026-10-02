@@ -107,6 +107,16 @@ Tags: process | Kept so the next session tests something new rather than re-prov
   there without knowing where the row sits.
 - Walking: a held stick drag sends `ReqMove`, the minimap redraws, and a
   wall stops you instead of letting you through.
+- Logging out: `Tester,@name:menuButton,@name:logoutButton,Yes` and the
+  whole round trip happens on one socket - `ReqQuit` out, `Quit` back,
+  `GetChoice`, `ReqGameState`, `GameState`, `Characters`, picker. No
+  password is typed and nothing reconnects. Pressing `Tester` again
+  walks straight back into barinn, and the two in-world frames stack
+  identically (one real bug came out of that: the avatar portrait never
+  came back, `AvatarPanel.Follow`'s cache hit returning without
+  re-showing the button). The fixture had to learn `ReqQuit` first -
+  `inGame = false` plus a fresh `GetChoice`, which is what Server-104's
+  `SetSessionState(STATE_SYNCHED)` amounts to on the wire.
 - Go: puts `ReqGo` on the wire, and with the fixture's second room the
   whole change happens - new walls, a new object list, a rebuilt map,
   the room id and name in the status line, and the target cleared.

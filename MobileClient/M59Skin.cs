@@ -555,6 +555,27 @@ public static class M59Skin
     /// action reads last in the line. Returns the left edge reached, so
     /// a caller can put something else beside them.
     /// </summary>
+    /// <summary>
+    /// Puts one button at the LEFT end of a footer, away from the row
+    /// of them on the right.
+    ///
+    /// For an action that is destructive and cannot be undone. Drop is
+    /// the case this exists for: it sat in a row with Use, Look and
+    /// Hotbar, all four the same size and a thumb's width apart, and a
+    /// miss by one button throws away whatever the player was holding.
+    /// Separation is the only thing that helps - the guides are clear
+    /// that a destructive control belongs away from the ones next to
+    /// it, and a confirm on every drop would be worse, because a prompt
+    /// answered fifty times a session stops being read.
+    /// </summary>
+    public static void FootLeft(Rect2 foot, Button b)
+    {
+        if (b == null) return;
+        float w = Mathf.Max(110f, b.Text.Length * 11f + 44f);
+        b.Position = foot.Position;
+        b.Size = new Vector2(w, foot.Size.Y);
+    }
+
     public static float FootRow(Rect2 foot, params Button[] rightToLeft)
     {
         float x = foot.Position.X + foot.Size.X;
@@ -583,7 +604,33 @@ public static class M59Skin
     /// rows are inset by this plus a gap rather than the bar being
     /// widened until it collides with something else.
     /// </summary>
-    public const float ScrollBarW = 28f;
+    public const float ScrollBarW = 52f;
+
+    /// <summary>
+    /// How much of that width is empty space on the bar's LEFT, between
+    /// the rows and the part of the bar you can see.
+    ///
+    /// This is where the separation has to live, and the first attempt
+    /// put it in the wrong place. Narrowing the rows does nothing: a
+    /// ScrollContainer lays its child out at its own width less the
+    /// bar's, so a CustomMinimumSize on the row box is a FLOOR and not a
+    /// width, and the content goes on ending exactly where the bar
+    /// begins however small that minimum is. Measured in a frame after
+    /// the first try: about seven points between the Inspect button and
+    /// the grabber, which is nothing.
+    ///
+    /// So the bar is made wide and most of that width is given away as
+    /// margin. What the player sees is a 16-point grabber sitting 30
+    /// points clear of the last button on every row; what the finger
+    /// gets is the whole 52, because the margin is inside the control
+    /// and still takes the press. That is the right way round: the
+    /// target stays large while the two targets move apart. 44pt (Apple)
+    /// and 48dp (Material) say how big a target must be and say nothing
+    /// about how far apart two of them have to be before a thumb can
+    /// choose, and the thumb reaching for "+" was the thumb landing on
+    /// the bar.
+    /// </summary>
+    public const float BarInset = 30f;
 
     /// <summary>
     /// Dresses a list's vertical scrollbar: a visible track, a grabber
@@ -601,26 +648,71 @@ public static class M59Skin
         if (bar == null) return;
         bar.CustomMinimumSize = new Vector2(ScrollBarW, 0f);
 
-        var track = Flat(new Color(0f, 0f, 0f, 0.28f), ScrollBarW * 0.5f);
-        track.ContentMarginLeft = track.ContentMarginRight = ScrollBarW * 0.28f;
+        // The visible bar is what is left after the inset; the control
+        // keeps the whole width, so the dead margin is still a press
+        // that scrolls rather than a press that falls through to the row
+        // behind it.
+        float seen = ScrollBarW - BarInset;
+
+        // ExpandMargin, NEGATIVE, and not ContentMargin: a content
+        // margin tells a stylebox where its CHILD content goes, and a
+        // scrollbar has no child, so setting it changed nothing at all -
+        // measured in a frame, the gold ran the full 52 points and still
+        // sat flush against the Inspect buttons. A negative expand
+        // margin is what shrinks the box that actually gets drawn.
+        var track = Flat(new Color(0f, 0f, 0f, 0.28f), seen * 0.5f);
+        track.ExpandMarginLeft = -BarInset;
         bar.AddThemeStyleboxOverride("scroll", track);
         bar.AddThemeStyleboxOverride("scroll_focus", track);
 
-        var grab = Flat(GoldDim, ScrollBarW * 0.5f);
-        grab.ContentMarginLeft = grab.ContentMarginRight = ScrollBarW * 0.28f;
+        var grab = Flat(GoldDim, seen * 0.5f);
+        grab.ExpandMarginLeft = -BarInset;
         bar.AddThemeStyleboxOverride("grabber", grab);
-        var hot = Flat(Gold, ScrollBarW * 0.5f);
-        hot.ContentMarginLeft = hot.ContentMarginRight = ScrollBarW * 0.28f;
+        var hot = Flat(Gold, seen * 0.5f);
+        hot.ExpandMarginLeft = -BarInset;
         bar.AddThemeStyleboxOverride("grabber_highlight", hot);
         bar.AddThemeStyleboxOverride("grabber_pressed", hot);
     }
 
     /// <summary>
-    /// How much of a body a list's rows may use: everything but the bar
-    /// and a gap. Rows laid out to the full body width run their last
-    /// control under the bar, which is the collision this avoids.
+    /// How much of a body a list's rows may use: everything but the bar.
+    ///
+    /// A FLOOR, not a width - see BarInset. A ScrollContainer sizes its
+    /// child to its own width less the bar's whatever this says, so the
+    /// clear space between a row's last button and the grabber is the
+    /// bar's own left margin and not this number. This is still worth
+    /// setting, because a row box narrower than the container would
+    /// otherwise shrink to its longest line and every value column would
+    /// land wherever that row's text ended.
     /// </summary>
-    public static float RowsW(Rect2 body) => Mathf.Max(120f, body.Size.X - ScrollBarW - Gap);
+    public static float RowsW(Rect2 body) => Mathf.Max(120f, body.Size.X - ScrollBarW);
+
+    /// <summary>
+    /// Sizes a list's row box so it stops short of the scrollbar, and
+    /// MEANS it.
+    ///
+    /// CustomMinimumSize alone does not, which is the trap this exists
+    /// to close. A ScrollContainer fits its child with the child's own
+    /// size flags, and every row box in this client is ExpandFill - it
+    /// has to be, or a VBox shrinks to its longest line and every value
+    /// column lands wherever that row's text ended. Expanding, the child
+    /// takes the container's whole width and draws underneath the bar,
+    /// so the minimum is a floor the layout never reaches and the gap
+    /// asked for never appears. Photographed twice before it was
+    /// believed: the Inspect buttons ended exactly where the grabber
+    /// began, both before and after the number was raised.
+    ///
+    /// ShrinkBegin with an exact minimum is the fix: the box is given
+    /// that width, at the left, and its own children still fill it. The
+    /// two calls belong together, so they live here rather than in
+    /// sixteen Layout methods that each remembered one of them.
+    /// </summary>
+    public static void RowsFit(Control rows, Rect2 body)
+    {
+        if (rows == null) return;
+        rows.CustomMinimumSize = new Vector2(RowsW(body), rows.CustomMinimumSize.Y);
+        rows.SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin;
+    }
 
     /// <summary>
     /// The scrim for a screen with no world behind it - login, the

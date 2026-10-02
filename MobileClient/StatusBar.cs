@@ -305,6 +305,7 @@ public partial class StatusBar : Control
         // still hides the whole control out of the world.
         bool show = M59Hud.Shows("status");
         M59Hud.Dress("status");
+        Bottom = show ? at.Position.Y + at.Size.Y : 0f;
 
         // ---- the player's line ----------------------------------------
         _plate.Visible = show && inner > 0f;
@@ -360,6 +361,16 @@ public partial class StatusBar : Control
 
     /// <summary>The row's top, wherever the player left it.</summary>
     float _rowY;
+
+    /// <summary>
+    /// The lowest point this row actually occupies on screen, after the
+    /// player's own offset and scale. Published for the same reason
+    /// Vitals.Bottom is: the buff icons have to clear everything in the
+    /// top-left corner, and both the reserve and the scale are things a
+    /// player can move. Zero when the row is hidden, so nothing below
+    /// leaves a gap for a row that is not drawn.
+    /// </summary>
+    public float Bottom { get; private set; }
 
     /// <summary>
     /// How tall this is, so the next thing down can clear it. Scaled with

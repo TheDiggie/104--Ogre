@@ -195,7 +195,7 @@ public partial class StatsWizard : Control
         // sits behind it.
         // The bar is wider than this file's own BarW now; the skin
         // owns that number. See M59Skin.RowsW.
-        _rows.CustomMinimumSize = new Vector2(M59Skin.RowsW(body), 0);
+        M59Skin.RowsFit(_rows, body);
 
         // OK last in the line, where the skin puts the one thing a
         // panel is for.

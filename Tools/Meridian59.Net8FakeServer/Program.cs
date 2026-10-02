@@ -1089,6 +1089,39 @@ static class FakeServer
                     Say(ns, ctrl, RID_GREETING);
                     break;
 
+                // Logging out, modelled on what Server-104 actually does
+                // with BP_REQ_QUIT, because the shape is the whole point
+                // of the test and a fixture that invented a kinder one
+                // could not fail.
+                //
+                // The real server answers with one BP_QUIT byte and then
+                // puts the session back into STATE_SYNCHED
+                // (`Server-104/blakserv/game.c:423-425`). That state
+                // change is what takes the character out of the world
+                // (`GameExit` -> `ClientHangupToBlakod`, `game.c:71-81`),
+                // and `SynchedInit` then skips the password - the account
+                // is still known and verified - and goes straight to the
+                // main menu, which sends AP_GETCHOICE
+                // (`blakserv/synched.c:47-57`, `:818-835`). The socket is
+                // never closed.
+                //
+                // So: Quit, then back out of game mode, then GetChoice.
+                // `inGame = false` is this loop's STATE_SYNCHED, and it
+                // matches what the client's own message controller does on
+                // Quit - back to login protocol mode
+                // (`Meridian59/Protocol/MessageController/MessageController.cs:1049-1055`)
+                // - so the ReqGameState the library sends next is read on
+                // the right side of this loop's own switch. From there the
+                // existing ReqGame arm sends GameState and the characters,
+                // which is exactly the route the real server takes too.
+                case MessageTypeGameMode.ReqQuit:
+                    Console.WriteLine("  <- ReqQuit");
+                    Send(ns, ctrl, new QuitMessage());
+                    inGame = false;
+                    Send(ns, ctrl, new GetChoiceMessage(new HashTable()));
+                    Console.WriteLine("  (client is back at the main menu)");
+                    break;
+
                 case MessageTypeGameMode.ReqAttack:
                     // Attacking was the one common thing the fixture did
                     // not answer: the client sent 103 and the server
@@ -1335,7 +1368,33 @@ static class FakeServer
                         // the case the client had no answer for: the
                         // wizard used to close on hope and leave an
                         // empty screen and no message behind.
-                        if (Environment.GetEnvironmentVariable("M59_NAMETAKEN") == "1")
+                        // THE SLOT IS CHECKED, because the real server
+                        // checks it. Server-104 reads the first field of
+                        // NewCharInfo as the user object - `oUser =
+                        // Nth(client_msg,2)` then `Send(oUser,
+                        // @IsFirstTime)` (`kod/util/system.kod:4570`,
+                        // `:4572`, `:4579`) - so a slot the account was
+                        // never offered is refused. This fixture used to
+                        // accept anything, and because its only empty
+                        // slot was also id 0, the client's slot-0 bug
+                        // looked identical to correct behaviour here and
+                        // only showed up on the live server, at the very
+                        // end of the wizard. NotFirstTime is the nearest
+                        // of the errors the client can already explain.
+                        uint slot = uint.MaxValue;
+                        try { slot = new Meridian59.Protocol.SubMessage.SubMessageNewCharInfo(body, 1).AvatarID.ID; }
+                        catch (Exception ex)
+                        { Console.WriteLine($"     (NewCharInfo unreadable: {ex.Message})"); }
+
+                        if (FreeSlots.Count > 0 && !FreeSlots.Contains(slot))
+                        {
+                            Console.WriteLine($"     (new character refused: slot {slot} is not "
+                                            + $"one of this account's empty slots "
+                                            + $"[{string.Join(",", FreeSlots)}])");
+                            Send(ns, ctrl, new CharInfoNotOkMessage(
+                                CharInfoNotOkError.NotFirstTime));
+                        }
+                        else if (Environment.GetEnvironmentVariable("M59_NAMETAKEN") == "1")
                         {
                             Console.WriteLine("     (new character refused: name in use)");
                             Send(ns, ctrl, new CharInfoNotOkMessage(
@@ -1343,6 +1402,7 @@ static class FakeServer
                         }
                         else
                         {
+                            Console.WriteLine($"     (slot {slot} accepted)");
                             Console.WriteLine("     (new character accepted)");
                             Send(ns, ctrl, new CharInfoOkMessage(1001));
                         }
@@ -3162,26 +3222,59 @@ static class FakeServer
             price);
     }
 
+    /// <summary>
+    /// Which slot ids were offered as empty, so NewCharInfo can be
+    /// judged against them the way a real server judges it. See the
+    /// NewCharInfo arm.
+    /// </summary>
+    static readonly HashSet<uint> FreeSlots = new HashSet<uint>();
+
     static void SendCharacters(NetworkStream ns, MessageControllerClient ctrl)
     {
         // One character and one empty slot, which is what a real
         // account looks like: the empty slot is how the creation
         // wizard is reached, and a client that only lists real
         // characters can never get to it.
-        var chars = new List<CharSelectItem>
-        {
-            new CharSelectItem(1001, 1, "Tester", 0),
-        };
+        var chars = new List<CharSelectItem>();
+        // M59_NOCHARS=1 is a BRAND NEW ACCOUNT: empty slots and nothing
+        // else. Worth a switch of its own because it is the one shape
+        // every player meets exactly once, and the client used to treat
+        // it as a special case - skipping the selection screen and
+        // asking for the creation palette with no slot named, which the
+        // live server refuses. Untestable until now.
+        if (Environment.GetEnvironmentVariable("M59_NOCHARS") != "1")
+            chars.Add(new CharSelectItem(1001, 1, "Tester", 0));
+        // M59_CHARS=n puts n characters on the account.
+        if (int.TryParse(Environment.GetEnvironmentVariable("M59_CHARS"), out int many) && many > 1)
+            for (int i = 2; i <= many; i++)
+                chars.Add(new CharSelectItem((uint)(1000 + i), 1, "Tester" + i, 0));
         // M59_NOSLOT=1 reports an account with no room left, which is
         // the shape that used to skip the selection screen entirely:
         // one character and nowhere to put another. Reproduced here
         // because it is a real server's answer and was not testable.
+        //
+        // THE IDS ARE NOT ZERO ANY MORE, and that is the point of this
+        // change. The empty slot used to be `new CharSelectItem(0, 0,
+        // "", 1)` - id zero - so a client that sent slot 0 to create a
+        // character was indistinguishable here from a client that sent
+        // the right slot, and the one bug that broke creation on the
+        // live server (server-104 reads that field as the user object:
+        // `kod/util/system.kod:4570`, `:4572`, `:4579`) could not be
+        // reproduced. A fixture that answers more nicely than the real
+        // thing cannot fail. 2001 upward, and M59_SLOTS=n gives several,
+        // so a client that picks "the first empty one" rather than the
+        // one tapped is caught too.
         if (Environment.GetEnvironmentVariable("M59_NOSLOT") != "1")
-            chars.Add(new CharSelectItem(0, 0, "", 1));
-        // M59_CHARS=n puts n characters on the account.
-        if (int.TryParse(Environment.GetEnvironmentVariable("M59_CHARS"), out int many) && many > 1)
-            for (int i = 2; i <= many; i++)
-                chars.Insert(i - 1, new CharSelectItem((uint)(1000 + i), 1, "Tester" + i, 0));
+        {
+            if (!int.TryParse(Environment.GetEnvironmentVariable("M59_SLOTS"), out int free) || free < 1)
+                free = 1;
+            FreeSlots.Clear();
+            for (int i = 0; i < free; i++)
+            {
+                chars.Add(new CharSelectItem((uint)(2001 + i), 0, "", 1));
+                FreeSlots.Add((uint)(2001 + i));
+            }
+        }
         var welcome = new WelcomeInfo(chars, new List<CharSelectAd>(), "A fake server. Nothing here is real.");
         Send(ns, ctrl, new CharactersMessage(welcome));
     }
@@ -3843,6 +3936,15 @@ static class FakeServer
                 Item(6001, RID_COINBGF, RID_BUFF1, 1)));
             Send(ns, ctrl, new AddEnchantmentMessage(BuffType.AvatarBuff,
                 Item(6002, RID_AXEBGF, RID_BUFF2, 1)));
+            // M59_BUFFS=n puts n of them on. Two is not a row: the
+            // enchantment row runs fourteen wide, and the bug it hid
+            // was that past the second icon the row runs under the
+            // condition bars - which cannot happen with two.
+            if (int.TryParse(Environment.GetEnvironmentVariable("M59_BUFFS"), out int buffs))
+                for (uint i = 3; i <= (uint)buffs; i++)
+                    Send(ns, ctrl, new AddEnchantmentMessage(BuffType.AvatarBuff,
+                        Item(6000 + i, (i % 2) == 0 ? RID_COINBGF : RID_AXEBGF,
+                             (i % 2) == 0 ? RID_BUFF1 : RID_BUFF2, 1)));
         }
 
 

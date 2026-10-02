@@ -18,11 +18,23 @@ public partial class CharacterPicker : Control
 
     public event Action<CharSelectItem> Chosen;
     /// <summary>
-    /// Make a new one. The game's character selection has an empty slot
-    /// per unused place and clicking one starts the wizard; the list
-    /// here is only what exists, so the offer is a row of its own.
+    /// Make a new one, in THIS slot.
+    ///
+    /// The game's character selection draws a button per slot the
+    /// account owns, empty ones included, and clicking an empty one
+    /// starts the wizard for that slot - its own id, not the first free
+    /// one it could find (`UIWelcome.cpp:96-130`, `:157-161`). The id
+    /// matters: it is the first field of the NewCharInfo that eventually
+    /// creates the character (`BaseClient.cs:2644`, `:2656`) and
+    /// server-104 reads it as the user object, so a wrong one is a
+    /// refusal at the end of the wizard rather than at the start.
+    ///
+    /// So this carries the slot rather than leaving the caller to guess
+    /// it. It used to be a bare Action and the view kept "the first
+    /// empty slot in the list" beside it, which was the same answer only
+    /// as long as there was exactly one empty slot.
     /// </summary>
-    public event Action NewWanted;
+    public event Action<uint> NewWanted;
 
     VBoxContainer _rows;
     ScrollContainer _scroll;
@@ -201,7 +213,7 @@ public partial class CharacterPicker : Control
         // Clear of the scrollbar: a row laid out to the full body
         // runs its last control - a bind "+", a price - under the bar,
         // and a thumb aimed at one hits the other. See M59Skin.RowsW.
-        _rows.CustomMinimumSize = new Vector2(M59Skin.RowsW(body), 0);
+        M59Skin.RowsFit(_rows, body);
     }
 
 
@@ -335,22 +347,26 @@ public partial class CharacterPicker : Control
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
 
         // The wizard is reachable only from an empty slot
-        // (`UIWelcome.cpp:157,201,287`); an account with none has no
-        // such row, so it gets no "New character" either. Without a
-        // welcome model to ask, keep the offer - the old behaviour.
-        CanCreate = true;
+        // (`UIWelcome.cpp:157,201,287`), and the empty slots are now in
+        // the list this is handed rather than looked up on the side: the
+        // client passes the whole of WelcomeInfo.Characters through
+        // (`M59Client.HandleCharactersMessage`), which is what lets a row
+        // carry its own slot id instead of every row sharing the first
+        // free one.
+        CanCreate = false;
         FreeSlotId = 0;
-        if (_welcome?.Characters != null)
-        {
-            CanCreate = false;
-            foreach (CharSelectItem c in _welcome.Characters)
-                if (c != null && c.IsEmptySlot) { CanCreate = true; FreeSlotId = c.ID; break; }
-        }
+        foreach (CharSelectItem c in characters)
+            if (c != null && c.IsEmptySlot) { CanCreate = true; FreeSlotId = c.ID; break; }
+
+        // How many empty rows have been drawn, so the first one can keep
+        // the node name every harness run presses.
+        int freeSeen = 0;
 
         int index = 0;
         foreach (CharSelectItem c in characters)
         {
             CharSelectItem captured = c;          // do not close over the loop variable
+            bool empty = c != null && c.IsEmptySlot;
             var b = new Button
             {
                 // The name is the button's OWN text, not a child label:
@@ -358,48 +374,59 @@ public partial class CharacterPicker : Control
                 // overriding this button's font colours and grabbing its
                 // focus (`GameView.PreselectCharacter`), and a colour
                 // override on a Button does not reach a Label inside it.
-                Text = string.IsNullOrWhiteSpace(c.Name) ? "(unnamed)" : c.Name,
+                //
+                // An empty slot says what it is and what tapping it
+                // does. The reference can label its empty buttons with
+                // nothing but the slot number (`UIWelcome.cpp:96-130`)
+                // because its whole grid is visibly a grid of slots;
+                // here the rows are a list, and an unlabelled row in a
+                // list of names reads as a character whose name failed
+                // to load - which is exactly what "(unnamed)" used to
+                // make them look like.
+                Text = empty
+                    ? "Empty slot - make a character here"
+                    : (string.IsNullOrWhiteSpace(c.Name) ? "(unnamed)" : c.Name),
                 CustomMinimumSize = new Vector2(0, M59Skin.RowH),
                 Alignment = HorizontalAlignment.Left,
+                // Named so the harness can press a slot directly; the
+                // first empty one keeps the old name so the runs that
+                // pressed "newCharacter" still work.
+                Name = empty
+                    ? (freeSeen++ == 0 ? "newCharacter" : $"emptySlot{freeSeen - 1}")
+                    : $"character{index}",
             };
-            M59Skin.Dress(b, index++ % 2 == 1 ? M59Skin.Kind.RowAlt : M59Skin.Kind.Row);
+            M59Skin.Dress(b, empty
+                ? M59Skin.Kind.Secondary
+                : (index % 2 == 1 ? M59Skin.Kind.RowAlt : M59Skin.Kind.Row));
             // Choosing a person, not ticking a list item: the name
             // carries the weight of a heading and sits where a name
             // sits, at the left margin of the row.
-            b.AddThemeFontSizeOverride("font_size", M59Skin.BodySize + 4);
+            b.AddThemeFontSizeOverride("font_size",
+                empty ? M59Skin.BodySize : M59Skin.BodySize + 4);
             Indent(b);
             Marked(b);
-            b.Pressed += () => { Visible = false; Chosen?.Invoke(captured); };
+            if (empty)
+            {
+                uint slot = c.ID;
+                b.Pressed += () => { Visible = false; NewWanted?.Invoke(slot); };
+            }
+            else
+            {
+                b.Pressed += () => { Visible = false; Chosen?.Invoke(captured); };
+            }
+            index++;
             _rows.AddChild(b);
         }
 
-        if (CanCreate)
+        if (!CanCreate)
         {
-            var make = new Button
-            {
-                Text = "New character",
-                CustomMinimumSize = new Vector2(0, M59Skin.RowH),
-                Name = "newCharacter",
-            };
-            // Secondary, not a row: it makes somebody rather than
-            // choosing one of them, and a list of people with an action
-            // in the middle of it reads as a person called New character.
-            M59Skin.Dress(make, M59Skin.Kind.Secondary);
-            make.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
-            make.Pressed += () => { Visible = false; NewWanted?.Invoke(); };
-            _rows.AddChild(make);
-        }
-        else
-        {
-            // Said, not merely absent. The row for making a character is
-            // the only way to reach the wizard, so an account with no
-            // empty slot simply has no such row - and a screen that is
-            // missing a thing looks the same as a screen that forgot it.
-            // The reference never has to say this because its grid draws
-            // every slot the account owns, full or not
-            // (`UIWelcome.cpp:96-130`), so the absence is self-evident
-            // there; here the list is only the characters, so the reason
-            // has to be written down.
+            // Said, not merely absent. A full account has no empty row,
+            // and a screen that is missing a thing looks the same as a
+            // screen that forgot it. The reference never has to say this
+            // because its grid draws every slot the account owns, full or
+            // not (`UIWelcome.cpp:96-130`) - which this list now does
+            // too, so the sentence is only needed when there is nothing
+            // at all to show.
             Label full = M59Skin.Caption(
                 "This account has no free character slot, so there is nothing to make.");
             full.HorizontalAlignment = HorizontalAlignment.Center;
