@@ -231,3 +231,41 @@ saw once can keep being served after the file lands. Files first,
 manifest after; never the other way round.
 
 See also: the script -> ../../Tools/make-resources.ps1 | latest.json and the BOM -> this file | the updater -> ../Updater.cs
+
+## Let the watcher upload
+Tags: process | Tools/upload-site.ps1 pushes the site folder over SFTP with a key, delta only, in the order the client needs; one-time key setup is Ashton's
+
+The watcher (v5 onward) runs upload-site.ps1 after make-resources when
+a private key exists at `C:\Users\ashto\.ssh\m59_site`. Without the
+key it says so and leaves `site\` for FileZilla, so nothing breaks on a
+machine that was never set up.
+
+Why a key: the watcher is unattended, so its credential lives on disk,
+and a key on disk opens one door and can be revoked from hPanel; a
+password on disk is a password. `sftp -o BatchMode=yes` refuses to
+prompt, so a missing or rejected key fails at once instead of hanging.
+
+Why delta: `.uploaded.json` in `site\` records each file's SHA-1 as of
+the last successful upload (the hashes are make-resources' own, from
+`.hashcache.json`); only files whose hash differs go up, removed files
+are deleted on the server, and the record is written only when the
+whole sftp batch exited 0 - a dropped connection resends the same set
+next time rather than believing half of it arrived.
+
+Why the order: latest.json is the trigger, so it goes LAST, after the
+resources, the APK and resources.json. Anything else hands a phone a
+404 mid-update.
+
+ONE-TIME SETUP, done by Ashton in PowerShell (the second line asks for
+the SSH password from hPanel > Advanced > SSH Access, typed by him):
+
+    ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\m59_site -N '""'
+    type $env:USERPROFILE\.ssh\m59_site.pub | ssh -p 65002 u279449782@82.197.83.115 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
+    ssh -p 65002 -i $env:USERPROFILE\.ssh\m59_site u279449782@82.197.83.115 echo ok
+
+The third line must print `ok` without asking anything. Host, port
+and user are the ones FileZilla shows in its title bar; the remote
+folder is `/home/u279449782/domains/meridian59.us/public_html/mobile`
+(NOT the top-level public_html, which is the primary domain's).
+
+See also: the resource manifest -> this file | the watcher -> m59-build-watcher-v5.bat in m59_tmp
