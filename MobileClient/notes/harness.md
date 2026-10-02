@@ -354,6 +354,13 @@ a static set that fills on the first connection. A second run against
 the same process looks like half the fixtures are broken. Restart it
 per case.
 
+A private resource dir per run is 123MB (`/tmp/res` copied), and the
+agents' scratchpad is one shared root: by the dock's first run it held
+19GB of stale `res*`/`xdg*` copies and the disk was full, which shows
+up as the TOOL failing ("temp filesystem is full"), not the run.
+Delete the copy when the run ends (`kill $SPID; rm -rf $RES`) - the
+shots and the logs are the evidence, the copy is not.
+
 See also: the fake server -> ./fake-server.md | delivery -> ./delivery.md
 
 ## Nine ways a scripted run lies about a working feature

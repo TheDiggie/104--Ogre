@@ -702,7 +702,16 @@ public partial class InventoryPanel : Control
     /// </summary>
     int IconPixels() => Mathf.Max(IconSize, Mathf.RoundToInt(Cell() * IconSize / 52f));
 
-    ImageTexture Icon(InventoryObject o, int size)
+    ImageTexture Icon(InventoryObject o, int size) => ComposeIcon(o, size, _icons);
+
+    /// <summary>
+    /// An item's picture at a size, through a cache the caller owns.
+    /// Static and shared with <see cref="InventoryDock"/>, which draws
+    /// the same objects at a different size: one composer, two caches,
+    /// so the rule about what a picture depends on lives in one place.
+    /// </summary>
+    internal static ImageTexture ComposeIcon(InventoryObject o, int size,
+                                             Dictionary<string, ImageTexture> cache)
     {
         if (o?.Resource == null) return null;
         int frame = o.ViewerFrameIndex >= 0 ? o.ViewerFrameIndex : 0;
@@ -710,12 +719,14 @@ public partial class InventoryPanel : Control
         // file alone: two of the same item dyed differently are two
         // pictures, and one that gains an effect is a third.
         string key = $"{o.Resource.Filename}:{frame}:{size}:{o.ColorTranslation}:{o.Effect}";
-        if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
+        if (cache.TryGetValue(key, out ImageTexture cached)) return cached;
 
         ImageTexture tex = null;
         try { tex = M59Assets.FromTex(M59Compose.Icon(o, size)); }
         catch (Exception e) { GD.PrintErr($"[Inventory] {o.Name}: {e.Message}"); }
-        _icons[key] = tex;
+        // A miss is not cached: the art may simply not be readable yet
+        // (notes/godot-ui.md, "a failed compose is never cached").
+        if (tex != null) cache[key] = tex;
         return tex;
     }
 

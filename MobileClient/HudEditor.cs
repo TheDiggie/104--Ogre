@@ -74,6 +74,14 @@ public partial class HudEditor : Control
     ProgressBar _sizeBar, _fadeBar;
     Control _sizeHot, _fadeHot;
     Button _sizeLess, _sizeMore, _fadeLess, _fadeMore, _hide, _reset;
+    /// <summary>
+    /// The fifth verb, for a piece that is a grid: how many across.
+    /// Steppers only, no track - there are a dozen honest values, not a
+    /// continuum, and a thumb on a track cannot land on "7". Shown only
+    /// for a piece that declares a column range (M59Hud.Piece.Columns).
+    /// </summary>
+    Label _colsCap, _colsVal;
+    Button _colsLess, _colsMore;
 
     // ---- the bar ----------------------------------------------------
 
@@ -135,6 +143,10 @@ public partial class HudEditor : Control
     Vector2 _was;
 
     const float CardW = 440f, CardH = 232f;
+    /// <summary>What the columns row adds to the card when it is shown.</summary>
+    const float ColsRowH = 44f + M59Skin.Gap;
+    float CardHFor(M59Hud.Piece p) => CardH + (HasColumns(p) ? ColsRowH : 0f);
+    static bool HasColumns(M59Hud.Piece p) => p != null && p.MaxColumns > p.MinColumns;
 
     /// <summary>
     /// The bar's plate: two rows of controls and a line of hint, as
@@ -383,6 +395,22 @@ public partial class HudEditor : Control
             out _fadeLess, out _fadeMore, "hudFade",
             () => Nudge(-0.05f, false), () => Nudge(0.05f, false), 2);
 
+        _colsCap = M59Skin.Caption("Across");
+        _colsCap.VerticalAlignment = VerticalAlignment.Center;
+        _colsCap.MouseFilter = MouseFilterEnum.Ignore;
+        AddChild(_colsCap);
+        _colsVal = new Label
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        _colsVal.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        _colsVal.AddThemeColorOverride("font_color", M59Skin.GoldBright);
+        AddChild(_colsVal);
+        _colsLess = Make("-", "hudColsLess", M59Skin.Kind.Step, () => Columns(-1));
+        _colsMore = Make("+", "hudColsMore", M59Skin.Kind.Step, () => Columns(+1));
+
         _hide = Make("Hide", "hudHide", M59Skin.Kind.Secondary, () =>
         {
             if (_picked == null) return;
@@ -544,6 +572,26 @@ public partial class HudEditor : Control
         else _picked.Alpha = Mathf.Clamp(_picked.Alpha + by, M59Hud.MinAlpha, M59Hud.MaxAlpha);
         M59Hud.Touch();
         Follow();
+    }
+
+    /// <summary>
+    /// One column more or fewer. Zero in the model means the piece's
+    /// own default, so the first press starts from what the piece is
+    /// actually drawing (ColumnsNow), not from the bottom of the range
+    /// - which is what the first run of this did: one press of "-"
+    /// took the dock from eight across to two.
+    /// </summary>
+    void Columns(int by)
+    {
+        if (!HasColumns(_picked)) return;
+        int now = _picked.ColumnsNow;
+        _picked.Columns = Mathf.Clamp(now + by, _picked.MinColumns, _picked.MaxColumns);
+        M59Hud.Touch();
+        Follow();
+        // The piece's rect changes shape with its columns, so the card
+        // looks for its place again - it may now be sitting on the
+        // very thing it is resizing.
+        Layout(true);
     }
 
     /// <summary>A press or a drag on one of the two slider tracks.</summary>
@@ -718,6 +766,9 @@ public partial class HudEditor : Control
         _fadeCap.Visible = card; _fadeBar.Visible = card; _fadeVal.Visible = card;
         _fadeHot.Visible = card; _fadeLess.Visible = card; _fadeMore.Visible = card;
         _hide.Visible = card; _reset.Visible = card;
+        bool cols = card && HasColumns(_picked);
+        _colsCap.Visible = cols; _colsVal.Visible = cols;
+        _colsLess.Visible = cols; _colsMore.Visible = cols;
         _empty.Visible = !any;
 
         if (card)
@@ -727,6 +778,13 @@ public partial class HudEditor : Control
             _fadeBar.Value = (_picked.Alpha - M59Hud.MinAlpha) / (M59Hud.MaxAlpha - M59Hud.MinAlpha);
             _sizeVal.Text = $"{_picked.Scale:0.00}x";
             _fadeVal.Text = $"{_picked.Alpha * 100f:0}%";
+            if (cols)
+            {
+                int n = _picked.ColumnsNow;
+                _colsVal.Text = n.ToString();
+                _colsLess.Disabled = n <= _picked.MinColumns;
+                _colsMore.Disabled = n >= _picked.MaxColumns;
+            }
             // NOT a ToggleMode button, deliberately. A Godot toggle
             // changes state through ButtonPressed and raises `toggled`,
             // not `pressed` - so a toggle here would be a control that a
@@ -885,7 +943,10 @@ public partial class HudEditor : Control
         _empty.Position = new Vector2(0f, v.Y * 0.5f - 20f);
         _empty.Size = new Vector2(v.X, 40f);
 
-        if (_picked != null && (replace || _cardRect.Size.X < 1f))
+        // The card is taller for a grid piece; a card measured for the
+        // last piece would leave the columns row hanging off its plate.
+        if (_picked != null && (replace || _cardRect.Size.X < 1f
+                                || !Mathf.IsEqualApprox(_cardRect.Size.Y, CardHFor(_picked))))
             _cardRect = Dodge(v, margin);
         if (_picked != null) PlaceCard(_cardRect);
     }
@@ -918,16 +979,17 @@ public partial class HudEditor : Control
         // did exactly that). It is scored like a piece instead - heavily,
         // because a card over the Done button is a card that cannot be
         // dismissed without first dragging something.
-        float low = v.Y - margin - CardH;
+        float cardH = CardHFor(_picked);
+        float low = v.Y - margin - cardH;
         float[] xs = { margin, v.X - margin - CardW };
-        float[] ys = { margin, Mathf.Round((v.Y - CardH) * 0.5f), low };
+        float[] ys = { margin, Mathf.Round((v.Y - cardH) * 0.5f), low };
 
-        Rect2 best = new Rect2(xs[0], ys[0], CardW, CardH);
+        Rect2 best = new Rect2(xs[0], ys[0], CardW, cardH);
         float bestScore = float.MaxValue;
         foreach (float cx in xs)
             foreach (float cy in ys)
             {
-                var r = new Rect2(cx, Mathf.Clamp(cy, 0f, Mathf.Max(0f, low)), CardW, CardH);
+                var r = new Rect2(cx, Mathf.Clamp(cy, 0f, Mathf.Max(0f, low)), CardW, cardH);
                 Rect2 on = r.Intersection(keep);
                 float score = on.Size.X * on.Size.Y * 8f;
                 Rect2 bar = r.Intersection(_barRect);
@@ -967,6 +1029,24 @@ public partial class HudEditor : Control
 
         y = SliderRow(x, y, w, _sizeCap, _sizeBar, _sizeVal, _sizeHot, _sizeLess, _sizeMore);
         y = SliderRow(x, y, w, _fadeCap, _fadeBar, _fadeVal, _fadeHot, _fadeLess, _fadeMore);
+
+        if (HasColumns(_picked))
+        {
+            // Same columns as the slider rows above it - the caption,
+            // the value and the two steppers land under their fellows,
+            // with the track's ground left empty between.
+            const float capW = 52f, stepW = 46f, valW = 62f, h = 44f;
+            _colsCap.Position = new Vector2(x, y);
+            _colsCap.Size = new Vector2(capW + 20f, h);
+            float sx = x + w - stepW * 2f - M59Skin.Gap;
+            _colsVal.Position = new Vector2(sx - M59Skin.Gap - valW, y);
+            _colsVal.Size = new Vector2(valW, h);
+            _colsLess.Position = new Vector2(sx, y);
+            _colsLess.Size = new Vector2(stepW, h);
+            _colsMore.Position = new Vector2(sx + stepW + M59Skin.Gap, y);
+            _colsMore.Size = new Vector2(stepW, h);
+            y += h + M59Skin.Gap;
+        }
 
         y += 4f;
         float half = (w - M59Skin.Gap) * 0.5f;
@@ -1058,6 +1138,7 @@ public partial class HudEditor : Control
             if (bad) tag += "  overlapping";
             if (p.Scale != 1f) tag += $"  {p.Scale:0.00}x";
             if (p.Alpha != 1f) tag += $"  {p.Alpha * 100f:0}%";
+            if (p.Columns > 0 && HasColumns(p)) tag += $"  {p.ColumnsNow} across";
 
             float tw = f.GetStringSize(tag, HorizontalAlignment.Left, -1, 16).X;
             var chip = new Rect2(r.Position.X + 2f, r.Position.Y + 2f, tw + 14f, 22f);

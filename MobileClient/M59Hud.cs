@@ -70,6 +70,27 @@ public static class M59Hud
         public bool Hidden;
 
         /// <summary>
+        /// How many across, for a piece that is a GRID of things and
+        /// wraps. Zero means the piece's own default. Only a piece that
+        /// sets <see cref="MaxColumns"/> above <see cref="MinColumns"/>
+        /// gets the verb in the editor; every other piece ignores it.
+        ///
+        /// WHY THIS AND NOT A FREE RESIZE. The player's word was
+        /// "resize", and the honest answer for a cluster is Scale -
+        /// every size inside it grows together. But a grid has a second
+        /// honest axis: the same slots at the same size can be laid out
+        /// wide or tall, and that is a column count, not a rectangle.
+        /// A free-dragged rectangle would have to be reconciled with
+        /// the slot size on every edge and would lie about what it
+        /// holds the moment the bag changed; a number of columns cannot.
+        /// Saved as the sixth field on the piece's line so a file
+        /// written before it existed still reads (ApplySaved).
+        /// </summary>
+        public int Columns;
+        /// <summary>The range, and what zero means. Set by the piece at Register.</summary>
+        public int MinColumns, MaxColumns, DefaultColumns;
+
+        /// <summary>
         /// Where the designer last wanted it, before the player's offset.
         /// The editor draws its handle here plus Offset, and Reset puts
         /// it back here.
@@ -82,7 +103,12 @@ public static class M59Hud
         /// <summary>Where it actually ends up: Natural moved by Offset.</summary>
         public Rect2 Rect => new Rect2(Natural.Position + Offset, Natural.Size);
 
-        internal bool Moved => Offset != Vector2.Zero || Scale != 1f || Alpha != 1f || Hidden;
+        internal bool Moved => Offset != Vector2.Zero || Scale != 1f || Alpha != 1f || Hidden || Columns != 0;
+
+        /// <summary>The columns in force: the player's, clamped, or the piece's default.</summary>
+        public int ColumnsNow
+            => Columns > 0 && MaxColumns > MinColumns
+               ? Mathf.Clamp(Columns, MinColumns, MaxColumns) : DefaultColumns;
     }
 
     static readonly Dictionary<string, Piece> Pieces = new Dictionary<string, Piece>();
@@ -325,7 +351,8 @@ public static class M59Hud
         // registered under its key would read "fixed" as a position; no
         // piece is, and this keeps it that way.
         if (p.Id == ControlsKey) return;
-        // x,y,scale,alpha,hidden
+        // x,y,scale,alpha,hidden[,columns] - the sixth is optional, so
+        // a file from before grids had a column count still reads.
         string[] bits = v.Split(',');
         if (bits.Length < 5) return;
         float.TryParse(bits[0], out float x);
@@ -336,6 +363,7 @@ public static class M59Hud
         p.Scale = s > 0f ? Mathf.Clamp(s, MinScale, MaxScale) : 1f;
         p.Alpha = a > 0f ? Mathf.Clamp(a, MinAlpha, MaxAlpha) : 1f;
         p.Hidden = bits[4] == "1";
+        p.Columns = bits.Length > 5 && int.TryParse(bits[5], out int c) && c > 0 ? c : 0;
     }
 
     public static void Save()
@@ -350,7 +378,8 @@ public static class M59Hud
             foreach (Piece p in Order)
             {
                 if (p.Moved)
-                    d[p.Id] = $"{p.Offset.X:0.##},{p.Offset.Y:0.##},{p.Scale:0.###},{p.Alpha:0.###},{(p.Hidden ? 1 : 0)}";
+                    d[p.Id] = $"{p.Offset.X:0.##},{p.Offset.Y:0.##},{p.Scale:0.###},{p.Alpha:0.###},{(p.Hidden ? 1 : 0)}"
+                            + (p.Columns > 0 ? $",{p.Columns}" : "");
                 else
                     d.Remove(p.Id);   // back at the default: say nothing rather than saying "default"
             }
@@ -361,7 +390,7 @@ public static class M59Hud
 
             var sb = new StringBuilder();
             sb.Append("# Where this player wants the HUD. One section per layout.\n");
-            sb.Append("# piece=offsetX,offsetY,scale,alpha,hidden\n");
+            sb.Append("# piece=offsetX,offsetY,scale,alpha,hidden[,columns]\n");
             sb.Append("slot=").Append(Slot).Append('\n');
             foreach (var kv in Saved)
             {
@@ -385,7 +414,7 @@ public static class M59Hud
         Slot = slot;
         foreach (Piece p in Order)
         {
-            p.Offset = Vector2.Zero; p.Scale = 1f; p.Alpha = 1f; p.Hidden = false;
+            p.Offset = Vector2.Zero; p.Scale = 1f; p.Alpha = 1f; p.Hidden = false; p.Columns = 0;
             ApplySaved(p);
         }
         ApplyScheme();
@@ -406,7 +435,7 @@ public static class M59Hud
     public static void Reset(Piece p)
     {
         if (p == null) return;
-        p.Offset = Vector2.Zero; p.Scale = 1f; p.Alpha = 1f; p.Hidden = false;
+        p.Offset = Vector2.Zero; p.Scale = 1f; p.Alpha = 1f; p.Hidden = false; p.Columns = 0;
         Touch();
     }
 
@@ -432,7 +461,7 @@ public static class M59Hud
             sb.Append(p.Id).Append('=')
               .Append(p.Offset.X).Append(',').Append(p.Offset.Y).Append(',')
               .Append(p.Scale).Append(',').Append(p.Alpha).Append(',')
-              .Append(p.Hidden ? 1 : 0).Append(';');
+              .Append(p.Hidden ? 1 : 0).Append(',').Append(p.Columns).Append(';');
         return sb.ToString();
     }
 
@@ -460,6 +489,7 @@ public static class M59Hud
             p.Scale = s > 0f ? s : 1f;
             p.Alpha = a > 0f ? a : 1f;
             p.Hidden = b[4] == "1";
+            p.Columns = b.Length > 5 && int.TryParse(b[5], out int c) && c > 0 ? c : 0;
         }
         Touch();
     }

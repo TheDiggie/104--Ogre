@@ -359,6 +359,8 @@ public partial class GameView : Node2D
     Purse _purse;
     AvatarPanel _face;
     InventoryPanel _bag;
+    /// <summary>The pack on the glass. See InventoryDock.</summary>
+    InventoryDock _dock;
 
     /// <summary>
     /// Controls live under a CanvasLayer, not directly under this Node2D.
@@ -2651,7 +2653,65 @@ public partial class GameView : Node2D
         {
             _bag = new InventoryPanel();
             _bag.Opened      += () => Act(() => _client.SendReqInventoryMessage());
-            _bag.UseItem     += item => WorldAct(() =>
+            _bag.UseItem     += UseFromPack;
+            // The tap has settled into a target, a double-tap window
+            // after it - the reference's Inventory::Tick
+            // (`UIInventory.cpp:292-301`). Selected is the same tap
+            // reaching the buttons and the border immediately; only this
+            // one moves the target, and that split is what leaves an
+            // Apply something to aim at.
+            _bag.Targeted    += TargetFromPack;
+            // Backed out of "pick an item": forget who had asked. Without
+            // this the next ordinary tap in the bag handed the item to
+            // the trade or the container, with neither window open.
+            _bag.PickCancelled += () => _pickFor = PickFor.Nobody;
+            // Nothing subscribes to Selected here any more, and that is
+            // the point of the split above: the tap's effect on the
+            // target belongs to Targeted, one double-tap window later,
+            // because the reference's single click does not set the
+            // target either - Tick does (`UIInventory.cpp:294-300`). The
+            // library resolves a target id against the room and then the
+            // inventory, so a carried thing is still a legitimate target;
+            // it just is not one the instant you touch it. What you had
+            // targeted before the bag opened is put back when it closes;
+            // see the pair of lines in Pump.
+            _bag.Picked      += item =>
+            {
+                PickFor who = _pickFor;
+                _pickFor = PickFor.Nobody;
+                if (who == PickFor.Container) PutInContainer(item);
+                else _trade?.Put(item);
+            };
+            _bag.DropItem    += DropFromPack;
+            _bag.LookItem    += LookFromPack;
+            _bag.BindItem    += BindFromPack;
+            _bag.MoveItem    += (from, to) => Act(() => MoveInBag(from, to));
+            _ui.AddChild(_bag);
+        });
+
+        // The pack on the glass: the same four verbs as the bag, wired
+        // to the same handlers, so there is one answer to what Use,
+        // Drop, Look and Hotbar do to an item wherever it was tapped.
+        // Its selection counts as the bag being open for the target
+        // save-and-restore in Pump.
+        Widget("dock", () =>
+        {
+            _dock = new InventoryDock();
+            _dock.UseItem  += UseFromPack;
+            _dock.DropItem += DropFromPack;
+            _dock.LookItem += LookFromPack;
+            _dock.BindItem += BindFromPack;
+            _dock.Targeted += TargetFromPack;
+            _ui.AddChild(_dock);
+        });
+
+        WidgetsAfterPack(user, pass);
+    }
+
+    /// <summary>
+    /// Use, unuse or apply a carried thing - from the bag or the dock.
+    /// </summary>
+    void UseFromPack(InventoryObject item) => WorldAct(() =>
             {
                 // An Apply is aimed at the world, and the reference never
                 // has to say so: its double click lands inside the
@@ -2675,41 +2735,19 @@ public partial class GameView : Node2D
 
                 _client.UseUnuseApply(item);
             });
-            // The tap has settled into a target, a double-tap window
-            // after it - the reference's Inventory::Tick
-            // (`UIInventory.cpp:292-301`). Selected is the same tap
-            // reaching the buttons and the border immediately; only this
-            // one moves the target, and that split is what leaves an
-            // Apply something to aim at.
-            _bag.Targeted    += item => Act(() =>
+
+    /// <summary>A tap in the bag or the dock has become the target (see the bag's Targeted).</summary>
+    void TargetFromPack(InventoryObject item) => Act(() =>
             {
                 if (item != null && _client.Data != null) _client.Data.TargetID = item.ID;
             });
-            // Backed out of "pick an item": forget who had asked. Without
-            // this the next ordinary tap in the bag handed the item to
-            // the trade or the container, with neither window open.
-            _bag.PickCancelled += () => _pickFor = PickFor.Nobody;
-            // Nothing subscribes to Selected here any more, and that is
-            // the point of the split above: the tap's effect on the
-            // target belongs to Targeted, one double-tap window later,
-            // because the reference's single click does not set the
-            // target either - Tick does (`UIInventory.cpp:294-300`). The
-            // library resolves a target id against the room and then the
-            // inventory, so a carried thing is still a legitimate target;
-            // it just is not one the instant you touch it. What you had
-            // targeted before the bag opened is put back when it closes;
-            // see the pair of lines in Pump.
-            _bag.Picked      += item =>
-            {
-                PickFor who = _pickFor;
-                _pickFor = PickFor.Nobody;
-                if (who == PickFor.Container) PutInContainer(item);
-                else _trade?.Put(item);
-            };
-            // UIInventory.cpp: something that is not a stack drops
-            // straight away with a count of zero, and a stack asks how
-            // many first, prefilled with the lot.
-            _bag.DropItem    += item => WorldAct(() =>
+
+    /// <summary>
+    /// UIInventory.cpp: something that is not a stack drops straight
+    /// away with a count of zero, and a stack asks how many first,
+    /// prefilled with the lot.
+    /// </summary>
+    void DropFromPack(InventoryObject item) => WorldAct(() =>
             {
                 if (item.IsStackable && _amount != null)
                 {
@@ -2728,15 +2766,22 @@ public partial class GameView : Node2D
                 else
                     _client.SendReqDropMessage(new ObjectID(item.ID));
             });
-            _bag.LookItem    += item => Act(() => _client.SendReqLookMessage(item.ID));
-            _bag.BindItem    += item => Act(() =>
+
+    void LookFromPack(InventoryObject item) => Act(() => _client.SendReqLookMessage(item.ID));
+
+    void BindFromPack(InventoryObject item) => Act(() =>
             {
                 if (ActionButtons.Bind(_client.Data, item))
                     _chat?.Local($"{item.Name} is on the hotbar. Drag the button off the row to clear it.");
             });
-            _bag.MoveItem    += (from, to) => Act(() => MoveInBag(from, to));
-            _ui.AddChild(_bag);
-        });
+
+    /// <summary>
+    /// The rest of Begin's widgets. Split out only so the pack's four
+    /// handlers above could become methods the bag and the dock share;
+    /// the order of the widgets is unchanged.
+    /// </summary>
+    void WidgetsAfterPack(string user, string pass)
+    {
 
         Widget("vitals", () =>
         {
@@ -2907,6 +2952,11 @@ public partial class GameView : Node2D
             // The shop. One message buys everything ticked, which is what
             // Buy::OnOKClicked sends - not one per item.
             _shop = new BuyPanel();
+            // The coin on every price: the shilling you carry if you
+            // carry any, else coin.bgf by name - see CoinArt. Resolved
+            // on each Sync rather than once, because the stack arrives
+            // after the shop can open and the art after the stack.
+            _shop.Coin = () => CoinArt.Shilling(_client?.Data, _client?.ResourceManager);
             _shop.Look += id => Act(() => _client.SendReqLookMessage(id));
             _shop.AmountWanted += line =>
             {
@@ -3347,6 +3397,7 @@ public partial class GameView : Node2D
                 _status.Position = new Vector2(_status.Position.X, under);
         }
         _bag?.Sync(_client.Data?.InventoryObjects);
+        _dock?.Sync(_client.Data?.InventoryObjects);
         _lootList?.Sync(_client.Data?.RoomObjectsLoot);
         _contents?.Sync(_client.Data?.ObjectContents);
         _shop?.Sync(_client.Data?.Buy);
@@ -3408,7 +3459,7 @@ public partial class GameView : Node2D
         // no one moment that is "logged in" - see the note above on why
         // this is an avatar in a room and not a button press.
         if (_options != null) _options.Playing = inWorld;
-        foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _questMarks, _face, _vitals, _purse, _chat, _overlays })
+        foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _questMarks, _face, _vitals, _purse, _dock, _chat, _overlays })
             if (c != null) c.Visible = inWorld;
         if (_loot != null) _loot.Visible = inWorld;
         if (_go != null) _go.Visible = inWorld;
@@ -3430,7 +3481,17 @@ public partial class GameView : Node2D
         // thing targets it, which the game does too, but that is a
         // detour: coming back out you should still be facing whatever
         // you were facing.
-        bool bagOpen = _bag != null && _bag.IsOpen;
+        //
+        // A selection in the dock is the bag being open, for this: the
+        // picked item becomes the target the same way (TargetFromPack)
+        // and putting the strip away should give the world target back
+        // the same way. And the dock's selection goes when anything
+        // covers the glass - a panel, the drawer, the editor - because
+        // a strip of verbs under a scrim is a strip that cannot be
+        // pressed, and the first tap on the world after would have to
+        // clear it anyway.
+        if (_dock != null && Covered()) _dock.Deselect();
+        bool bagOpen = (_bag != null && _bag.IsOpen) || (_dock != null && _dock.HasSelection);
         if (_client.Data != null)
         {
             if (bagOpen && !_bagWasOpen) _targetBeforeBag = _client.Data.TargetID;
@@ -3587,6 +3648,15 @@ public partial class GameView : Node2D
         // is the touch layer's - which under the Fixed scheme means a
         // tap and nothing more (TouchControls.TapOnly).
         if (_fixed != null && _fixed.Handle(e, UiPoint(e))) return;
+        // A finger landing on the world - not on a slot, not on the
+        // strip, which take their own presses before this is reached -
+        // puts the dock's selection away. On the press, not the lift,
+        // so a look drag dismisses it too; the strip is a question
+        // about one item, and turning to look at something else is an
+        // answer.
+        if (_dock != null && (e is InputEventScreenTouch { Pressed: true }
+                              || e is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }))
+            _dock.Deselect();
         _touch.Handle(e, GetViewportRect().Size);
     }
 

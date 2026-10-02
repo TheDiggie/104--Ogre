@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Godot;
 using Meridian59.Data.Models;
 using Meridian59.Drawing2D;
+using Meridian59.Files.BGF;
 
 /// <summary>
 /// A check box that can be seen. Godot's default CheckBox draws its
@@ -93,6 +94,106 @@ public static class TickStyle
 }
 
 /// <summary>
+/// The coin a price is counted in, as a picture.
+///
+/// WHAT A PRICE IS. The buy list carries one number per line and no
+/// coin: `BuyListMessage.ReadFrom` is the merchant, a count, and a
+/// `TradeOfferObject` per line (`BuyListMessage.cs:67-77`), and that
+/// object is an `ObjectBase` plus a single `uint price`
+/// (`TradeOfferObject.cs:33,48`, "Per unit price of the object", `:83`).
+/// Nothing in the protocol names a currency, so the reference writes the
+/// bare number (`UIBuy.cpp:122`, `toString(obj->Price)`) and sums it
+/// bare (`:211`). The unit is the server's: Blakod's Money class IS the
+/// shilling - `money_name_one_rsc = "shilling"`, `money_icon_rsc =
+/// coin.bgf` (`kod/object/item/passitem/numbitem/money.kod:19-22`) -
+/// and it is the only coin the protocol knows a name for
+/// (`ResourceStrings.cs:266`, `SHILLING = "shilling"`). Platinum and
+/// doubloons are items with a value, not a unit anything is priced in.
+///
+/// WHERE THE PICTURE COMES FROM, in order:
+///
+///  1. The player's own shilling stack. An inventory stack arrives with
+///     its BGF already resolved (`InventoryObject.Resource`), so when
+///     you are carrying any shillings the icon is exactly the art the
+///     bag draws for them - the server's own choice of file, whatever a
+///     server calls it, matched by name the way Purse matches it.
+///  2. Failing that, the well-known name, `coin.bgf`, which is the
+///     file money.kod names and every resource dump ships. A player
+///     with an empty purse still needs to know what a price is counted
+///     in - that is the player who most needs to know.
+///
+/// Composed through `Tex.FromSprite` rather than read as a flat frame,
+/// for the reason Vitals.StatIcon gives: object art has a transparent
+/// key round it that a flat read turns into a cyan block.
+/// </summary>
+public static class CoinArt
+{
+    /// <summary>money.kod:22 - `money_icon_rsc = coin.bgf`.</summary>
+    public const string ShillingBgf = "coin.bgf";
+
+    /// <summary>The word Purse matches a shilling stack by (Purse.cs, `Coins`).</summary>
+    public const string ShillingWord = "shilling";
+
+    /// <summary>
+    /// The shilling's BGF: the stack you carry, else the named file,
+    /// else null when neither is readable yet.
+    /// </summary>
+    public static BgfFile Shilling(Meridian59.Data.DataController data, Meridian59.Files.ResourceManager res)
+    {
+        if (data?.InventoryObjects != null)
+            foreach (InventoryObject o in data.InventoryObjects)
+            {
+                string name = o?.Name;
+                if (string.IsNullOrEmpty(name) || o.Resource == null || o.Resource.Frames.Count == 0) continue;
+                if (name.IndexOf(ShillingWord, StringComparison.OrdinalIgnoreCase) >= 0) return o.Resource;
+            }
+        BgfFile named = null;
+        try { named = res?.GetObject(ShillingBgf); }
+        catch (Exception e) { GD.PrintErr($"[CoinArt] {ShillingBgf}: {e.Message}"); }
+        return named != null && named.Frames.Count > 0 ? named : null;
+    }
+
+    static readonly Dictionary<string, ImageTexture> _cache = new Dictionary<string, ImageTexture>();
+
+    /// <summary>
+    /// The coin as a texture, once per file. A miss is not cached -
+    /// the art may simply not be read yet (notes/godot-ui.md, "a
+    /// failed compose is never cached").
+    /// </summary>
+    public static ImageTexture Texture(BgfFile bgf)
+    {
+        if (bgf == null || bgf.Frames.Count == 0) return null;
+        string key = bgf.Filename ?? "";
+        if (_cache.TryGetValue(key, out ImageTexture had)) return had;
+        ImageTexture made = null;
+        try { made = M59Assets.FromTex(Tex.FromSprite(bgf, 0)); }
+        catch (Exception e) { GD.PrintErr($"[CoinArt] {key}: {e.Message}"); }
+        if (made != null) _cache[key] = made;
+        return made;
+    }
+
+    /// <summary>
+    /// The coin at a text's height, to sit immediately before a number.
+    /// KeepAspectCentered, so a tall stack and a flat coin both land
+    /// inside the same square and the digits after it start in the same
+    /// place on every row.
+    /// </summary>
+    public static TextureRect Mark(ImageTexture tex, float side)
+    {
+        return new TextureRect
+        {
+            Texture = tex,
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            CustomMinimumSize = new Vector2(side, side),
+            SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            Visible = tex != null,
+        };
+    }
+}
+
+/// <summary>
 /// The shopkeeper's stock.
 ///
 /// `UIBuy.cpp`: a multi-select list of what the merchant sells, each row
@@ -119,6 +220,14 @@ public partial class BuyPanel : Control
     [Export] public int IconSize = 40;
     [Export] public int RowHeight = 56;
 
+    /// <summary>
+    /// The coin beside a price: the text's own height. BodySize is the
+    /// font's point size; the glyphs' line box is a few points taller,
+    /// and the coin fills that box rather than the x-height, so it reads
+    /// as a character in the line and not a dot before it.
+    /// </summary>
+    public const float CoinSide = M59Skin.BodySize + 6;
+
     /// <summary>Buy these, from the merchant the server named.</summary>
     public event Action<List<TradeOfferObject>> Buy;
     /// <summary>How many of this stackable line to buy.</summary>
@@ -133,6 +242,13 @@ public partial class BuyPanel : Control
     /// </summary>
     public event Action<uint> Look;
 
+    /// <summary>
+    /// Where the coin's picture comes from - see CoinArt. The view
+    /// supplies it because the panel sees only the merchant's list, and
+    /// the stack you carry and the resource folder are both the view's.
+    /// </summary>
+    public Func<BgfFile> Coin { get; set; }
+
     /// <summary>How long a press is held before it describes instead of ticking.</summary>
     [Export] public ulong LongPressMs = 600;
 
@@ -142,7 +258,9 @@ public partial class BuyPanel : Control
     ColorRect _panel;
     Panel _card, _bar;
     Button _x;
-    Label _title, _sum, _empty;
+    Label _title, _sum, _sumValue, _empty;
+    TextureRect _sumCoin;
+    HBoxContainer _sumRow;
     ScrollContainer _scroll;
     VBoxContainer _rows;
     Button _ok, _close;
@@ -243,10 +361,24 @@ public partial class BuyPanel : Control
         // spending, so it is title-sized and gold and sits in the
         // footer band beside the button that spends it - not a line of
         // small print lost above a row of grey slabs.
-        _sum = new Label { Text = "", Visible = false, VerticalAlignment = VerticalAlignment.Center };
+        //
+        // It is three pieces in a row - the word, the coin, the number -
+        // because the number carries the same coin the rows do. A sum
+        // with no coin on it was the one place a player still had to
+        // guess what he was about to spend.
+        _sumRow = new HBoxContainer { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        _sumRow.AddThemeConstantOverride("separation", 8);
+        _sum = new Label { Text = "", VerticalAlignment = VerticalAlignment.Center, MouseFilter = MouseFilterEnum.Ignore };
         _sum.AddThemeFontSizeOverride("font_size", M59Skin.TitleSize);
         _sum.AddThemeColorOverride("font_color", M59Skin.GoldBright);
-        AddChild(_sum);
+        _sumRow.AddChild(_sum);
+        _sumCoin = CoinArt.Mark(null, M59Skin.TitleSize + 6);
+        _sumRow.AddChild(_sumCoin);
+        _sumValue = new Label { Text = "", VerticalAlignment = VerticalAlignment.Center, MouseFilter = MouseFilterEnum.Ignore };
+        _sumValue.AddThemeFontSizeOverride("font_size", M59Skin.TitleSize);
+        _sumValue.AddThemeColorOverride("font_color", M59Skin.GoldBright);
+        _sumRow.AddChild(_sumValue);
+        AddChild(_sumRow);
 
         _ok = Action("Buy", () =>
         {
@@ -325,8 +457,8 @@ public partial class BuyPanel : Control
         // that dismisses it is; the total takes whatever the two of
         // them leave, which keeps it clear of both.
         float left = M59Skin.FootRow(foot, _close, _ok);
-        _sum.Position = foot.Position;
-        _sum.Size = new Vector2(Mathf.Max(0f, left - foot.Position.X - M59Skin.Gap), foot.Size.Y);
+        _sumRow.Position = foot.Position;
+        _sumRow.Size = new Vector2(Mathf.Max(0f, left - foot.Position.X - M59Skin.Gap), foot.Size.Y);
     }
 
     /// <summary>
@@ -396,7 +528,7 @@ public partial class BuyPanel : Control
         // Above whatever else is open - see Panels.ToFront.
         if (on) Panels.ToFront(this);
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
-        _sum.Visible = on; _ok.Visible = on; _close.Visible = on;
+        _sumRow.Visible = on; _ok.Visible = on; _close.Visible = on;
         _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         _empty.Visible = on && _rows.GetChildCount() == 0;
         Layout();
@@ -439,7 +571,15 @@ public partial class BuyPanel : Control
             return;
         }
 
+        // The coin's art is part of what the rows draw, so its
+        // resolution state is part of the signature - a list built
+        // before the shilling's BGF was readable would otherwise keep
+        // its bare numbers for the session (notes/godot-ui.md, "A polled
+        // signature must hold everything the panel draws").
+        BgfFile coin = Coin?.Invoke();
+        ImageTexture coinTex = CoinArt.Texture(coin);
         var sb = new System.Text.StringBuilder();
+        sb.Append(coinTex != null ? coin.Filename : "").Append('|');
         foreach (TradeOfferObject o in buy.Items)
             sb.Append(o?.ID).Append(':').Append(o?.Count).Append(':').Append(o?.Price).Append(';');
         string now = sb.ToString();
@@ -487,7 +627,7 @@ public partial class BuyPanel : Control
 
                     // Alternating tints, so the eye keeps its place down
                     // a list of near-identical lines.
-                    _stock.Add(o); _rows.AddChild(Row(o, _stock.Count % 2 == 0));
+                    _stock.Add(o); _rows.AddChild(Row(o, _stock.Count % 2 == 0, coinTex));
                 }
 
             _empty.Visible = _stock.Count == 0;
@@ -513,11 +653,18 @@ public partial class BuyPanel : Control
             if (o == null || !_ticked.Contains(o.ID)) continue;
             sum += o.IsStackable ? (long)o.Count * o.Price : o.Price;
         }
-        _sum.Text = _ticked.Count == 0 ? "Nothing picked" : $"Total {sum}  ({_ticked.Count})";
-        _ok.Disabled = _ticked.Count == 0;
+        bool any = _ticked.Count > 0;
+        _sum.Text = any ? "Total" : "Nothing picked";
+        _sumValue.Text = any ? $"{sum}  ({_ticked.Count})" : "";
+        _sumValue.Visible = any;
+        // The same picture the rows carry; hidden with the number, so
+        // "Nothing picked" is not followed by a coin with nothing after it.
+        _sumCoin.Texture = CoinArt.Texture(Coin?.Invoke());
+        _sumCoin.Visible = any && _sumCoin.Texture != null;
+        _ok.Disabled = !any;
     }
 
-    Control Row(TradeOfferObject o, bool alt)
+    Control Row(TradeOfferObject o, bool alt, ImageTexture coin)
     {
         TradeOfferObject captured = o;
 
@@ -616,17 +763,38 @@ public partial class BuyPanel : Control
         // count that the branch above had already claimed. Deleted
         // rather than left looking like a case that is handled.
 
+        // The price, with the coin it is counted in immediately before
+        // the digits. The player's words: "right now it's just a number
+        // and a player won't know what currency they need." The
+        // reference shows the bare number (`UIBuy.cpp:122`) and relies
+        // on the desktop player knowing; the icon says it without a
+        // word, which is the game's own vocabulary for a shilling - the
+        // bag never writes "shilling" either, it draws coin.bgf.
+        //
+        // A box packed to its END, not a right-aligned label: the coin
+        // has to hug the digits, so both are laid out at their natural
+        // width and pushed right together. The box keeps the 96-point
+        // floor the old label had plus the coin's own, so the column's
+        // right edge is where it was and Inspect does not move.
+        var cost = new HBoxContainer
+        {
+            Alignment = BoxContainer.AlignmentMode.End,
+            CustomMinimumSize = new Vector2(96 + CoinSide + 6, 0),
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        cost.AddThemeConstantOverride("separation", 6);
+        cost.AddChild(CoinArt.Mark(coin, CoinSide));
         var price = new Label
         {
             Text = o.Price.ToString(),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
-            CustomMinimumSize = new Vector2(96, 0),
             MouseFilter = MouseFilterEnum.Ignore,
         };
         price.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
         price.AddThemeColorOverride("font_color", M59Skin.Gold);
-        line.AddChild(price);
+        cost.AddChild(price);
+        line.AddChild(cost);
 
         // Inspect: the touch-screen form of the right click that looks
         // at a shop line (`UIBuy.cpp:222-224`). Reading what something

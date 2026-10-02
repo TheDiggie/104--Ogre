@@ -449,6 +449,77 @@ scheme and a dragged pad (`dpad=240,0,1,1,0`) survive a relaunch.
 
 See also: FixedControls.cs | M59Hud.cs | HudEditor.cs | the HUD editor -> godot-ui.md | the harness -> harness.md
 
+## The inventory dock: the pack on the glass
+Tags: design, architecture | A HUD piece ("dock") that shows the pack over the world with the bag's four verbs on a tap; the arrange screen moves, scales, fades, hides it and sets how many ACROSS - a column count is the fifth verb, for grid pieces only
+
+Ashton: "add an inventory window that I can use to always see and
+interact with so I don't need to go through menus to see my items.
+Make sure people can move, resize or close it in the UI customizer."
+`InventoryDock.cs`. The full-screen bag is unchanged and still opens
+from the drawer; the dock is in addition, the way the purse is in
+addition to the coin in the bag.
+
+- A piece like the purse: registered as "dock" / "Inventory dock",
+  default VISIBLE (he asked for it to be there), at the left edge a
+  gutter under the side keys' natural rect (Auto run) - at 1920x1080
+  that is (16,543), eight 56-point slots across, clear of the target
+  card (1336+), the combat arc, the chat block (830+) and the fixed
+  pad (648+). Found from the `sidekeys` piece's NATURAL rect, not
+  where the player moved it, for the reason FixedControls gives.
+- "Resize" is Scale (the slot side follows it, 56 at 1x, which is a
+  thumb plus room for the game's 40-in-52 icon), plus COLUMNS:
+  `M59Hud.Piece.Columns` with `MinColumns/MaxColumns/DefaultColumns`
+  set by the piece at Register. Only a piece that sets a range gets
+  the "Across" row on the editor's card (`HudEditor.HasColumns`),
+  steppers only - a dozen honest values, not a track. Saved as an
+  OPTIONAL sixth field on the piece's line
+  (`dock=852.63,-285.26,1.2,1,0,6`), so a file from before reads;
+  carried by Snapshot/Restore so Cancel backs it out; Reset zeroes it.
+  WHY a count and not a free rectangle: a grid's size is its contents
+  wrapped, so a dragged rectangle would have to be reconciled with
+  the slot size on every edge and would lie the moment the pack
+  changed; the same slots wide or tall is one number.
+- "Close" is Hide, the same verb as every piece (`hud.cfg`
+  `dock=0,0,1,1,1`); the editor shows it faint so it can be found.
+- A tap picks the item: gold ring, and a strip hung under the grid
+  (over it when the grid is near the bottom) with the item's name,
+  Use/Look/Hotbar from the left and Drop pinned to the far right, for
+  M59Skin.FootLeft's reason. Same slot again, a tap on the world
+  (`GameView._UnhandledInput`, on the press), a panel, the drawer or
+  the editor (`Covered()` in Pump) puts it away. No double-tap-to-use:
+  the strip is one tap away and a second tap on a small slot over the
+  world is too easy to make by accident.
+- The four verbs are the bag's own handlers, made methods so both
+  subscribe (`GameView.UseFromPack/DropFromPack/LookFromPack/
+  BindFromPack/TargetFromPack`): Drop of a stack opens the same
+  AmountPrompt, a single thing drops at once. The picked item becomes
+  `Data.TargetID` one double-tap window later as the bag's does, and
+  the dock's selection COUNTS AS THE BAG BEING OPEN for the
+  `_targetBeforeBag` save-and-restore in Pump - so putting the strip
+  away gives the world target back, and Apply aims at it.
+- Slots are `InventorySlot` with MouseFilter.Stop; the ground between
+  them is Ignore. A drag that starts on a slot is eaten by it like a
+  drag on any HUD button; one that starts beside it walks (measured:
+  5 `ReqMove` from a stick drag with the dock on the glass).
+- Icons through `InventoryPanel.ComposeIcon`, now static and shared
+  with its own cache per view, and a miss is no longer cached by
+  either - retried on a 500ms timer, the rule in godot-ui.md.
+
+Played (harness): six items at (16,543); tap -> ring + strip, Look ->
+`ReqLook 8001`; Drop of 240 shillings -> the amount prompt, OK ->
+`ReqDrop ... count 240`; Drop of the axe -> `ReqDrop`; arrange: drag
+to (868,257), Size +4 = 1.20x, Across -2 = 6, Done, relaunch on the
+same user data -> there, and a tap there targets the axe; Hide, Done
+-> `dockHost Visible=False`; drawer open -> dock drawn under it like
+the purse, strip dropped; world tap -> strip gone.
+
+One bug caught by looking: the first "-" on Across took the dock from
+eight to TWO, because the editor started the count from the range's
+bottom when the model held zero. Zero means the piece's default, and
+only the piece knows it - hence `DefaultColumns` on the piece.
+
+See also: InventoryDock.cs | M59Hud.cs | HudEditor.cs | the HUD editor -> godot-ui.md | the bag -> godot-ui.md "A model object held across a rebuild goes stale"
+
 ## The actions window
 Tags: design | UIActions.cpp - eleven actions, three of which had no way in on the phone at all
 
