@@ -69,10 +69,19 @@ $utf8      = New-Object System.Text.UTF8Encoding $false
 #             the whitelist drops them without a special case.
 #   no ext    junk. A 38 MB temp file called zidUkPjp is in the folder
 #             today; it would have been the single largest download.
+#   .png      NOT game data - the two in the folder are a logo and a
+#             snow sprite the client never opens (its own art is under
+#             res://art and Resources/). And an image type is the one
+#             kind of file a hosting CDN will rewrite: the first real
+#             download on a phone stopped at humanzoo-logox256.png with
+#             "the server sent 28006 bytes, not 28262" - Hostinger's
+#             image optimization had recompressed it on the way out.
+#             .bgf, .roo and .ogg are opaque to a CDN and arrive
+#             untouched. No image types in the manifest, ever.
 # Case-insensitive, because the files came from a Windows box where
 # ROOM.ROO and room.roo are the same thing.
 $wanted = @{}
-foreach ($e in "bgf","roo","ogg","wav","mp3","rsb","bsf","xml","png") { $wanted["." + $e] = $true }
+foreach ($e in "bgf","roo","ogg","wav","mp3","rsb","bsf","xml") { $wanted["." + $e] = $true }
 
 $selected = @(Get-ChildItem -LiteralPath $Source -File | Where-Object {
   $wanted.ContainsKey($_.Extension.ToLowerInvariant())
