@@ -145,6 +145,12 @@ public partial class Updater : Control
         string where = System.Environment.GetEnvironmentVariable("M59UPDATE");
         if (string.IsNullOrWhiteSpace(where)) where = ManifestUrl;
         if (string.IsNullOrWhiteSpace(where)) return;
+        // Said BEFORE the request, so that "no line at all" stops being
+        // one of the possible outcomes. With only the verdicts
+        // reported, a check that never ran and a check whose answer was
+        // dropped on the way to the screen look identical - and that is
+        // exactly the pair that had to be told apart.
+        Say("Checking for updates...");
         Error e = _http.Request(where);
         if (e != Error.Ok)
         {

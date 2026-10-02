@@ -311,6 +311,8 @@ public partial class GameView : Node2D
     enum PickFor { Nobody, Trade, Container }
     PickFor _pickFor = PickFor.Nobody;
     LoginPrompt _login;
+    /// <summary>The update check's last word, held for a login card that does not exist yet.</summary>
+    string _updateSaid = "";
     RichTextLabel _crash;
     string _resDir = "";
 
@@ -517,6 +519,16 @@ public partial class GameView : Node2D
             // And on the login card, which is the screen this check
             // actually runs behind - see LoginPrompt.UpdateNote for why
             // the connection log alone is not enough.
+            //
+            // HELD as well as handed over, because the two are racing.
+            // The check starts at boot and the login card is built a
+            // little later, when LoginMode runs; an answer that arrives
+            // in between went to a null and was gone for good. That is
+            // not a rare window either - a fast reply beats the card
+            // more often than not, which is why the first build of this
+            // showed no line at all on a phone and every line in the
+            // harness, where the check is slower than the scene.
+            _updateSaid = line;
             _login?.UpdateNote(line);
         };
         _ui.AddChild(_updater);
@@ -773,6 +785,9 @@ public partial class GameView : Node2D
         // Server() guards on a null label, so the line that told the
         // player where they were connecting never appeared at all.
         _ui.AddChild(_login);
+        // Whatever the update check already concluded, if it got there
+        // first. See the Said handler.
+        if (_updateSaid.Length > 0) _login.UpdateNote(_updateSaid);
 
         _login.Choices(_servers, _serverPick);
         _login.Server(Chosen.Host, Chosen.Port);
