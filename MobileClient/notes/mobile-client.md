@@ -593,6 +593,63 @@ Done, relaunch on the same user data -> `dock=0,0,1,1,0,0,4`, box
 
 See also: InventoryDock.cs | M59Hud.cs | HudEditor.cs | the HUD editor -> godot-ui.md | the bag -> godot-ui.md "A model object held across a rebuild goes stale"
 
+## The chat box: width and lines in the arrange screen
+Tags: design | The "chat" piece borrows the store's Columns/Rows as WIDTH (steps of 40 points) and LINES; the piece names its own axes on the card (Piece.ColumnsLabel/RowsLabel, ColumnsUnit/RowsUnit); zero means today's box exactly
+
+Ashton: "make the chat box height and width adjustable in the
+customizer." Scale already grew the whole block together; he wanted
+the two axes apart. `ChatOverlay.cs` (the WHY block over `WidthStep`).
+
+- Same mechanism as the dock, no new fields: the chat sets
+  `MinColumns/MaxColumns/DefaultColumns` and `MinRows/MaxRows/
+  DefaultRows` on its piece and reads `ColumnsNow`/`RowsNow`; the
+  saved line is still `x,y,scale,alpha,hidden[,columns[,rows]]`
+  (`chat=0,0,1,1,0,29,12` after Width +4, Lines +4 at 1920x1080).
+- THE UNITS. Width = count x 40 points: a pixel step needs a thousand
+  presses, a tenth of a screen cannot land on "a bit wider". Min 8
+  (320, the narrowest a line still reads), max = whole steps inside
+  the margins and never above 48 (47 at 1920). Height = LINES, because
+  a text log is made of lines and the pixel height is pitch x lines x
+  scale, so the box holds whole lines; 3..20, default the designer's
+  `Lines` (8). Width does NOT follow Scale (it never did); the line
+  pitch does.
+- ZERO IS TODAY. With no sixth field `BlockWidth` keeps the old
+  half-screen rule and `LinesNow` is `Lines`, so a layout from before
+  is pixel-identical (diffed the chat region before/after: no
+  difference). `DefaultColumns` is today's width to the nearest step
+  (25 at 1920), set in Layout because it depends on the glass, so the
+  first "+" is one step wider, not a jump. `BlockWidth`/`BlockHeight`
+  follow the player's counts, so the hotbar's LeftReserve and the
+  reserves GameView reads each frame move with the box.
+- THE CAPTIONS ARE THE PIECE'S. "Across"/"Down" are a grid's words;
+  the card reads `Piece.ColumnsLabel`/`RowsLabel` ("Width"/"Lines" for
+  the chat, defaults "Across"/"Down" so the dock is unchanged) and
+  shows the count times `ColumnsUnit`/`RowsUnit` ("Width 1000", "Lines
+  8"; dock unit 1). The chip on the handle says "1160 width  12
+  lines". The saved number is always the COUNT; the unit is display.
+- Reflow: the log is a RichTextLabel given an explicit Size, so
+  autowrap already measures at the new width; `HudStamp` carries the
+  two counts so Sync re-lays after a step, and Layout sets `_dirty`
+  when the line count moved so the strip is refilled with the last N
+  (the early-out would otherwise keep the old text). Chat/Log sit on
+  the block's bottom row as before, so they travel with it.
+
+Played (harness, 1920x1080, M59_CHATFLOOD=1): card on the chat reads
+Width 1000 / Lines 8; four "+" each -> 1160 / 12, handle 1106x312
+over the box, 12 messages, Chat/Log under it, world around it; Done,
+relaunch on the same user data -> `chat=0,0,1,1,0,29,12`, same box;
+Width "-" to the floor -> `chat=0,0,1,1,0,8`, 320 wide, every
+message wrapped inside the box, newest at the bottom; a hand-written
+five-field `chat=40,-60,1.2,0.8,0` -> moved, 1.2x, 80%, 8 lines at
+the old width.
+
+Seen and left: at 1.00x the first of the N lines is clipped a few
+pixels at the top (the pitch `FontSize + 6` is a hair under the font's
+real line height with ScrollFollowing on); it was so before this and
+is not at 1.2x. A pitch read from the font would fix it.
+
+See also: ChatOverlay.cs | M59Hud.cs | HudEditor.cs | the dock above
+
 ## The actions window
 Tags: design | UIActions.cpp - eleven actions, three of which had no way in on the phone at all
 

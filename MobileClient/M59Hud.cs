@@ -112,6 +112,23 @@ public static class M59Hud
         public int MinRows, MaxRows, DefaultRows;
 
         /// <summary>
+        /// What the editor CALLS the two counts, and what one step of
+        /// each is worth on the card. "Across" and "Down" are a grid's
+        /// words and the dock keeps them; the chat is not a grid - its
+        /// two honest axes are a width in points and a number of lines
+        /// of text (ChatOverlay) - and a player reading "Across 25" over
+        /// a chat box would not know what was being counted. So the
+        /// piece names its own axes, and says what one count is worth:
+        /// the card shows Columns x ColumnsUnit, so the chat's 25 steps
+        /// of 40 read as "Width 1000", while the dock's unit of 1 reads
+        /// "Across 8" as before. The SAVED number is always the count
+        /// (the sixth and seventh fields are unchanged); the unit is
+        /// display only.
+        /// </summary>
+        public string ColumnsLabel = "Across", RowsLabel = "Down";
+        public int ColumnsUnit = 1, RowsUnit = 1;
+
+        /// <summary>
         /// Where the designer last wanted it, before the player's offset.
         /// The editor draws its handle here plus Offset, and Reset puts
         /// it back here.

@@ -22,16 +22,63 @@ using Meridian59.Data.Models;
 /// </summary>
 public partial class ChatOverlay : Control
 {
-    /// <summary>How many lines of history to show.</summary>
+    /// <summary>How many lines of history to show, when the player has not said.</summary>
     [Export] public int Lines = 8;
     [Export] public int FontSize = 16;
 
     /// <summary>
+    /// The player's own size for the box, through the arrange screen.
+    ///
+    /// Ashton: "make the chat box height and width adjustable in the
+    /// customizer." Scale already grows everything together; what he
+    /// wants is the two axes apart, and the piece store's grid counts
+    /// (M59Hud.Piece.Columns/Rows, which the dock uses for Across and
+    /// Down) are the two integers already saved, snapshotted, reset and
+    /// stepped on the card. So the chat borrows them, in its own honest
+    /// units, named on the card as "Width" and "Lines":
+    ///
+    /// - WIDTH is the count times <see cref="WidthStep"/> points, 40 a
+    ///   step - a stepper that moved by a pixel would need a thousand
+    ///   presses, one that moved by a tenth of the screen could not land
+    ///   on "a bit wider". Eight steps (320) is the narrowest a line of
+    ///   chat still reads; the top is the glass less the margin, so the
+    ///   box can go edge to edge and no further.
+    /// - HEIGHT is a number of LINES, because this is a text log and a
+    ///   line is what it is made of: the pixel height is the line pitch
+    ///   times the count times the scale, so the box always holds whole
+    ///   lines and never a half one. Three lines is a strip you can
+    ///   still follow a conversation in; twenty fills a phone's height.
+    ///
+    /// Zero (no saved field) means TODAY's box exactly - the width
+    /// formula in <see cref="BlockWidth"/> and <see cref="Lines"/> -
+    /// so a layout saved before this existed draws pixel for pixel as
+    /// it did. The saved line's shape does not change: the counts are
+    /// the sixth and seventh fields, as for the dock (M59Hud.Save).
+    /// </summary>
+    public const float WidthStep = 40f;
+    public const int MinWidthSteps = 8, MaxWidthSteps = 48;
+    public const int MinLines = 3, MaxLines = 20;
+
+    /// <summary>The lines in force: the player's, or the designer's <see cref="Lines"/>.</summary>
+    int LinesNow
+    {
+        get
+        {
+            M59Hud.Piece p = M59Hud.Get("chat");
+            return p != null && p.Rows > 0 ? p.RowsNow : Lines;
+        }
+    }
+
+    /// <summary>The lines the strip was last laid out for, so a change refills it (Sync).</summary>
+    int _laidLines;
+
+    /// <summary>
     /// How much of the bottom of the screen this occupies, so other
-    /// widgets can stay clear of it rather than each guessing.
+    /// widgets can stay clear of it rather than each guessing. Follows
+    /// the player's line count, as it already followed their scale.
     /// </summary>
     public float BlockHeight =>
-        (FontSize * 2.4f + 12f * 2f + (FontSize + 6) * Lines + 12f) * HudScale();
+        (FontSize * 2.4f + 12f * 2f + (FontSize + 6) * LinesNow + 12f) * HudScale();
 
 
     /// <summary>
@@ -47,7 +94,7 @@ public partial class ChatOverlay : Control
     {
         M59Hud.Piece p = M59Hud.Get(id);
         if (p == null) return "";
-        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
+        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{p.Columns},{p.Rows},{(M59Hud.Editing ? 1 : 0)}";
     }
 
     string _stamp = "";
@@ -368,7 +415,14 @@ public partial class ChatOverlay : Control
         // The strip and the say/log row are one movable cluster; the
         // full-screen history is not, so no node is handed over and the
         // transparency is applied by HudDress. See M59Hud.
-        M59Hud.Register("chat", "Chat");
+        M59Hud.Piece piece = M59Hud.Register("chat", "Chat");
+        // The two counts, in this piece's words and units (see WidthStep).
+        // The width's top and default depend on the glass and are set in
+        // Layout, where the glass is known.
+        piece.ColumnsLabel = "Width"; piece.ColumnsUnit = (int)WidthStep;
+        piece.MinColumns = MinWidthSteps; piece.MaxColumns = MaxWidthSteps;
+        piece.RowsLabel = "Lines"; piece.RowsUnit = 1;
+        piece.MinRows = MinLines; piece.MaxRows = MaxLines; piece.DefaultRows = Lines;
         M59Hud.Changed += Layout;
 
         GetViewport().SizeChanged += Layout;
@@ -392,6 +446,10 @@ public partial class ChatOverlay : Control
             Vector2 v = GetViewportRect().Size;
             float pad = 12f;
             float full = v.X - pad * 2f;
+            // The player's width first, in steps of WidthStep and never
+            // past the glass; with nothing saved, the half-screen rule.
+            M59Hud.Piece p = M59Hud.Get("chat");
+            if (p != null && p.Columns > 0) return Mathf.Min(full, p.ColumnsNow * WidthStep);
             return v.X > v.Y ? Mathf.Min(full, v.X * 0.52f) : full;
         }
     }
@@ -408,8 +466,26 @@ public partial class ChatOverlay : Control
         float pad = 12f * sc;
         float entryH = Mathf.Max(TapFloor, FontSize * 2.4f * sc);
         float btnW = Mathf.Max(TapFloor, FontSize * 5f * sc);
+        // The width range the card steps through, from this glass: the
+        // top is as many whole steps as fit inside the margins, the
+        // default is today's width to the nearest step so the first "+"
+        // from an unsaved layout is one step wider and not a jump. The
+        // box itself keeps the exact old width until a step is saved
+        // (BlockWidth), which is what makes an old layout identical.
+        M59Hud.Piece piece = M59Hud.Get("chat");
+        if (piece != null)
+        {
+            float full = v.X - 24f;
+            piece.MaxColumns = Mathf.Clamp(Mathf.FloorToInt(full / WidthStep), MinWidthSteps + 1, MaxWidthSteps);
+            float today = v.X > v.Y ? Mathf.Min(full, v.X * 0.52f) : full;
+            piece.DefaultColumns = Mathf.Clamp(Mathf.RoundToInt(today / WidthStep), MinWidthSteps, piece.MaxColumns);
+        }
         float blockW = BlockWidth;
-        float logH = (FontSize + 6) * Lines * sc;
+        int lines = LinesNow;
+        // More or fewer lines than the strip holds: Sync's early-out
+        // would keep the old text, so it is told to fill again.
+        if (lines != _laidLines) { _laidLines = lines; _dirty = true; }
+        float logH = (FontSize + 6) * lines * sc;
 
         // THE NATURAL RECT is the whole block, strip and row together:
         // the log sits on the entry's line and the two read as one thing,
@@ -932,7 +1008,7 @@ public partial class ChatOverlay : Control
             }
         }
 
-        int from = Math.Max(0, _lines.Count - Lines);
+        int from = Math.Max(0, _lines.Count - LinesNow);
         _log.Text = string.Join("\n", _lines.GetRange(from, _lines.Count - from));
 
         if (ShowingHistory)

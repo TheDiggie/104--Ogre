@@ -818,17 +818,23 @@ public partial class HudEditor : Control
             _fadeBar.Value = (_picked.Alpha - M59Hud.MinAlpha) / (M59Hud.MaxAlpha - M59Hud.MinAlpha);
             _sizeVal.Text = $"{_picked.Scale:0.00}x";
             _fadeVal.Text = $"{_picked.Alpha * 100f:0}%";
+            // The captions and the shown value are the PIECE's: the
+            // dock is a grid and says "Across 8"; the chat is a text box
+            // and says "Width 1000" and "Lines 8" (M59Hud.Piece.ColumnsLabel,
+            // ColumnsUnit). The stepper still moves the saved count by one.
             if (cols)
             {
                 int n = _picked.ColumnsNow;
-                _colsVal.Text = n.ToString();
+                _colsCap.Text = _picked.ColumnsLabel;
+                _colsVal.Text = (n * _picked.ColumnsUnit).ToString();
                 _colsLess.Disabled = n <= _picked.MinColumns;
                 _colsMore.Disabled = n >= _picked.MaxColumns;
             }
             if (rows)
             {
                 int n = _picked.RowsNow;
-                _rowsVal.Text = n.ToString();
+                _rowsCap.Text = _picked.RowsLabel;
+                _rowsVal.Text = (n * _picked.RowsUnit).ToString();
                 _rowsLess.Disabled = n <= _picked.MinRows;
                 _rowsMore.Disabled = n >= _picked.MaxRows;
             }
@@ -1188,8 +1194,10 @@ public partial class HudEditor : Control
             if (bad) tag += "  overlapping";
             if (p.Scale != 1f) tag += $"  {p.Scale:0.00}x";
             if (p.Alpha != 1f) tag += $"  {p.Alpha * 100f:0}%";
-            if (p.Columns > 0 && HasColumns(p)) tag += $"  {p.ColumnsNow} across";
-            if (p.Rows > 0 && HasRows(p)) tag += $"  {p.RowsNow} down";
+            // "8 across" for a grid, "1000 width" / "12 lines" for the
+            // chat: the piece's own word, in its own unit (Follow).
+            if (p.Columns > 0 && HasColumns(p)) tag += $"  {p.ColumnsNow * p.ColumnsUnit} {p.ColumnsLabel.ToLowerInvariant()}";
+            if (p.Rows > 0 && HasRows(p)) tag += $"  {p.RowsNow * p.RowsUnit} {p.RowsLabel.ToLowerInvariant()}";
 
             float tw = f.GetStringSize(tag, HorizontalAlignment.Left, -1, 16).X;
             var chip = new Rect2(r.Position.X + 2f, r.Position.Y + 2f, tw + 14f, 22f);

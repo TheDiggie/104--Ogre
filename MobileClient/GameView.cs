@@ -404,6 +404,29 @@ public partial class GameView : Node2D
         _log.Add(line);
         while (_log.Count > LogLines) _log.RemoveAt(0);
     }
+
+    /// <summary>
+    /// A line that must be ON SCREEN, not just in the log: a widget
+    /// that failed to build, data files missing from the build, a fault
+    /// out of Update. These go to the status label in the world whatever
+    /// the debug flag says.
+    ///
+    /// Note() lines do not any more. The label used to show every line
+    /// of _log - "Checking for updates...", "You have the newest build",
+    /// "Login accepted" - in the corner of the world for the whole
+    /// session. Ashton, 2026-10-02: "don't print the system msgs." They
+    /// were only ever there because the label was the one place a line
+    /// could be seen before the chat existed; the chat exists now and
+    /// Notice already writes to it (`_client.Notice` below). So the
+    /// label is for alarms, and for everything under M59DEBUG.
+    /// </summary>
+    void Alarm(string line)
+    {
+        Note(line);
+        _alarms.Add(line);
+        while (_alarms.Count > LogLines) _alarms.RemoveAt(0);
+    }
+    readonly List<string> _alarms = new List<string>();
     string _passwordBefore, _passwordAfter;
     /// <summary>
     /// What to do when the server answers a password change, held rather
@@ -792,7 +815,7 @@ public partial class GameView : Node2D
         // bug report with nothing in it. See M59Paths.Scan.
         System.Collections.Generic.List<string> lost = r.Lost;
         if (lost != null && lost.Count > 0)
-            Note($"{lost.Count} data file(s) missing from this build " +
+            Alarm($"{lost.Count} data file(s) missing from this build " +
                  $"(e.g. {lost[0]}) - sound and music may be silent.");
 
         _unpack?.Done();
@@ -3256,7 +3279,7 @@ public partial class GameView : Node2D
     void Fail(string msg)
     {
         _state = "error";
-        Note(msg);
+        Alarm(msg);
         if (_status != null) _status.Text = msg;
         // While the login screen is up it is the only thing on screen,
         // so a failure that only reached the status line was invisible.
@@ -4008,7 +4031,7 @@ public partial class GameView : Node2D
         catch (Exception e)
         {
             string msg = $"{name} unavailable: {e.GetType().Name}: {e.Message}";
-            Note(msg);
+            Alarm(msg);
             GD.PrintErr("[GameView] " + msg);
         }
     }
@@ -4891,7 +4914,7 @@ public partial class GameView : Node2D
             _texture.Update(_image);
             if (_status != null)
                 _status.Text = Debugging ? $"{_state}\n" + string.Join("\n", _log)
-                                         : string.Join("\n", _log);
+                                         : string.Join("\n", _alarms);
             return;
         }
 
@@ -4971,7 +4994,7 @@ public partial class GameView : Node2D
             ? $"{_state}   {_w}x{_h}  {_fps}\n" +
               $"{_world.Renderer.Sprites.Count} objects\n" +
               string.Join("\n", _log)
-            : string.Join("\n", _log);
+            : string.Join("\n", _alarms);
     }
 
     public override void _Draw()
