@@ -671,12 +671,36 @@ public partial class GameView : Node2D
         _login?.UpdateNote(LoginNote());
     }
 
-    /// <summary>Both verdicts, whichever have arrived, one per line.</summary>
+    /// <summary>
+    /// What the login card shows of the two checks: only trouble.
+    ///
+    /// Every verdict still goes to the connection log and the chat
+    /// (Heard), where somebody diagnosing a phone can read it. The card
+    /// is different: it is the first thing a player sees, and Ashton,
+    /// 2026-10-02, asked for the all-clear sentences off it - "you have
+    /// the newest build", "game data is up to date", the "checking"
+    /// lines. A card that says nothing is the normal case; a card that
+    /// speaks is saying something is wrong. The required-update line
+    /// is not here at all - RequireUpdate owns the card then.
+    /// </summary>
     string LoginNote()
     {
-        if (_updateSaid.Length == 0) return _dataSaid;
-        if (_dataSaid.Length == 0) return _updateSaid;
-        return _updateSaid + "\n" + _dataSaid;
+        string a = Loud(_updateSaid), b = Loud(_dataSaid);
+        if (a.Length == 0) return b;
+        if (b.Length == 0) return a;
+        return a + "\n" + b;
+    }
+
+    /// <summary>The line, or nothing if it is an all-clear or a "checking".</summary>
+    static string Loud(string line)
+    {
+        if (line.StartsWith("You have the newest build")
+            || line.StartsWith("Game data is up to date")
+            || line.StartsWith("Game data downloaded")
+            || line.StartsWith("Game data updated")
+            || line.StartsWith("Checking"))
+            return "";
+        return line;
     }
 
     /// <summary>
@@ -2606,7 +2630,7 @@ public partial class GameView : Node2D
             // the avatar does (see HotbarAct), where it used to call
             // Activate() straight from the button.
             _hotbar.Run = HotbarAct;
-            _hotbar.SpendLatch = SpendSelfTarget;
+            _hotbar.Retargeted = SpendSelfTarget;
             // The one slot the library cannot dispatch for itself, so
             // the view hands the hotbar the send. The same call the Go
             // tile makes, through the same gate: the hotbar wraps this
@@ -2649,7 +2673,7 @@ public partial class GameView : Node2D
                 if (_client.Data == null) return;
                 _client.Data.SelfTarget = !_client.Data.SelfTarget;
                 _chat?.Local(_client.Data.SelfTarget
-                    ? "Self-target on: the next spell is aimed at you."
+                    ? "Self-target on: spells aim at you until you tap the portrait again or pick a target."
                     : "Self-target off.");
             };
             _ui.AddChild(_face);
@@ -4119,18 +4143,30 @@ public partial class GameView : Node2D
     {
         try { send(); }
         catch (Exception e) { _chat?.Local($"{e.GetType().Name}: {e.Message}"); }
-
-        // The latch spends itself on whatever was just sent, so you do
-        // not heal yourself for the rest of the fight by accident. The
-        // reference gets this free by holding a key down.
-        SpendSelfTarget();
+        // The latch used to spend itself here, on whatever was just
+        // sent. It does not any more - see SpendSelfTarget.
     }
 
     /// <summary>
-    /// Clears the self-target latch. The reference has no latch: it sets
-    /// `Data->SelfTarget = IsSelfTargetDown` every input tick
-    /// (`ControllerInput.cpp:776-778`), so the aim ends the moment the
-    /// modifier does. This is the phone's version of letting go.
+    /// Clears the self-target latch.
+    ///
+    /// WHEN, and the history of when, because it changed. The reference
+    /// has no latch: it sets `Data->SelfTarget = IsSelfTargetDown` every
+    /// input tick (`ControllerInput.cpp:776-778`), so the aim ends the
+    /// moment the modifier key does. The first phone version spent the
+    /// latch on every send - "so you do not heal yourself for the rest
+    /// of the fight by accident" - which is the modifier key's
+    /// behaviour transplanted: one cast, let go.
+    ///
+    /// Ashton, 2026-10-02: "make the self stay on until I turn it off or
+    /// target something else; people cast more than one buff and I don't
+    /// wanna click my face every time." So now it is a MODE, and it ends
+    /// only on the two things that mean the player has moved on: the
+    /// portrait tapped again, or a new target taken in the world
+    /// (ApplyTap's ClickTarget, Target Next). Casting, attacking, using
+    /// and the rest leave it alone. The gold halo on the portrait is what
+    /// makes this safe: a mode you can see is a mode you will not forget
+    /// you are in.
     /// </summary>
     void SpendSelfTarget()
     {
@@ -4157,7 +4193,10 @@ public partial class GameView : Node2D
         if (_client?.Data != null && _client.Data.IsWaiting) return false;
         try { send(); }
         catch (Exception e) { _chat?.Local($"{e.GetType().Name}: {e.Message}"); }
-        if (!keepLatch) SpendSelfTarget();
+        // keepLatch is kept in the signature for the hold path's sake
+        // but no longer decides anything: the latch outlives every send
+        // now (SpendSelfTarget). Target Next clears it itself, below.
+        _ = keepLatch;
         return true;
     }
 
@@ -4270,6 +4309,9 @@ public partial class GameView : Node2D
         // tap A, tap C elsewhere, then tap where A and B overlap and
         // A was still on the "already picked" list, so B won.
         _client.Data.ClickTarget(ids, true);
+        // A new target in the world is the player moving on; the self
+        // aim ends here, and at Target Next, and nowhere else.
+        SpendSelfTarget();
     }
 
     /// <summary>

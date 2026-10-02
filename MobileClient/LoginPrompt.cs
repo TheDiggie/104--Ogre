@@ -212,7 +212,14 @@ public partial class LoginPrompt : Control
     }
 
     /// <summary>Where we are connecting, so it is never a mystery.</summary>
-    public void Server(string host, int port) { if (_note != null) _note.Text = $"{host}:{port}"; }
+    /// <summary>
+    /// Once wrote host:port into the note. It writes nothing now: the
+    /// server has a name in the dropdown and the address under it was
+    /// a number nobody at a login screen needs - Ashton, 2026-10-02,
+    /// "remove the IP address from the login screen". The note is kept
+    /// for what it is for: "connecting..." and the refusals.
+    /// </summary>
+    public void Server(string host, int port) { if (_note != null) _note.Text = ""; }
 
     /// <summary>
     /// The update check's verdict, shown on the card it runs behind.
@@ -294,7 +301,7 @@ public partial class LoginPrompt : Control
         // change it just made is how a remembered pick gets rewritten
         // with itself.
         _servers.Select(at);
-        _note.Text = $"{rows[at].Host}:{rows[at].Port}";
+        _note.Text = "";   // no address on the card; see Server()
         Layout();
     }
 

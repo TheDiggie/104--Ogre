@@ -1077,8 +1077,14 @@ public partial class ActionButtons : Control
     /// </summary>
     public Func<Action, bool, bool> Run;
 
-    /// <summary>Spends the self-target latch. See GameView.SpendSelfTarget.</summary>
-    public Action SpendLatch;
+    /// <summary>
+    /// Raised when Target Next has taken a new target. The view clears
+    /// the self-target mode on it - see GameView.SpendSelfTarget for
+    /// why that mode now ends only on a retarget. This used to be
+    /// SpendLatch, invoked at the end of a held repeat; a held buff no
+    /// longer un-aims you either.
+    /// </summary>
+    public Action Retargeted;
 
     /// <summary>Told when a drag-off clears a button, for the chat line.</summary>
     public event Action<string> Cleared;
@@ -1153,7 +1159,6 @@ public partial class ActionButtons : Control
     {
         if (_heldSlot < 0) return;
         _heldSlot = -1;
-        if (_sentInHold) SpendLatch?.Invoke();
         _sentInHold = false;
         Callable.From(() => { _repeating = false; _outside = false; }).CallDeferred();
     }
@@ -1538,7 +1543,7 @@ public partial class ActionButtons : Control
     {
         Action go = () =>
         {
-            try { _data?.NextTarget(); }
+            try { _data?.NextTarget(); Retargeted?.Invoke(); }
             catch (Exception e) { GD.PrintErr($"[ActionButtons] next: {e.Message}"); }
         };
         if (Run != null) Run(go, false);
