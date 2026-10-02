@@ -165,3 +165,69 @@ Only on rc=0: a manifest naming a version whose APK failed to build
 sends every player to yesterday's file.
 
 See also: the updater -> ../Updater.cs
+
+## The resource manifest
+Tags: process, gotchas | Resources live on the site now, not in the APK; Tools/make-resources.ps1 stages them and writes resources.json, which goes up LAST
+
+The 500 MB APK was 467 MB of resource folder - 4,700 sprites, rooms
+and sounds - shipped again to every phone on every build. They live at
+https://meridian59.us/mobile/resources/ now. A fresh install fetches
+them once; every later launch fetches `resources.json`, compares each
+file's hash with what it holds, and downloads only what changed. The
+APK is ~30 MB.
+
+`Tools/make-resources.ps1` makes the site side. Run it with
+`powershell` (it is 5.1-safe, same BOM-free WriteAllText as
+make-latest.ps1) against the resource folder and a staging folder,
+`C:\Users\ashto\m59_tmp\site` by default, which mirrors the site's
+`mobile\` directory: `site\resources\` holds the files, `site\
+resources.json` is the manifest. The summary line it prints - files,
+bytes, hashed fresh vs cached, copied, deleted, stamp - is the thing
+to read; a second run says 0 copied, 0 hashed fresh, same stamp.
+
+THE FORMAT is a contract with the client, written in parallel against
+it, so it does not change on one side alone:
+
+    { "stamp": "<sha1>", "count": N, "bytes": N, "base": ".../mobile/resources/",
+      "files": [ { "n": "name.bgf", "s": size, "h": "<sha1, lowercase>" }, ... ] }
+
+Files sorted by `n` ordinal (not culture). `stamp` is the SHA-1 of the
+lines `<n>\t<s>\t<h>\n` in that order, so the client can tell "nothing
+changed" with one string compare. `n` is written raw - the client
+percent-encodes it when it builds `<base><n>` - and is JSON-escaped,
+nothing more. The JSON is built with a StringBuilder, not
+ConvertTo-Json, which on 5.1 takes tens of seconds over 4,700 objects
+and whose -Depth default flattens quietly instead of failing.
+
+THE WHITELIST. Top level only, because the library reads one flat
+folder (ResourceManager.Init gets the same root seven times), and only
+`bgf roo ogg wav mp3 rsb bsf xml png`, case-insensitive. That drops the
+`.import` sidecars Godot's editor leaves, the `.dll`s that landed
+beside the data, `x.roo~` backups, the subfolders ("Claude outputs",
+"dr_maps") and the extensionless junk - a 38 MB temp file called
+zidUkPjp sits in the folder today and would have been the biggest
+download. The staging folder is an EXACT mirror: what is not selected
+is deleted from it, so junk never reaches the site and a removed
+resource leaves it. Zero files selected, or no source folder, is exit
+1 and no manifest: an empty manifest tells every phone to delete
+everything.
+
+THE CACHE. `site\.hashcache.json` remembers (size, mtime ticks, sha1)
+per name; an entry is reused only when size and mtime both match, so
+a rebuild that touched three files hashes three. Delete the file to
+force a full rehash. It rides up to the site with the rest of the
+folder and is harmless there - it says nothing the manifest does not.
+
+THE FILEZILLA STEP, and the order matters. Select the whole `site`
+folder locally, drag it onto the site's `mobile/` directory, and
+answer the overwrite prompt with "overwrite if different size or
+newer" applied to all - the script stamps each staged copy with the
+SOURCE file's mtime for exactly this reason, so only the delta moves
+instead of 467 MB every time. Then upload `resources.json` LAST, by
+itself, after the transfer queue of `resources/` has drained. A phone
+that fetches a new manifest while the files it names are still in the
+queue fails those downloads, and the CDN caches by URL, so a 404 it
+saw once can keep being served after the file lands. Files first,
+manifest after; never the other way round.
+
+See also: the script -> ../../Tools/make-resources.ps1 | latest.json and the BOM -> this file | the updater -> ../Updater.cs

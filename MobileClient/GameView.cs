@@ -313,6 +313,8 @@ public partial class GameView : Node2D
     LoginPrompt _login;
     /// <summary>The update check's last word, held for a login card that does not exist yet.</summary>
     string _updateSaid = "";
+    /// <summary>The resource sync's, likewise. Two lines because the two checks race and both are owed.</summary>
+    string _dataSaid = "";
     RichTextLabel _crash;
     string _resDir = "";
 
@@ -506,31 +508,7 @@ public partial class GameView : Node2D
         // that screen that says what the client is doing, and the chat
         // keeps it afterwards for anyone who has already logged in by
         // the time the answer arrives. See Updater.Said.
-        _updater.Said += line =>
-        {
-            // Note, NOT SetStatus. SetStatus writes _status.Text once,
-            // and RenderFrame rewrites that same label from _log every
-            // single frame - so a line set any other way is gone before
-            // it is drawn. Caught by shooting the login screen and
-            // finding it blank, which is the only way a write that
-            // "succeeded" and then vanished ever shows up.
-            Note(line);
-            _chat?.Local(line);
-            // And on the login card, which is the screen this check
-            // actually runs behind - see LoginPrompt.UpdateNote for why
-            // the connection log alone is not enough.
-            //
-            // HELD as well as handed over, because the two are racing.
-            // The check starts at boot and the login card is built a
-            // little later, when LoginMode runs; an answer that arrives
-            // in between went to a null and was gone for good. That is
-            // not a rare window either - a fast reply beats the card
-            // more often than not, which is why the first build of this
-            // showed no line at all on a phone and every line in the
-            // harness, where the check is slower than the scene.
-            _updateSaid = line;
-            _login?.UpdateNote(line);
-        };
+        _updater.Said += line => Heard(line, ref _updateSaid);
         _ui.AddChild(_updater);
         // At boot as well as at the login screen. LoginMode is the
         // right MOMENT when there is a login screen to wait for, and
@@ -586,18 +564,96 @@ public partial class GameView : Node2D
         _status.AddThemeConstantOverride("outline_size", 4);
         _ui.AddChild(_status);
 
-        // On Android the game data has to be copied out of the .pck before
-        // the library, which reads with System.IO, can see any of it. That
-        // is hundreds of megabytes on first run, so it happens off the main
-        // thread - doing it here would freeze the app long enough for
-        // Android to decide it had hung.
-        if (M59Paths.NeedsUnpack())
+        // HOW THE GAME DATA REACHES THE DEVICE, decided once, here.
+        //
+        // Two ways in, and which one is a property of the BUILD, not of
+        // the device. A build that carries res://resource (the desktop,
+        // or an APK exported with it) unpacks it to user://resource on
+        // first run behind the unpack screen and goes on from there
+        // (M59Paths.NeedsUnpack, :361). A build that does not carry it
+        // - the Android export now, which is half a gigabyte lighter
+        // for it - fetches it from the website instead (ResourceSync),
+        // on every launch: a manifest, a diff, and only the files that
+        // changed.
+        //
+        // Between the two sits the folder the harness and the desktop
+        // player point us at: --res, resource-path.txt, an installed
+        // client's own folder. Resolve finds those (M59Paths.cs:31) and
+        // they go straight to the game with nothing fetched and nothing
+        // touched - they are not ours.
+        //
+        // The order of the tests matters. Resolve's candidates include
+        // user://resource itself (M59Paths.cs:106), so once a sync has
+        // put one file there, "does Resolve find something" is true -
+        // HasContent wants one .roo or .bgf (M59Paths.cs:57) - and the
+        // folder would go to the game unchecked, half-downloaded or
+        // stale. So what Resolve found is asked WHOSE it is: the sync's
+        // own folder goes back to the sync every launch, whatever is in
+        // it (ResourceSync.Owns), and only a folder that is not ours -
+        // --res, the saved path, an installed client - goes straight on.
+        // The bundled test comes first of all, since a build that has
+        // the data has no reason to go online for it.
+        //
+        // Both copies happen off the main thread: hundreds of megabytes
+        // either way, and doing it here would freeze the app long enough
+        // for Android to decide it had hung.
+        if (M59Paths.IsBundled())
         {
-            Unpack();
+            if (M59Paths.NeedsUnpack()) Unpack();
+            else FindResources();
+            return;
+        }
+        string found = M59Paths.Resolve(ResourceDir);
+        if (found == null || ResourceSync.Owns(found))
+        {
+            Sync();
             return;
         }
 
         FindResources();
+    }
+
+    /// <summary>
+    /// One line from a check the player did not start - the updater's
+    /// verdict, the resource sync's - put where a player at the login
+    /// screen can see it, and kept for a login card that may not exist
+    /// yet.
+    ///
+    /// Note, NOT SetStatus. SetStatus writes _status.Text once, and
+    /// RenderFrame rewrites that same label from _log every single
+    /// frame - so a line set any other way is gone before it is drawn.
+    /// Caught by shooting the login screen and finding it blank, which
+    /// is the only way a write that "succeeded" and then vanished ever
+    /// shows up.
+    ///
+    /// And on the login card, which is the screen these checks actually
+    /// run behind - see LoginPrompt.UpdateNote for why the connection
+    /// log alone is not enough. HELD as well as handed over, because
+    /// the checks and the card are racing: the update check starts at
+    /// boot and the card is built a little later, when LoginMode runs;
+    /// an answer that arrives in between went to a null and was gone
+    /// for good. That is not a rare window either - a fast reply beats
+    /// the card more often than not, which is why the first build of
+    /// this showed no line at all on a phone and every line in the
+    /// harness, where the check is slower than the scene.
+    ///
+    /// Two holders rather than one, because the two checks each have a
+    /// last word and the second to arrive used to erase the first.
+    /// </summary>
+    void Heard(string line, ref string held)
+    {
+        Note(line);
+        _chat?.Local(line);
+        held = line;
+        _login?.UpdateNote(LoginNote());
+    }
+
+    /// <summary>Both verdicts, whichever have arrived, one per line.</summary>
+    string LoginNote()
+    {
+        if (_updateSaid.Length == 0) return _dataSaid;
+        if (_dataSaid.Length == 0) return _updateSaid;
+        return _updateSaid + "\n" + _dataSaid;
     }
 
     /// <summary>
@@ -622,21 +678,33 @@ public partial class GameView : Node2D
     // True from the moment the worker is handed the job until its
     // verdict comes back. Try again is a button, and two taps in quick
     // succession would otherwise put two threads on the same files.
+    // Shared by the unpack and the sync: Boot picks one of them for the
+    // life of the process, and both fill the same folder.
     bool _unpacking;
+
+    /// <summary>
+    /// The one progress screen, built on first use and wired to
+    /// whichever path Boot chose - Retry is the only way back in, and
+    /// it has to go to the same code that was running.
+    /// </summary>
+    UnpackScreen Screen(Action retry)
+    {
+        if (_unpack == null)
+        {
+            _unpack = new UnpackScreen();
+            _unpack.Retry += retry;
+            _ui.AddChild(_unpack);
+        }
+        _status.Text = "";
+        return _unpack;
+    }
 
     void Unpack()
     {
         if (_unpacking) return;
         _unpacking = true;
 
-        if (_unpack == null)
-        {
-            _unpack = new UnpackScreen();
-            _unpack.Retry += Unpack;
-            _ui.AddChild(_unpack);
-        }
-        _status.Text = "";
-        _unpack.Working("Starting...");
+        Screen(Unpack).Working("Starting...");
 
         System.Threading.Tasks.Task.Run(() =>
         {
@@ -679,6 +747,154 @@ public partial class GameView : Node2D
         if (lost != null && lost.Count > 0)
             Note($"{lost.Count} data file(s) missing from this build " +
                  $"(e.g. {lost[0]}) - sound and music may be silent.");
+
+        _unpack?.Done();
+        FindResources();
+    }
+
+    // ---- the fetched path ------------------------------------------
+
+    /// <summary>
+    /// What the sync worked out it has to do, held across the first-run
+    /// question. Null unless a question is on screen.
+    /// </summary>
+    ResourceSync.Plan _plan;
+
+    /// <summary>
+    /// Brings user://resource up to date from the website, on a worker
+    /// thread, behind the same screen the unpack uses - and stops here
+    /// if it cannot, for the reason Unpack stops: the only path onward
+    /// to FindResources is a folder that is known to be complete.
+    ///
+    /// Two phases, because the first run asks. Prepare fetches the
+    /// manifest and diffs it against the folder; if nothing of it is on
+    /// the device the screen says how much and waits for Download, and
+    /// Fetch runs on that press. Every later launch goes straight from
+    /// Prepare to Fetch, or - the usual case - from Prepare to the game
+    /// with nothing fetched at all.
+    /// </summary>
+    void Sync()
+    {
+        if (_unpacking) return;
+        _unpacking = true;
+
+        UnpackScreen screen = Screen(Sync);
+        // Wired once: Screen builds the node once, and these are the
+        // sync's own buttons. A second subscription would start two
+        // downloads from one tap - which _unpacking stops, but there is
+        // no reason to rely on it.
+        if (!_syncWired)
+        {
+            _syncWired = true;
+            screen.Download += () => { if (_plan != null) Fetch(_plan); };
+            screen.Later += () => { if (_plan != null) _unpack?.Parked(Parked(_plan)); };
+        }
+        screen.Working("Checking...", "Checking game data",
+                       "Comparing the game data on this device with the website.");
+
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                ResourceSync.Plan p = ResourceSync.Prepare(
+                    msg => Callable.From(() => _unpack?.Working(msg, "Checking game data",
+                        "Comparing the game data on this device with the website.")).CallDeferred());
+                Callable.From(() => Planned(p)).CallDeferred();
+            }
+            catch (Exception e)
+            {
+                Callable.From(() => { _unpacking = false; Boom("checking the game data", e); })
+                    .CallDeferred();
+            }
+        });
+    }
+    bool _syncWired;
+
+    /// <summary>The first-run question, worded from the plan's numbers.</summary>
+    static string Offer(ResourceSync.Plan p)
+        => $"Meridian 59 needs {Mb(p.NeedBytes)} of game data ({p.NeedCount:N0} files).\n\n" +
+           "Download now? Use Wi-Fi - this is a lot for a data plan.";
+
+    /// <summary>The same card after Not now: still the number, and the one way on.</summary>
+    static string Parked(ResourceSync.Plan p)
+        => $"Meridian 59 cannot run without its game data - {Mb(p.NeedBytes)} " +
+           $"({p.NeedCount:N0} files).\n\nDownload it when you are on Wi-Fi.";
+
+    static string Mb(long bytes) => $"{bytes / (1024.0 * 1024.0):0.#} MB";
+
+    /// <summary>What to do with the plan. Main thread only.</summary>
+    void Planned(ResourceSync.Plan p)
+    {
+        // Already decided: nothing to do, offline with a full set, or a
+        // refusal. All three are a Report.
+        if (p.Report != null) { Synced(p.Report); return; }
+
+        // The first phase is over and the second has not started, so
+        // the flag is down between them. It has to be: Fetch guards on
+        // it exactly as Sync does, and with it still up from Sync the
+        // download never started and the screen sat on "Checking game
+        // data" for ever. The harness found that one - run 3, a
+        // truncated file and a changed one, nothing fetched.
+        _unpacking = false;
+
+        if (p.Ask)
+        {
+            // Asked ONCE, on the run where nothing is local. A device
+            // with any of the data on it already said yes, and a device
+            // that has the lot is never asked about the few files that
+            // changed - a question answered on every launch stops being
+            // read, and the answer to "update 2 MB?" is not interesting.
+            _plan = p;
+            _unpack?.Offer(Offer(p));
+            return;
+        }
+
+        Fetch(p);
+    }
+
+    /// <summary>The download itself, on the worker.</summary>
+    void Fetch(ResourceSync.Plan p)
+    {
+        if (_unpacking) return;
+        _unpacking = true;
+        _plan = null;
+
+        const string title = "Downloading game data";
+        const string body = "This happens once, and it takes a while on a slow " +
+                            "connection.\nLeave the game in front while it runs.";
+        _unpack?.Working("Starting...", title, body);
+
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                ResourceSync.Report r = ResourceSync.Apply(p,
+                    msg => Callable.From(() => _unpack?.Working(msg, title, body)).CallDeferred());
+                Callable.From(() => Synced(r)).CallDeferred();
+            }
+            catch (Exception e)
+            {
+                Callable.From(() => { _unpacking = false; Boom("downloading the game data", e); })
+                    .CallDeferred();
+            }
+        });
+    }
+
+    /// <summary>The sync's verdict. Main thread only.</summary>
+    void Synced(ResourceSync.Report r)
+    {
+        _unpacking = false;
+        if (!r.Ok)
+        {
+            _unpack?.Problem(r.Problem ?? "The game data could not be downloaded.");
+            return;
+        }
+
+        // One line for the login card and the chat, the way the update
+        // check's verdict gets there: "up to date", "updated N files",
+        // or "offline" - the three things a player most needs to be
+        // able to tell apart when the world looks wrong.
+        if (!string.IsNullOrEmpty(r.Note)) Heard(r.Note, ref _dataSaid);
 
         _unpack?.Done();
         FindResources();
@@ -787,7 +1003,7 @@ public partial class GameView : Node2D
         _ui.AddChild(_login);
         // Whatever the update check already concluded, if it got there
         // first. See the Said handler.
-        if (_updateSaid.Length > 0) _login.UpdateNote(_updateSaid);
+        _login.UpdateNote(LoginNote());
 
         _login.Choices(_servers, _serverPick);
         _login.Server(Chosen.Host, Chosen.Port);

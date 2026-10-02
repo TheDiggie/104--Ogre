@@ -77,13 +77,25 @@ public partial class HudEditor : Control
 
     // ---- the bar ----------------------------------------------------
 
-    Panel _barBg, _barBg2;
+    Panel _barBg;
     Button _fold;
     bool _folded;
-    Label _barHint;
+    Label _barHint, _barGrip;
     readonly List<Button> _slots = new List<Button>();
     Button _resetAll, _cancel, _done;
     Label _empty;
+
+    /// <summary>
+    /// Where the bar is, and whether the player put it there. Static,
+    /// so a bar the player dragged to the one corner that suits their
+    /// layout is still there when they come back to the editor - the
+    /// bar is chrome and is not saved with the layout, but it should
+    /// not forget inside a session either.
+    /// </summary>
+    static Vector2 _barAt;
+    static bool _barPinned;
+    bool _barDrag;
+    Vector2 _barGrab;
 
     // ---- state ------------------------------------------------------
 
@@ -114,7 +126,20 @@ public partial class HudEditor : Control
     Vector2 _was;
 
     const float CardW = 440f, CardH = 232f;
-    const float BarH = 66f, BarW = 1180f;
+
+    /// <summary>
+    /// The bar's plate: two rows of controls and a line of hint, as
+    /// narrow as the longer row. Narrow matters more than it looks - a
+    /// strip across the screen covers something on every HUD, while a
+    /// block this size has somewhere to go on any layout a phone can
+    /// hold. See BarDodge.
+    /// </summary>
+    const float SlotW = 118f, ResetW = 132f, ActW = 126f, FoldW = 150f;
+    const float BarPadX = 14f, BarPadY = 10f, BarRow = 44f;
+    static float BarW => BarPadX * 2f + SlotW * M59Hud.Slots + 6f * (M59Hud.Slots - 1) + M59Skin.Gap + ResetW;
+    const float BarH = BarPadY + BarRow + 6f + BarRow + 4f + BarRow + BarPadY;
+    /// <summary>Room the bar keeps from a piece when it picks a place.</summary>
+    const float BarClear = 8f;
 
     public override void _Ready()
     {
@@ -134,16 +159,31 @@ public partial class HudEditor : Control
 
     void BuildBar()
     {
-        // TWO plates, not one strip across the top. A single full-width
-        // bar sat exactly on the Menu/Map band - a piece that lives at
-        // the top centre by design - so the one group a player is most
-        // likely to want moved was the one group they could not grab.
-        // The slots go left, the two decisions go right, and the centre
-        // of the strip is left clear for whatever lives up there.
+        // ONE PLATE THAT KEEPS OUT OF THE WAY, which is the third shape
+        // this bar has had. A strip across the top covered the Menu/Map
+        // band; two plates with the centre left clear uncovered the band
+        // and sat on the portrait, the condition bars and the map
+        // instead - the player's words were that the layout buttons
+        // blocked his health. There is no fixed place on a full HUD that
+        // belongs to nobody, so the bar is a block small enough to fit
+        // between things, and it LOOKS for a gap each time the layout
+        // settles (BarDodge). And because a player's layout can still
+        // defeat any search, the plate is also a handle: drag it by any
+        // part that is not a button and it goes where it is put
+        // (BarGrip). The fold stays as the last resort.
         _barBg = M59Skin.Window();
+        _barBg.Name = "hudBar";
+        _barBg.GuiInput += BarGrip;
         AddChild(_barBg);
-        _barBg2 = M59Skin.Window();
-        AddChild(_barBg2);
+
+        // The grip glyph, on the hint row, so the plate reads as a thing
+        // that can be picked up rather than as a fixed toolbar.
+        _barGrip = M59Skin.Caption("≡");
+        _barGrip.HorizontalAlignment = HorizontalAlignment.Center;
+        _barGrip.VerticalAlignment = VerticalAlignment.Center;
+        _barGrip.MouseFilter = MouseFilterEnum.Ignore;
+        _barGrip.AddThemeFontSizeOverride("font_size", M59Skin.TitleSize);
+        AddChild(_barGrip);
 
         for (int i = 0; i < M59Hud.Slots; i++)
         {
@@ -162,21 +202,24 @@ public partial class HudEditor : Control
         });
 
         _barHint = M59Skin.Caption("");
-        _barHint.HorizontalAlignment = HorizontalAlignment.Center;
+        _barHint.HorizontalAlignment = HorizontalAlignment.Left;
         _barHint.VerticalAlignment = VerticalAlignment.Center;
+        // Wrapped, not clipped: the row is a control height tall, which
+        // is two lines of small print, and a hint cut off mid-sentence
+        // is worse than none.
+        _barHint.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _barHint.MouseFilter = MouseFilterEnum.Ignore;
         AddChild(_barHint);
 
         _cancel = Make("Cancel", "hudCancel", M59Skin.Kind.Secondary, Cancel);
         _done = Make("Done", "hudDone", M59Skin.Kind.Primary, Done);
 
-        // The bar has to sit somewhere, and on a full HUD every strip of
-        // the screen already belongs to a piece - so wherever it goes it
-        // covers something the player may want to drag. Rather than pick
-        // a victim, it folds: one tap takes the whole bar down to a pill
-        // and gives the ground back, and another brings it up. The pill
-        // goes to the bottom centre, which is the one place no piece is
-        // pinned to and the thumb can reach while the other hand is free.
+        // Even a bar that dodges and can be dragged can end up with
+        // nowhere to be - a layout can fill the screen. So it folds: one
+        // tap takes the whole bar down to a pill and gives the ground
+        // back, and another brings it up. The pill goes to the bottom
+        // centre, which is the one place no piece is pinned to and the
+        // thumb can reach while the other hand is free.
         _fold = Make("Hide bar", "hudFold", M59Skin.Kind.Secondary, () =>
         {
             _folded = !_folded;
@@ -186,6 +229,101 @@ public partial class HudEditor : Control
             Layout(true);
             Follow();
         });
+    }
+
+    /// <summary>
+    /// A press on the plate itself - anywhere a button is not - picks
+    /// the bar up. The buttons are siblings laid over the plate and eat
+    /// their own presses, so only the plate's padding, its gaps and the
+    /// hint row arrive here, and the hint row is a full control height
+    /// for that reason. Absolute like the piece drag, and for the same
+    /// reason (see _GuiInput). Once dragged, the bar stays where it was
+    /// put for the rest of the session: a player who has moved it has
+    /// said where it goes, and a bar that hopped away again on the next
+    /// relayout would read as a bar that does not listen.
+    /// </summary>
+    void BarGrip(InputEvent e)
+    {
+        if (_folded || !Reach(e, out Vector2 local, out int phase)) return;
+        // GuiInput positions are local to the control that received
+        // them; the plate is a child of a full-screen node at the
+        // origin, so its own position is the whole of the offset.
+        Vector2 at = _barBg.Position + local;
+        if (phase == 0)
+        {
+            _barDrag = true;
+            _barGrab = _barBg.Position - at;
+        }
+        else if (phase == 1 && _barDrag)
+        {
+            _barAt = at + _barGrab;
+            _barPinned = true;
+            Layout(false);
+        }
+        else if (phase == 2)
+        {
+            if (_barDrag) Layout(true);
+            _barDrag = false;
+        }
+        AcceptEvent();
+    }
+
+    /// <summary>
+    /// Where the bar goes when the player has not said: the highest
+    /// place in the screen's centre column, then its left, then its
+    /// right, that covers no piece at all.
+    ///
+    /// Three columns are walked top to bottom and the first clear
+    /// position in each is a candidate; the highest wins and the centre
+    /// column breaks a tie. On the default layout at 1920x1080 that
+    /// puts the bar just under the Menu/Map band, between the status
+    /// row and the target card, which covers nothing - and it still
+    /// covers nothing when the band is scaled up or the bars are moved,
+    /// because it is found and not assumed. When nothing is clear
+    /// anywhere, the place that covers the least is taken, and the
+    /// player has the grip and the fold.
+    ///
+    /// Pieces are tested with a little clearance so the bar does not
+    /// kiss a handle, which would make the handle's edge hard to grab.
+    /// Hidden pieces count too: the editor shows them so they can be
+    /// brought back, which means they can be grabbed.
+    /// </summary>
+    Vector2 BarDodge(Vector2 v, float margin)
+    {
+        float w = BarW, h = BarH;
+        float[] xs = { Mathf.Round((v.X - w) * 0.5f), margin, v.X - margin - w };
+        float floor = Mathf.Max(margin, v.Y - margin - h);
+        const float step = 6f;
+
+        var pieces = new List<Rect2>();
+        foreach (M59Hud.Piece p in M59Hud.All)
+            if (Drawn(p)) pieces.Add(p.Rect.Grow(BarClear));
+
+        Vector2 best = new Vector2(xs[0], margin);
+        float bestY = float.MaxValue, leastCover = float.MaxValue;
+        Vector2 leastAt = best;
+        foreach (float x in xs)
+        {
+            for (float y = margin; y <= floor; y += step)
+            {
+                var r = new Rect2(x, y, w, h);
+                float cover = 0f;
+                foreach (Rect2 pr in pieces)
+                {
+                    Rect2 o = r.Intersection(pr);
+                    cover += o.Size.X * o.Size.Y;
+                }
+                if (cover <= 0f)
+                {
+                    // Strictly higher wins; an equal height keeps the
+                    // earlier column, which is the centre.
+                    if (y < bestY) { bestY = y; best = new Vector2(x, y); }
+                    break;
+                }
+                if (cover < leastCover) { leastCover = cover; leastAt = new Vector2(x, y); }
+            }
+        }
+        return bestY < float.MaxValue ? best : leastAt;
     }
 
     Button Make(string text, string node, M59Skin.Kind kind, Action pressed)
@@ -442,6 +580,7 @@ public partial class HudEditor : Control
 
         if (phase == 1 && _drag != null)
         {
+            Rect2 natural0 = _drag.Natural;
             Vector2 want = at + _grab;
             _drag.Offset = want - _drag.Natural.Position;
             _dragged = true;
@@ -450,6 +589,20 @@ public partial class HudEditor : Control
             // how the editor knows the drag hit the edge. Read after the
             // relayout, not before.
             M59Hud.Touch();
+            // A piece may change its mind about its NATURAL rect the
+            // moment it carries an offset - the enchantment row sits on
+            // a computed floor until it is moved and on a fixed base
+            // after (AvatarPanel.BuffNatural). The offset above was
+            // measured from the old natural, so against the new one the
+            // piece lands somewhere else and the handle jumps out from
+            // under the finger. Measure again from where it now says it
+            // is and lay out once more; on every other move the natural
+            // is unchanged and this is skipped.
+            if (_drag.Natural.Position != natural0.Position)
+            {
+                _drag.Offset = want - _drag.Natural.Position;
+                M59Hud.Touch();
+            }
             Vector2 got = _drag.Rect.Position;
             _pinX = Mathf.Abs(got.X - want.X) > 0.5f;
             _pinY = Mathf.Abs(got.Y - want.Y) > 0.5f;
@@ -567,7 +720,7 @@ public partial class HudEditor : Control
         _barHint.Text = _clash.Count > 0
             ? $"{_clash.Count / 2} overlap{(_clash.Count / 2 == 1 ? "" : "s")} - the commonest HUD mistake"
             : (_picked != null && _picked.Id == Panels.TopId
-                   ? "Menu is the way back here, so this piece cannot be hidden - it still moves and scales."
+                   ? "Menu is the way back here, so this piece cannot be hidden."
                : _picked != null ? "Drag to move. Tap the background to deselect."
                                  : "Tap a piece to edit it. Drag it to move it.");
         _barHint.AddThemeColorOverride("font_color",
@@ -636,63 +789,60 @@ public partial class HudEditor : Control
         Size = v;
         float margin = Mathf.Max(16f, Mathf.Min(v.X, v.Y) * 0.04f);
 
-        // The left plate: the three layouts and Reset all.
-        float slotW = 118f, actW = 126f;
-        float leftW = M59Skin.Pad * 2f + slotW * _slots.Count + 6f * (_slots.Count - 1)
-                    + M59Skin.Gap + 132f;
-        float rightW = M59Skin.Pad * 2f + actW * 2f + M59Skin.Gap;
-        float top = Mathf.Round(margin);
+        // The bar: where the player dragged it, or the gap BarDodge
+        // finds. Looked for again only when something settled (replace),
+        // never mid-drag - a bar that jumps while a piece is being
+        // carried past it is a moving target for the finger holding the
+        // piece. Kept on the glass whatever happens, with the same
+        // thumb's worth the pieces get, so it can always be dragged back.
+        float w = BarW, h = BarH;
+        if (!_barPinned && (replace || _barRect.Size.X < 1f)) _barAt = BarDodge(v, margin);
+        _barAt.X = Mathf.Round(Mathf.Clamp(_barAt.X, Thumb - w, v.X - Thumb));
+        _barAt.Y = Mathf.Round(Mathf.Clamp(_barAt.Y, 0f, v.Y - Thumb));
+        _barBg.Position = _barAt;
+        _barBg.Size = new Vector2(w, h);
+        _barRect = new Rect2(_barAt, w, h);
 
-        // Narrow screens have no centre to spare, so the two plates meet
-        // rather than overlap: the band is then unreachable from under
-        // the bar, which is why the pieces are also draggable by any part
-        // of themselves the plates do not cover.
-        float lx = Mathf.Round(Mathf.Min(margin, v.X - margin - leftW - rightW));
-        float rx = Mathf.Round(Mathf.Max(lx + leftW, v.X - margin - rightW));
-
-        _barBg.Position = new Vector2(lx, top);
-        _barBg.Size = new Vector2(leftW, BarH);
-        _barBg2.Position = new Vector2(rx, top);
-        _barBg2.Size = new Vector2(rightW, BarH);
-
-        // The strip as a whole, for the card's "under the bar" candidates
-        // and for the clamp banner. The gap in the middle is not a place
-        // to put a card either: a card there would cover the band.
-        _barRect = new Rect2(lx, top, rx + rightW - lx, BarH);
-
-        float x = lx + M59Skin.Pad;
-        float y = top + (BarH - 44f) * 0.5f;
+        // Row one: the three layouts and Reset all.
+        float x = _barAt.X + BarPadX;
+        float y = _barAt.Y + BarPadY;
         foreach (Button b in _slots)
         {
             b.Position = new Vector2(x, y);
-            b.Size = new Vector2(slotW, 44f);
-            x += slotW + 6f;
+            b.Size = new Vector2(SlotW, BarRow);
+            x += SlotW + 6f;
         }
         x += M59Skin.Gap - 6f;
         _resetAll.Position = new Vector2(x, y);
-        _resetAll.Size = new Vector2(132f, 44f);
+        _resetAll.Size = new Vector2(ResetW, BarRow);
 
-        _cancel.Size = new Vector2(actW, 44f);
-        _cancel.Position = new Vector2(rx + M59Skin.Pad, y);
-        _done.Size = new Vector2(actW, 44f);
-        _done.Position = new Vector2(rx + M59Skin.Pad + actW + M59Skin.Gap, y);
+        // Row two: the fold and the two decisions, Done on the right
+        // where a thumb expects the confirming button.
+        y += BarRow + 6f;
+        x = _barAt.X + BarPadX;
+        _done.Size = new Vector2(ActW, BarRow);
+        _done.Position = new Vector2(_barAt.X + w - BarPadX - ActW, y);
+        _cancel.Size = new Vector2(ActW, BarRow);
+        _cancel.Position = new Vector2(_done.Position.X - M59Skin.Gap - ActW, y);
 
-        // The hint, and the overlap count it turns into, below both
-        // plates rather than between them - the space between them is
-        // what the top-centre piece needs.
-        _barHint.Position = new Vector2(0f, top + BarH + 6f);
-        _barHint.Size = new Vector2(v.X, 30f);
+        // Row three: the grip and the hint, a full control height so
+        // the plate has a strip a thumb can pick it up by.
+        float hy = y + BarRow + 4f;
+        _barGrip.Position = new Vector2(x, hy);
+        _barGrip.Size = new Vector2(30f, BarRow);
+        _barHint.Position = new Vector2(x + 34f, hy);
+        _barHint.Size = new Vector2(w - BarPadX * 2f - 34f, BarRow);
 
         // Folded, nothing of the bar is on the glass but the pill, so a
         // piece anywhere under it can be grabbed.
-        _fold.Size = new Vector2(150f, 44f);
+        _fold.Size = new Vector2(FoldW, BarRow);
         _fold.Position = _folded
-            ? new Vector2(Mathf.Round((v.X - 150f) * 0.5f), Mathf.Round(v.Y - margin - 44f))
-            : new Vector2(Mathf.Round((v.X - 150f) * 0.5f), Mathf.Round(top + BarH + 40f));
-        _barBg.Visible = _barBg2.Visible = !_folded;
+            ? new Vector2(Mathf.Round((v.X - FoldW) * 0.5f), Mathf.Round(v.Y - margin - BarRow))
+            : new Vector2(x, y);
+        _barBg.Visible = !_folded;
         foreach (Button b in _slots) b.Visible = !_folded;
         _resetAll.Visible = _cancel.Visible = _done.Visible = !_folded;
-        _barHint.Visible = !_folded;
+        _barHint.Visible = _barGrip.Visible = !_folded;
         if (_folded) _barRect = new Rect2(_fold.Position, _fold.Size);
 
         _empty.Position = new Vector2(0f, v.Y * 0.5f - 20f);
@@ -715,9 +865,9 @@ public partial class HudEditor : Control
     /// lives; a card pinned anywhere fixed will sooner or later cover
     /// the very thing whose size the player is trying to judge.
     ///
-    /// So six places are tried - the three heights down each side,
-    /// under the bar - and the one that covers the least of the selected
-    /// piece wins, with the least of EVERY other piece as the
+    /// So six places are tried - the three heights down each side -
+    /// and the one that covers the least of the selected piece and of
+    /// the bar wins, with the least of EVERY other piece as the
     /// tie-break, and distance from the piece breaking that. Six is
     /// enough that on a 1920x1080 screen a centred piece half the
     /// screen wide still leaves a clear one.
@@ -725,27 +875,26 @@ public partial class HudEditor : Control
     Rect2 Dodge(Vector2 v, float margin)
     {
         Rect2 keep = _picked.Rect;
-        // Under the bar - but the bar is only up there while it is up.
-        // Folded, _barRect is the pill at the BOTTOM of the screen, and
-        // taking a floor from it put every candidate off the bottom edge
-        // and left the card half off the glass.
-        float top = _folded ? margin : _barRect.Position.Y + _barRect.Size.Y + M59Skin.Gap;
+        // The bar is no longer a floor the card sits under: it can be
+        // anywhere now, and a floor taken from a bar at the bottom of
+        // the screen once put every candidate off the glass (the pill
+        // did exactly that). It is scored like a piece instead - heavily,
+        // because a card over the Done button is a card that cannot be
+        // dismissed without first dragging something.
         float low = v.Y - margin - CardH;
         float[] xs = { margin, v.X - margin - CardW };
-        float[] ys = { top, Mathf.Round((v.Y - CardH) * 0.5f), low };
+        float[] ys = { margin, Mathf.Round((v.Y - CardH) * 0.5f), low };
 
         Rect2 best = new Rect2(xs[0], ys[0], CardW, CardH);
         float bestScore = float.MaxValue;
         foreach (float cx in xs)
             foreach (float cy in ys)
             {
-                // Clamped rather than skipped: a short screen can leave
-                // no candidate at all above the floor, and no candidate
-                // means the card falls back to a default that may be off
-                // the glass - which is worse than a card slightly high.
-                var r = new Rect2(cx, Mathf.Min(Mathf.Max(cy, top), Mathf.Max(top, low)), CardW, CardH);
+                var r = new Rect2(cx, Mathf.Clamp(cy, 0f, Mathf.Max(0f, low)), CardW, CardH);
                 Rect2 on = r.Intersection(keep);
                 float score = on.Size.X * on.Size.Y * 8f;
+                Rect2 bar = r.Intersection(_barRect);
+                score += bar.Size.X * bar.Size.Y * 8f;
                 foreach (M59Hud.Piece p in M59Hud.All)
                 {
                     if (!Drawn(p) || p == _picked) continue;
@@ -899,14 +1048,18 @@ public partial class HudEditor : Control
                 float ey = r.GetCenter().Y < v.Y * 0.5f ? 0f : v.Y - 4f;
                 DrawRect(new Rect2(0f, ey, v.X, 4f), edge, true);
             }
-            // Said in a FIXED place under the bar, not beside the piece:
-            // the moment this message is true the piece is half off the
-            // screen, which is exactly where a caption hung off it would
-            // be unreadable or gone.
+            // Said in a FIXED place, not beside the piece: the moment
+            // this message is true the piece is half off the screen,
+            // which is exactly where a caption hung off it would be
+            // unreadable or gone. Under the bar when the bar is in the
+            // top half, above it when it is not, so the line is never
+            // pushed off the bottom by a bar parked down there.
             const string why = "Edge of the screen - a piece is always kept where you can reach it.";
             float ww = f.GetStringSize(why, HorizontalAlignment.Left, -1, 18).X;
             float wx = Mathf.Round((v.X - ww) * 0.5f);
-            float wy = _barRect.Position.Y + _barRect.Size.Y + 14f;
+            float wy = _barRect.GetCenter().Y < v.Y * 0.5f
+                ? _barRect.Position.Y + _barRect.Size.Y + 14f
+                : _barRect.Position.Y - 34f;
             DrawRect(new Rect2(wx - 12f, wy - 2f, ww + 24f, 30f),
                      new Color(0.04f, 0.036f, 0.031f, 0.9f), true);
             DrawRect(new Rect2(wx - 12f, wy - 2f, ww + 24f, 30f), M59Skin.Gold, false, 1f);

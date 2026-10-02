@@ -233,30 +233,53 @@ Two traps, both hit:
 See also: SafeArea.cs | the client -> mobile-client.md
 
 ## An editor's own chrome is a piece too
+Tags: design, lessons | No fixed place on a full HUD belongs to nobody: the editor's bar is a small block that looks for a gap, can be dragged, and folds
 
 The HUD editor's bar started as one strip across the top of the
 screen. Every piece under it became undraggable, and on a full HUD
 that is not a corner case: the Menu/Map band is pinned to the top
 centre by design, so the one group a player most wants moved was the
-one group they could not touch. Moving the bar does not fix it -
-there is no strip of a full HUD that belongs to nobody. Two answers,
-both needed:
+one group they could not touch. The second shape - two plates with
+the centre left clear - uncovered the band and sat on the portrait,
+the condition bars and the map instead; the player's words were that
+the layout buttons blocked his health. Moving a strip never fixes
+it, because there is no strip of a full HUD that belongs to nobody.
+Three answers, all kept:
 
-- The bar is two plates, left and right, with the centre of the
-  strip left clear.
+- The bar is one block, as narrow as its longer row, and it LOOKS
+  for a gap: `HudEditor.BarDodge` walks three columns top to bottom
+  and takes the highest place that covers no piece, centre column
+  first. On the default layout that is just under the Menu/Map band;
+  it stays right when the band is scaled or the bars are moved,
+  because the place is found rather than assumed. It is looked for
+  again only when the layout settles, never mid-drag.
+- The bar is a HANDLE. A press on the plate that no button takes
+  drags it (`BarGrip`), and once dragged it stays put for the
+  session - a bar that hopped away again on the next relayout would
+  read as a bar that does not listen.
 - The bar FOLDS. One button takes it down to a pill and gives the
-  whole glass back, which is the only answer that works for a piece
-  dragged under a plate.
+  whole glass back, which is the only answer that works for a layout
+  that fills the screen.
 
-And the trap that followed: `Dodge` took its floor from the bar's
-rectangle. Folded, that rectangle is the pill at the BOTTOM, so
+And the trap that followed the fold: `Dodge` took its floor from the
+bar's rectangle. Folded, that rectangle is the pill at the BOTTOM, so
 every candidate was below the bottom edge, none passed the floor
 test, and the card fell back to a default that was half off screen.
-A candidate that fails a bound is clamped into the screen, never
-skipped - a filter that can reject every candidate has no answer at
-all for the case it rejects.
+The bar is no floor at all now - it can be anywhere - so the card
+scores overlap with it like a piece, heavily, and clamps every
+candidate onto the glass. A filter that can reject every candidate
+has no answer at all for the case it rejects.
 
-See also: HudEditor.cs, M59Hud.cs | the HUD store -> mobile-client.md
+The same lesson in the model: a row that is PINNED by arithmetic is
+a row the editor cannot move. The enchantment row was pushed down to
+clear the bars and the status row by a floor the view computed, and
+the floor won every drag. It is its own piece now ("buffs",
+"Enchantments"): the floor is only its default, and the first drag
+hands over to a fixed base (`AvatarPanel.BuffNatural`,
+`HudEditor._GuiInput` re-measures the offset when a piece's natural
+rect changes under the finger).
+
+See also: HudEditor.cs, M59Hud.cs, AvatarPanel.cs | the HUD store -> mobile-client.md
 
 ## A world overlay does not belong on the interface's layer
 

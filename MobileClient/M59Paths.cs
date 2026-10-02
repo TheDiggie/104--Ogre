@@ -168,7 +168,9 @@ public static class M59Paths
     /// fail at some other write later on, and Android's own housekeeping
     /// starts killing things well before zero.
     /// </summary>
-    const long Headroom = 32L * 1024 * 1024;
+    // Shared with ResourceSync, which fills the same folder from the
+    // network and owes the player the same refusal before the first byte.
+    internal const long Headroom = 32L * 1024 * 1024;
 
     /// <summary>
     /// How an unpack turned out. A bool could not say the two things
@@ -555,7 +557,7 @@ public static class M59Paths
     /// on, so it has to be opened on a path that exists - user:// always
     /// does, the folder underneath it may not yet.
     /// </summary>
-    static long SpaceLeft()
+    internal static long SpaceLeft()
     {
         try
         {
@@ -565,7 +567,20 @@ public static class M59Paths
         catch { return 0; }
     }
 
-    static string Mb(long bytes) => $"{bytes / (1024.0 * 1024.0):0.#} MB";
+    internal static string Mb(long bytes) => $"{bytes / (1024.0 * 1024.0):0.#} MB";
+
+    /// <summary>
+    /// Whether this build carries the game data inside the export at
+    /// all. The question GameView.Boot asks first, because it picks the
+    /// whole path: a build with data unpacks it, a build without fetches
+    /// it (ResourceSync), and nothing is gained by asking the second
+    /// question of a build that can answer the first.
+    /// </summary>
+    public static bool IsBundled()
+    {
+        using var src = DirAccess.Open(PackedResource);
+        return src != null;
+    }
 
     /// <summary>Where the skybox faces sit inside the export.</summary>
     public const string PackedSky = "res://sky";

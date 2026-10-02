@@ -511,6 +511,44 @@ public sealed class Renderer
     float[] _depth = new float[0];
 
     /// <summary>
+    /// Per-PIXEL distance to the floor or ceiling painted there, for
+    /// sprite depth. Walls are tested per column: the surface that
+    /// closed the column in _depth, and the parts passed on the way out
+    /// in the window (see Narrow). Flats were tested against nothing.
+    /// A raised platform's top, a stair tread, the lip of a pit - every
+    /// one of them is a floor span that is NEARER than what stands
+    /// beyond it and closes no column, draws no upper or lower part,
+    /// and so appeared in neither test. A creature standing on the
+    /// lower floor behind a platform had its legs painted over the
+    /// platform's top; an orb at the foot of a staircase was painted
+    /// over the treads above it.
+    ///
+    /// The reference has no such hole because a floor fragment writes
+    /// depth like any other - base_material_room and base_material_water
+    /// both leave depth_write on (general.material:257-285, :414-445) -
+    /// and a billboard is depth-tested per pixel against all of it
+    /// (RemoteNode2D.cpp:11-39). The honest target is what a depth
+    /// buffer would do, so this IS one, for the flats only: FillFlat
+    /// already solves each row for the distance to the plane, and that
+    /// distance is stored here as it goes. The sprite pass, Project and
+    /// PickAll then read it per pixel, as they read _spriteDepth.
+    ///
+    /// Reset to float.MaxValue only on a frame that has something to
+    /// test against it - the same rule as _spriteDepth - and trusted
+    /// only then (see _spriteValid). Where a wall or the sky was
+    /// painted it stays at MaxValue, and the wall tests stand as they
+    /// were.
+    /// </summary>
+    float[] _flatDepth = new float[0];
+
+    /// <summary>
+    /// Whether a sprite is clipped by the floors and ceilings nearer
+    /// than it, pixel by pixel. On; here so the difference can be
+    /// photographed and counted, as <see cref="ClipSprites"/> is.
+    /// </summary>
+    public static bool ClipFlats = true;
+
+    /// <summary>
     /// How many steps of the visible window a column may record. A step
     /// is a portal the walk passed through that narrowed what can be
     /// seen; sixteen is more than any room in the game puts in one
@@ -937,10 +975,18 @@ public sealed class Renderer
         // Where a sprite is, and how far away, so see-through walls drawn
         // afterwards know which pixels they must not cover.
         _spriteValid = Sprites.Count > 0 || _decor.Count > 0;
+        // The flat depth is written by every floor and ceiling pixel
+        // whether or not anything will read it - a store the span was
+        // already paying for the colour - so the buffer always exists at
+        // this size. It is only RESET when something will read it: the
+        // fill is one sequential pass over W*H floats and is the whole
+        // of what this costs on a frame with nothing in it.
+        if (_flatDepth.Length < W * H) _flatDepth = new float[W * H];
         if (_spriteValid)
         {
             if (_spriteDepth == null || _spriteDepth.Length < W * H) _spriteDepth = new float[W * H];
             Array.Clear(_spriteDepth, 0, W * H);
+            Array.Fill(_flatDepth, float.MaxValue, 0, W * H);
         }
 
         if (bands <= 1)
@@ -1099,11 +1145,11 @@ public sealed class Renderer
                 int ceilY  = ScreenY(nc, camZ, horizon, proj, perp);
                 int floorY = ScreenY(nf, camZ, horizon, proj, perp);
 
-                FillFlat(px, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
+                FillFlat(px, _flatDepth, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
                          LitFlat(near, true), Brightness, Sky, colLights, anyLights, sc);
-                FillFlat(px, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
+                FillFlat(px, _flatDepth, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
                          near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
                          LitFlat(near, false), Brightness, Sky, colLights, anyLights, sc);
@@ -1513,6 +1559,24 @@ public sealed class Renderer
                 {
                     int ty = TexelY(p, y, lh);
                     if (ty < 0) continue;
+                    // And behind a floor or ceiling, per pixel: the top
+                    // of a platform, a stair tread, the near lip of a
+                    // pit. See _flatDepth. The test is the same strict
+                    // one the walls get, and it needs no epsilon for
+                    // the floor a creature STANDS on. Its feet are at
+                    // the floor's height, and every row it is drawn on
+                    // lies above its feet; the floor pixel on such a
+                    // row is the floor PAST the feet, farther than the
+                    // creature, strictly: FillFlat solves a row at the
+                    // pixel's top edge (`dy = y - horizon`) and TexelY
+                    // cuts the sprite at the pixel's centre (`y + 0.5`),
+                    // so the last row drawn is half a pixel short of
+                    // the feet and the floor there is that much beyond
+                    // them. Move either convention and the feet row
+                    // ties, and a tie is "behind". The flatfloor check
+                    // in Net8RenderCheck counts that nothing of such a
+                    // creature is lost.
+                    if (ClipFlats && depth >= _flatDepth[y * W + sx]) continue;
                     uint c = lp[ty * lw + tx];
                     if ((c >> 24) == 0) continue;            // transparent texel
                     uint lit = Material(Shade(c | 0xFF000000u, p.LitR, p.LitG, p.LitB), sp);
@@ -1708,8 +1772,9 @@ public sealed class Renderer
     /// open at that distance, or by an object standing nearer.
     ///
     /// Call it AFTER Render with the frame whose camera the point
-    /// belongs with. It reads the camera and the two depth buffers
-    /// Render filled, so calling it before Render places the point for
+    /// belongs with. It reads the camera and the three depth buffers
+    /// Render filled - the walls' per column, the flats' and the
+    /// sprites' per pixel - so calling it before Render places the point for
     /// the camera of the frame BEFORE it, which is a label that slides
     /// off its owner every time you turn.
     ///
@@ -1789,6 +1854,14 @@ public sealed class Renderer
             {
                 float sd = _spriteDepth[row * _lastW + col];
                 if (sd > 0f && sd < depth) return false;
+                // And the floors and ceilings, per pixel, for the same
+                // reason: the label is depth-tested against the room in
+                // the reference, and a platform that hides its owner
+                // hides the name. `_flatDepth` is reset on the same
+                // frames `_spriteDepth` is, so it is trusted on the same
+                // terms. See _flatDepth.
+                if (ClipFlats && _flatDepth.Length > row * _lastW + col
+                    && depth >= _flatDepth[row * _lastW + col]) return false;
             }
         }
 
@@ -1887,6 +1960,12 @@ public sealed class Renderer
             // tap the head of a creature the lintel was hiding.
             Window(px_, depth, out int wTop, out int wBot);
             if (py_ < wTop || py_ > wBot) continue;
+            // And the same floor and ceiling depth it clips to, or you
+            // could tap the legs a platform was hiding - and the pick
+            // oracle, which holds painted and pickable to be the same
+            // set of pixels, would say so. See _flatDepth.
+            if (ClipFlats && _spriteValid && _flatDepth.Length >= W * H
+                && depth >= _flatDepth[py_ * W + px_]) continue;
 
             // The same level the paint used, or the two disagree about
             // where a sprite's edge is.
@@ -2240,7 +2319,14 @@ public sealed class Renderer
         return MathF.Sqrt(ex * ex + ey * ey + ez * ez);
     }
 
-    static void FillFlat(uint[] px, int W, int H, int sx, int y0, int y1, bool ceiling,
+    /// <summary>
+    /// Paints one column span of a floor or ceiling, and records in
+    /// <paramref name="fd"/> how far away each pixel of it is - the
+    /// perpendicular distance the span already solves for, which is the
+    /// same measure the walls' `perp` and the sprites' `depth` use. See
+    /// _flatDepth for why.
+    /// </summary>
+    static void FillFlat(uint[] px, float[] fd, int W, int H, int sx, int y0, int y1, bool ceiling,
                          RooSector sec, float camX, float camY, float camZ,
                          float horizon, float proj, float angle, float rayA, TexCache tc,
                          bool skip, bool noSample, float time, FlatAnchors anchors,
@@ -2327,6 +2413,16 @@ public sealed class Renderer
                 straight = MathF.Abs((camZ - planeH) * proj / dy);
                 d = straight / cosFixMax;
             }
+            // The one store the depth buffer costs this loop. No divide:
+            // `straight` is the row's distance to the plane, solved above
+            // for the texture anyway. The rows that fell out before this
+            // point - no texture, the horizon row, a slope the ray never
+            // meets - show the sky or a flat colour and are left at
+            // MaxValue, which is where the sky is. Liquid too: the
+            // reference's water writes depth (general.material:414-445),
+            // which is why a player wading in a river is seen from the
+            // waist up and not through the surface.
+            fd[y * W + sx] = straight;
             float wx = camX + rdx * d, wy = camY + rdy * d;
 
             // How much world space one screen pixel covers here. Rows near

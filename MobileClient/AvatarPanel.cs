@@ -54,7 +54,10 @@ public partial class AvatarPanel : Control
     /// from Vitals.Bottom, so the row starts below the whole block
     /// rather than below the head alone.
     ///
-    /// Zero means "under the head", which is what it was.
+    /// Zero means "under the head", which is what it was. And it is a
+    /// DEFAULT only: once the player has dragged the row somewhere in
+    /// the HUD editor this floor is not consulted again - see
+    /// BuffNatural.
     /// </summary>
     public float BuffTop
     {
@@ -78,6 +81,18 @@ public partial class AvatarPanel : Control
     DataController _data;
     Button _head;
     uint _shown;
+
+    /// <summary>
+    /// Two hosts, one per piece. The layout store fades and hides a
+    /// piece through the one node it was given (M59Hud.Dress sets
+    /// Modulate on it), and Modulate is inherited - so with the buff
+    /// buttons under the same root as the head, fading the portrait
+    /// faded the enchantments with it, and the row could not be its own
+    /// piece however it was registered. The head and its halo live in
+    /// one host, the enchantment buttons in the other, and each piece
+    /// dresses its own.
+    /// </summary>
+    Control _faceHost, _buffHost;
 
     [Export] public int BuffSize = 28;
     /// <summary>
@@ -111,6 +126,13 @@ public partial class AvatarPanel : Control
         SetAnchorsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
 
+        _faceHost = new Control { MouseFilter = MouseFilterEnum.Ignore, Name = "faceHost" };
+        _faceHost.SetAnchorsPreset(LayoutPreset.FullRect);
+        AddChild(_faceHost);
+        _buffHost = new Control { MouseFilter = MouseFilterEnum.Ignore, Name = "buffHost" };
+        _buffHost.SetAnchorsPreset(LayoutPreset.FullRect);
+        AddChild(_buffHost);
+
         _head = new Button
         {
             Flat = true,
@@ -119,23 +141,28 @@ public partial class AvatarPanel : Control
             Name = "selfPortrait",
         };
         _head.Pressed += () => SelfTarget?.Invoke();
-        AddChild(_head);
+        _faceHost.AddChild(_head);
         Tight(_head);
         // The ring that says the latch is on, behind the portrait so the
         // face still reads. See SelfTargeting.
         _aimed = new Panel { Visible = false, MouseFilter = MouseFilterEnum.Ignore };
-        AddChild(_aimed);
-        MoveChild(_aimed, 0);
+        _faceHost.AddChild(_aimed);
+        _faceHost.MoveChild(_aimed, 0);
 
         GetViewport().SizeChanged += Layout;
 
-        // The portrait and the enchantments under it are one piece in the
-        // layout store, named for the thing the player grabs. It is its
-        // own piece rather than part of "vitals" because the game keeps
-        // them in one panel but they are two controls here, and a player
-        // who wants the bars somewhere else usually wants the face where
-        // it was. See M59Hud.
-        M59Hud.Register("portrait", "Portrait", this);
+        // The portrait is its own piece rather than part of "vitals"
+        // because the game keeps them in one panel but they are two
+        // controls here, and a player who wants the bars somewhere else
+        // usually wants the face where it was. The enchantments used to
+        // travel with it as one piece, and the day the row was pushed
+        // down to clear the bars and the status row it stopped being
+        // movable at all - the floor won every time. So the row is a
+        // piece of its own: by default it sits where that floor puts it,
+        // and once the player has dragged it their place wins. See
+        // M59Hud and BuffNatural.
+        M59Hud.Register("portrait", "Portrait", _faceHost);
+        M59Hud.Register("buffs", "Enchantments", _buffHost);
         M59Hud.Changed += Layout;
         Layout();
     }
@@ -150,17 +177,24 @@ public partial class AvatarPanel : Control
     /// </summary>
     static string HudStamp()
     {
-        M59Hud.Piece p = M59Hud.Get("portrait");
-        if (p == null) return "";
-        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
+        // Both pieces in one value: a drag of either has to re-lay the
+        // row, because the unmoved row follows the portrait.
+        return One("portrait") + "|" + One("buffs");
+
+        static string One(string id)
+        {
+            M59Hud.Piece p = M59Hud.Get(id);
+            if (p == null) return "";
+            return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
+        }
     }
 
     string _stamp = "";
 
-    /// <summary>The player's size for this piece, inside the model's band.</summary>
-    static float HudScale()
+    /// <summary>The player's size for a piece, inside the model's band.</summary>
+    static float HudScale(string id = "portrait")
     {
-        M59Hud.Piece p = M59Hud.Get("portrait");
+        M59Hud.Piece p = M59Hud.Get(id);
         return p == null ? 1f : Mathf.Clamp(p.Scale, M59Hud.MinScale, M59Hud.MaxScale);
     }
 
@@ -293,43 +327,104 @@ public partial class AvatarPanel : Control
             };
             _aimed.AddThemeStyleboxOverride("panel", glow);
         }
-        M59Hud.Dress("portrait");
-        // The player's own hide is ANDed under the client's: the host sets
-        // Visible on this root every frame out of the world, so the hide
-        // lands on the children instead.
+        // The player's own hide is ANDed under the client's: the view
+        // sets Visible on this root every frame out of the world, so the
+        // hide lands on the host under it. Shown again here before Dress
+        // takes it away, because Dress only ever hides.
         bool show = M59Hud.Shows("portrait");
+        _faceHost.Visible = true;
+        M59Hud.Dress("portrait");
         if (_head.Icon != null) _head.Visible = show;
         if (_aimed != null) _aimed.Visible = _selfAimed && _head.Visible;
-        if (!show) HideBuffs(0);
-        else RelayBuffs();
+        RelayBuffs();
     }
 
     /// <summary>
-    /// Puts the enchantments back under the portrait at the piece's
-    /// current place and size, without recomposing any art. Called when
-    /// the layout moves; SyncBuffs does it when the list moves.
+    /// Where the enchantment row would like to be - the natural rect
+    /// handed to the store, which answers with where the player put it.
+    ///
+    /// TWO ANSWERS, by design. While the player has never dragged the
+    /// row (no offset in the store) it sits where the stack says: under
+    /// the portrait's actual place, or under the floor the view computed
+    /// from the condition bars and the status row, whichever is lower -
+    /// which is exactly the frame the client drew before the row was a
+    /// piece. The moment it carries an offset, the natural rect is the
+    /// designer's fixed base under the DEFAULT portrait position, and
+    /// neither the portrait's offset nor the floor is asked again. The
+    /// base has to be fixed: an offset is saved to disk and read back
+    /// next launch, and a base that moved with the bars would move the
+    /// row the player had placed every time the bars changed, which is
+    /// the complaint this answers. The editor handles the hand-over
+    /// between the two on the first drag - see HudEditor._GuiInput.
+    ///
+    /// Width and height come from the icons the row actually shows,
+    /// wrapped as they will be laid out, so the editor's handle covers
+    /// the row and nothing else. With nothing on you there is no row;
+    /// in the editor it is given one slot's worth so there is still a
+    /// handle to place it by.
+    /// </summary>
+    Rect2 BuffNatural(float sc, int count)
+    {
+        float cell = BuffSize * sc + 8f * sc;
+        float slot = BuffSize * sc + 6f * sc;
+        int cols = Columns();
+        int n = count > 0 ? count : (M59Hud.Editing ? 1 : 0);
+        int rows = (n + cols - 1) / cols;
+        int wide = Mathf.Min(n, cols);
+        var size = n > 0
+            ? new Vector2((wide - 1) * cell + slot, (rows - 1) * cell + slot)
+            : Vector2.Zero;
+
+        M59Hud.Piece p = M59Hud.Get("buffs");
+        bool moved = p != null && p.Offset != Vector2.Zero;
+        if (moved)
+            return new Rect2(Margin, Margin + TopReserve + HeadSize * HudScale() + 6f * HudScale(), size);
+        return new Rect2(_at.X, Mathf.Max(_at.Y + _head1 + 6f * HudScale(), BuffTop), size);
+    }
+
+    /// <summary>
+    /// Puts the enchantments at the piece's current place and size,
+    /// without recomposing any art. Called when the layout moves;
+    /// SyncBuffs calls it when the list moves.
     /// </summary>
     void RelayBuffs()
     {
-        float sc = HudScale();
+        if (_buffHost == null) return;
+        int count = 0;
+        foreach (Button b in _buffs) if (b.Visible) count++;
+
+        bool show = M59Hud.Shows("buffs");
+        _buffHost.Visible = true;
+        M59Hud.Dress("buffs");
+        if (!show) { HideBuffs(0); BuffBottom = 0f; return; }
+
+        float sc = HudScale("buffs");
         float size = BuffSize * sc;
         int cols = Columns();
+        Rect2 at = M59Hud.Place("buffs", BuffNatural(sc, count), GetViewportRect().Size);
         float low = 0f;
         for (int i = 0; i < _buffs.Count; i++)
         {
             if (!_buffs[i].Visible) continue;
             _buffs[i].Position = new Vector2(
-                _at.X + (i % cols) * (size + 8f * sc),
-                BuffRow(sc) + (i / cols) * (size + 8f * sc));
+                at.Position.X + (i % cols) * (size + 8f * sc),
+                at.Position.Y + (i / cols) * (size + 8f * sc));
             _buffs[i].Size = new Vector2(size + 6f * sc, size + 6f * sc);
             low = Mathf.Max(low, _buffs[i].Position.Y + _buffs[i].Size.Y);
         }
-        BuffBottom = low;
+        // Only a row still in the top-left stack is published. One the
+        // player has carried off somewhere else is not above the log any
+        // more, and a log that chased it would be pushed to wherever the
+        // row landed - off the bottom of the screen, for a row parked
+        // over the hotbar.
+        M59Hud.Piece p = M59Hud.Get("buffs");
+        BuffBottom = p != null && p.Offset != Vector2.Zero ? 0f : low;
     }
 
     /// <summary>
     /// The lowest point the enchantment icons reach, or zero when there
-    /// are none showing.
+    /// are none showing - or when the player has moved the row out of
+    /// the stack, see RelayBuffs.
     ///
     /// Published for the same reason Vitals.Bottom and StatusBar.Bottom
     /// are, and found the same way - by looking at a frame. Moving this
@@ -342,13 +437,6 @@ public partial class AvatarPanel : Control
     /// from a count.
     /// </summary>
     public float BuffBottom { get; private set; }
-
-    /// <summary>
-    /// Where the first row of enchantments sits: under the portrait, or
-    /// under whatever the view says is lower. See BuffTop.
-    /// </summary>
-    float BuffRow(float sc)
-        => Mathf.Max(_at.Y + _head1 + 6f * sc, BuffTop);
 
     /// <summary>
     /// Rebuilds the portrait when the avatar's appearance changes. The
@@ -407,7 +495,12 @@ public partial class AvatarPanel : Control
     /// </summary>
     public void SyncBuffs(DataController data)
     {
-        if (data?.AvatarBuffs == null || !M59Hud.Shows("portrait")) { HideBuffs(0); return; }
+        if (data?.AvatarBuffs == null || !M59Hud.Shows("buffs")) { HideBuffs(0); BuffBottom = 0f; return; }
+        // The icons are composed at the player's size for THIS piece, so
+        // a bigger row is bigger pictures and not the same pictures
+        // further apart. The pixel size is in the signature so a change
+        // of size rebuilds.
+        int px = Mathf.Max(8, Mathf.RoundToInt(BuffSize * HudScale("buffs")));
 
         var sb = new System.Text.StringBuilder();
         // Resolution state is in the signature as well as the id: a
@@ -424,7 +517,7 @@ public partial class AvatarPanel : Control
             if (n++ >= MaxSlots) break;
             sb.Append(b?.ID).Append(b?.Resource != null ? "+" : "-").Append(';');
         }
-        sb.Append('@').Append(Columns());
+        sb.Append('@').Append(Columns()).Append('/').Append(px);
         string now = sb.ToString();
         if (_buffMissed && Time.GetTicksMsec() >= _buffRetryAt) _buffSignature = "";
         if (now == _buffSignature) return;
@@ -432,7 +525,6 @@ public partial class AvatarPanel : Control
         _buffMissed = false;
         _buffRetryAt = Time.GetTicksMsec() + 500;
 
-        int cols = Columns();
         int used = 0, seen = 0;
         foreach (ObjectBase b in data.AvatarBuffs)
         {
@@ -445,20 +537,12 @@ public partial class AvatarPanel : Control
             // A buff that cannot be drawn yet takes no slot: leaving a
             // hole in the row for an invisible button looked like a gap
             // and, once the art arrived, shifted every icon after it.
-            ImageTexture tex = BuffIcon(b);
+            ImageTexture tex = BuffIcon(b, px);
             if (tex == null) { _buffMissed = true; continue; }
 
             Button icon = TakeBuff(used);
             icon.Icon = tex;
             icon.TooltipText = b.Name;
-            // Laid out from where the piece actually is, at the player's
-            // size - see RelayBuffs, which does the same on a drag.
-            float bsc = HudScale();
-            float bs = BuffSize * bsc;
-            icon.Position = new Vector2(
-                _at.X + (used % cols) * (bs + 8f * bsc),
-                BuffRow(bsc) + (used / cols) * (bs + 8f * bsc));
-            icon.Size = new Vector2(bs + 6f * bsc, bs + 6f * bsc);
             icon.Visible = true;
 
             // Slots are reused as the list changes, so the old handler
@@ -471,15 +555,11 @@ public partial class AvatarPanel : Control
             used++;
         }
         HideBuffs(used);
-        // SyncBuffs places the icons itself rather than calling
-        // RelayBuffs, so the published bottom has to be set on this path
-        // too - and the one that forgets is the one that leaves the
-        // connection log sitting on top of the row.
-        float low = 0f;
-        for (int i = 0; i < _buffs.Count; i++)
-            if (_buffs[i].Visible)
-                low = Mathf.Max(low, _buffs[i].Position.Y + _buffs[i].Size.Y);
-        BuffBottom = low;
+        // One place lays the row out and publishes its bottom. This used
+        // to place the icons itself as well, and the copy that forgot
+        // the bottom was the one that left the connection log sitting on
+        // top of the row.
+        RelayBuffs();
     }
 
     /// <summary>
@@ -512,13 +592,13 @@ public partial class AvatarPanel : Control
     bool _buffMissed;
     ulong _buffRetryAt;
 
-    ImageTexture BuffIcon(ObjectBase o)
+    ImageTexture BuffIcon(ObjectBase o, int px)
     {
-        string key = $"{o.Resource.Filename}:{BuffSize}";
+        string key = $"{o.Resource.Filename}:{px}";
         if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
 
         ImageTexture tex = null;
-        try { tex = M59Assets.FromTex(M59Compose.Icon(o, BuffSize)); }
+        try { tex = M59Assets.FromTex(M59Compose.Icon(o, px)); }
         catch (Exception e) { GD.PrintErr($"[AvatarPanel] buff {o.Name}: {e.Message}"); }
         // Only a picture is worth keeping, for the reason given at
         // RoomBuffsPanel.Icon:176-182: `M59Compose.Icon` returns null while
@@ -541,7 +621,7 @@ public partial class AvatarPanel : Control
                 Visible = false,
                 Name = $"buff{_buffs.Count}",
             };
-            AddChild(b);
+            _buffHost.AddChild(b);
             // Same padding trap as the portrait (see Tight): without
             // this a BuffSize + 6 slot is grown to BuffSize + 8.
             Tight(b);

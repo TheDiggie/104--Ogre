@@ -76,6 +76,109 @@ the other seven.
 
 See also: M59Paths.cs | the screen -> UnpackScreen.cs
 
+## The game data comes from the website now
+Tags: architecture, process | The Android APK no longer carries res://resource; ResourceSync fetches a manifest every launch and downloads only what changed - two paths, decided once in GameView.Boot
+
+Half a gigabyte of game data inside every APK meant every change to
+the data was a new build to sideload, and a player two builds behind
+re-downloaded files that had not changed. So the Android export leaves
+`res://resource` out (`export_presets.cfg`), and `ResourceSync.cs`
+fetches it instead: the website publishes `resources.json` - a stamp,
+and one line per file with its size and SHA-1 - and the client fetches
+that on every launch, diffs it against `user://resource`, and fetches
+only the files that are missing, the wrong size, or carry a different
+hash. The first launch fetches everything; every later one fetches a
+manifest and nothing else.
+
+Two paths, and which one is a property of the BUILD. `GameView.Boot`
+decides once:
+
+- `res://resource` exists (the desktop, or an APK exported with it):
+  the unpack path above, unchanged.
+- Otherwise `M59Paths.Resolve` is asked, and what it finds is asked
+  whose it is. `--res`, the saved path, an installed client's folder:
+  not ours, straight to the game, nothing fetched. `user://resource`:
+  ours, and it goes to the sync every launch WHATEVER is in it
+  (`ResourceSync.Owns`). Nothing found: the sync.
+
+That last rule was learned the way the unpack marker was. The first
+cut owned the folder by marker - the sync's record, or `.unpacked` -
+and a first download that died before the record was written left a
+folder with no marker and a thousand `.bgf` files, `HasContent` was
+satisfied by one of them, and the client played a room whose `.roo`
+was ten bytes long. Ownership is by path now; whether the folder is
+COMPLETE is a separate question and only the record answers it.
+
+What the sync keeps and does:
+
+- `user://resource/.synced.json` is the last manifest fully applied,
+  written after the last file and nowhere else. Absent means nothing
+  is known. A crash mid-run leaves the old record (or none) and some
+  `.part` files; the next launch sweeps the `.part`s, hashes any file
+  at the right size that has no record, and fetches only what is
+  missing or wrong - measured: no record and one truncated file, 1057
+  hashed and kept, 1 fetched.
+- The fast path: remote stamp equals the recorded one, one stat per
+  file, nothing hashed. "Game data is up to date (1,058 files)" on the
+  login card and in the chat, the way the update check's verdict gets
+  there - `GameView.Heard` holds both lines now, because the second to
+  arrive used to erase the first.
+- A file goes to `<name>.part`, is hashed as it streams, and is renamed
+  over the real name only if the hash matches; three tries with a
+  growing pause, and a file that still fails is a Problem screen naming
+  it, with Try again. Free space is checked before the first byte
+  (`M59Paths.Headroom`, shared).
+- Files the manifest does not name are deleted, subfolders included -
+  only on this path, where the folder is ours. The two dotfiles stay.
+- The first run asks. Nothing of the manifest on the device: the
+  unpack screen's card says the size and the count with Download and
+  Not now; Not now leaves the card up with Download on it, never a
+  blank. Any later run - a resume, an update - never asks.
+- Offline: the manifest cannot be fetched and the record says the set
+  is complete and every file is at its length, play, with "Offline -
+  playing with the game data you have." on the card. No complete set:
+  a Problem naming which kind of failure - unreachable, 404, or a file
+  that will not parse - as `Updater.Answered` does.
+
+`HttpClient`, not Godot's `HttpRequest` node: the node is one request
+at a time, lives in the scene tree and answers on the main thread; this
+is thousands of requests from a worker. One instance for the run.
+
+The harness recipe. A manifest from the test set, served beside it:
+
+    # gen.py: top level of /tmp/res, sha1 each, the contract's JSON
+    cd /tmp/ressrv && ln -s /tmp/res resources
+    python3 gen.py /tmp/res http://127.0.0.1:8078/resources/ > resources.json
+    python3 -m http.server 8078 --bind 127.0.0.1
+
+Start the fake server BEFORE generating the manifest - it rewrites
+`rsc0000.rsb` in its resource dir (`Program.cs:727`) and a manifest
+made first describes a file the client can no longer fetch unchanged.
+Then the client with a fresh `XDG_DATA_HOME`, `M59RESOURCES` at the
+manifest, and `--res` pointed at a folder that does NOT exist -
+SceneShot's default is `/tmp/res`, which Resolve would find and send
+straight to the game:
+
+    XDG_DATA_HOME=/tmp/synctest/xdg M59RESOURCES=http://127.0.0.1:8078/resources.json \
+      xvfb-run -a $GODOT --path MobileClient --headless=false res://SceneShot.tscn -- \
+      --host 127.0.0.1 --port 15998 --char Tester --res /tmp/none \
+      --press "@state:zz,@name:downloadLater,@name:downloadNow,@state:zz,..." --shots
+
+The buttons are `downloadNow`, `downloadLater` and `tryAgain`. Pad with
+`@state:zz` steps: the card is up in a frame or two but the frames
+are fast while nothing is rendered, and a run with too few steps exits
+mid-download - which is what the crash-resume test is made of. What
+was run, in order, each against a restarted fake server: fresh dir,
+Not now, Download, 1058 files at matching SHA-1s and the record
+written, then the world; the same dir again, one manifest GET and
+nothing else; a truncated local file plus a changed served file,
+exactly those two fetched; a junk file, a junk subfolder and a stray
+`.part`, all three gone; the http server stopped, the offline line and
+the world; a fresh dir against a 404, the Problem card and Try again
+refetching; `--res /tmp/res`, no sync at all.
+
+See also: ResourceSync.cs | the screen -> UnpackScreen.cs | the updater -> Updater.cs
+
 ## Sound shipped, and did not arrive
 Tags: gotchas, lessons | Godot IMPORTS .ogg, so the pack holds `X.ogg.import` and a compiled `.oggvorbisstr` and NOT `X.ogg` - and the unpack skipped `*.import`, so the phone had no sound and no music at all
 
@@ -539,3 +642,58 @@ which is why this number had never been looked at.
 The previous room's warm-up is cancelled rather than waited for: its
 textures belong to a cache that went with its renderer, so on a run
 of doorways they would stack up decoding bytes nobody will read.
+
+## Sprites are depth-tested against floors and ceilings, per pixel
+Tags: gotchas, lessons | Walls were closed by depth and the window; flats were in neither, so a creature beyond a raised platform had its legs painted over the platform's top - `Renderer._flatDepth` is the fix, and the `flatdepth` oracle covers it
+
+The player's screenshots: an NPC on the lower floor behind a raised
+wooden platform with his legs over the planks, and an orb at the foot
+of a staircase over the treads. The sprite pass tested `_depth[sx]`
+(the wall that closed the column) and `Window` (the upper and lower
+parts the walk passed - the lintel fix). `Narrow` is only ever called
+from those two parts (`Renderer.cs` RenderBand, the `fc < nc` and
+`ff > nf` branches), so a floor that drops AWAY (`ff < nf`) narrowed
+`yBot` and recorded nothing, and the platform top's own pixels were in
+no depth structure at all. A hill crest inside one sloped sector was
+the same hole.
+
+The reference has none of this: every room fragment writes depth,
+water included (`general.material:257-285`, `:414-445`), and a
+billboard is depth-tested per pixel. So the honest target is what a
+depth buffer does, and the flats now have one: `FillFlat` stores the
+`straight` it already solves per row into `_flatDepth[y*W+sx]` (one
+store, no divide), reset to MaxValue on the frames `_spriteDepth` is
+cleared and trusted only then (`_spriteValid`). `DrawSprites`,
+`Project` and `PickAll` all test it - the picker has to, or the pick
+oracle fails (painted and pickable must be the same set). The sprite
+test is strict with no epsilon: a creature's lowest drawn row is half a
+pixel above its feet (TexelY cuts at `y + 0.5`, FillFlat solves at
+`y - horizon`), so the floor pixel there is beyond the feet. Move
+either convention and the feet row ties, and a tie is "behind" - the
+`flatdepth` check (creatures on the level floor of the eye's own leaf
+must lose nothing: 0 of 3.1M px) is what catches that.
+
+Two things the oracle taught while being written. A rat whose centre
+is in the leaf but whose flank hangs over the merchant's counter
+loses the flank, correctly - the check had to put the WHOLE billboard
+in the leaf. And `M59Geo.FloorXY(sec)` is the sector's base height:
+planting sprites there, as the lintel and pick checks do, stands a rat
+on bergleader's ramp 930 units under the surface, so the first count
+was mostly of buried sprites. The game's heights come from
+`GetHeightAt`, which follows the slope; the flatdepth check uses
+`FloorXY(sec, x, y)`. Water: an object wading is sunk by the sector
+depth and the surface now hides it from the waist down, which is what
+the reference's depth-writing water does.
+
+Cost, measured with the oracle's timing (1280x576, 12 sprites, best of
+8 blocks on the 2-core box): 6.9 ms before (store and fill stubbed
+out) to 6.4-7.3 ms after, within the run-to-run noise; the fill alone
+is 0.18 ms there and 0.54 ms at 2424x1080, the same order as the
+`_spriteDepth` clear already paid.
+
+Photographed: barsmith, fixture spawn `M59_SPAWN=252,172,0`, the rats
+on the 3488 floor beyond the 4000 plank platform - before, both rats
+over the planks at the bottom of the frame; after, the planks whole and
+the rats cut at the platform's far edge.
+
+See also: Renderer.cs | the oracle -> ../../Tools/Meridian59.Net8RenderCheck/README.md

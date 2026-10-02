@@ -168,8 +168,250 @@ static class RenderCheck
         if (mode == "sky"     || mode == "all") bad += Sky(dir);
         if (mode == "holes"   || mode == "all") Holes(dir);
         if (mode == "lintel"  || mode == "all") bad += Lintel(dir);
+        if (mode == "flatdepth" || mode == "all") bad += FlatDepth(dir);
         if (mode == "roomtex" || mode == "all") bad += RoomTex(dir);
         return bad == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Sprites are no longer drawn through floors and ceilings.
+    ///
+    /// The lintel check above closed the walls: the window a column
+    /// leaves open past each upper and lower part. Floors were never in
+    /// it. A raised platform's top, a stair tread or the lip of a pit is
+    /// a floor span NEARER than what stands beyond it that closes no
+    /// column and draws no wall part, so a creature on the far side had
+    /// its legs painted over it. The reference cannot: a floor fragment
+    /// writes depth like any other (general.material:257-285) and the
+    /// billboard is depth-tested per pixel. The renderer now keeps a
+    /// per-pixel flat depth and tests sprites, labels and taps against
+    /// it (Renderer._flatDepth).
+    ///
+    /// Three things are proved here, in order of how much they matter:
+    ///
+    /// 1. A creature standing on a LEVEL floor in the camera's own BSP
+    ///    leaf loses NOTHING to the test. The leaf is convex, so no wall
+    ///    and no other floor lies between it and the eye, and the only
+    ///    flat under its rows is the one it stands on, which is farther
+    ///    than it at every row above its feet. This is the "feet" case
+    ///    the test has no epsilon for, and it is the one that would be
+    ///    wrong everywhere if the row conventions ever drifted. Zero
+    ///    pixels, exactly.
+    /// 2. Across the game the test takes SOMETHING back - rendering each
+    ///    scene with and without it, as the lintel check does - or it is
+    ///    not doing anything.
+    /// 3. What it costs: settled frames with sprites, with and without.
+    ///    The buffer is still written and reset either way (that is what
+    ///    the fill and the store cost); the knob only turns the test off.
+    /// </summary>
+    /// <summary>Whether a point lies inside a BSP leaf's convex polygon, either winding.</summary>
+    static bool InLeaf(RooSubSector leaf, float x, float y)
+    {
+        var v = leaf.Vertices;
+        int pos = 0, neg = 0;
+        for (int i = 0, j = v.Count - 1; i < v.Count; j = i++)
+        {
+            double s = ((double)v[i].X - v[j].X) * (y - v[j].Y) - ((double)v[i].Y - v[j].Y) * (x - v[j].X);
+            if (s > 0) pos++; else if (s < 0) neg++;
+        }
+        return pos == 0 || neg == 0;
+    }
+
+    static int FlatDepth(string dir)
+    {
+        var rm = new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
+        string[] sprites = { "duskrat.bgf", "Knight.bgf", "cyclops.bgf" };
+        const int W=640, H=360;
+        int scenes=0, through=0, total=0;
+        int feetScenes=0, feetTotal=0, feetLost=0;
+        var worst = new List<(double frac,string where)>();
+        var lostWhere = new List<string>();
+
+        foreach (string path in Directory.GetFiles(dir, "*.roo").OrderBy(x=>x).Take(60))
+        foreach (string sprName in sprites)
+        {
+            RooFile roo; try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
+            var bgf = rm.GetObject(sprName);
+            if (bgf == null) continue;
+            var r = new Renderer(roo, new TexCache(rm));
+            var big = roo.BSPTreeLeaves.Where(l=>l.Vertices!=null&&l.Vertices.Count>=3)
+                .OrderByDescending(l=>{double s2=0;var v=l.Vertices;
+                    for(int i=0,j=v.Count-1;i<v.Count;j=i++) s2+=(double)v[j].X*v[i].Y-(double)v[i].X*v[j].Y;
+                    return Math.Abs(s2*.5);}).FirstOrDefault();
+            if (big == null) continue;
+            float cx=big.Vertices.Average(v=>(float)v.X), cy=big.Vertices.Average(v=>(float)v.Y);
+            var csec = r.SectorAtPoint(cx,cy); if (csec == null) continue;
+            float cz=M59Geo.FloorXY(csec)+Renderer.EyeHeight;
+
+            // 1. The feet case: sprites inside this leaf, on its floor,
+            // when that floor is level. A point a fraction of the way
+            // from the centroid to a vertex is inside a convex polygon.
+            // The WHOLE billboard has to be inside, not just its base:
+            // the first run of this put a duskrat's centre in the leaf
+            // and its left flank over the merchant's counter, and the
+            // test rightly took 377 pixels of flank back - the counter
+            // top is nearer than the flank, as it would be to a depth
+            // buffer. Nothing can be nearer than a billboard that lies
+            // wholly inside the convex leaf it stands in.
+            if (csec.SlopeInfoFloor == null)
+            {
+                for (int k=0;k<4;k++)
+                {
+                    float ang = k * MathF.PI / 2f;
+                    // Across the view, which is the way a billboard runs.
+                    float lx = -MathF.Sin(ang), ly = MathF.Cos(ang);
+                    var rng = new Random(k*31 + path.Length*7 + sprName.Length);
+                    r.Sprites.Clear();
+                    for (int i=0;i<8;i++)
+                    {
+                        var v = big.Vertices[rng.Next(big.Vertices.Count)];
+                        float f = 0.15f + 0.8f*(float)rng.NextDouble();
+                        float sx2 = cx + ((float)v.X - cx)*f, sy2 = cy + ((float)v.Y - cy)*f;
+                        if (!ReferenceEquals(r.SectorAtPoint(sx2, sy2), csec)) continue;
+                        var tex = Tag(bgf, rng.Next(0, bgf.Frames.Count));
+                        if (tex == null) continue;
+                        // Half the billboard's width in world units, as
+                        // Place sizes it: the height over the art's
+                        // aspect.
+                        float half = 600f * tex.W / MathF.Max(1, tex.H) * 0.5f;
+                        if (!InLeaf(big, sx2 + lx*half, sy2 + ly*half)
+                         || !InLeaf(big, sx2 - lx*half, sy2 - ly*half)) continue;
+                        r.Sprites.Add(new Renderer.Sprite {
+                            X=sx2, Y=sy2, BaseZ = M59Geo.FloorXY(csec), Height=600f, Texture=tex, Tag = i });
+                    }
+                    if (r.Sprites.Count == 0) continue;
+                    Renderer.ClipFlats = false;
+                    var loose = new uint[W*H]; r.Render(loose, W,H, cx,cy,cz, ang);
+                    Renderer.ClipFlats = true;
+                    var tight = new uint[W*H]; r.Render(tight, W,H, cx,cy,cz, ang);
+                    feetScenes++;
+                    int here = 0;
+                    for (int i=0;i<W*H;i++)
+                    {
+                        bool a = Tagged(loose[i]), b = Tagged(tight[i]);
+                        if (a) feetTotal++;
+                        if (a && !b) { feetLost++; here++; }
+                    }
+                    if (here > 0 && lostWhere.Count < 5)
+                        lostWhere.Add($"{here} px  {Path.GetFileName(path)} {sprName} {k*90}deg");
+                }
+            }
+
+            // 2. Across the room: what the test takes back.
+            for (int k=0;k<4;k++)
+            {
+                float ang = k * MathF.PI / 2f;
+                var rng = new Random(k*97 + path.Length*13 + sprName.Length);
+                r.Sprites.Clear();
+                for (int i=0;i<12;i++)
+                {
+                    float d = 600f + (float)rng.NextDouble()*9000f;
+                    float t = ang + ((float)rng.NextDouble()-0.5f)*1.2f;
+                    float sx2 = cx + MathF.Cos(t)*d, sy2 = cy + MathF.Sin(t)*d;
+                    var sec = r.SectorAtPoint(sx2, sy2);
+                    var tex = Tag(bgf, rng.Next(0, bgf.Frames.Count));
+                    if (tex == null) continue;
+                    // ON the floor, which on a ramp is the surface under
+                    // the point and not the sector's base height: planted
+                    // at the base, as the lintel check plants them, a rat
+                    // on bergleader's ramp stood 930 units under the
+                    // surface, deeper than it is tall, and this count was
+                    // mostly of buried sprites. The game's heights come
+                    // from GetHeightAt, which follows the slope.
+                    r.Sprites.Add(new Renderer.Sprite {
+                        X=sx2, Y=sy2, BaseZ = sec!=null ? M59Geo.FloorXY(sec, sx2, sy2) : cz-Renderer.EyeHeight,
+                        Height=600f, Texture=tex, Tag = i });
+                }
+                if (r.Sprites.Count == 0) continue;
+
+                Renderer.ClipFlats = false;
+                var loose = new uint[W*H]; r.Render(loose, W,H, cx,cy,cz, ang);
+                Renderer.ClipFlats = true;
+                var tight = new uint[W*H]; r.Render(tight, W,H, cx,cy,cz, ang);
+                scenes++;
+                int here = 0;
+                for (int i=0;i<W*H;i++)
+                {
+                    bool a = Tagged(loose[i]), b = Tagged(tight[i]);
+                    if (a) total++;
+                    if (a && !b) { through++; here++; }
+                }
+                if (here > 0)
+                    worst.Add(((double)here/Math.Max(1,W*H), $"{Path.GetFileName(path)} {sprName} {k*90}deg"));
+            }
+        }
+        Console.WriteLine($"{feetScenes} scenes of creatures on the level floor of the eye's own leaf, {feetTotal} sprite pixels");
+        Console.WriteLine($"  lost to the flat depth test: {feetLost}");
+        foreach (string s in lostWhere) Console.WriteLine("    " + s);
+        Console.WriteLine($"{scenes} scenes with sprites, {total} sprite pixels");
+        Console.WriteLine($"  drawn through a floor or ceiling before: {through}"
+                        + (total>0 ? $"  ({100.0*through/total:F1}% of them)" : ""));
+        foreach (var w in worst.OrderByDescending(x=>x.frac).Take(5))
+            Console.WriteLine($"    {100*w.frac,5:F2}% of the frame  {w.where}");
+
+        // 3. The cost. Frames with a dozen sprites in them, settled, at a
+        // phone's shape; the knob leaves the buffer written and reset
+        // either way, so the difference is the test alone and the
+        // absolute number is the frame.
+        {
+            const int BW = 1280, BH = 576;
+            var px = new uint[BW * BH];
+            double onMs = 0, offMs = 0; int n = 0;
+            foreach (string room in new[] { "barinn.roo", "kc4.roo", "dvalley1.roo", "bergauc.roo" })
+            {
+                string path = Path.Combine(dir, room);
+                if (!File.Exists(path)) continue;
+                RooFile roo; try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
+                var bgf = rm.GetObject("Knight.bgf"); if (bgf == null) break;
+                var r = new Renderer(roo, new TexCache(rm));
+                var big = roo.BSPTreeLeaves.Where(l=>l.Vertices!=null&&l.Vertices.Count>=3)
+                    .OrderByDescending(l=>{double s2=0;var v=l.Vertices;
+                        for(int i=0,j=v.Count-1;i<v.Count;j=i++) s2+=(double)v[j].X*v[i].Y-(double)v[i].X*v[j].Y;
+                        return Math.Abs(s2*.5);}).FirstOrDefault();
+                if (big == null) continue;
+                float cx=big.Vertices.Average(v=>(float)v.X), cy=big.Vertices.Average(v=>(float)v.Y);
+                var csec = r.SectorAtPoint(cx,cy); if (csec == null) continue;
+                float cz=M59Geo.FloorXY(csec)+Renderer.EyeHeight;
+                var rng = new Random(5);
+                for (int i=0;i<12;i++)
+                {
+                    float d = 600f + (float)rng.NextDouble()*6000f;
+                    float t = ((float)rng.NextDouble()-0.5f)*1.2f;
+                    float sx2 = cx + MathF.Cos(t)*d, sy2 = cy + MathF.Sin(t)*d;
+                    var sec = r.SectorAtPoint(sx2, sy2);
+                    var tex = Tex.FromSprite(bgf, rng.Next(0, bgf.Frames.Count));
+                    if (tex == null) continue;
+                    r.Sprites.Add(new Renderer.Sprite {
+                        X=sx2, Y=sy2, BaseZ = sec!=null ? M59Geo.FloorXY(sec, sx2, sy2) : cz-Renderer.EyeHeight,
+                        Height=600f, Texture=tex, Tag = i });
+                }
+                // The best of several short blocks, alternating the
+                // knob: the box this runs on is shared and a mean of
+                // forty frames moved by more than the thing being
+                // measured.
+                var sw = new System.Diagnostics.Stopwatch();
+                double bestOn = double.MaxValue, bestOff = double.MaxValue;
+                for (int k = 0; k < 10; k++) r.Render(px, BW, BH, cx, cy, cz, 0f);
+                for (int rep = 0; rep < 8; rep++)
+                foreach (bool on in new[] { true, false })
+                {
+                    Renderer.ClipFlats = on;
+                    sw.Restart();
+                    for (int k = 0; k < 10; k++) r.Render(px, BW, BH, cx, cy, cz, 0f);
+                    sw.Stop();
+                    double ms = sw.Elapsed.TotalMilliseconds / 10;
+                    if (on) bestOn = Math.Min(bestOn, ms); else bestOff = Math.Min(bestOff, ms);
+                }
+                onMs += bestOn; offMs += bestOff; n++;
+                Renderer.ClipFlats = true;
+            }
+            if (n > 0)
+                Console.WriteLine($"  {BW}x{BH}, 12 sprites, best of 8 blocks: test on {onMs/n:F2} ms  off {offMs/n:F2} ms  per frame, mean of {n} rooms");
+        }
+
+        bool ok = feetLost == 0 && (total == 0 || through > 0);
+        Console.WriteLine(ok ? "OK" : "PROBLEM");
+        return ok ? 0 : 1;
     }
 
     /// <summary>
