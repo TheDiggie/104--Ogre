@@ -78,6 +78,17 @@ public static class M59Skin
     public static readonly Color Gold = new Color(0.910f, 0.753f, 0.416f);
     public static readonly Color GoldBright = new Color(1.000f, 0.871f, 0.608f);
     public static readonly Color GoldDim = new Color(0.549f, 0.459f, 0.267f);
+    /// <summary>
+    /// The background of an inventory slot whose item is in use
+    /// (worn, wielded, lit). Ashton: "make equip items have a yellow
+    /// background for easy visual confirmation" - the game itself glows
+    /// the background of an item in use (the composer turns its
+    /// background on for exactly that), so this is the same mark, said
+    /// loud enough to find on a phone. Translucent so the icon still
+    /// reads over it.
+    /// </summary>
+    public static readonly Color InUseBg = new Color(0.85f, 0.70f, 0.12f, 0.55f);
+    public static readonly Color InUseEdge = new Color(1f, 0.85f, 0.30f);
 
     public static readonly Color Text = new Color(0.902f, 0.871f, 0.824f);
     public static readonly Color TextDim = new Color(0.604f, 0.565f, 0.514f);

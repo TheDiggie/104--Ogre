@@ -55,7 +55,17 @@ public partial class LoginPrompt : Control
     /// </summary>
     public event Action<int> ServerChanged;
 
-    Label _title, _note, _serverLabel, _userLabel, _passLabel, _version, _update;
+    Label _title, _note, _serverLabel, _userLabel, _passLabel, _version, _update, _howto;
+
+    /// <summary>
+    /// How a player who has no account gets one, under the password
+    /// box. Ashton: "on the login screen describe making an account".
+    /// One string, one place, because this is the fact most likely to
+    /// change about the server and least likely to be in the code.
+    /// </summary>
+    public const string NewAccountHint =
+        "New here? Type an account name and password of your own and press Connect - " +
+        "the server creates the account the first time you log in. Keep the password: it cannot be recovered.";
     ColorRect _bg;
     Panel _card, _bar;
     LineEdit _user, _pass;
@@ -141,6 +151,16 @@ public partial class LoginPrompt : Control
         _pass = M59Skin.Field(new LineEdit { PlaceholderText = "password", Secret = true });
         _pass.TextSubmitted += _ => Go();
         AddChild(_pass);
+
+        _howto = new Label
+        {
+            Text = NewAccountHint,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        _howto.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        _howto.AddThemeColorOverride("font_color", M59Skin.TextDim);
+        AddChild(_howto);
 
         // The one thing this screen is for.
         _go = new Button { Text = "Connect" };
@@ -478,7 +498,14 @@ public partial class LoginPrompt : Control
         // what is in it rather than the size of the screen - on a 1080
         // frame the old column floated in the top-left quadrant with
         // six hundred pixels of nothing under it.
-        float wantH = 3f * (CapH + boxH) + M59Skin.Gap * 2f + M59Skin.Gap * 1.5f + boxH;
+        // The new-account hint, as many lines as it wraps to at this
+        // width (measured, not guessed: at 560 points it is three lines,
+        // and a guess of two had the note drawn through its last one).
+        Rect2 probe = M59Skin.Body(M59Skin.Frame(v, 0f, true, CardW(v, 560f)));
+        Font howFont = _howto.GetThemeFont("font");
+        float howH = howFont.GetMultilineStringSize(NewAccountHint, HorizontalAlignment.Left,
+                                                    probe.Size.X, M59Skin.SmallSize).Y + 4f;
+        float wantH = 3f * (CapH + boxH) + M59Skin.Gap * 2f + howH + M59Skin.Gap * 1.5f + boxH;
         // A prompt, not a list: 560 points, the width Frame caps at for
         // a card whose longest line is a server name.
         Rect2 card = M59Skin.Frame(v, wantH, true, CardW(v, 560f));
@@ -521,7 +548,11 @@ public partial class LoginPrompt : Control
         _passLabel.Size = new Vector2(w, CapH);
         _pass.Position = new Vector2(x, y + CapH);
         _pass.Size = new Vector2(w, boxH);
-        y += CapH + boxH + M59Skin.Gap * 1.5f;
+        y += CapH + boxH + M59Skin.Gap * 0.5f;
+
+        _howto.Position = new Vector2(x, y);
+        _howto.Size = new Vector2(w, howH);
+        y += howH + M59Skin.Gap;
 
         // Inside the card, under the fields it talks about. Stranded
         // outside it - which is where a line at the bottom of the

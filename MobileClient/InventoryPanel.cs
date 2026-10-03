@@ -530,27 +530,22 @@ public partial class InventoryPanel : Control
         // By id, not by instance: the slot keeps the object it was
         // built with, and a rebuild can hand out a different one for
         // the same item.
+        // An item in use wears a yellow background (M59Skin.InUseBg);
+        // the two marks are not exclusive. Picking an item used to
+        // overwrite its in-use mark, which hid the one thing the Use
+        // button is about to change - so the background says worn and
+        // the thick border says picked, and both can be true.
+        if (o != null && o.IsInUse)
+        {
+            box.BgColor = M59Skin.InUseBg;
+            box.BorderColor = M59Skin.InUseEdge;
+            box.SetBorderWidthAll(2);
+        }
         if (o != null && _picked != null && o.ID == _picked.ID)
         {
-            box.BgColor = M59Skin.RowPick;
-            // The two marks are not exclusive. Picking an item used to
-            // overwrite its in-use border, which hid the one thing the
-            // Use button is about to change - the selected slot said
-            // "Unuse" underneath and looked exactly like a slot holding
-            // something idle. The lit background says picked; the colour
-            // of the border still says worn.
-            box.BorderColor = o.IsInUse
-                ? new Color(1f, 0.8f, 0.35f)
-                : M59Skin.Gold;
+            if (!o.IsInUse) box.BgColor = M59Skin.RowPick;
+            box.BorderColor = o.IsInUse ? M59Skin.GoldBright : M59Skin.Gold;
             box.SetBorderWidthAll(3);
-        }
-        else if (o != null && o.IsInUse)
-        {
-            // The game glows the background of an item in use - the
-            // composer turns its background on for exactly that. A warm
-            // border says the same thing without a second texture.
-            box.BorderColor = new Color(1f, 0.8f, 0.35f);
-            box.SetBorderWidthAll(2);
         }
         slot.AddThemeStyleboxOverride("panel", box);
 

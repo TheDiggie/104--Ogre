@@ -352,16 +352,17 @@ public partial class InventoryDock : Control
         };
         box.SetBorderWidthAll(1);
         box.SetCornerRadiusAll(6);
+        if (o != null && o.IsInUse)
+        {
+            box.BgColor = M59Skin.InUseBg;
+            box.BorderColor = M59Skin.InUseEdge;
+            box.SetBorderWidthAll(2);
+        }
         if (o != null && Selection != null && o.ID == Selection.ID)
         {
-            box.BgColor = M59Skin.RowPick;
-            box.BorderColor = o.IsInUse ? new Color(1f, 0.8f, 0.35f) : M59Skin.Gold;
+            if (!o.IsInUse) box.BgColor = M59Skin.RowPick;
+            box.BorderColor = o.IsInUse ? M59Skin.GoldBright : M59Skin.Gold;
             box.SetBorderWidthAll(3);
-        }
-        else if (o != null && o.IsInUse)
-        {
-            box.BorderColor = new Color(1f, 0.8f, 0.35f);
-            box.SetBorderWidthAll(2);
         }
         slot.AddThemeStyleboxOverride("panel", box);
         if (o == null) return slot;
