@@ -85,6 +85,9 @@ public partial class HotkeyDock : Control
     /// Null in a bare harness, where a seat then draws and does nothing.
     /// </summary>
     public Func<ActionButtonConfig, bool, bool> Perform;
+    /// <summary>Whether a held seat re-fires - the cluster's own rule (ActionButtons.Repeatable).</summary>
+    public Func<ActionButtonConfig, bool, bool> Repeatable;
+    bool _heldInUse;
 
     /// <summary>See InventoryDock.Covered - the same gate, for the same scroll box.</summary>
     public bool Covered { get; set; }
@@ -362,6 +365,7 @@ public partial class HotkeyDock : Control
         if (M59Hud.Editing) return;
         _heldSlot = slot;
         _heldSince = Time.GetTicksMsec();
+        _heldInUse = At(slot)?.Data is InventoryObject io && io.IsInUse;
         _repeating = false;
     }
 
@@ -377,13 +381,16 @@ public partial class HotkeyDock : Control
         Callable.From(() => _repeating = false).CallDeferred();
     }
 
-    /// <summary>A held Attack swings every frame past the delay; the library's interval is the throttle.</summary>
+    /// <summary>A held seat re-fires every frame past the delay; the library's intervals are the throttle.</summary>
     public override void _Process(double delta)
     {
         if (_heldSlot < 0 || Covered) return;
         if (Time.GetTicksMsec() - _heldSince < RepeatDelayMs) return;
         ActionButtonConfig cfg = At(_heldSlot);
-        if (!ActionButtons.IsAttack(cfg)) return;
+        // Every kind the cluster repeats - spells, skills, aliases, a
+        // held item, Attack - not Attack alone, as it was.
+        bool ok = Repeatable != null ? Repeatable(cfg, _heldInUse) : ActionButtons.IsAttack(cfg);
+        if (!ok) return;
         _repeating = true;
         Perform?.Invoke(cfg, true);
     }

@@ -1605,8 +1605,18 @@ public partial class ActionButtons : Control
     /// (Dance, Wave...) stay one per press, as the library's 500 ms
     /// action gate (`BaseClient.cs:1471`) makes repeats pointless.
     /// </summary>
-    bool Repeats(ActionButtonConfig cfg)
+    bool Repeats(ActionButtonConfig cfg) => Repeatable(cfg, _heldInUse);
+
+    /// <summary>
+    /// The same rule for anyone else holding a seat - the hotkey box.
+    /// Ashton: "u can hold to repeat cast spells on the arc but not on
+    /// the hotbar. make the hotbar spells holdable." <paramref
+    /// name="heldInUse"/> is the item's in-use state when the press
+    /// went down (see Repeats' note on worn gear).
+    /// </summary>
+    public bool Repeatable(ActionButtonConfig cfg, bool heldInUse)
     {
+        if (cfg == null) return false;
         switch (cfg.ButtonType)
         {
             case ActionButtonType.Spell:
@@ -1614,7 +1624,7 @@ public partial class ActionButtons : Control
             case ActionButtonType.Alias:
                 return true;
             case ActionButtonType.Item:
-                return cfg.Data is InventoryObject o && o.IsInUse == _heldInUse && InPack(o);
+                return cfg.Data is InventoryObject o && o.IsInUse == heldInUse && InPack(o);
             // Attack and nothing else, which now has a second reason
             // beyond the action gate: Go is an Action-typed slot (see
             // Extra) and GO MUST NOT REPEAT.

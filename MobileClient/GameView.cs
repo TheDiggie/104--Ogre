@@ -2849,7 +2849,7 @@ public partial class GameView : Node2D
         Widget("hotdock", () =>
         {
             _hotdock = new HotkeyDock();
-            if (_hotbar != null) _hotdock.Perform = _hotbar.Perform;
+            if (_hotbar != null) { _hotdock.Perform = _hotbar.Perform; _hotdock.Repeatable = _hotbar.Repeatable; }
             _hotdock.EditRequested += () => _hotkeys?.Open();
             _ui.AddChild(_hotdock);
         });
