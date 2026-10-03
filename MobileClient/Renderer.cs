@@ -598,6 +598,22 @@ public sealed class Renderer
     /// only then (see _spriteValid). Where a wall or the sky was
     /// painted it stays at MaxValue, and the wall tests stand as they
     /// were.
+    ///
+    /// One more writer: the opaque texels of a see-through wall. Those
+    /// are painted AFTER the sprites (DrawMasked) and cover whatever
+    /// sprite is farther, exactly as the reference's bars do - the
+    /// grate is base_material_room, `alpha_rejection greater_equal 64`
+    /// with depth_write on (general.material:257-285), so a bar
+    /// writes depth and a billboard behind it loses the depth test
+    /// (RemoteNode2D.cpp:11-39) while the gap writes nothing. The
+    /// sprite pass cannot test them - they are not drawn yet - but
+    /// Pick, PickAll and Project run after the frame and read this, so
+    /// a covering texel records its depth here as it paints. Without
+    /// that, every creature standing behind a tree's foliage in kc4
+    /// could be tapped through the leaves that hid it: 21469 pixels
+    /// of "pickable but not painted" in the pick oracle on the full
+    /// resource set, none on the partial one, whose kc4 had no
+    /// foliage textures to see through.
     /// </summary>
     float[] _flatDepth = new float[0];
 
@@ -1407,7 +1423,7 @@ public sealed class Renderer
                     DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc,
                              oneMid,
                              along, xOff, yOff, side != null && side.Flags.IsNormalTopDown,
-                             fog, tpp, false, null, 0f, 0,
+                             fog, tpp, false, null, 0f, 0, null,
                              HonourNoVTile && side != null && side.Flags.IsNoVTile,
                              // A liquid part's scroll becomes the wave, so
                              // the texture itself is held still. See
@@ -1449,7 +1465,7 @@ public sealed class Renderer
                     DrawWall(px, W, H, sx, yTop, Math.Min(yBot, farCeilY - 1), ceilY, farCeilY, fc, nc,
                              upper,
                              along, xOff, yOff, side == null || !side.Flags.IsAboveBottomUp,
-                             fog, tpp, false, null, 0f, 0, false,
+                             fog, tpp, false, null, 0f, 0, null, false,
                              upWet ? TextureScrollSpeed.NONE
                                    : side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
@@ -1486,7 +1502,7 @@ public sealed class Renderer
                     DrawWall(px, W, H, sx, Math.Max(yTop, farFloorY), yBot, farFloorY, floorY, nf, ff,
                              lower,
                              along, xOff, yOff, side != null && side.Flags.IsBelowTopDown,
-                             fog, tpp, false, null, 0f, 0, false,
+                             fog, tpp, false, null, 0f, 0, null, false,
                              lowWet ? TextureScrollSpeed.NONE
                                     : side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
@@ -1584,7 +1600,7 @@ public sealed class Renderer
                                      Math.Max(yTop, midTopY), Math.Min(yBot, midBotY),
                                      midTopY, midBotY, midBotH, midTopH, mid,
                                      along, xOff, yOff, side.Flags.IsNormalTopDown, fog, tpp,
-                                     false, null, 0f, 0,
+                                     false, null, 0f, 0, null,
                                      HonourNoVTile && side.Flags.IsNoVTile,
                                      midWet ? TextureScrollSpeed.NONE : side.Flags.ScrollSpeed,
                                      side.Flags.ScrollDirection, Time,
@@ -1649,10 +1665,21 @@ public sealed class Renderer
     /// Doing this per column at the end of the walk, before sprites, drew
     /// every grate over every creature regardless of which was nearer.
     /// </summary>
+    /// <summary>How many see-through wall spans the last frame drew. For the oracle.</summary>
+    public int LastMaskedSpans { get; private set; }
+
+    /// <summary>
+    /// The last frame's per-pixel surface depth at a pixel (see
+    /// _flatDepth), or NaN where there is none. For the oracle only.
+    /// </summary>
+    public float DebugFlatDepth(int x, int y)
+        => _flatDepth.Length > y * _lastW + x && _spriteValid ? _flatDepth[y * _lastW + x] : float.NaN;
+
     void DrawMasked(uint[] px, int W, int H, int bands)
     {
         int total = 0;
         for (int b = 0; b < bands; b++) total += _scratch[b].Masked.Count;
+        LastMaskedSpans = total;
         if (total == 0) return;
         long tM0 = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 
@@ -1687,6 +1714,7 @@ public sealed class Renderer
             DrawWall(px, W, H, m.Sx, m.Y0, m.Y1, m.SpanTopY, m.SpanBotY,
                      m.SpanBotH, m.SpanTopH, m.T, m.Along, m.XOff, m.YOff, m.TopDown,
                      m.Fog, m.Tpp, true, haveSprites ? _spriteDepth : null, m.Depth, W,
+                     haveSprites ? _flatDepth : null,
                      m.NoVTile, m.ScrollSpeed, m.ScrollDir, Time,
                      null, 0f, 1f, 0f, 1f, null, 0f, 0f, m.VOrigin, default, _mainLuts);
         }
@@ -2343,6 +2371,7 @@ public sealed class Renderer
                          float fog, float texelsPerPixel = 1f,
                          bool masked = false,
                          float[] spriteDepth = null, float depth = 0f, int stride = 0,
+                         float[] coverDepth = null,
                          bool noVTile = false,
                          TextureScrollSpeed scrollSpeed = TextureScrollSpeed.NONE,
                          TextureScrollDirection scrollDir = TextureScrollDirection.N,
@@ -2533,6 +2562,17 @@ public sealed class Renderer
                 {
                     float sd = spriteDepth[y * stride + sx];
                     if (sd > 0f && sd < depth) continue;
+                }
+                // This texel is now what is seen at this pixel, and it is
+                // nearer than any sprite under it - the test above let it
+                // through. Say so where Pick and Project will look, or a
+                // creature standing behind a tree's foliage could still
+                // be tapped through the leaves that cover it. See
+                // _flatDepth.
+                if (coverDepth != null)
+                {
+                    ref float cd = ref coverDepth[y * stride + sx];
+                    if (depth < cd) cd = depth;
                 }
                 if (liquid.On)
                 {

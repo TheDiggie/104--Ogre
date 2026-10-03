@@ -307,7 +307,24 @@ static class RenderCheck
         var old = File.ReadAllLines(file);
         int bad = 0;
         var oldSet = new HashSet<string>(old);
-        foreach (string l in lines) if (!oldSet.Contains(l)) { if (bad < 10) Console.WriteLine("  differs: " + l); bad++; }
+        // Keyed by room/pass/heading so a differing frame can say WHAT
+        // differs: the picture (hash), what closed the columns, or only
+        // which sprites the grid of taps reached.
+        var oldBy = new Dictionary<string, string[]>();
+        foreach (string l in old) { var f = l.Split(' '); if (f.Length == 6) oldBy[f[0] + " " + f[1] + " " + f[2]] = f; }
+        var perRoom = new SortedDictionary<string, (int px, int picks)>();
+        foreach (string l in lines) if (!oldSet.Contains(l))
+        {
+            var f = l.Split(' ');
+            string why = "new frame";
+            if (oldBy.TryGetValue(f[0] + " " + f[1] + " " + f[2], out var o))
+                why = (o[3] != f[3] ? "pixels " : "") + (o[4] != f[4] ? "solidcols " : "") + (o[5] != f[5] ? "picks" : "");
+            perRoom.TryGetValue(f[0], out var c);
+            perRoom[f[0]] = (c.px + (why.Contains("pixels") ? 1 : 0), c.picks + (why.Contains("picks") ? 1 : 0));
+            if (bad < 10) Console.WriteLine("  differs: " + l + "  [" + why.Trim() + "]");
+            bad++;
+        }
+        foreach (var kv in perRoom) Console.WriteLine($"  {kv.Key}: {kv.Value.px} frames with pixel changes, {kv.Value.picks} with pick changes");
         Console.WriteLine($"{lines.Count} frames, {bad} differ from {file}" + (old.Length != lines.Count ? $" (file has {old.Length})" : ""));
         Console.WriteLine(bad == 0 && old.Length == lines.Count ? "IDENTICAL" : "DIFFERENT");
         return bad == 0 && old.Length == lines.Count ? 0 : 1;
@@ -700,6 +717,10 @@ static class RenderCheck
                     float ca = MathF.Cos(-ang), sa = MathF.Sin(-ang);
                     float lx = -MathF.Sin(ang), ly = MathF.Cos(ang);
                     var rng = new Random(k*17 + path.Length*3 + sprName.Length);
+                    // The room with nothing in it, for the mask - see the
+                    // pixel loop. The eye does not move between scenes.
+                    r.Sprites.Clear();
+                    var bare = new uint[W*H]; r.Render(bare, W,H, cx,cy,cz, ang);
                     for (int i=0;i<6;i++)
                     {
                         // One creature per scene, so every tagged pixel is
@@ -736,19 +757,53 @@ static class RenderCheck
                         scenes++;
                         int under = 0, lost = 0, gained = 0, hid = 0, kept = 0;
                         int cut = (int)MathF.Floor(surfRow);
+                        var firstUnder = new List<string>();
                         for (int y=0;y<H;y++)
                         for (int x=0;x<W;x++)
                         {
-                            bool a = Tagged(loose[y*W+x]), b = Tagged(tight[y*W+x]);
-                            if (b && y > cut + 1) under++;
+                            // A pixel is the creature's only where the bare
+                            // room painted something else: palette entry 5
+                            // is FF800080, pure purple, and a floor that has
+                            // it (grd11036 in marion, 63 texels) shades to a
+                            // colour the tag test alone cannot tell from a
+                            // shaded magenta sprite. The pick oracle makes
+                            // the same comparison for the same reason.
+                            bool a = Tagged(loose[y*W+x]) && loose[y*W+x] != bare[y*W+x];
+                            bool b = Tagged(tight[y*W+x]) && tight[y*W+x] != bare[y*W+x];
+                            if (b && y > cut + 1)
+                            {
+                                under++;
+                                if (firstUnder.Count < 3)
+                                {
+                                    // What the water should have put there: the
+                                    // pixel's flat depth after the clipped render,
+                                    // against the creature's own.
+                                    float fd = r.DebugFlatDepth(x, y);
+                                    // The floor the ray through this pixel meets at
+                                    // the surface height, and which sector that is.
+                                    float dyRow = (y - horizon) / proj;
+                                    float dRow = dyRow > 0 ? (cz - surfZ) / dyRow : float.NaN;
+                                    float rdx = MathF.Cos(ang) , rdy = MathF.Sin(ang);
+                                    var hitSec = float.IsNaN(dRow) ? null : r.SectorAtPoint(cx + rdx*dRow, cy + rdy*dRow);
+                                    firstUnder.Add($"        ({x},{y}) tight={tight[y*W+x]:X8} loose={loose[y*W+x]:X8} bare={bare[y*W+x]:X8}"
+                                        + $" spriteDepth={depth:F0} flatDepth={fd:F0}"
+                                        + $" surfaceRayDist={dRow:F0} sectorThere={(hitSec==null?"none":hitSec.Num.ToString())}"
+                                        + $" floorTex={(hitSec==null?0:hitSec.FloorTexture)} depthFlag={(hitSec==null?"-":hitSec.Flags.SectorDepth.ToString())}"
+                                        + $" camSector={csec.Num} camFloorTex={csec.FloorTexture} camFloorH={csec.FloorHeight} sloped={(csec.SlopeInfoFloor!=null)}");
+                                }
+                            }
                             if (y < cut - 1) { if (a && !b) lost++; if (b && !a) gained++; }
                             if (a && !b) hid++;
                             if (b) kept++;
                         }
                         below += under; aboveLost += lost; aboveGained += gained; hidden += hid; shown += kept;
                         if ((under > 0 || lost > 0 || gained > 0) && worst.Count < 8)
+                        {
                             worst.Add($"{Path.GetFileName(path)} {sprName} {k*90}deg {csec.Flags.SectorDepth}: "
-                                    + $"{under} px under the waterline (row {surfRow:F1}), {lost} lost / {gained} gained above it");
+                                    + $"{under} px under the waterline (row {surfRow:F1}), {lost} lost / {gained} gained above it"
+                                    + $" [sprite at ({sx2:F0},{sy2:F0}) feetZ={feetZ:F0} surfZ={surfZ:F0} depth={depth:F0} eye=({cx:F0},{cy:F0},{cz:F0})]");
+                            worst.AddRange(firstUnder);
+                        }
                     }
                 }
             }
@@ -1134,6 +1189,9 @@ static class RenderCheck
         var rm = new ResourceManager(); rm.Init(dir,dir,dir,dir,dir,dir,dir);
         string[] sprites = { "duskrat.bgf", "Knight.bgf", "cyclops.bgf" };
         string[] rooms = { "barinn.roo", "kc4.roo", "dvalley1.roo" };
+        // PICKROOMS=a.roo,b.roo looks at other rooms with the same test.
+        string env = Environment.GetEnvironmentVariable("PICKROOMS");
+        if (!string.IsNullOrEmpty(env)) rooms = env.Split(',');
         const int W=640, H=360;
 
         int checkedPx=0, missed=0, phantom=0, scenes=0;
@@ -1146,6 +1204,7 @@ static class RenderCheck
             if (bgf == null) continue;
 
             var r = new Renderer(roo, new TexCache(rm));
+            if (Environment.GetEnvironmentVariable("NOSEETHRU") != null) r.SeeThroughWalls = false;
             var big = roo.BSPTreeLeaves.Where(l=>l.Vertices!=null&&l.Vertices.Count>=3)
                 .OrderByDescending(l=>{double s=0;var v=l.Vertices;
                     for(int i=0,j=v.Count-1;i<v.Count;j=i++) s+=(double)v[j].X*v[i].Y-(double)v[i].X*v[j].Y;
@@ -1185,6 +1244,8 @@ static class RenderCheck
                 r.Render(with, W,H, cx,cy,cz, ang);
                 scenes++;
 
+                int sceneMissed = 0, scenePhantom = 0;
+                var first = new List<string>();
                 for (int y=0;y<H;y++)
                 for (int x=0;x<W;x++)
                 {
@@ -1195,8 +1256,24 @@ static class RenderCheck
                                 && bare[y*W+x] != c;
                     var hit = r.Pick(x,y,W,H, cx,cy,cz, ang);
                     checkedPx++;
-                    if (painted && hit == null) missed++;
-                    else if (!painted && hit != null) phantom++;
+                    bool bad = false;
+                    if (painted && hit == null) { missed++; sceneMissed++; bad = true; }
+                    else if (!painted && hit != null) { phantom++; scenePhantom++; bad = true; }
+                    if (bad && first.Count < 4)
+                    {
+                        var sec = hit != null ? r.SectorAtPoint(hit.X, hit.Y) : null;
+                        first.Add($"      ({x},{y}) {(painted ? "painted,unpickable" : "pickable,unpainted")}"
+                                + $" with={c:X8} bare={bare[y*W+x]:X8}"
+                                + (hit != null ? $" sprite#{hit.Tag} at ({hit.X:F0},{hit.Y:F0}) baseZ={hit.BaseZ:F0}"
+                                               + $" sector={(sec==null?"none":sec.Num.ToString())}"
+                                               + $" floorTex={(sec==null?0:sec.FloorTexture)} ceilTex={(sec==null?0:sec.CeilingTexture)}" : ""));
+                    }
+                }
+                if (sceneMissed + scenePhantom > 0 || Environment.GetEnvironmentVariable("PICKDIAG") != null)
+                {
+                    Console.WriteLine($"  {room} {sprName} {k*90}deg: missed {sceneMissed} phantom {scenePhantom}"
+                                    + $" (masked spans this frame: {r.LastMaskedSpans})");
+                    foreach (string s in first) Console.WriteLine(s);
                 }
             }
         }
