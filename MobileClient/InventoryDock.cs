@@ -142,7 +142,7 @@ public partial class InventoryDock : Control
     readonly Dictionary<string, ImageTexture> _icons = new Dictionary<string, ImageTexture>();
     IList<InventoryObject> _items;
     string _signature = "";
-    string _stamp = "";
+    M59Hud.Stamp _stamp;
     bool _missed;
     ulong _retryAt;
 
@@ -246,11 +246,10 @@ public partial class InventoryDock : Control
     /// compared every frame - a layout LOADED after _Ready leaves the
     /// grid where it was and says nothing (AvatarPanel.HudStamp).
     /// </summary>
-    string HudStamp()
+    M59Hud.Stamp HudStamp()
     {
         M59Hud.Piece p = Piece;
-        if (p == null) return "";
-        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{p.Columns},{p.Rows},{(M59Hud.Editing ? 1 : 0)},{(Covered ? 1 : 0)}";
+        return p == null ? default : new M59Hud.Stamp(p, Covered ? 1 : 0);
     }
 
     /// <summary>
@@ -263,32 +262,29 @@ public partial class InventoryDock : Control
     public void Sync(IList<InventoryObject> items)
     {
         _items = items;
-        string stamp = HudStamp();
+        M59Hud.Stamp stamp = HudStamp();
         bool relay = stamp != _stamp;
         _stamp = stamp;
 
         if (items == null) { if (relay) Layout(); return; }
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         foreach (InventoryObject o in items)
         {
-            sb.Append(o?.ID).Append(':').Append(o?.Count)
+            sb.Opt(o?.ID).Append(':').Opt(o?.Count)
               .Append(o != null && o.IsInUse ? "u" : "-").Append(':')
               .Append(o != null && o.Flags != null && o.Flags.IsApplyable ? "a" : "-").Append(':')
-              .Append(o?.Name).Append(':').Append(o?.ColorTranslation).Append(':')
-              .Append(o?.Effect).Append(':').Append(o?.ViewerFrameIndex).Append(';');
+              .Append(o?.Name).Append(':').Opt(o?.ColorTranslation).Append(':')
+              .Opt(o?.Effect).Append(':').Opt(o?.ViewerFrameIndex).Append(';');
         }
         sb.Append('@').Append(Across()).Append('@').Append(Down()).Append('@').Append(IconPixels())
-          .Append('@').Append(Selection?.ID);
-        string signature = sb.ToString();
-
+          .Append('@').Opt(Selection?.ID);
         // A sprite that exists but is not yet readable changes nothing
         // in the data, so no signature can see it: retry on a timer
         // while any compose failed (notes/godot-ui.md).
         bool retry = _missed && Time.GetTicksMsec() >= _retryAt;
 
-        if (signature == _signature && !retry) { if (relay) Layout(); return; }
-        _signature = signature;
+        if (!Sig.Changed(sb, ref _signature) && !retry) { if (relay) Layout(); return; }
 
         // The selection follows the live instance, or goes when the
         // item has left the pack - the rule in notes/godot-ui.md, "A

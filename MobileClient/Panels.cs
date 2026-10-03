@@ -470,24 +470,15 @@ public static class Panels
     /// can place these, so this is where a moved piece is noticed - an
     /// event alone would miss a layout LOADED after the row was built.
     /// </summary>
-    static string HudStamp()
-    {
-        return One(TopId) + "|" + One(SideId);
+    static (M59Hud.Stamp, M59Hud.Stamp) HudStamp()
+        => (M59Hud.StampOf(TopId), M59Hud.StampOf(SideId));
 
-        static string One(string id)
-        {
-            M59Hud.Piece p = M59Hud.Get(id);
-            if (p == null) return "";
-            return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
-        }
-    }
-
-    static string _stamp = "";
+    static (M59Hud.Stamp, M59Hud.Stamp) _stamp;
 
     /// <summary>True once, after the registry changed - the drawer rebuilds on it.</summary>
     internal static bool TakeDirty()
     {
-        string stamp = HudStamp();
+        var stamp = HudStamp();
         if (stamp != _stamp) { _stamp = stamp; _dirty = true; }
         if (!_dirty) return false;
         _dirty = false;

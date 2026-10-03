@@ -336,3 +336,44 @@ press.
 Both were only visible in a screenshot. Neither produced a warning.
 
 See also: the skin -> ../M59Skin.cs
+
+## Per-frame cost in the Godot layer: name the eater with M59PROF=1
+Tags: process, lessons, gotchas | FrameProbe prints ms and bytes per section every N frames; the eaters were the renderer running on a still room, string signatures, and a theme override re-applied every frame
+
+`M59PROF=1` (or `=N` for every N frames) turns on `FrameProbe`, which
+charges time and main-thread bytes to the section since the last
+`Mark`, and counts how many frames actually rendered, uploaded and ran
+the UI. Off, every call is one static bool. Measured in barinn at
+rest, before: the renderer ran every frame (6-10 ms), repack + upload
+1 ms, the rest of the HUD 0.4 ms, and 21-26 KB allocated per frame.
+After: `GameView.WorldStamp` hashes everything the picture depends on
+(camera, light, every sprite and light, every sector and side, the
+clock only in a room that scrolls) and `RenderFrame` skips render,
+repack and upload when it has not moved, with a one-second heartbeat
+as the net; the HUD at rest is 0.25 ms and 0.8 KB a frame, and in the
+harness the remaining 6 KB a frame is `SceneShot`'s own
+`await ToSignal(ProcessFrame)`, not the client.
+
+Three shapes to avoid, all found by the probe:
+
+- A string built to compare: `HudStamp` was nine interpolated strings
+  a frame, every `Sync` a fresh StringBuilder and a `ToString`. It is
+  `M59Hud.Stamp` (a struct) and `Sig.Start()` / `Sig.Changed()` now,
+  which compare in place and only materialise on change. Keep the
+  signature CONTENT exactly as it was - the rule in "A polled
+  signature must hold everything the panel draws" still stands.
+- `AddThemeColorOverride` every frame: Godot treats it as a theme
+  change and re-shapes the label's text, so the name tags re-shaped
+  every name every frame. `NameTags.Tag` writes text, colour and the
+  measured size only when they change.
+- A tree walk per frame per instance: `TouchScroll.Fit` walked every
+  list's children every frame, hidden or not. It runs on the signals
+  that can move a child's minimum and for two frames after, with a
+  once-in-32-frames pass while visible as the net.
+
+Proof of no regression: a `@sweep` turn is pixel-identical frame by
+frame before and after (12 of 12), a panel tour is pixel-identical
+(20 of 20, bar the clock), and a walk differs only by the distance a
+wall-clock-timed walk covers in a slower run.
+
+See also: FrameProbe.cs | Sig.cs | GameView.WorldStamp | the harness -> harness.md

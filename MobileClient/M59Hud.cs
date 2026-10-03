@@ -204,6 +204,53 @@ public static class M59Hud
         => id != null && Pieces.TryGetValue(id, out Piece p) ? p : null;
 
     /// <summary>
+    /// Everything the store says about a piece that a laid-out piece
+    /// cares about, as one comparable value. The pieces compare it every
+    /// frame against the one they laid out with, because a layout LOADED
+    /// after _Ready, or an editor that moved a piece without raising
+    /// Changed, says nothing - and the failure is silent.
+    ///
+    /// A struct, not a string: nine pieces built an interpolated string
+    /// of six floats every frame each, which was about a kilobyte and a
+    /// half of garbage per frame for a comparison that is almost always
+    /// "same". <c>default</c> is what a missing piece stamps as, and is
+    /// what every piece starts with, so a piece that never registered
+    /// never relays - as the empty string did.
+    /// </summary>
+    public readonly struct Stamp : IEquatable<Stamp>
+    {
+        public readonly bool Present;
+        public readonly Vector2 Offset;
+        public readonly float Scale, Alpha;
+        public readonly int Columns, Rows;
+        /// <summary>Hidden, Editing and any caller-supplied bits, packed.</summary>
+        public readonly int Flags;
+
+        public Stamp(Piece p, int extra)
+        {
+            Present = true;
+            Offset = p.Offset; Scale = p.Scale; Alpha = p.Alpha;
+            Columns = p.Columns; Rows = p.Rows;
+            Flags = (p.Hidden ? 1 : 0) | (Editing ? 2 : 0) | (extra << 2);
+        }
+
+        public bool Equals(Stamp o)
+            => Present == o.Present && Offset == o.Offset && Scale == o.Scale && Alpha == o.Alpha
+               && Columns == o.Columns && Rows == o.Rows && Flags == o.Flags;
+        public override bool Equals(object obj) => obj is Stamp s && Equals(s);
+        public override int GetHashCode() => HashCode.Combine(Present, Offset, Scale, Alpha, Columns, Rows, Flags);
+        public static bool operator ==(Stamp a, Stamp b) => a.Equals(b);
+        public static bool operator !=(Stamp a, Stamp b) => !a.Equals(b);
+    }
+
+    /// <summary>The stamp of a piece; <c>default</c> for one that is not registered.</summary>
+    public static Stamp StampOf(string id, int extra = 0)
+    {
+        Piece p = Get(id);
+        return p == null ? default : new Stamp(p, extra);
+    }
+
+    /// <summary>
     /// Where a piece must actually draw, given where it would like to.
     ///
     /// Clamped so a piece can never be dragged off the glass: a control

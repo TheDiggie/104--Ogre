@@ -61,7 +61,15 @@ public partial class TouchScroll : ScrollContainer
         M59Skin.Scroller(this);
         // And kept clear of its own bar, for the same reason. See Fit.
         Resized += Fit;
-        ChildEnteredTree += _ => Fit();
+        ChildEnteredTree += c =>
+        {
+            Fit();
+            // A child whose own minimum moves - a panel's Layout setting
+            // the row box's width after the resize - is what the
+            // per-frame fit was catching. Hear it instead.
+            if (c is Control cc) { cc.Resized += Nudge; cc.MinimumSizeChanged += Nudge; }
+        };
+        VisibilityChanged += Nudge;
         Fit();
     }
 
@@ -188,9 +196,23 @@ public partial class TouchScroll : ScrollContainer
         }
     }
 
+    /// <summary>
+    /// How many frames Fit runs after something moved. Two: the frame
+    /// the panel laid out, and the one after, when its own deferred
+    /// minimum-size pass has settled.
+    /// </summary>
+    int _settle = 2;
+    void Nudge() { _settle = 2; }
+
     public override void _Process(double delta)
     {
-        Fit();
+        // The walk over the children - a Godot array and a marshalled
+        // read per child - ran every frame for every list in the app,
+        // hidden or not. Now: when something nudged it, for two frames,
+        // and otherwise only while on screen, once every thirty frames
+        // as the net under a write nobody signalled.
+        if (_settle > 0) { _settle--; Fit(); }
+        else if ((Engine.GetProcessFrames() & 31) == 0 && IsVisibleInTree()) Fit();
         if (_down || Mathf.Abs(_velocity) < 8f) { if (!_down) _velocity = 0f; return; }
         Move((float)(_velocity * delta));
         _velocity *= Mathf.Exp((float)(-Friction * delta));

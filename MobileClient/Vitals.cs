@@ -135,6 +135,15 @@ public partial class Vitals : Control
 
     Label[] _names = Array.Empty<Label>();
     Label[] _values = Array.Empty<Label>();
+    /// <summary>
+    /// What each label was last given, so a blink - which redraws every
+    /// frame - does not rebuild four "74 / 120" strings and four
+    /// readable names per frame for a label whose text did not move.
+    /// </summary>
+    string[] _nameFrom = Array.Empty<string>();
+    string[] _nameText = Array.Empty<string>();
+    long[] _valueCur = Array.Empty<long>(), _valueMax = Array.Empty<long>();
+    string[] _valueText = Array.Empty<string>();
     double _clock;
 
     /// <summary>
@@ -188,14 +197,9 @@ public partial class Vitals : Control
     /// without raising Changed - and the failure is silent: the piece
     /// draws itself exactly where it used to be.
     /// </summary>
-    static string HudStamp(string id)
-    {
-        M59Hud.Piece p = M59Hud.Get(id);
-        if (p == null) return "";
-        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
-    }
+    static M59Hud.Stamp HudStamp(string id) => M59Hud.StampOf(id);
 
-    string _stamp = "";
+    M59Hud.Stamp _stamp;
 
     /// <summary>The player's size for this cluster, inside the model's band.</summary>
     static float HudScale()
@@ -265,7 +269,7 @@ public partial class Vitals : Control
         M59Hud.Dress("vitals");
         // And their layout, before the signature test below: a drag does
         // not change a number, so nothing else would redraw.
-        string stamp = HudStamp("vitals");
+        M59Hud.Stamp stamp = HudStamp("vitals");
         if (stamp != _stamp) { _stamp = stamp; QueueRedraw(); }
         if (data?.AvatarCondition == null) return;
 
@@ -280,15 +284,13 @@ public partial class Vitals : Control
         // (`Meridian59/Data/Models/Stat.cs:176-187`, set at
         // `Stat.cs:259-264`), so a bar that arrived nameless and was named
         // afterwards stayed nameless on screen.
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         foreach (StatNumeric s in data.AvatarCondition)
             sb.Append(s.Num).Append(':').Append(s.ValueCurrent).Append('/')
               .Append(s.ValueMaximum).Append('/').Append(s.ValueRenderMax).Append('/')
               .Append(s.ValueRenderMin).Append('/').Append(s.ResourceName).Append(';');
 
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
         QueueRedraw();
     }
 
@@ -456,15 +458,24 @@ public partial class Vitals : Control
                 // yet. The filename is still better than nothing, but
                 // the extension is noise and a bare "icon" says less
                 // than the empty gutter does.
-                string name = Readable(s.ResourceName);
-                label.Text = name;
+                if (!ReferenceEquals(_nameFrom[i], s.ResourceName) || _nameText[i] == null)
+                {
+                    _nameFrom[i] = s.ResourceName;
+                    _nameText[i] = Readable(s.ResourceName);
+                    label.Text = _nameText[i];
+                }
                 label.Position = new Vector2(left + pad, row);
                 label.Size = new Vector2(nameW, barH);
                 label.Visible = true;
             }
 
             Label value = _values[i];
-            value.Text = $"{s.ValueCurrent} / {max}";
+            if (_valueText[i] == null || _valueCur[i] != s.ValueCurrent || _valueMax[i] != max)
+            {
+                _valueCur[i] = s.ValueCurrent; _valueMax[i] = max;
+                _valueText[i] = $"{s.ValueCurrent} / {max}";
+                value.Text = _valueText[i];
+            }
             // Inset from the bar's right rim so the digits are not
             // against the edge, and sized to the whole bar so the right
             // alignment lands in the same column on all four rows.
@@ -512,6 +523,9 @@ public partial class Vitals : Control
         }
         _names = names;
         _values = values;
+        Array.Resize(ref _nameFrom, count); Array.Resize(ref _nameText, count);
+        Array.Resize(ref _valueCur, count); Array.Resize(ref _valueMax, count);
+        Array.Resize(ref _valueText, count);
     }
 
     /// <summary>

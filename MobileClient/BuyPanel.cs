@@ -578,15 +578,12 @@ public partial class BuyPanel : Control
         // signature must hold everything the panel draws").
         BgfFile coin = Coin?.Invoke();
         ImageTexture coinTex = CoinArt.Texture(coin);
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         sb.Append(coinTex != null ? coin.Filename : "").Append('|');
         foreach (TradeOfferObject o in buy.Items)
-            sb.Append(o?.ID).Append(':').Append(o?.Count).Append(':').Append(o?.Price).Append(';');
-        string now = sb.ToString();
-
-        if (now != _signature)
+            sb.Opt(o?.ID).Append(':').Opt(o?.Count).Append(':').Opt(o?.Price).Append(';');
+        if (Sig.Changed(sb, ref _signature))
         {
-            _signature = now;
             _stock.Clear();
 
             // What you had picked is kept across a rebuild, minus

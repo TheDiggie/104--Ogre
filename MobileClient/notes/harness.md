@@ -13,7 +13,10 @@ Godot lives at
 Steps in `--press`: a bare node name, `@tap:XxY`, `@hold:<Node>`,
 `@type`, `@type:<Node>=<text>`, `@submit`, `@name:<Node>`, `@slot`,
 `@drag:<from>><to>@<frames>`, `@sweep:<from>><to>@<frames>`,
-`@state[:<Node>]`, `@obj:<name>`.
+`@state[:<Node>]`, `@obj:<name>`, `@wait:<frames>` (nothing at all,
+for the idle numbers). `M59PROF=120` in the environment prints the
+per-frame cost probe every 120 frames - see godot-ui.md, "Per-frame
+cost in the Godot layer".
 
 Fixture switches on the fake server: `M59_STATCHANGE=1`, `M59_NEWS=1`,
 `M59_CHATFLOOD=1`, `M59_PARALYZE=1`, `M59_WAIT=1`, `M59_QUESTLOG=1`,

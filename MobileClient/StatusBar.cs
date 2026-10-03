@@ -99,7 +99,9 @@ public partial class StatusBar : Control
     /// <summary>Between two controls; the moods get half of it, being a set.</summary>
     const float Gap = 8f;
 
-    string _shown = "";
+    /// <summary>What the row last showed, as values: the comparison used to be an interpolated string per frame.</summary>
+    (uint tps, uint rtt, int online, bool safetyOff, bool known, string room, long minute) _shown;
+    bool _shownOnce;
     DataController _data;
 
     public override void _Ready()
@@ -159,14 +161,9 @@ public partial class StatusBar : Control
     /// without raising Changed - and the failure is silent: the piece
     /// draws itself exactly where it used to be.
     /// </summary>
-    static string HudStamp(string id)
-    {
-        M59Hud.Piece p = M59Hud.Get(id);
-        if (p == null) return "";
-        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
-    }
+    static M59Hud.Stamp HudStamp(string id) => M59Hud.StampOf(id);
 
-    string _stamp = "";
+    M59Hud.Stamp _stamp;
 
     /// <summary>The player's size for this cluster, inside the model's band.</summary>
     static float HudScale()
@@ -388,7 +385,7 @@ public partial class StatusBar : Control
         // The player's layout, before the early-out below: this line
         // changes only when they move something, and the row is not
         // rebuilt for anything else.
-        string stamp = HudStamp("status");
+        M59Hud.Stamp stamp = HudStamp("status");
         if (stamp != _stamp) { _stamp = stamp; Layout(); }
 
         uint tps = data.TPS, rtt = data.RTT;
@@ -396,13 +393,18 @@ public partial class StatusBar : Control
         bool safetyOff = data.ClientPreferences != null && data.ClientPreferences.IsSafetyOff;
         bool known = PrefsKnown(data);
         string room = data.RoomInformation != null ? data.RoomInformation.RoomName : "";
-        string clock = data.MeridianTime.ToShortTimeString();
+        // The short time string changes with the minute and with nothing
+        // else, so the minute is what is compared and the string is made
+        // when it moves.
+        DateTime when = data.MeridianTime;
+        long minute = when.Ticks / TimeSpan.TicksPerMinute;
 
         // The labels are rebuilt only when something in them changed;
         // this runs every frame.
-        string now = $"{tps}|{rtt}|{online}|{safetyOff}|{known}|{room}|{clock}";
-        if (now == _shown) return;
-        _shown = now;
+        var now = (tps, rtt, online, safetyOff, known, room, minute);
+        if (_shownOnce && now == _shown) return;
+        _shown = now; _shownOnce = true;
+        string clock = when.ToShortTimeString();
 
         _fps.Text = $"{tps} tps";
         _fps.AddThemeColorOverride("font_color",

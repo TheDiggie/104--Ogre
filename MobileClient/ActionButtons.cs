@@ -663,6 +663,8 @@ public partial class ActionButtons : Control
     /// Rebuilds the row when the configured buttons change. Called every
     /// frame; a signature keeps it from rebuilding for nothing.
     /// </summary>
+    readonly List<ActionButtonConfig> _set = new List<ActionButtonConfig>(), _arc = new List<ActionButtonConfig>();
+
     public void Sync(DataController data)
     {
         _data = data;
@@ -683,7 +685,9 @@ public partial class ActionButtons : Control
             return;
         }
 
-        var set = new List<ActionButtonConfig>();
+        // Reused, not re-made: Sync runs every frame and two fresh lists
+        // a frame is a steady drip of garbage for a bar that rarely changes.
+        List<ActionButtonConfig> set = _set; set.Clear();
         foreach (ActionButtonConfig b in data.ActionButtons)
             if (b != null && b.ButtonType != ActionButtonType.Unset) set.Add(b);
 
@@ -715,7 +719,7 @@ public partial class ActionButtons : Control
             if (b.ButtonType == ActionButtonType.Action
                 && b.Data is AvatarAction act && act == AvatarAction.Attack) { anchor = b; break; }
 
-        var arc = new List<ActionButtonConfig>(set);
+        List<ActionButtonConfig> arc = _arc; arc.Clear(); arc.AddRange(set);
         if (anchor != null) arc.Remove(anchor);
 
         // The game draws all forty-eight buttons at once, twelve by four
@@ -767,7 +771,7 @@ public partial class ActionButtons : Control
         int first = _page * perPage;
         int count = Math.Min(perPage, Math.Max(0, arc.Count - first));
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         if (anchor != null)
             sb.Append('!').Append(anchor.Num).Append(':').Append(anchor.Name).Append(';');
         for (int i = 0; i < count; i++)
@@ -788,9 +792,7 @@ public partial class ActionButtons : Control
               .Append('@').Append(piece.Hidden ? 1 : 0)
               .Append('@').Append(M59Hud.Editing ? 1 : 0);
 
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
 
         _nums.Clear();
 

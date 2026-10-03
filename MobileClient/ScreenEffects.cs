@@ -54,6 +54,9 @@ public partial class ScreenEffects : Control
     /// </summary>
     public bool Inverted { get; private set; }
 
+    /// <summary>Whether <see cref="Blur"/> would do anything right now. Read by the idle skip.</summary>
+    public bool Blurring => _blurring;
+
     ColorRect _blend;
     WeatherOverlay _weather;
 

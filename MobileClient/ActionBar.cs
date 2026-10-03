@@ -208,14 +208,9 @@ public partial class ActionBar : Control
     /// without raising Changed - and the failure is silent: the piece
     /// draws itself exactly where it used to be.
     /// </summary>
-    static string HudStamp(string id)
-    {
-        M59Hud.Piece p = M59Hud.Get(id);
-        if (p == null) return "";
-        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
-    }
+    static M59Hud.Stamp HudStamp(string id) => M59Hud.StampOf(id);
 
-    string _stamp = "";
+    M59Hud.Stamp _stamp;
 
     /// <summary>The player's size for this cluster, inside the model's band.</summary>
     static float HudScale()
@@ -272,7 +267,7 @@ public partial class ActionBar : Control
         if (ceiling > 0f && !Mathf.IsEqualApprox(ceiling, _ceiling)) Layout();
 
         // And the player's own layout, for the same reason.
-        string stamp = HudStamp("target");
+        M59Hud.Stamp stamp = HudStamp("target");
         if (stamp != _stamp) { _stamp = stamp; Layout(); }
 
         if (!_attackDown || !HasTarget || _attack.Disabled) return;

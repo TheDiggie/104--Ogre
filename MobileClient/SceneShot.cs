@@ -828,6 +828,16 @@ public partial class SceneShot : Node
                     GD.Print($"[SceneShot] tapped {want} at {at}");
                 }
             }
+            else if (step.StartsWith("@wait:"))
+            {
+                // Nothing at all for N frames: a finger off the screen,
+                // which is what the idle-power path and the FrameProbe
+                // numbers are measured against.
+                if (int.TryParse(step.Substring(6), out int idle))
+                    for (int i = 0; i < idle; i++)
+                        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                GD.Print($"[SceneShot] waited {step.Substring(6)}");
+            }
             else if (step.StartsWith("@name:"))
             {
                 string want = step.Substring(6);

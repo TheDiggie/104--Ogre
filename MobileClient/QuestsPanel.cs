@@ -192,13 +192,11 @@ public partial class QuestsPanel : Control
             return;
         }
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         foreach (StatList q in quests)
-            sb.Append(q?.ObjectID).Append(':').Append(q?.ResourceName).Append(':').Append(q?.SkillPoints).Append(':')
+            sb.Opt(q?.ObjectID).Append(':').Append(q?.ResourceName).Append(':').Opt(q?.SkillPoints).Append(':')
               .Append(q?.Resource?.Filename).Append(';');
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
 
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
 

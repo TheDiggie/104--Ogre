@@ -175,21 +175,12 @@ public partial class AvatarPanel : Control
     /// after _Ready leaves the piece drawn where it used to be and says
     /// nothing about it.
     /// </summary>
-    static string HudStamp()
-    {
+    static (M59Hud.Stamp, M59Hud.Stamp) HudStamp()
         // Both pieces in one value: a drag of either has to re-lay the
         // row, because the unmoved row follows the portrait.
-        return One("portrait") + "|" + One("buffs");
+        => (M59Hud.StampOf("portrait"), M59Hud.StampOf("buffs"));
 
-        static string One(string id)
-        {
-            M59Hud.Piece p = M59Hud.Get(id);
-            if (p == null) return "";
-            return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
-        }
-    }
-
-    string _stamp = "";
+    (M59Hud.Stamp, M59Hud.Stamp) _stamp;
 
     /// <summary>The player's size for a piece, inside the model's band.</summary>
     static float HudScale(string id = "portrait")
@@ -449,7 +440,7 @@ public partial class AvatarPanel : Control
         _data = data;
         // The player's layout, every frame: a drag does not change the
         // appearance hash, so nothing below would move the portrait.
-        string stamp = HudStamp();
+        var stamp = HudStamp();
         if (stamp != _stamp) { _stamp = stamp; Layout(); }
 
         RoomObject me = data?.AvatarObject;
@@ -502,7 +493,7 @@ public partial class AvatarPanel : Control
         // of size rebuilds.
         int px = Mathf.Max(8, Mathf.RoundToInt(BuffSize * HudScale("buffs")));
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         // Resolution state is in the signature as well as the id: a
         // buff whose sprite has not been resolved yet is skipped below,
         // and on an id-only signature it would stay skipped for ever.
@@ -515,13 +506,11 @@ public partial class AvatarPanel : Control
         foreach (ObjectBase b in data.AvatarBuffs)
         {
             if (n++ >= MaxSlots) break;
-            sb.Append(b?.ID).Append(b?.Resource != null ? "+" : "-").Append(';');
+            sb.Opt(b?.ID).Append(b?.Resource != null ? "+" : "-").Append(';');
         }
         sb.Append('@').Append(Columns()).Append('/').Append(px);
-        string now = sb.ToString();
         if (_buffMissed && Time.GetTicksMsec() >= _buffRetryAt) _buffSignature = "";
-        if (now == _buffSignature) return;
-        _buffSignature = now;
+        if (!Sig.Changed(sb, ref _buffSignature)) return;
         _buffMissed = false;
         _buffRetryAt = Time.GetTicksMsec() + 500;
 

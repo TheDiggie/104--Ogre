@@ -63,7 +63,7 @@ public partial class Purse : Control
     readonly Label[] _values = new Label[Coins.Length];
     readonly long[] _held = new long[Coins.Length];
     string _signature = "";
-    string _stamp = "";
+    M59Hud.Stamp _stamp;
     float _dressedAt;
 
     public override void _Ready()
@@ -95,12 +95,7 @@ public partial class Purse : Control
 
     public override void _ExitTree() => M59Hud.Changed -= QueueRedraw;
 
-    static string HudStamp()
-    {
-        M59Hud.Piece p = M59Hud.Get("purse");
-        if (p == null) return "";
-        return $"{p.Offset.X},{p.Offset.Y},{p.Scale},{p.Alpha},{(p.Hidden ? 1 : 0)},{(M59Hud.Editing ? 1 : 0)}";
-    }
+    static M59Hud.Stamp HudStamp() => M59Hud.StampOf("purse");
 
     static float HudScale()
     {
@@ -119,7 +114,7 @@ public partial class Purse : Control
     {
         _data = data;
         M59Hud.Dress("purse");
-        string stamp = HudStamp();
+        M59Hud.Stamp stamp = HudStamp();
         if (stamp != _stamp) { _stamp = stamp; QueueRedraw(); }
 
         for (int i = 0; i < Coins.Length; i++) _held[i] = 0;
@@ -141,11 +136,9 @@ public partial class Purse : Control
             }
         }
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         for (int i = 0; i < Coins.Length; i++) sb.Append(_held[i]).Append(';');
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
         QueueRedraw();
     }
 

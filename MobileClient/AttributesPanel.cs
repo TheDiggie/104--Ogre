@@ -197,13 +197,10 @@ public partial class AttributesPanel : Control
         }
         _empty.Visible = false;
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         foreach (StatNumeric a in attributes) sb.Append(a?.ResourceName).Append(';');
-        string now = sb.ToString();
-
-        if (now != _signature)
+        if (Sig.Changed(sb, ref _signature))
         {
-            _signature = now;
             _widgets.Clear();
             foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
             int index = 0;

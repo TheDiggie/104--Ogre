@@ -390,10 +390,10 @@ public partial class NpcQuestsPanel : Control
 
         if (!IsOpen) Show(true);
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         sb.Append(info.QuestGiver?.ID).Append('|');
         foreach (QuestObjectInfo q in info.QuestList)
-            sb.Append(q?.ObjectBase?.ID).Append(':')
+            sb.Opt(q?.ObjectBase?.ID).Append(':')
               .Append((int)(q?.ObjectBase?.Flags?.Player ?? 0)).Append(':')
               // The text too: a quest offered again with the same id and
               // flags but new words would otherwise keep the old ones on
@@ -401,9 +401,7 @@ public partial class NpcQuestsPanel : Control
               // on every QuestUIList (`DataController.cs:3040-3052`).
               .Append(q?.Description?.FullString).Append('\u0001')
               .Append(q?.Requirements?.FullString).Append('\u0002').Append(';');
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
 
         _giver = info.QuestGiver != null ? info.QuestGiver.ID : 0u;
         _who.Text = info.QuestGiver != null && !string.IsNullOrWhiteSpace(info.QuestGiver.Name)

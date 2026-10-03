@@ -68,7 +68,8 @@ public partial class QuestMarkers : Control
     /// <summary>The reference's threshold, in world units: 16 scene units.</summary>
     const float Deadband = 256f;
 
-    readonly List<Label> _pool = new List<Label>();
+    readonly List<NameTags.Tag> _pool = new List<NameTags.Tag>();
+    readonly List<uint> _gone = new List<uint>();
 
     public override void _Ready()
     {
@@ -101,18 +102,13 @@ public partial class QuestMarkers : Control
 
             if (!renderer.Project(wx, wy, wz, out float sx, out float sy)) continue;
 
-            Label l = Take(used++);
-            l.AddThemeColorOverride("font_color", new Color(
-                ((argb >> 16) & 0xFF) / 255f,
-                ((argb >> 8) & 0xFF) / 255f,
-                (argb & 0xFF) / 255f));
-
+            NameTags.Tag l = Take(used++);
             // The same centring the names use. The mark is always "!",
             // so the stale-minimum trap cannot bite here the way it does
             // there - but two copies of a placement is two places for
-            // the next change to miss one. See NameTags.CentreOver.
-            NameTags.CentreOver(l, l.Text, new Vector2(sx * scale.X, sy * scale.Y));
-            l.Visible = true;
+            // the next change to miss one. See NameTags.Tag.
+            l.Set("!", argb);
+            l.CentreAt(new Vector2(sx * scale.X, sy * scale.Y));
         }
 
         Hide(used);
@@ -123,9 +119,9 @@ public partial class QuestMarkers : Control
     void Forget()
     {
         if (_offset.Count == 0) return;
-        var gone = new List<uint>();
-        foreach (uint id in _offset.Keys) if (!_seen.Contains(id)) gone.Add(id);
-        foreach (uint id in gone) _offset.Remove(id);
+        _gone.Clear();
+        foreach (uint id in _offset.Keys) if (!_seen.Contains(id)) _gone.Add(id);
+        foreach (uint id in _gone) _offset.Remove(id);
     }
 
     /// <summary>
@@ -144,7 +140,7 @@ public partial class QuestMarkers : Control
             && !o.IsAvatar;
     }
 
-    Label Take(int index)
+    NameTags.Tag Take(int index)
     {
         while (_pool.Count <= index)
         {
@@ -153,13 +149,14 @@ public partial class QuestMarkers : Control
             l.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0));
             l.AddThemeConstantOverride("outline_size", 5);
             AddChild(l);
-            _pool.Add(l);
+            _pool.Add(new NameTags.Tag(l));
         }
         return _pool[index];
     }
 
     void Hide(int from)
     {
-        for (int i = from; i < _pool.Count; i++) _pool[i].Visible = false;
+        for (int i = from; i < _pool.Count; i++)
+            if (_pool[i].Label.Visible) _pool[i].Label.Visible = false;
     }
 }

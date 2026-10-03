@@ -345,18 +345,16 @@ public partial class NewsPanel : Control
         if (!IsOpen) Show(true);
         if (_composing) return;
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         sb.Append(news.NewsGlobeID).Append('|').Append(news.Headline).Append('|');
         if (news.Articles != null)
-            foreach (ArticleHead a in news.Articles) sb.Append(a?.Number).Append(';');
+            foreach (ArticleHead a in news.Articles) sb.Opt(a?.Number).Append(';');
         // The text itself, not its length: tapping a row rebuilds with the
         // OLD body before the new one arrives, and two articles whose
         // bodies are the same length (or both empty) left the signature
         // unchanged, so the new body was never assigned.
         sb.Append('|').Append(news.Text);
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
 
         _title.Text = news.NewsGlobeObject != null && !string.IsNullOrWhiteSpace(news.NewsGlobeObject.Name)
             ? news.NewsGlobeObject.Name : "Board";

@@ -394,21 +394,23 @@ public partial class InventoryPanel : Control
         // on any of those; a signature of id, count and use alone
         // leaves the old bitmap and the old name there for the rest of
         // the session.
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         foreach (InventoryObject o in items)
         {
-            sb.Append(o?.ID).Append(':').Append(o?.Count)
+            sb.Opt(o?.ID).Append(':').Opt(o?.Count)
               .Append(o != null && o.IsInUse ? "u" : "-").Append(':')
               .Append(o != null && o.Flags != null && o.Flags.IsApplyable ? "a" : "-").Append(':')
-              .Append(o?.Name).Append(':').Append(o?.ColorTranslation).Append(':')
-              .Append(o?.Effect).Append(':').Append(o?.ViewerFrameIndex).Append(';');
+              .Append(o?.Name).Append(':').Opt(o?.ColorTranslation).Append(':')
+              .Opt(o?.Effect).Append(':').Opt(o?.ViewerFrameIndex).Append(';');
         }
         // The column count is part of it: turn the phone and the grid
         // has to be rebuilt, and a signature that ignored the width
         // left five columns on a screen with room for fifteen.
         sb.Append('@').Append(Across());
-        string signature = sb.ToString();
-        if (signature == _lastSignature && items.Count == _lastCount) return;
+        // Compared in place, assigned at once: the lines between here
+        // and the old assignment point read nothing from it.
+        bool same = !Sig.Changed(sb, ref _lastSignature);
+        if (same && items.Count == _lastCount) return;
 
         // The selection is dropped when what it pointed at has left the
         // bag, and re-pointed at the fresh instance when it has not.
@@ -449,7 +451,7 @@ public partial class InventoryPanel : Control
             }
         }
 
-        _lastSignature = signature; _lastCount = items.Count;
+        _lastCount = items.Count;
 
         foreach (Node n in _grid.GetChildren()) { _grid.RemoveChild(n); n.QueueFree(); }
 

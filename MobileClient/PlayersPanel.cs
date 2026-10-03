@@ -202,18 +202,16 @@ public partial class PlayersPanel : Control
         }
         _empty.Visible = false;
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         foreach (OnlinePlayer p in players) 
             // Name, flags AND the name colour. NameColor is its own field
             // (`ObjectFlags.cs:183`), not part of Value, so a colour
             // change alone used to leave the row as it was. The
             // reference recolours from the same flags
             // (`UIOnlinePlayers.cpp:52-77` for the tooltip beside it).
-            sb.Append(p?.Name).Append(':').Append(p?.Flags?.Value).Append(':')
+            sb.Append(p?.Name).Append(':').Opt(p?.Flags?.Value).Append(':')
               .Append(p?.Flags != null ? NameColors.GetColorFor(p.Flags) : 0u).Append(';');
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
 
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
         foreach (OnlinePlayer p in players)

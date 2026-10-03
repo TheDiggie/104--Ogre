@@ -503,14 +503,12 @@ public partial class GuildHallBuyPanel : Control
 
         if (!IsOpen) Show(true);
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         foreach (GuildHall h in info.GuildHalls)
             if (h != null)
                 sb.Append(h.ID).Append(':').Append(h.Name).Append(':')
                   .Append(h.Cost).Append(':').Append(h.Rent).Append(';');
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
 
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
         _rowFor.Clear();

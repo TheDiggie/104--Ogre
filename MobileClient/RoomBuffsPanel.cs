@@ -74,7 +74,7 @@ public partial class RoomBuffsPanel : Control
     {
         if (buffs == null) { Hide(0); return; }
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         // The resolution state of each entry belongs in the signature as
         // much as its id does. A room enchantment arrives as an
         // AddEnchantment long before its sprite does: the reference client
@@ -94,10 +94,8 @@ public partial class RoomBuffsPanel : Control
         // resolves, which is the moment a rebuild is needed.
         // <see cref="AvatarPanel.SyncBuffs"/> does the same for your own.
         foreach (ObjectBase b in buffs)
-            sb.Append(b?.ID).Append(b?.Resource != null ? "+" : "-").Append(';');
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+            sb.Opt(b?.ID).Append(b?.Resource != null ? "+" : "-").Append(';');
+        if (!Sig.Changed(sb, ref _signature)) return;
 
         Vector2 v = GetViewportRect().Size;
 

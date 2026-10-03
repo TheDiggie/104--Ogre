@@ -542,16 +542,14 @@ public partial class GuildShieldPanel : Control
         if (shield == null || !master) { Close(); return; }
 
         ObjectBase model = shield.ExampleModel;
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         sb.Append(shield.Color1).Append('|').Append(shield.Color2).Append('|')
           .Append(shield.Design).Append('|')
           .Append(shield.Shields != null ? shield.Shields.Length : 0).Append('|')
           .Append(shield.GuildName).Append('|')
           .Append(model != null ? model.ViewerAngle : 0).Append('|')
           .Append(model?.Resource != null ? '+' : '-');
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
 
         int count = shield.Shields != null ? shield.Shields.Length : 0;
         _colour1Desc.Text = $"Color 1    {shield.Color1}";

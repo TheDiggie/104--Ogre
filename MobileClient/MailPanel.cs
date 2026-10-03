@@ -478,11 +478,9 @@ public partial class MailPanel : Control
             return byDate != 0 ? byDate : b2.Num.CompareTo(a.Num);
         });
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         foreach (Mail m in _sorted) sb.Append(m.Num).Append(';');
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
 
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
         _buttons.Clear();

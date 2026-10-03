@@ -273,7 +273,7 @@ public partial class SpellsPanel : Control
         // with no icon was otherwise stuck that way until the panel was
         // reopened. The resource's file name stands for "has art, and
         // which", since the icon is cached by it.
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         sb.Append(_showingSpells ? 's' : 'k').Append(':');
         foreach (StatList s in list)
             sb.Append(s.ObjectID).Append('/').Append(s.SkillPoints).Append('/')
@@ -286,10 +286,8 @@ public partial class SpellsPanel : Control
         // the signature alone would never notice. Half a second, not every
         // frame - a permanently bad bitmap would otherwise be re-read 60
         // times a second.
-        string now = sb.ToString();
         if (_iconMissed && Time.GetTicksMsec() >= _iconRetryAt) _signature = "";
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
         _iconMissed = false;
         _iconRetryAt = Time.GetTicksMsec() + 500;
         _chosen = 0;

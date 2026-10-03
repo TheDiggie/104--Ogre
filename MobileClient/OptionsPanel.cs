@@ -197,6 +197,30 @@ public partial class OptionsPanel : Control
     float _sound = 10f, _music = 4f, _bright = 0f, _look = 1f;
     bool _loops = true, _invert;
 
+    /// <summary>
+    /// The frame rate cap, in frames per second; 0 is uncapped. This
+    /// one is the client's own, not the reference's: a desktop renders
+    /// as fast as it can and plugs into the wall, a phone that renders
+    /// 120 frames of a still room a second is a phone that is warm and
+    /// flat by lunch. Sixty is the default because it is what every
+    /// phone display shows anyway, so it changes nothing about how the
+    /// game feels; thirty is for a long session on a low battery.
+    /// Applied straight to <see cref="Engine.MaxFps"/>, which is where
+    /// Godot keeps it.
+    /// </summary>
+    int _fpsCap = 60;
+    static readonly int[] FpsCaps = { 30, 60, 0 };
+    static string FpsName(int cap) => cap == 0 ? "Uncapped" : $"{cap} fps";
+    void StepFps(int by)
+    {
+        int at = Array.IndexOf(FpsCaps, _fpsCap);
+        if (at < 0) at = 1;
+        at = (at + by + FpsCaps.Length) % FpsCaps.Length;
+        _fpsCap = FpsCaps[at];
+        Engine.MaxFps = _fpsCap;
+        Keep();
+    }
+
     // The language, starting where the library starts it:
     // Config.DEFAULTVAL_LANGUAGE is LanguageCode.English
     // (`Config.cs:71`).
@@ -338,6 +362,8 @@ public partial class OptionsPanel : Control
             _look   = (float)file.GetValue(StoreSection, "look", _look);
             _loops  = (bool)file.GetValue(StoreSection, "loops", _loops);
             _invert = (bool)file.GetValue(StoreSection, "invert", _invert);
+            _fpsCap = (int)file.GetValue(StoreSection, "fpscap", _fpsCap);
+            if (Array.IndexOf(FpsCaps, _fpsCap) < 0) _fpsCap = 60;
             // Stored by name rather than by number, the way
             // configuration.xml stores it (`Config.cs:589` parses the
             // <language value="English" /> attribute with Enum.TryParse).
@@ -365,6 +391,7 @@ public partial class OptionsPanel : Control
             file.SetValue(StoreSection, "look", _look);
             file.SetValue(StoreSection, "loops", _loops);
             file.SetValue(StoreSection, "invert", _invert);
+            file.SetValue(StoreSection, "fpscap", _fpsCap);
             file.SetValue(StoreSection, "language", _language.ToString());
             file.Save(StorePath);
         }
@@ -390,6 +417,7 @@ public partial class OptionsPanel : Control
         Brightness?.Invoke(_bright);
         LookSpeed?.Invoke(_look);
         InvertLook?.Invoke(_invert);
+        Engine.MaxFps = _fpsCap;
         // The language is deliberately NOT pushed from here. Apply runs
         // while the view is still building the client, and Config.Load
         // comes after it - and Load sets Language from configuration.xml
@@ -499,6 +527,8 @@ public partial class OptionsPanel : Control
         // 0 to 0.8, which is the file's own cap, in tenths.
         _rows.AddChild(Slider("Brightness", () => _bright * 10f, v =>
             { _bright = Mathf.Min(v, 8f) / 10f; Brightness?.Invoke(_bright); Keep(); }, 8f));
+        _rows.AddChild(Choice("Frame rate cap", () => FpsName(_fpsCap),
+            () => StepFps(-1), () => StepFps(1)));
 
         _rows.AddChild(Section("Controls"));
         _rows.AddChild(Slider("Look speed", () => _look * 10f, v =>

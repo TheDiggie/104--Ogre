@@ -388,15 +388,13 @@ public partial class LootPanel : Control
         // pick the name's colour arrive late too. A signature of id and
         // count cannot see either, so rows kept saying "(unnamed)" in
         // the wrong colour for as long as the window was open.
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         foreach (ObjectBase o in items)
-            sb.Append(o?.ID).Append(':').Append(o?.Count).Append(':')
+            sb.Opt(o?.ID).Append(':').Opt(o?.Count).Append(':')
               .Append(o?.Name).Append(':')
               .Append(o?.Flags != null ? NameColors.GetColorFor(o.Flags) : 0u).Append(':')
               .Append(o?.Flags != null && o.Flags.IsEquipped).Append(';');
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+        if (!Sig.Changed(sb, ref _signature)) return;
 
         foreach (Node n in _rows.GetChildren()) { _rows.RemoveChild(n); n.QueueFree(); }
 

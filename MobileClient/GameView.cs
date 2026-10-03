@@ -403,7 +403,10 @@ public partial class GameView : Node2D
     {
         _log.Add(line);
         while (_log.Count > LogLines) _log.RemoveAt(0);
+        _logVersion++;
     }
+    /// <summary>Bumped on every Note and Alarm, so Status can tell a changed log from a same-length one.</summary>
+    int _logVersion;
 
     /// <summary>
     /// A line that must be ON SCREEN, not just in the log: a widget
@@ -3351,6 +3354,12 @@ public partial class GameView : Node2D
         SetProcess(false);
     }
 
+    /// <summary>Sets Visible only when it differs; every write is a call across the engine boundary.</summary>
+    static void Show(CanvasItem c, bool on)
+    {
+        if (c != null && c.Visible != on) c.Visible = on;
+    }
+
     public override void _Process(double delta)
     {
         _coveredLastFrame = Covered();
@@ -3361,6 +3370,7 @@ public partial class GameView : Node2D
     void Pump(double delta)
     {
         if (_client == null) return;
+        FrameProbe.Begin();
 
         // Advance the client's clock, then pump the socket and apply
         // every message that arrived.
@@ -3376,9 +3386,11 @@ public partial class GameView : Node2D
         // owns the frame timing.
         try { _client.GameTick.Tick(); _client.Update(); }
         catch (Exception e) { PumpFailed(e); return; }
+        FrameProbe.Mark("pump");
 
         SyncRoom();
         _chat?.Sync(_client.Data?.ChatMessages);
+        FrameProbe.Mark("room+chat");
 
         // Which scheme is on, read off the layout every frame: it is
         // part of the saved HUD, it switches with the layout slot, and
@@ -3390,8 +3402,11 @@ public partial class GameView : Node2D
         if (_fixed != null) _fixed.Active = fixedOn;
 
         ApplyInput(delta);
+        FrameProbe.Mark("input");
         SyncSprites();
+        FrameProbe.Mark("sprites");
         ApplyTap();
+        FrameProbe.Mark("tap");
 
         // Looking up and down, clamped: the horizon shear exaggerates the
         // further you push it. The drag's debt, plus the look stick's
@@ -3411,6 +3426,7 @@ public partial class GameView : Node2D
             Sun(_world.Renderer);
         }
 
+        FrameProbe.Mark("sun");
         _vitals?.Follow(_client.Data);
         _purse?.Follow(_client.Data);
         // The enchantment row starts below EVERYTHING the top-left
@@ -3449,6 +3465,7 @@ public partial class GameView : Node2D
             if (!Mathf.IsEqualApprox(_status.Position.Y, under))
                 _status.Position = new Vector2(_status.Position.X, under);
         }
+        FrameProbe.Mark("face+vitals");
         _bag?.Sync(_client.Data?.InventoryObjects);
         _dock?.Sync(_client.Data?.InventoryObjects);
         _lootList?.Sync(_client.Data?.RoomObjectsLoot);
@@ -3460,16 +3477,21 @@ public partial class GameView : Node2D
         _trade?.Sync(_client.Data?.Trade);
         _npcQuests?.Sync(_client.Data?.QuestUIInfo);
         _roomBuffs?.Sync(_client.Data?.RoomBuffs);
+        FrameProbe.Mark("panels");
         _bar?.Sync(_client.Data);
+        FrameProbe.Mark("statusbar");
         _mail?.Sync(_client.ResourceManager?.Mails);
         _news?.Sync(_client.Data?.NewsGroup);
         _options?.Follow(_client.Data?.ClientPreferences);
+        FrameProbe.Mark("misc-sync");
         _fx?.Sync(_client.Data);
         _overlays?.Sync(_client.Data);
+        FrameProbe.Mark("fx+overlays");
         TradeOffered();
         ShieldError();
         Wading();
         FollowSounds();
+        FrameProbe.Mark("sounds");
         _guild?.Sync(_client.Data?.GuildInfo, _client.Data?.DiplomacyInfo,
                      _client.Data != null ? _client.Data.AvatarID : 0u);
         _shieldDesigner?.Sync(_client.Data?.GuildShieldInfo, _client.Data?.GuildInfo);
@@ -3484,6 +3506,7 @@ public partial class GameView : Node2D
         // both, and the selection screen is reachable more than once in a
         // session so both are needed.
         _picker?.Sync(_client.Data?.WelcomeInfo);
+        FrameProbe.Mark("guild+picker");
 
         // The button rows sit over the world, which is fine until a panel
         // covers the world.
@@ -3512,13 +3535,17 @@ public partial class GameView : Node2D
         // no one moment that is "logged in" - see the note above on why
         // this is an avatar in a room and not a button press.
         if (_options != null) _options.Playing = inWorld;
-        foreach (Control c in new Control[] { _map, _bar, _roomBuffs, _names, _questMarks, _face, _vitals, _purse, _dock, _chat, _overlays })
-            if (c != null) c.Visible = inWorld;
-        if (_loot != null) _loot.Visible = inWorld;
-        if (_go != null) _go.Visible = inWorld;
+        // Written only on change: each of these is a marshalled call
+        // into Godot, and the array that used to list them was a fresh
+        // allocation every frame.
+        Show(_map, inWorld); Show(_bar, inWorld); Show(_roomBuffs, inWorld); Show(_names, inWorld);
+        Show(_questMarks, inWorld); Show(_face, inWorld); Show(_vitals, inWorld); Show(_purse, inWorld);
+        Show(_dock, inWorld); Show(_chat, inWorld); Show(_overlays, inWorld);
+        Show(_loot, inWorld);
+        Show(_go, inWorld);
         if (_auto != null)
         {
-            _auto.Visible = inWorld;
+            Show(_auto, inWorld);
             // The button follows the state rather than owning it:
             // walking manually turns autorun off, and the button has
             // to say so.
@@ -3565,7 +3592,7 @@ public partial class GameView : Node2D
         // showing under the grid's scrim is a row of buttons that
         // cannot be pressed.
         bool covered = PanelUp || Panels.DrawerOpen;
-        if (_hotbar != null) _hotbar.Visible = inWorld && !covered;
+        Show(_hotbar, inWorld && !covered);
         // The row of buttons that open the panels goes with it - and
         // also while the chat box is up, because the row shares a line
         // with the entry. Each button belongs to the panel it opens, so
@@ -3573,7 +3600,7 @@ public partial class GameView : Node2D
         Panels.ShowOpeners(inWorld && !PanelUp && !(_chat != null && _chat.Capturing));
         // Not simply !covered: the row hides itself when there is
         // nothing targeted, and this runs every frame.
-        if (_actions != null) _actions.Visible = inWorld && !covered && _actions.HasTarget;
+        if (_actions != null) Show(_actions, inWorld && !covered && _actions.HasTarget);
         // Seeded every frame rather than once: the client clears its
         // lists when the world changes under it - a room change or a
         // relogin - and a row that was filled at startup would empty and
@@ -3604,9 +3631,12 @@ public partial class GameView : Node2D
                 _hotbar.BottomReserve = _chat.BlockHeight + (_actions?.BlockHeight ?? 0f) + 12f;
             }
         }
+        FrameProbe.Mark("visibility");
         _hotbar?.Sync(_client.Data);
+        FrameProbe.Mark("hotbar");
         _look?.Sync(_client.Data);
         _book?.Sync(_client.Data);
+        FrameProbe.Mark("look+book");
 
         RoomObject me = _client.Data?.AvatarObject;
         if (me != null && _map != null)
@@ -3628,10 +3658,12 @@ public partial class GameView : Node2D
             _map.SetPlayer(me.Position3D.X, me.Position3D.Z, me.Angle);
         }
 
+        FrameProbe.Mark("minimap");
         _fpsAccum += delta; _frames++;
         if (_fpsAccum >= 0.5) { _fps = $"{_frames / _fpsAccum:F0} fps"; _fpsAccum = 0; _frames = 0; }
 
         RenderFrame();
+        FrameProbe.Mark("status");
 
         // AFTER the render, and that is the whole of the fix.
         //
@@ -3666,7 +3698,9 @@ public partial class GameView : Node2D
                               new Vector2(v.X / _w, v.Y / _h));
         }
 
+        FrameProbe.Mark("names");
         QueueRedraw();
+        FrameProbe.End();
     }
 
     // Unhandled, not _Input: the chat box is a Control and has to see keys
@@ -4909,14 +4943,20 @@ public partial class GameView : Node2D
         // it is the honest picture.
         if (_world.Renderer == null)
         {
-            Array.Clear(_rgba, 0, _rgba.Length);
-            _image.SetData(_w, _h, false, Image.Format.Rgba8, _rgba);
-            _texture.Update(_image);
-            if (_status != null)
-                _status.Text = Debugging ? $"{_state}\n" + string.Join("\n", _log)
-                                         : string.Join("\n", _alarms);
+            // Once, not every frame: the cleared buffer does not change
+            // until a renderer comes back, and that first frame renders
+            // because _everDrawn is down.
+            if (_everDrawn || !_cleared)
+            {
+                Array.Clear(_rgba, 0, _rgba.Length);
+                _image.SetData(_w, _h, false, Image.Format.Rgba8, _rgba);
+                _texture.Update(_image);
+                _everDrawn = false; _cleared = true;
+            }
+            Status();
             return;
         }
+        _cleared = false;
 
         RoomObject avatar = _client.Data?.AvatarObject;
         float cx, cy, cz, ang;
@@ -4953,7 +4993,28 @@ public partial class GameView : Node2D
             cx = cy = 0; cz = Renderer.EyeHeight; ang = 0;
         }
 
+        FrameProbe.Mark("status");
+        // Nothing to draw that was not drawn last frame: the camera is
+        // where it was, every sprite and light is where and what it was,
+        // the room's geometry, textures and lighting are unchanged and
+        // no surface in it scrolls. Then the picture on the glass is
+        // already the right picture, and the renderer, the repack and
+        // the texture upload - nineteen of every twenty milliseconds
+        // this frame would have cost - are skipped. See WorldStamp.
+        ulong stamp = WorldStamp(cx, cy, cz, ang);
+        _sinceDraw += GetProcessDeltaTime();
+        if (!_redraw && _everDrawn && stamp == _drawnStamp && _sinceDraw < RedrawHeartbeat)
+        {
+            FrameProbe.Mark("stamp");
+            FrameProbe.Did(false, false, true);
+            Status();
+            return;
+        }
+        _redraw = false; _everDrawn = true; _drawnStamp = stamp; _sinceDraw = 0;
+        FrameProbe.Mark("stamp");
+
         _world.Renderer.Render(_px, _w, _h, cx, cy, cz, ang);
+        FrameProbe.Mark("render");
 
         // A bonk on the head turns the world inside out:
         // `Invert_ps` is one minus the picture with the alpha left
@@ -4976,25 +5037,166 @@ public partial class GameView : Node2D
         // buttons, where the reference's compositor lands. It costs
         // nothing when the player is sober. See ScreenEffects.Blur.
         _fx?.Blur(_rgba, _w, _h);
+        FrameProbe.Mark("repack");
 
         _image.SetData(_w, _h, false, Image.Format.Rgba8, _rgba);
         _texture.Update(_image);
+        FrameProbe.Mark("upload");
+        FrameProbe.Did(true, true, true);
 
-        // The room id, the buffer size, the frame rate, the object
-        // count and a second copy of everything that is already in the
-        // chat log, printed over the top-left corner of the world.
-        //
-        // All of it was useful while there was nothing else to look at
-        // and none of it belongs in front of somebody playing. It is
-        // kept behind M59DEBUG=1, with one exception: a line in _log is
-        // a widget that failed to build, and that has to be visible
-        // wherever it happens - a game missing its Bag button and
-        // saying nothing about it is worse than an untidy corner.
-        _status.Text = Debugging
-            ? $"{_state}   {_w}x{_h}  {_fps}\n" +
-              $"{_world.Renderer.Sprites.Count} objects\n" +
-              string.Join("\n", _log)
-            : string.Join("\n", _alarms);
+        Status();
+    }
+
+    /// <summary>
+    /// The room id, the buffer size, the frame rate, the object count
+    /// and a second copy of everything that is already in the chat log,
+    /// printed over the top-left corner of the world.
+    ///
+    /// All of it was useful while there was nothing else to look at and
+    /// none of it belongs in front of somebody playing. It is kept
+    /// behind M59DEBUG=1, with one exception: a line in _log is a widget
+    /// that failed to build, and that has to be visible wherever it
+    /// happens - a game missing its Bag button and saying nothing about
+    /// it is worse than an untidy corner.
+    ///
+    /// Built only when one of its inputs moved: the string was joined
+    /// and the label re-set every frame, and a Label given the same
+    /// text still goes through the marshalling to find that out.
+    /// </summary>
+    void Status()
+    {
+        if (_status == null) return;
+        int sprites = _world.Renderer != null ? _world.Renderer.Sprites.Count : 0;
+        bool full = _world.Renderer != null;
+        if (_logVersion == _statusLines && ReferenceEquals(_fps, _statusFps) && sprites == _statusSprites
+            && ReferenceEquals(_state, _statusState) && _statusW == _w && _statusH == _h && full == _statusFull) return;
+        _statusLines = _logVersion; _statusFps = _fps; _statusSprites = sprites; _statusState = _state;
+        _statusW = _w; _statusH = _h; _statusFull = full;
+        if (!Debugging) _status.Text = string.Join("\n", _alarms);
+        else if (full)
+            _status.Text = $"{_state}   {_w}x{_h}  {_fps}\n" +
+                           $"{sprites} objects\n" +
+                           string.Join("\n", _log);
+        else _status.Text = $"{_state}\n" + string.Join("\n", _log);
+    }
+    int _statusLines = -1, _statusSprites, _statusW, _statusH;
+    bool _statusFull;
+    string _statusFps, _statusState;
+
+    // ---- the idle skip --------------------------------------------------
+
+    /// <summary>
+    /// A frame is redrawn when this says so, or when the stamp moved, or
+    /// once a second regardless - the net under anything the stamp does
+    /// not see. One second is long enough to matter for the battery and
+    /// short enough that a missed change is a blink, not a bug.
+    /// </summary>
+    const double RedrawHeartbeat = 1.0;
+    ulong _drawnStamp;
+    bool _everDrawn, _redraw, _cleared;
+    double _sinceDraw;
+    RooFile _stampedRoom;
+    bool _roomScrolls;
+
+    /// <summary>Forces the next frame to render whatever the stamp says.</summary>
+    public void Invalidate() => _redraw = true;
+
+    static ulong Mix(ulong h, int v) => (h ^ (uint)v) * 0x100000001B3UL;
+    static ulong Mix(ulong h, float v) => Mix(h, BitConverter.SingleToInt32Bits(v));
+    static ulong Mix(ulong h, object o) => Mix(h, o == null ? 0 : System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(o));
+
+    /// <summary>
+    /// Everything the renderer's output depends on, folded into one
+    /// number: the camera, the brightness and sun, the two buffer sizes,
+    /// the screen effects that post-process the pixels, every sprite
+    /// and light SyncSprites produced this frame - position, texture,
+    /// animation group, tint and opacity, which is where object
+    /// movement, animation, flashing, targeting and particles all end
+    /// up - and every sector and side of the room, which is where lifts,
+    /// texture changes and light changes land. The clock is folded in
+    /// only when the room has a surface that scrolls with it (water,
+    /// lava, a moving wall), so a still room is still and a river never
+    /// stops.
+    ///
+    /// Walked every frame, which for a room of a few hundred sectors
+    /// and a few dozen sprites is tens of microseconds against the
+    /// several milliseconds of rendering it saves when it comes back
+    /// unchanged.
+    /// </summary>
+    ulong WorldStamp(float cx, float cy, float cz, float ang)
+    {
+        Renderer r = _world.Renderer;
+        RooFile room = _world.Room;
+        if (!ReferenceEquals(room, _stampedRoom))
+        {
+            _stampedRoom = room;
+            _roomScrolls = false;
+            if (room != null)
+            {
+                foreach (RooSector s in room.Sectors)
+                    if (s != null && (s.Flags.ScrollSpeed != TextureScrollSpeed.NONE
+                                      || M59Water.Is(s.FloorTexture) || M59Water.Is(s.CeilingTexture)))
+                    { _roomScrolls = true; break; }
+                if (!_roomScrolls)
+                    foreach (RooSideDef sd in room.SideDefs)
+                        if (sd != null && (sd.Flags.ScrollSpeed != TextureScrollSpeed.NONE
+                                           || M59Water.Is(sd.MiddleTexture) || M59Water.Is(sd.UpperTexture)
+                                           || M59Water.Is(sd.LowerTexture)))
+                        { _roomScrolls = true; break; }
+            }
+        }
+
+        ulong h = 0xcbf29ce484222325UL;
+        h = Mix(h, r); h = Mix(h, room); h = Mix(h, r.Sky);
+        h = Mix(h, _w); h = Mix(h, _h);
+        h = Mix(h, cx); h = Mix(h, cy); h = Mix(h, cz); h = Mix(h, ang);
+        h = Mix(h, r.Pitch); h = Mix(h, r.Brightness);
+        h = Mix(h, r.SunLight); h = Mix(h, r.SunX); h = Mix(h, r.SunY); h = Mix(h, r.SunZ);
+        if (_roomScrolls) h = Mix(h, r.Time);
+        if (_fx != null) h = Mix(h, (_fx.Inverted ? 1 : 0) | (_fx.Blurring ? 2 : 0));
+
+        List<Renderer.Sprite> sprites = r.Sprites;
+        h = Mix(h, sprites.Count);
+        for (int i = 0; i < sprites.Count; i++)
+        {
+            Renderer.Sprite s = sprites[i];
+            h = Mix(h, s.X); h = Mix(h, s.Y); h = Mix(h, s.BaseZ);
+            h = Mix(h, s.Height); h = Mix(h, s.Width);
+            h = Mix(h, s.Texture); h = Mix(h, s.Bgf);
+            h = Mix(h, s.AngleUnits | (s.Group << 16) | (s.Hanging ? 1 << 30 : 0));
+            h = Mix(h, s.TintR); h = Mix(h, s.TintG); h = Mix(h, s.TintB); h = Mix(h, s.Opacity);
+        }
+        List<Renderer.Light> lights = r.Lights;
+        h = Mix(h, lights.Count);
+        for (int i = 0; i < lights.Count; i++)
+        {
+            Renderer.Light l = lights[i];
+            h = Mix(h, l.X); h = Mix(h, l.Y); h = Mix(h, l.Z);
+            h = Mix(h, l.R); h = Mix(h, l.G); h = Mix(h, l.B); h = Mix(h, l.Range);
+        }
+
+        if (room != null)
+        {
+            List<RooSector> sectors = room.Sectors;
+            for (int i = 0; i < sectors.Count; i++)
+            {
+                RooSector s = sectors[i];
+                if (s == null) continue;
+                h = Mix(h, (float)s.FloorHeight); h = Mix(h, (float)s.CeilingHeight);
+                h = Mix(h, s.FloorTexture | (s.CeilingTexture << 16));
+                h = Mix(h, (int)s.Flags.Value); h = Mix(h, s.Light1 | (s.TextureX << 8) | (s.TextureY << 24));
+            }
+            List<RooSideDef> sides = room.SideDefs;
+            for (int i = 0; i < sides.Count; i++)
+            {
+                RooSideDef sd = sides[i];
+                if (sd == null) continue;
+                h = Mix(h, sd.MiddleTexture | (sd.UpperTexture << 16));
+                h = Mix(h, sd.LowerTexture | ((sd.Animation != null ? sd.Animation.CurrentGroup : 0) << 16));
+                h = Mix(h, (int)sd.Flags.Value);
+            }
+        }
+        return h;
     }
 
     public override void _Draw()

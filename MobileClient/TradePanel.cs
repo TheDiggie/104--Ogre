@@ -633,15 +633,16 @@ public partial class TradePanel : Control
         _title.Text = trade.IsBackgroundOffer ? $"{who} offers you a trade" : $"Trading with {who}";
 
         // Your side is rebuilt from the model too, not only theirs.
-        var mine = new System.Text.StringBuilder();
+        // Two signatures in one Sync, so the second cannot share the
+        // first's builder: the mine half is compared before the other
+        // is built, so the shared one is free again by then.
+        var mine = Sig.Start();
         if (trade.ItemsYou != null)
             foreach (ObjectBase o in trade.ItemsYou)
-                mine.Append(o?.ID).Append(':').Append(o == null ? 0u : Offering(o)).Append(':').Append(o?.Name).Append(':')
+                mine.Opt(o?.ID).Append(':').Append(o == null ? 0u : Offering(o)).Append(':').Append(o?.Name).Append(':')
                     .Append(o?.Flags != null && o.Flags.IsEquipped).Append(';');
-        string nowMine = mine.ToString();
-        if (nowMine != _mineSignature)
+        if (Sig.Changed(mine, ref _mineSignature))
         {
-            _mineSignature = nowMine;
             foreach (Node n in _rowsMine.GetChildren()) { _rowsMine.RemoveChild(n); n.QueueFree(); }
             int m = 0;
             if (trade.ItemsYou != null)
@@ -651,14 +652,12 @@ public partial class TradePanel : Control
             Layout();
         }
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         if (trade.ItemsPartner != null)
             foreach (ObjectBase o in trade.ItemsPartner)
-                sb.Append(o?.ID).Append(':').Append(o?.Count).Append(':').Append(o?.Name).Append(':')
+                sb.Opt(o?.ID).Append(':').Opt(o?.Count).Append(':').Append(o?.Name).Append(':')
                   .Append(o?.Flags != null && o.Flags.IsEquipped).Append(';');
-        string now = sb.ToString();
-        if (now == _theirSignature) return;
-        _theirSignature = now;
+        if (!Sig.Changed(sb, ref _theirSignature)) return;
 
         foreach (Node n in _rowsTheirs.GetChildren()) { _rowsTheirs.RemoveChild(n); n.QueueFree(); }
         int t = 0;

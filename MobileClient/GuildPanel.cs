@@ -760,11 +760,11 @@ public partial class GuildPanel : Control
         if (_suspended) return;
         if (!IsOpen) Show(true);
 
-        var sb = new System.Text.StringBuilder();
+        var sb = Sig.Start();
         sb.Append(_showingDiplomacy ? 'D' : 'M').Append('|');
         if (_showingDiplomacy && diplomacy?.Guilds != null)
             foreach (GuildEntry g in diplomacy.Guilds)
-                sb.Append(g?.ID).Append(':').Append(g?.Name).Append(':')
+                sb.Opt(g?.ID).Append(':').Append(g?.Name).Append(':')
                   .Append(Standing(diplomacy, g?.ID ?? 0, true)).Append(':')
                   .Append(Standing(diplomacy, g?.ID ?? 0, false)).Append(';');
         sb.Append(info.GuildName).Append('|').Append(info.PasswordSetFlag).Append('|')
@@ -772,10 +772,8 @@ public partial class GuildPanel : Control
           .Append(info.Flags != null ? info.Flags.Flags : 0u).Append('|');
         if (info.GuildMembers != null)
             foreach (GuildMemberEntry m in info.GuildMembers)
-                sb.Append(m?.ID).Append(':').Append(m?.Rank).Append(':').Append(m?.Name).Append(':').Append(m?.Gender).Append(';');
-        string now = sb.ToString();
-        if (now == _signature) return;
-        _signature = now;
+                sb.Opt(m?.ID).Append(':').Opt(m?.Rank).Append(':').Append(m?.Name).Append(':').Opt(m?.Gender).Append(';');
+        if (!Sig.Changed(sb, ref _signature)) return;
 
         _title.Text = string.IsNullOrWhiteSpace(info.GuildName) ? "Guild" : info.GuildName;
         _hall.Text = info.PasswordSetFlag != 0 ? "" : "No guild hall.";
