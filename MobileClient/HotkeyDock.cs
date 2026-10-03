@@ -146,7 +146,11 @@ public partial class HotkeyDock : Control
         _name.AddThemeColorOverride("font_color", M59Skin.Text);
         _host.AddChild(_name);
 
-        _edit = new Button { Text = "Edit", Name = "hotdockEdit" };
+        _strip.Visible = false; _name.Visible = false;
+        // A small square at the top-left of the box, not a strip under
+        // it. Ashton: "remove the long hot key edit button, put the
+        // hotkey edit button to the top left of the hotkey box".
+        _edit = new Button { Text = "Edit", Name = "hotdockEdit", ClipText = true };
         M59Skin.Dress(_edit, M59Skin.Kind.Secondary);
         _edit.Pressed += () => { if (!M59Hud.Editing) EditRequested?.Invoke(); };
         _host.AddChild(_edit);
@@ -428,6 +432,8 @@ public partial class HotkeyDock : Control
     /// <summary>The strip's height: the inventory dock's, so the two boxes read as a pair (InventoryDock.Strip).</summary>
     const float StripPad = 10f, StripName = 26f, StripBtn = 44f;
     const float StripH = StripPad + StripName + 4f + StripBtn + StripPad;
+    /// <summary>The Edit square's side: the tap floor.</summary>
+    const float EditSide = 44f;
 
     /// <summary>
     /// Where the designer put it: beside the inventory dock, a gutter to
@@ -469,16 +475,13 @@ public partial class HotkeyDock : Control
         float boxW = gridW + (scrolls ? M59Skin.SlimBarW : 0f);
         float boxH = seen * side + (seen - 1) * sep;
 
-        // The piece is the box AND the strip, so the editor's handle
-        // and its overlap test see the whole thing: Edit is always
-        // there, where the dock's verbs come and go with a selection.
+        // The piece is the Edit square and the box beside it, so the
+        // editor's handle and its overlap test see the whole thing.
         const float gap = 6f;
-        float W(Button b) => Mathf.Max(96f, b.Text.Length * 11f + 36f);
-        float stripW = Mathf.Max(boxW, StripPad + 120f + M59Skin.Gap + W(_edit) + StripPad);
-        var size = new Vector2(Mathf.Max(boxW, stripW), boxH + gap + StripH);
+        var size = new Vector2(EditSide + gap + boxW, Mathf.Max(boxH, EditSide));
 
         Rect2 at = M59Hud.Place(Id, Natural(v, size), v);
-        _box.Position = at.Position;
+        _box.Position = new Vector2(at.Position.X + EditSide + gap, at.Position.Y);
         _box.Size = new Vector2(boxW, boxH);
         _box.VerticalScrollMode = scrolls ? ScrollContainer.ScrollMode.Auto : ScrollContainer.ScrollMode.Disabled;
         // The same gate as the dock's, for the same reasons
@@ -494,16 +497,10 @@ public partial class HotkeyDock : Control
             _slots[i].Size = new Vector2(side, side);
         }
 
-        // The strip under the box, the dock's shape: a name line and a
-        // row of buttons - one button here. Not scaled with the piece,
-        // as the dock's is not: a footer's buttons are the house size.
-        float x = at.Position.X, y = at.Position.Y + boxH + gap;
-        _strip.Position = new Vector2(x, y);
-        _strip.Size = new Vector2(size.X, StripH);
-        _name.Position = new Vector2(x + StripPad, y + StripPad);
-        _name.Size = new Vector2(size.X - StripPad * 2f, StripName);
-        _edit.Size = new Vector2(W(_edit), StripBtn);
-        _edit.Position = new Vector2(x + StripPad, y + StripPad + StripName + 4f);
+        // The Edit square at the top-left, the house 44 points, not
+        // scaled with the piece: a control, not a slot.
+        _edit.Size = new Vector2(EditSide, EditSide);
+        _edit.Position = at.Position;
         // Pressable only outside the editor, where the editor's glass
         // takes the touch anyway; Disabled says so to a scripted press.
         _edit.Disabled = M59Hud.Editing;
