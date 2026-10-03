@@ -453,55 +453,77 @@ drag on a panel neither walks nor cancels (`GameView.cs:3096-3104`).
 
 See also: godot-ui.md | the harness -> harness.md
 
-## Two control schemes: touch anywhere, and a fixed pad and stick
-Tags: design, architecture | The scheme is part of the saved HUD layout (M59Hud.Controls); Fixed puts a d-pad and a look stick on the glass as pieces and turns the floating stick and the drag-look off
+## Two control switches: move by pad or touch, look by stick or touch
+Tags: design, architecture | Moving and looking are chosen separately (M59Hud.MovePad, M59Hud.LookStick), both part of the saved HUD layout; the glass keeps whichever job the fixed pieces did not take, over its whole width
 
-Ashton: "some people don't like the touch-anywhere controls". The
-default is unchanged - left half a floating stick, right half
-drag-to-look, taps target (TouchControls). The other scheme is
-`M59Hud.Scheme.Fixed`: a d-pad bottom-left and a look stick
-bottom-right (FixedControls.cs), both HUD pieces ("dpad", "lookstick")
-the arrange screen moves, scales, fades and hides like anything else,
-registered always and `Live` only while Fixed so the editor draws no
-handle for them under the default.
+Ashton, first round: "some people don't like the touch-anywhere
+controls" - which became one scheme switch, Touch anywhere or Fixed
+pad + stick. Second round: "some people don't like using the joystick
+to look around, they said it's sluggish. Let people use the joystick
+to move but touch anywhere to look. Make both joysticks optional." So
+the pair is split into two switches, and all four combinations work:
 
-- Switched in the arrange screen (`hudControls`, "Controls: Fixed pad
-  + stick" / "Touch anywhere") and mirrored under Settings > Controls;
-  saved per slot in `user://hud.cfg` as `controls=fixed`, only when
-  not the default, and carried by Snapshot/Restore so Cancel backs it
-  out.
+| Move   | Look  | Left-half drag | Right-half drag | Pieces on glass |
+|--------|-------|----------------|-----------------|-----------------|
+| Touch  | Touch | floating stick | look drag       | none (default)  |
+| Pad    | Touch | look drag      | look drag       | dpad            |
+| Touch  | Stick | floating stick | floating stick  | lookstick       |
+| Pad    | Stick | tap only       | tap only        | dpad, lookstick |
+
+- With one job given to a fixed piece the glass has NO midline: the
+  whole of it is the other job (`TouchControls.MoveTouch`/`LookTouch`,
+  the MODES paragraph of its class comment). A finger that lands on
+  the pad or the stick never reaches the glass (`FixedControls.Handle`
+  runs first in `GameView._UnhandledInput`), and a second finger
+  anywhere can only tap. Both off is the old TapOnly, now derived.
+- Each piece is Live, drawn and claiming fingers exactly when its own
+  switch is on (`FixedControls.ShowPad`/`ShowStick`, `Usable`), so the
+  editor shows a handle for the pad alone when only the pad is chosen.
+- Saved per slot in `user://hud.cfg` as `move=pad` and `look=stick`,
+  each written only when on, so an untouched layout writes nothing.
+  The old `controls=fixed` still reads as both on and is dropped on
+  the next save (`M59Hud.ApplyControls`/`StoreControls`). Snapshot and
+  Restore carry both, so the editor's Cancel backs them out.
+- Two doors: the arrange screen's bar row three is two half-width
+  toggles (`hudMove` "Move: Pad|Touch", `hudLook` "Look: Stick|Touch"),
+  Settings > Controls has two Choice rows (`moreMove`/`lessMove`,
+  `moreLook`/`lessLook`) that write the layout file at once. The
+  options Close button is `optionsClose` now, so a run can shut it.
 - The d-pad is the keyboard's touch form: W/S/A/D are forward, back,
   strafe left, strafe right (`OISKeyBinding.cpp:34-37`,
-  `ControllerInput.cpp:681-704`), so `FixedControls.Move` reports on
-  the same axes as `TouchControls.Move` and `GameView.ApplyInput`
-  adds the two (`strafe += stick.X; fwd -= stick.Y`). Eight sectors,
-  a dead centre, a diagonal normalised as two keys held are.
-- The look stick is a RATE: deflection times `TurnSpeed` (the
-  reference's 3 rad/s KEYROTATESPEED) times the Look speed option,
-  pitch at half that, Invert look honoured; hold to keep turning,
-  centre to stop. Not halved by the walk modifier - that rule is the
-  rotate keys' (`ControllerInput.cpp:968-972`).
-- Under Fixed `TouchControls.TapOnly` is on: no floating stick, no
-  drag-look, every finger the pad and stick did not take is a tap or
-  nothing. `GameView._UnhandledInput` offers the event to
-  `FixedControls.Handle` first (the pad and stick own their fingers by
-  index, so both work at once) and the Covered gate drops both layers
-  the same way, so nothing moves or turns under a menu.
-- Defaults are found, not assumed: the pad sits a gutter above the
-  chat block's natural rect, the stick a gutter left of the combat
-  arc's; at 1920x1080 that is (16,648,172,172) and
-  (1246,914,150,150), clear of Chat/Log, Auto and the Door seat.
+  `ControllerInput.cpp:681-704`), reported on `TouchControls.Move`'s
+  axes and added in `GameView.ApplyInput`. The look stick is a RATE:
+  deflection times `TurnSpeed` times the Look speed option, pitch at
+  `PitchRate`, Invert look honoured, not halved by the walk modifier
+  (`ControllerInput.cpp:968-972` is a rotate-key rule).
+- The stick's rate, measured against the library: full deflection is
+  `TurnSpeed` 3 rad/s = 172 deg/s at Look speed 10/30, and the
+  reference's keyboard turn is `KEYROTATESPEED * KeyRotateSpeed *
+  Span` = 0.00012 * 25 rad/ms = 3 rad/s (`ControllerInput.h:49`,
+  `OgreClientConfig.h:61`, `ControllerInput.cpp:968`) - the same, so
+  it was NOT raised. "Sluggish" is against the drag, not the keys: a
+  swipe adds 0.006 rad/px (the reference's 0.000125*45 = 0.0056,
+  `ControllerInput.cpp:447`, `OgreClientConfig.h:60`), so a 960 px
+  half-width swipe is 330 degrees paid out at 41% a frame
+  (`TouchControls.LookSpend`), which the stick takes two seconds to
+  match. The Look speed slider already takes the stick to 9 rad/s at
+  30/30; the answer to sluggish is the split above, which is what was
+  asked for.
 
-Played (harness, fixed scheme): pad held forward 60 frames = 17
-`ReqMove`, 0 `ReqTurn`, 21,827 px of the world strip changed; stick
-held right 12 frames = 13 `ReqTurn`, 0 `ReqMove`, 67,061 px; two
-frames at rest after release = 0 px; both fingers at once (`@drag2`)
-walk and turn together; with the drawer open the stick held 60 frames
-sends nothing and changes 0 px; a 400 px right-half drag on bare
-world under Fixed turns 0 px and a tap still targets the duskrat; the
-scheme and a dragged pad (`dpad=240,0,1,1,0`) survive a relaunch.
+Played (harness, 1920x1080, `@sweep` on each half, counts off the
+fixture log and frame-to-frame pixel diffs of the world strip):
+Touch/Touch - right sweep 760k px a frame changing, left sweep draws
+the floating ring at its origin and moves (18 `ReqTurn`, 11
+`ReqMove`); Pad/Touch - both sweeps turn (28 `ReqTurn`, 0 `ReqMove`),
+`dpad` InTree, `lookstick` not; Touch/Stick - both sweeps are the
+floating stick and move (22 `ReqMove`, 0 `ReqTurn`), `lookstick`
+InTree, `dpad` not; Pad/Stick - 0 px, 0 on the wire, both InTree. A
+file holding only `controls=fixed` comes up with both; `move=pad`
+written by the editor and `look=stick` by Settings survive a relaunch.
+Note the sweep frames are named `out-<step>-sweepNN.png` now: two
+sweeps in one run used to overwrite each other's eight frames.
 
-See also: FixedControls.cs | M59Hud.cs | HudEditor.cs | the HUD editor -> godot-ui.md | the harness -> harness.md
+See also: FixedControls.cs | TouchControls.cs | M59Hud.cs | HudEditor.cs | the harness -> harness.md
 
 ## The inventory dock: the pack on the glass
 Tags: design, architecture | A HUD piece ("dock") that shows the pack over the world with the bag's four verbs on a tap; the arrange screen moves, scales, fades, hides it and sets how many ACROSS and how many DOWN - the box is Rows x Columns and a bigger pack scrolls inside it (TouchScroll + slim bar)

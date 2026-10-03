@@ -324,40 +324,65 @@ public static class M59Hud
 
     public static void Touch() => Changed?.Invoke();
 
-    // ---- the control scheme ----------------------------------------
+    // ---- the controls ----------------------------------------------
 
     /// <summary>
-    /// How the thumbs drive the avatar.
+    /// How the thumbs drive the avatar: TWO choices, not one scheme.
     ///
-    /// TouchAnywhere is the default and what the client has always done:
-    /// the left half of the glass is a stick that appears under the
-    /// thumb, the right half is drag-to-look (TouchControls). Fixed is
-    /// the other school - a d-pad drawn bottom-left and a look stick
-    /// drawn bottom-right, both always there, both HUD pieces. The
-    /// player's words were that some people do not like the
-    /// touch-anywhere controls, and the guides this editor copies all
-    /// ship both: PUBG Mobile and Call of Duty Mobile each offer a fixed
-    /// pad as an alternative to the floating one.
+    /// Moving is either the floating stick that appears under the left
+    /// thumb (TouchControls) or a d-pad drawn on the glass
+    /// (FixedControls); looking is either a drag across the glass or a
+    /// look stick drawn on it. They used to come as a pair - "touch
+    /// anywhere" or "fixed pad + stick" - and the player's words broke
+    /// the pair: "some people don't like using the joystick to look
+    /// around, they said it's sluggish. Let people use the joystick to
+    /// move but touch anywhere to look", and the other way about for
+    /// whoever wants it. So each is its own switch and the four
+    /// combinations all work; both off is what the client has always
+    /// done. PUBG Mobile and Call of Duty Mobile make the same two
+    /// choices separately.
     /// </summary>
-    public enum Scheme { TouchAnywhere, Fixed }
+    public static bool MovePad { get; set; }
+
+    /// <summary>Looking with a stick drawn on the glass instead of a drag over it. See MovePad.</summary>
+    public static bool LookStick { get; set; }
 
     /// <summary>
-    /// The scheme in force. PART OF THE LAYOUT, deliberately: it is
-    /// chosen in the arrange screen, saved in the same file under the
-    /// same slot, and switches with the slot - a layout that puts a
-    /// d-pad on the glass and a layout that does not are different
-    /// HUDs, and keeping the choice anywhere else would let a slot
-    /// switch bring back a pad the player had removed, or remove one
-    /// they had placed. Snapshot and Restore carry it too, so Cancel
-    /// backs out of the switch as it backs out of a drag.
+    /// Both are PART OF THE LAYOUT, deliberately: chosen in the arrange
+    /// screen, saved in the same file under the same slot, and they
+    /// switch with the slot - a layout that puts a d-pad on the glass
+    /// and a layout that does not are different HUDs, and keeping the
+    /// choice anywhere else would let a slot switch bring back a pad
+    /// the player had removed, or remove one they had placed. Snapshot
+    /// and Restore carry them too, so Cancel backs out of the switch as
+    /// it backs out of a drag.
+    ///
+    /// The keys. `move=pad` and `look=stick`, each written only when
+    /// on, so a layout nobody touched writes nothing. The old single
+    /// key `controls=fixed` is still read as both on - a player who had
+    /// chosen the pad and the stick together keeps both - and is never
+    /// written again. Never a piece id.
     /// </summary>
-    public static Scheme Controls { get; set; } = Scheme.TouchAnywhere;
+    const string MoveKey = "move", LookKey = "look", LegacyControlsKey = "controls";
+    const string PadValue = "pad", StickValue = "stick", LegacyFixed = "fixed";
 
-    /// <summary>The key the scheme is saved under. Never a piece id.</summary>
-    const string ControlsKey = "controls";
+    /// <summary>Both switches from a slot's saved lines; off when the file says nothing.</summary>
+    static void ApplyControls(Dictionary<string, string> d)
+    {
+        bool legacy = d != null && d.TryGetValue(LegacyControlsKey, out string c) && c == LegacyFixed;
+        MovePad = legacy || (d != null && d.TryGetValue(MoveKey, out string m) && m == PadValue);
+        LookStick = legacy || (d != null && d.TryGetValue(LookKey, out string l) && l == StickValue);
+    }
 
-    static string SchemeName(Scheme s) => s == Scheme.Fixed ? "fixed" : "touch";
-    static Scheme SchemeOf(string s) => s == "fixed" ? Scheme.Fixed : Scheme.TouchAnywhere;
+    /// <summary>Both switches into a slot's lines, by the say-nothing-for-the-default rule.</summary>
+    static void StoreControls(Dictionary<string, string> d)
+    {
+        if (MovePad) d[MoveKey] = PadValue; else d.Remove(MoveKey);
+        if (LookStick) d[LookKey] = StickValue; else d.Remove(LookKey);
+        // The old pair key has been read and split; writing it back
+        // would re-pair the two choices on the next load.
+        d.Remove(LegacyControlsKey);
+    }
 
     // ---- layouts ---------------------------------------------------
 
@@ -423,12 +448,8 @@ public static class M59Hud
         Unbrick();
     }
 
-    /// <summary>The slot's scheme, or the default when the file says nothing.</summary>
-    static void ApplyScheme()
-    {
-        Controls = Saved.TryGetValue(Slot, out var d) && d.TryGetValue(ControlsKey, out string s)
-            ? SchemeOf(s) : Scheme.TouchAnywhere;
-    }
+    /// <summary>The slot's two control switches, or off when the file says nothing.</summary>
+    static void ApplyScheme() => ApplyControls(Saved.TryGetValue(Slot, out var d) ? d : null);
 
     /// <summary>
     /// The one piece that may not come back hidden, whatever the file
@@ -452,10 +473,10 @@ public static class M59Hud
     {
         if (p == null || !Saved.TryGetValue(Slot, out var d)) return;
         if (!d.TryGetValue(p.Id, out string v)) return;
-        // The scheme line shares the section and is not a piece. A piece
-        // registered under its key would read "fixed" as a position; no
-        // piece is, and this keeps it that way.
-        if (p.Id == ControlsKey) return;
+        // The control lines share the section and are not pieces. A
+        // piece registered under one of their keys would read "pad" as
+        // a position; no piece is, and this keeps it that way.
+        if (p.Id == MoveKey || p.Id == LookKey || p.Id == LegacyControlsKey) return;
         // x,y,scale,alpha,hidden[,columns[,rows]] - the sixth and the
         // seventh are optional, so a file from before grids had a column
         // count, or from before they had a row count, still reads.
@@ -493,10 +514,9 @@ public static class M59Hud
                 else
                     d.Remove(p.Id);   // back at the default: say nothing rather than saying "default"
             }
-            // The scheme, by the same rule: only a choice that is not the
-            // default is written.
-            if (Controls != Scheme.TouchAnywhere) d[ControlsKey] = SchemeName(Controls);
-            else d.Remove(ControlsKey);
+            // The two control switches, by the same rule: only a choice
+            // that is not the default is written.
+            StoreControls(d);
 
             var sb = new StringBuilder();
             sb.Append("# Where this player wants the HUD. One section per layout.\n");
@@ -564,9 +584,10 @@ public static class M59Hud
     public static string Snapshot()
     {
         var sb = new StringBuilder();
-        // The scheme first, in the piece line's shape with a word where
-        // the numbers go; Restore tells it apart by the key.
-        sb.Append(ControlsKey).Append('=').Append(SchemeName(Controls)).Append(';');
+        // The two control switches first, in the piece line's shape with
+        // a word where the numbers go; Restore tells them apart by key.
+        sb.Append(MoveKey).Append('=').Append(MovePad ? PadValue : "touch").Append(';');
+        sb.Append(LookKey).Append('=').Append(LookStick ? StickValue : "touch").Append(';');
         foreach (Piece p in Order)
             sb.Append(p.Id).Append('=')
               .Append(p.Offset.X).Append(',').Append(p.Offset.Y).Append(',')
@@ -582,11 +603,9 @@ public static class M59Hud
         {
             int eq = row.IndexOf('=');
             if (eq <= 0) continue;
-            if (row.Substring(0, eq) == ControlsKey)
-            {
-                Controls = SchemeOf(row.Substring(eq + 1));
-                continue;
-            }
+            string key = row.Substring(0, eq);
+            if (key == MoveKey) { MovePad = row.Substring(eq + 1) == PadValue; continue; }
+            if (key == LookKey) { LookStick = row.Substring(eq + 1) == StickValue; continue; }
             Piece p = Get(row.Substring(0, eq));
             if (p == null) continue;
             string[] b = row.Substring(eq + 1).Split(',');

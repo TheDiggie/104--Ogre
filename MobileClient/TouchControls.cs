@@ -61,6 +61,19 @@ using Godot;
 ///
 /// Mouse input drives the same values on desktop, so one code path serves
 /// both.
+///
+/// MODES. The two halves above are what the glass does when BOTH of its
+/// jobs are left to it (MoveTouch and LookTouch). Either job can go to
+/// a fixed control instead - a d-pad or a look stick drawn on the glass
+/// (FixedControls, chosen by M59Hud.MovePad and M59Hud.LookStick) -
+/// and then the glass has one job and no midline: with the pad on,
+/// every finger the pad did not take is a look drag, wherever it
+/// lands; with the stick on, every finger the stick did not take is
+/// the floating stick, wherever it lands. The player's words were that
+/// some people find the look stick sluggish and want to move with the
+/// stick but look by touching anywhere; the other way round is there
+/// for whoever wants it. With both jobs given away the glass only taps
+/// (TapOnly). A tap targets in every mode.
 /// </summary>
 public sealed class TouchControls
 {
@@ -162,20 +175,39 @@ public sealed class TouchControls
     bool _mouseIsEcho;
 
     /// <summary>
-    /// Taps only: the stick and the look drag are switched off, and the
-    /// whole glass does what both halves do with a finger that never
-    /// moves - target what it touched. This is the Fixed scheme
-    /// (M59Hud.Scheme.Fixed), where the d-pad and the look stick are
-    /// pieces of the HUD (FixedControls) and claim their own fingers
-    /// before anything reaches here. Everything the class comment says
-    /// about a tap on EITHER half still holds, with no halves.
+    /// Moving is the glass's job: a finger that is not a look becomes
+    /// the floating stick. Off when the d-pad has it (M59Hud.MovePad).
+    /// Changing either mode lets every finger go, as a scheme change
+    /// always did: a finger that was a stick must not wake up as a look.
     /// </summary>
-    public bool TapOnly
+    public bool MoveTouch
     {
-        get => _tapOnly;
-        set { if (_tapOnly != value) { _tapOnly = value; Drop(); } }
+        get => _moveTouch;
+        set { if (_moveTouch != value) { _moveTouch = value; Drop(); } }
     }
-    bool _tapOnly;
+    bool _moveTouch = true;
+
+    /// <summary>
+    /// Looking is the glass's job: a finger that is not the stick turns
+    /// the camera by how far it is dragged. Off when the look stick has
+    /// it (M59Hud.LookStick).
+    /// </summary>
+    public bool LookTouch
+    {
+        get => _lookTouch;
+        set { if (_lookTouch != value) { _lookTouch = value; Drop(); } }
+    }
+    bool _lookTouch = true;
+
+    /// <summary>
+    /// Taps only: both jobs have gone to fixed controls, which are pieces
+    /// of the HUD (FixedControls) and claim their own fingers before
+    /// anything reaches here, so the whole glass does what both halves
+    /// do with a finger that never moves - target what it touched.
+    /// Everything the class comment says about a tap on EITHER half
+    /// still holds, with no halves.
+    /// </summary>
+    public bool TapOnly => !_moveTouch && !_lookTouch;
 
     /// <summary>
     /// Whether some other handler holds a finger right now - the fixed
@@ -285,31 +317,44 @@ public sealed class TouchControls
     public void Handle(InputEvent e, Vector2 viewport)
     {
         if (Eaten(e)) return;
-        if (_tapOnly) { HandleTapOnly(e); return; }
+        if (TapOnly) { HandleTapOnly(e); return; }
         float mid = viewport.X * 0.5f;
 
         switch (e)
         {
             case InputEventScreenTouch t when t.Pressed:
-                if (t.Position.X < mid && _moveFinger == -1)
+            {
+                // Which job this finger is offered. With both jobs here
+                // the midline decides, as it always has; with one job
+                // given to a fixed control the whole glass is the
+                // other's, and a finger that lands on the pad or the
+                // stick never arrives (FixedControls.Handle runs first).
+                bool moveSide = _moveTouch && (!_lookTouch || t.Position.X < mid);
+                bool lookSide = _lookTouch && (!_moveTouch || t.Position.X >= mid);
+                if (moveSide && _moveFinger == -1)
                 {
                     _moveFinger = t.Index;
                     _moveOrigin = _moveCurrent = t.Position;
                     _moveEngaged = false;
                 }
-                else if (t.Position.X < mid && _tapFinger == -1)
-                {
-                    _tapFinger = t.Index;
-                    _tapOrigin = t.Position;
-                    _tapFingerMoved = false;
-                }
-                else if (t.Position.X >= mid && _lookFinger == -1)
+                else if (lookSide && _lookFinger == -1)
                 {
                     _lookFinger = t.Index;
                     _lookOrigin = t.Position;
                     _lookMoved = false;
                 }
+                // A second finger where the stick already is, or
+                // anywhere while the glass has one job: it can only
+                // tap. A second finger on the look HALF, with both jobs
+                // here, is ignored as it always was.
+                else if (_tapFinger == -1 && (moveSide || !_moveTouch))
+                {
+                    _tapFinger = t.Index;
+                    _tapOrigin = t.Position;
+                    _tapFingerMoved = false;
+                }
                 break;
+            }
 
             case InputEventScreenTouch t:                       // released
                 // The emulated mouse release arrives just after this
@@ -379,13 +424,15 @@ public sealed class TouchControls
             // One push forward and you were looking at the ceiling with
             // no way back but a drag on the other half. So a mouse
             // event that arrives while a finger is down is the same
-            // gesture arriving a second time, and is dropped.
-            case InputEventMouseButton when _moveFinger != -1 || _lookFinger != -1 || _mouseIsEcho:
+            // gesture arriving a second time, and is dropped. A finger
+            // the pad or the stick holds counts (Foreign): with one job
+            // here and one there, their thumb echoes here too.
+            case InputEventMouseButton when _moveFinger != -1 || _lookFinger != -1 || _tapFinger != -1 || Foreign() || _mouseIsEcho:
                 _mouseIsEcho = false;
                 _mouseLook = false;
                 break;
 
-            case InputEventMouseMotion when _moveFinger != -1 || _lookFinger != -1:
+            case InputEventMouseMotion when _moveFinger != -1 || _lookFinger != -1 || _tapFinger != -1 || Foreign():
                 break;
 
             case InputEventMouseButton mb when mb.ButtonIndex == MouseButton.Left:
@@ -394,18 +441,23 @@ public sealed class TouchControls
                 else if (!_lookMoved) { _tapped = true; _tapAt = mb.Position; }
                 break;
 
+            // The mouse looks only while looking is the glass's job;
+            // with the look stick on it can tap, as in HandleTapOnly.
             case InputEventMouseMotion mm when _mouseLook:
-                Reverse(ref _turn, mm.Relative.X);
-                Reverse(ref _pitch, -mm.Relative.Y * (InvertLook ? -1f : 1f));
-                _turn  += mm.Relative.X * LookSensitivity;
-                _pitch -= mm.Relative.Y * LookSensitivity * (InvertLook ? -1f : 1f);
+                if (_lookTouch)
+                {
+                    Reverse(ref _turn, mm.Relative.X);
+                    Reverse(ref _pitch, -mm.Relative.Y * (InvertLook ? -1f : 1f));
+                    _turn  += mm.Relative.X * LookSensitivity;
+                    _pitch -= mm.Relative.Y * LookSensitivity * (InvertLook ? -1f : 1f);
+                }
                 if ((mm.Position - _mouseDownAt).Length() > TapSlop) _lookMoved = true;
                 break;
         }
     }
 
     /// <summary>
-    /// The Fixed scheme's share of the glass: every finger the pad and
+    /// The glass with both jobs given away: every finger the pad and
     /// the stick did not take is a tap or nothing. The same slop and
     /// the same echo guards as the full handler, with no direction
     /// ever reported - Move stays zero and nothing is owed to TakeTurn.

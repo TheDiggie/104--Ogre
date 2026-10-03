@@ -337,7 +337,7 @@ public partial class OptionsPanel : Control
         _scroll.AddChild(_rows);
         AddChild(_scroll);
 
-        _close = new Button { Text = "Close", Visible = false };
+        _close = new Button { Text = "Close", Name = "optionsClose", Visible = false };
         M59Skin.Dress(_close, M59Skin.Kind.Secondary);
         _close.Pressed += Close;
         AddChild(_close);
@@ -535,15 +535,19 @@ public partial class OptionsPanel : Control
             { _look = Mathf.Max(v, 1f) / 10f; LookSpeed?.Invoke(_look); Keep(); }, 30f));
         _rows.AddChild(Switch("Invert look", () => _invert, on =>
             { _invert = on; InvertLook?.Invoke(on); Keep(); }));
-        // The control scheme, mirrored from the arrange screen. It LIVES
-        // there - it is part of the saved layout, and the pad and the
-        // stick it switches on are pieces that want placing - but a
+        // The two controls, mirrored from the arrange screen. They LIVE
+        // there - each is part of the saved layout, and the pad and the
+        // stick they switch on are pieces that want placing - but a
         // player hunting for a d-pad opens Settings and looks under
         // Controls, beside Look speed, long before they think of "HUD
-        // layout". Two doors, one value (M59Hud.Controls), written to
-        // the layout file at once because this panel has no Done.
-        _rows.AddChild(Choice("Control scheme", () => SchemeName(M59Hud.Controls),
-            () => StepScheme(), () => StepScheme()));
+        // layout". Two doors, two values (M59Hud.MovePad, LookStick),
+        // written to the layout file at once because this panel has no
+        // Done. Two rows, not one scheme: the player's words were that
+        // some want the stick to move and a touch anywhere to look.
+        _rows.AddChild(Choice("Move", () => M59Hud.MovePad ? "Pad" : "Touch (left half)",
+            () => FlipControl(move: true), () => FlipControl(move: true)));
+        _rows.AddChild(Choice("Look", () => M59Hud.LookStick ? "Stick" : "Touch (drag)",
+            () => FlipControl(move: false), () => FlipControl(move: false)));
 
         // The reference's own Language heading and its one control
         // (`Meridian59.layout:4194-4211`). A stepper rather than a
@@ -610,6 +614,16 @@ public partial class OptionsPanel : Control
         Account();
     }
 
+    /// <summary>Two settings each, so minus and plus both go to the other one.</summary>
+    static void FlipControl(bool move)
+    {
+        M59Hud.Load();
+        if (move) M59Hud.MovePad = !M59Hud.MovePad;
+        else M59Hud.LookStick = !M59Hud.LookStick;
+        M59Hud.Touch();
+        M59Hud.Save();
+    }
+
     /// <summary>
     /// English, German, Portuguese and round again.
     ///
@@ -619,19 +633,6 @@ public partial class OptionsPanel : Control
     /// list in the data model (`DataController.cs:1161+`), and doing that
     /// because somebody tapped plus and then minus is waste.
     /// </summary>
-    static string SchemeName(M59Hud.Scheme s)
-        => s == M59Hud.Scheme.Fixed ? "Fixed pad + stick" : "Touch anywhere";
-
-    /// <summary>Two schemes, so minus and plus both go to the other one.</summary>
-    static void StepScheme()
-    {
-        M59Hud.Load();
-        M59Hud.Controls = M59Hud.Controls == M59Hud.Scheme.Fixed
-            ? M59Hud.Scheme.TouchAnywhere : M59Hud.Scheme.Fixed;
-        M59Hud.Touch();
-        M59Hud.Save();
-    }
-
     void StepLanguage(int by)
     {
         int at = Array.IndexOf(Languages, _language);

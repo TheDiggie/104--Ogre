@@ -108,7 +108,7 @@ public partial class HudEditor : Control
     /// switched on they want placing, and this is the screen that
     /// places things. Settings mirrors it under Controls.
     /// </summary>
-    Button _scheme;
+    Button _moveToggle, _lookToggle;
     Label _empty;
 
     /// <summary>
@@ -245,15 +245,24 @@ public partial class HudEditor : Control
         _cancel = Make("Cancel", "hudCancel", M59Skin.Kind.Secondary, Cancel);
         _done = Make("Done", "hudDone", M59Skin.Kind.Primary, Done);
 
-        // The scheme. Switching it on puts two new pieces on the glass
-        // at their defaults, which is why the handles are relaid at
-        // once; switching it off takes them away and keeps where they
-        // were (FixedControls.Layout). Saved with Done, backed out by
-        // Cancel, like every other change made here.
-        _scheme = Make("", "hudControls", M59Skin.Kind.Secondary, () =>
+        // The two controls, moving and looking, each its own switch
+        // (M59Hud.MovePad, M59Hud.LookStick). Switching one on puts a
+        // new piece on the glass at its default, which is why the
+        // handles are relaid at once; switching it off takes the piece
+        // away and keeps where it was (FixedControls.Layout). Saved
+        // with Done, backed out by Cancel, like every other change made
+        // here. Not ToggleMode buttons, for the harness reason given at
+        // _hide below: each says which way it is set.
+        _moveToggle = Make("", "hudMove", M59Skin.Kind.Secondary, () =>
         {
-            M59Hud.Controls = M59Hud.Controls == M59Hud.Scheme.Fixed
-                ? M59Hud.Scheme.TouchAnywhere : M59Hud.Scheme.Fixed;
+            M59Hud.MovePad = !M59Hud.MovePad;
+            M59Hud.Touch();
+            Follow();
+            Layout(true);
+        });
+        _lookToggle = Make("", "hudLook", M59Skin.Kind.Secondary, () =>
+        {
+            M59Hud.LookStick = !M59Hud.LookStick;
             M59Hud.Touch();
             Follow();
             Layout(true);
@@ -854,8 +863,8 @@ public partial class HudEditor : Control
         for (int i = 0; i < _slots.Count; i++)
             M59Skin.Pick(_slots[i], i == M59Hud.Slot);
 
-        _scheme.Text = M59Hud.Controls == M59Hud.Scheme.Fixed
-            ? "Controls: Fixed pad + stick" : "Controls: Touch anywhere";
+        _moveToggle.Text = M59Hud.MovePad ? "Move: Pad" : "Move: Touch";
+        _lookToggle.Text = M59Hud.LookStick ? "Look: Stick" : "Look: Touch";
 
         Clashes();
         _barHint.Text = _clash.Count > 0
@@ -967,11 +976,15 @@ public partial class HudEditor : Control
         _cancel.Position = new Vector2(_done.Position.X - M59Skin.Gap - ActW, y);
         float foldY = y;
 
-        // Row three: the scheme, the bar's full width - its caption is
-        // the longest line on the plate and it is read, not scanned.
+        // Row three: the two controls, half the bar each - moving on
+        // the left, where the left thumb's control is, looking on the
+        // right.
         y += BarRow + 6f;
-        _scheme.Position = new Vector2(x, y);
-        _scheme.Size = new Vector2(w - BarPadX * 2f, BarRow);
+        float halfW = Mathf.Floor((w - BarPadX * 2f - M59Skin.Gap) * 0.5f);
+        _moveToggle.Position = new Vector2(x, y);
+        _moveToggle.Size = new Vector2(halfW, BarRow);
+        _lookToggle.Position = new Vector2(x + halfW + M59Skin.Gap, y);
+        _lookToggle.Size = new Vector2(halfW, BarRow);
 
         // Row four: the grip and the hint, a full control height so
         // the plate has a strip a thumb can pick it up by.
@@ -989,7 +1002,7 @@ public partial class HudEditor : Control
             : new Vector2(x, foldY);
         _barBg.Visible = !_folded;
         foreach (Button b in _slots) b.Visible = !_folded;
-        _resetAll.Visible = _cancel.Visible = _done.Visible = _scheme.Visible = !_folded;
+        _resetAll.Visible = _cancel.Visible = _done.Visible = _moveToggle.Visible = _lookToggle.Visible = !_folded;
         _barHint.Visible = _barGrip.Visible = !_folded;
         if (_folded) _barRect = new Rect2(_fold.Position, _fold.Size);
 

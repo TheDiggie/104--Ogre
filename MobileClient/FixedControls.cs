@@ -2,18 +2,29 @@ using System;
 using Godot;
 
 /// <summary>
-/// The Fixed control scheme: a d-pad bottom-left and a look stick
-/// bottom-right, both always on the glass, both pieces of the HUD.
+/// The fixed controls: a d-pad bottom-left and a look stick
+/// bottom-right, each always on the glass while it is chosen, both
+/// pieces of the HUD.
 ///
-/// WHY A SECOND SCHEME. TouchControls is "touch anywhere": the stick
-/// appears wherever the left thumb lands and the right half turns by
-/// how far a finger is dragged. That is the better scheme for most
-/// hands and it stays the default - but the player's words were that
-/// some people do not like touch-anywhere controls, and every mobile
-/// game the HUD editor copies offers a fixed pad as the alternative.
-/// A fixed control is something to LOOK at: it is where it was last
-/// time, it shows which way it is pushed, and a thumb that has left it
-/// knows where to go back to.
+/// WHY FIXED CONTROLS. TouchControls is "touch anywhere": the stick
+/// appears wherever the left thumb lands and the glass turns by how
+/// far a finger is dragged. That is the better scheme for most hands
+/// and it stays the default - but the player's words were that some
+/// people do not like touch-anywhere controls, and every mobile game
+/// the HUD editor copies offers a fixed pad as the alternative. A fixed
+/// control is something to LOOK at: it is where it was last time, it
+/// shows which way it is pushed, and a thumb that has left it knows
+/// where to go back to.
+///
+/// TWO SWITCHES, NOT ONE. The pad (M59Hud.MovePad) and the stick
+/// (M59Hud.LookStick) are chosen separately, because the second round
+/// of player's words split them: "some people don't like using the
+/// joystick to look around, they said it's sluggish - let people use
+/// the joystick to move but touch anywhere to look", and the reverse
+/// for whoever wants it. Each piece is on the glass, Live in the
+/// editor, and claiming fingers exactly when its own switch is on;
+/// TouchControls takes whatever is left of the glass in the matching
+/// mode (its MoveTouch and LookTouch).
 ///
 /// THE D-PAD IS THE KEYBOARD'S TOUCH FORM, and means exactly what the
 /// keys mean. The reference's movement keys are W/S/A/D
@@ -51,13 +62,13 @@ using Godot;
 /// panel, the drawer, the chat box, the editor) closes this too, and
 /// nothing moves under a menu. This node itself is MouseFilter.Ignore:
 /// it draws, and it never eats a touch of its own, because a touch
-/// that misses both controls is still a tap that targets
-/// (TouchControls.TapOnly).
+/// that misses both controls is still the touch layer's - a tap that
+/// targets, or a drag in whichever mode the other switch left it.
 ///
 /// PIECES. "dpad" and "lookstick" are registered with M59Hud and sized,
 /// placed, faded and hidden by the arrange screen like everything else.
-/// They are Live only while the scheme is Fixed, so the editor shows
-/// no handle for them under the default scheme. Their defaults are
+/// Each is Live only while its switch is on, so the editor shows no
+/// handle for a control that is not there. Their defaults are
 /// found rather than assumed: the pad sits above the chat block's
 /// natural rect, the stick left of the combat arc's, each a gutter
 /// away, so neither covers the chat buttons, Auto or the arc on the
@@ -78,19 +89,38 @@ public partial class FixedControls : Control
     /// <summary>The gutter kept from the pieces the defaults hang off, and from the glass's edge.</summary>
     const float Gutter = 16f;
 
-    /// <summary>Whether the scheme is Fixed. Set by the view each frame from M59Hud.Controls.</summary>
-    public bool Active
+    /// <summary>The pad is on the glass. Set by the view each frame from M59Hud.MovePad.</summary>
+    public bool ShowPad
     {
-        get => _active;
+        get => _showPad;
         set
         {
-            if (_active == value) return;
-            _active = value;
-            Drop();
+            if (_showPad == value) return;
+            _showPad = value;
+            // Only the pad's finger: a thumb on the stick is not
+            // concerned with a pad coming or going.
+            if (_padFinger != -1) { _padFinger = -1; _padSector = -1; Move = Vector2.Zero; }
             QueueRedraw();
         }
     }
-    bool _active;
+    bool _showPad;
+
+    /// <summary>The look stick is on the glass. Set by the view each frame from M59Hud.LookStick.</summary>
+    public bool ShowStick
+    {
+        get => _showStick;
+        set
+        {
+            if (_showStick == value) return;
+            _showStick = value;
+            if (_stickFinger != -1) { _stickFinger = -1; Look = Vector2.Zero; }
+            QueueRedraw();
+        }
+    }
+    bool _showStick;
+
+    /// <summary>Either control is on the glass.</summary>
+    public bool Active => _showPad || _showStick;
 
     /// <summary>-1..1: X is strafe, Y is forward/back with screen-down positive, as TouchControls.Move.</summary>
     public Vector2 Move { get; private set; }
@@ -155,7 +185,7 @@ public partial class FixedControls : Control
         Layout();
     }
 
-    /// <summary>Lets go of both fingers. Called when the gate closes and when the scheme changes.</summary>
+    /// <summary>Lets go of both fingers. Called when the gate closes.</summary>
     public void Drop()
     {
         bool held = Holding;
@@ -171,8 +201,11 @@ public partial class FixedControls : Control
         return p == null ? 1f : Mathf.Clamp(p.Scale, M59Hud.MinScale, M59Hud.MaxScale);
     }
 
-    /// <summary>Whether a piece is on the glass for a thumb: scheme on, and not hidden by the player.</summary>
-    bool Usable(string id) => _active && !M59Hud.Editing && M59Hud.Shows(id);
+    /// <summary>Whether a piece is on the glass for a thumb: its switch on, and not hidden by the player.</summary>
+    bool Usable(string id) => Chosen(id) && !M59Hud.Editing && M59Hud.Shows(id);
+
+    /// <summary>The switch behind a piece.</summary>
+    bool Chosen(string id) => id == PadId ? _showPad : _showStick;
 
     void Layout()
     {
@@ -182,13 +215,17 @@ public partial class FixedControls : Control
         M59Hud.Piece pad = M59Hud.Get(PadId), stick = M59Hud.Get(StickId);
         if (pad == null || stick == null) return;
 
-        // Not Live under the other scheme: the editor draws no handle
+        // Not Live while its switch is off: the editor draws no handle
         // for a piece that is not Live (HudEditor.Drawn), and the
         // player's offsets are kept in the model regardless, so a
-        // switch back finds the controls where they were put.
-        pad.Live = stick.Live = _active;
-        _pad.Visible = _stick.Visible = _active;
-        if (!_active) return;
+        // switch back finds the control where it was put. Each on its
+        // own - the pad can be there without the stick and the stick
+        // without the pad.
+        pad.Live = _showPad;
+        stick.Live = _showStick;
+        _pad.Visible = _showPad;
+        _stick.Visible = _showStick;
+        if (!Active) return;
 
         _scalePad = HudScale(PadId);
         _scaleStick = HudScale(StickId);
@@ -221,10 +258,12 @@ public partial class FixedControls : Control
 
         // Dress sets Visible false for a hidden piece outside the
         // editor and never sets it back - the other pieces re-show
-        // themselves on every layout for the same reason.
-        _pad.Visible = _stick.Visible = true;
-        M59Hud.Dress(PadId);
-        M59Hud.Dress(StickId);
+        // themselves on every layout for the same reason. A piece whose
+        // switch is off stays off whatever Dress would say.
+        _pad.Visible = _showPad;
+        _stick.Visible = _showStick;
+        if (_showPad) M59Hud.Dress(PadId);
+        if (_showStick) M59Hud.Dress(StickId);
 
         // A finger on a control the player just hid, or that the editor
         // just took over, is let go: a pad that cannot be seen must not
@@ -232,7 +271,7 @@ public partial class FixedControls : Control
         if (_padFinger != -1 && !Usable(PadId)) { _padFinger = -1; _padSector = -1; Move = Vector2.Zero; }
         if (_stickFinger != -1 && !Usable(StickId)) { _stickFinger = -1; Look = Vector2.Zero; }
 
-        string stamp = $"{_padRect}|{_stickRect}|{(M59Hud.Editing ? 1 : 0)}";
+        string stamp = $"{_padRect}|{_stickRect}|{(M59Hud.Editing ? 1 : 0)}|{(_showPad ? 1 : 0)}{(_showStick ? 1 : 0)}";
         if (stamp != _stamp) { _stamp = stamp; _pad.QueueRedraw(); _stick.QueueRedraw(); }
     }
 
@@ -249,7 +288,7 @@ public partial class FixedControls : Control
     /// </summary>
     public bool Handle(InputEvent e, Vector2 at)
     {
-        if (!_active) return false;
+        if (!Active) return false;
         switch (e)
         {
             case InputEventScreenTouch t when t.Pressed:

@@ -77,9 +77,9 @@ public partial class GameView : Node2D
     readonly M59Assets _assets = new M59Assets();
     readonly TouchControls _touch = new TouchControls();
     /// <summary>
-    /// The Fixed scheme's pad and stick. Null until the world's widgets
-    /// are built; nothing it reports is non-zero unless
-    /// M59Hud.Controls is Fixed. See FixedControls.
+    /// The fixed pad and look stick. Null until the world's widgets
+    /// are built; the pad reports nothing unless M59Hud.MovePad and the
+    /// stick nothing unless M59Hud.LookStick. See FixedControls.
     /// </summary>
     FixedControls _fixed;
     ChatOverlay _chat;
@@ -3422,14 +3422,16 @@ public partial class GameView : Node2D
         _chat?.Sync(_client.Data?.ChatMessages);
         FrameProbe.Mark("room+chat");
 
-        // Which scheme is on, read off the layout every frame: it is
-        // part of the saved HUD, it switches with the layout slot, and
-        // the arrange screen flips it live so the pad and the stick
-        // appear the moment the button is pressed. TapOnly is what
-        // takes the floating stick and the look drag away under Fixed.
-        bool fixedOn = M59Hud.Controls == M59Hud.Scheme.Fixed;
-        _touch.TapOnly = fixedOn;
-        if (_fixed != null) _fixed.Active = fixedOn;
+        // Which controls are on, read off the layout every frame: they
+        // are part of the saved HUD, they switch with the layout slot,
+        // and the arrange screen flips them live so the pad and the
+        // stick appear the moment the button is pressed. Each job goes
+        // to exactly one of the two layers: the pad takes moving off
+        // the glass, the stick takes looking off it, and the glass
+        // keeps whatever is left (TouchControls, MODES).
+        _touch.MoveTouch = !M59Hud.MovePad;
+        _touch.LookTouch = !M59Hud.LookStick;
+        if (_fixed != null) { _fixed.ShowPad = M59Hud.MovePad; _fixed.ShowStick = M59Hud.LookStick; }
 
         ApplyInput(delta);
         FrameProbe.Mark("input");
@@ -3772,8 +3774,8 @@ public partial class GameView : Node2D
         }
         // The pad and the stick first: a finger that lands on one is
         // theirs until it lifts, and a finger that lands anywhere else
-        // is the touch layer's - which under the Fixed scheme means a
-        // tap and nothing more (TouchControls.TapOnly).
+        // is the touch layer's - a stick, a look or a tap, by which
+        // jobs the glass still has (TouchControls.MoveTouch/LookTouch).
         if (_fixed != null && _fixed.Handle(e, UiPoint(e))) return;
         // A finger landing on the world - not on a slot, not on the
         // strip, which take their own presses before this is reached -
@@ -3978,8 +3980,8 @@ public partial class GameView : Node2D
         if (Input.IsKeyPressed(Key.D)) strafe += 1f;
 
         // The floating stick and the fixed pad report on the same axes
-        // and only one of them is ever non-zero - the scheme decides
-        // which (TouchControls.TapOnly, FixedControls.Active) - so they
+        // and only one of them is ever non-zero - M59Hud.MovePad decides
+        // which (TouchControls.MoveTouch, FixedControls.ShowPad) - so they
         // are simply added. The pad is the keyboard's touch form: W/S
         // are forward and back along the avatar's own axis and A/D
         // strafe along the sideways one (OISKeyBinding.cpp:34-37,

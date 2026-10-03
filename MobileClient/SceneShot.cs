@@ -649,8 +649,13 @@ public partial class SceneShot : Node
                         { Index = 0, Position = to, Relative = step1 });
                         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
                         // No settle: the shot is of this frame, moving.
+                        // Numbered by the step as well as the frame: two
+                        // sweeps in one run - one half of the glass,
+                        // then the other - used to write the same eight
+                        // names, and the second silently replaced the
+                        // first.
                         await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-                        string each = System.IO.Path.ChangeExtension(path, null) + $"-sweep{i:D2}.png";
+                        string each = System.IO.Path.ChangeExtension(path, null) + $"-{shot + 1}-sweep{i:D2}.png";
                         GetViewport().GetTexture().GetImage().SavePng(each);
                         GD.Print($"[SceneShot] wrote {each} mid-sweep (Relative {step1})");
                     }

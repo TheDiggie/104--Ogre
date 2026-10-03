@@ -166,7 +166,7 @@ Tags: process, lessons | One InputEventScreenDrag per frame at a constant Relati
 `@sweep:<from>><to>@<frames>` presses at the first point, slides to the
 second over ten frames, then holds for `<frames>` frames emitting one
 drag per frame with `Relative` fixed at the slide's own per-frame delta,
-writing `<out>-sweepNN.png` on each. No settle: the shot is of that
+writing `<out>-<step>-sweepNN.png` on each. No settle: the shot is of that
 frame, moving.
 
 `Position` is pinned at the far end and `Relative` is kept non-zero on
