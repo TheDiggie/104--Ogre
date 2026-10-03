@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Threading;
 using Meridian59.Files.ROO;
 
 /// <summary>
@@ -147,28 +150,51 @@ public sealed class FlatAnchors
     /// memo shared between them is a torn read away from pairing one
     /// leaf's index with another's polygon. It lives in the renderer's
     /// per-band scratch for that reason.
+    ///
+    /// Before any of that, the point is looked up in the SETTLED grid
+    /// (see <see cref="Settle"/>): a fine grid whose cells each know
+    /// whether every point in them has the same answer - one leaf, or
+    /// none - and only a cell that an edge runs through reaches the
+    /// polygon test at all. In badland1 that is one pixel in ten.
     /// </summary>
     public bool TryAnchor(float x, float y, ref int memo, out float left, out float top)
     {
         left = top = 0f;
         if (_leaves.Length == 0) return false;
-        if (x < _minX || x > _maxX || y < _minY || y > _maxY) return false;
+        // Written so that a NaN fails: the search below would have found
+        // nothing for one, and the settled grid must say the same.
+        if (!(x >= _minX && x <= _maxX && y >= _minY && y <= _maxY)) return false;
+
+        Settled fine = _fine ?? Settle();
+        int cols = fine.Cols;
+        int fx = (int)((x - _minX) * fine.Inv), fy = (int)((y - _minY) * fine.Inv);
+        if (fx >= cols) fx = cols - 1;
+        if (fy >= fine.Rows) fy = fine.Rows - 1;
+        int k = Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(fine.Cells), fy * cols + fx);
+        if (k >= 0)
+        {
+            ref Leaf s = ref _leaves[k];
+            left = s.Left; top = s.Top; memo = k;
+            return true;
+        }
+        if (k == Nothing) return false;
 
         if ((uint)memo < (uint)_leaves.Length)
         {
-            Leaf m = _leaves[memo];
-            if (x >= m.MinX && x <= m.MaxX && y >= m.MinY && y <= m.MaxY && Inside(m, x, y))
+            ref Leaf m = ref _leaves[memo];
+            if (x >= m.MinX && x <= m.MaxX && y >= m.MinY && y <= m.MaxY && Inside(ref m, x, y))
             { left = m.Left; top = m.Top; return true; }
         }
 
         List<int> here = _cells[Row(y) * _cols + Col(x)];
         if (here == null) return false;
 
-        foreach (int i in here)
+        for (int c = 0; c < here.Count; c++)
         {
-            Leaf l = _leaves[i];
+            int i = here[c];
+            ref Leaf l = ref _leaves[i];
             if (x < l.MinX || x > l.MaxX || y < l.MinY || y > l.MaxY) continue;
-            if (!Inside(l, x, y)) continue;
+            if (!Inside(ref l, x, y)) continue;
             left = l.Left; top = l.Top;
             memo = i;
             return true;
@@ -177,17 +203,198 @@ public sealed class FlatAnchors
     }
 
     /// <summary>Crossing count. Leaves are convex, but not assumed to be.</summary>
-    static bool Inside(Leaf l, float x, float y)
+    static bool Inside(ref Leaf l, float x, float y)
     {
         bool inside = false;
-        int n = l.Xs.Length;
+        float[] xs = l.Xs, ys = l.Ys;
+        int n = xs.Length;
         for (int i = 0, j = n - 1; i < n; j = i++)
         {
-            float xi = l.Xs[i], yi = l.Ys[i], xj = l.Xs[j], yj = l.Ys[j];
+            float xi = xs[i], yi = ys[i], xj = xs[j], yj = ys[j];
             if ((yi > y) != (yj > y) &&
                 x < (xj - xi) * (y - yi) / (yj - yi) + xi)
                 inside = !inside;
         }
         return inside;
+    }
+
+    // ----------------------------------------------------------------
+    // The settled grid.
+    //
+    // The polygon test above is exact about what it does and that is
+    // the whole trouble with it: every floor pixel of an anchored room
+    // pays four comparisons, a leaf's edges and a divide to learn which
+    // leaf it is in, and nearly every one of them is nowhere near an
+    // edge. In badland1 the anchored leaves average nine thousand units
+    // across, and the test was a third of the frame.
+    //
+    // So the room is cut into cells of a few hundred units, and each
+    // cell is SETTLED once, when the table is first asked: either one
+    // leaf contains the whole cell, or no leaf touches it, or an edge
+    // runs through it. The first two kinds answer from the cell alone.
+    // Only the third - the cells an edge crosses, one in ten here -
+    // reaches the search that used to run for every pixel.
+    //
+    // WHY THE ANSWER IS THE SAME BIT FOR BIT. The search's result is a
+    // function of the point and nothing else, and away from an edge it
+    // is the geometric truth: its only inexact step is the x against
+    // the edge's x at that height, a float expression whose error over
+    // this game's coordinates is under a tenth of a unit, so it can
+    // only disagree with geometry within a tenth of a unit of an edge.
+    // A cell is settled "inside L" only when the cell GROWN BY A MARGIN
+    // of two units lies inside L, with L checked convex so that its
+    // four corners inside means all of it is, in doubles; and settled
+    // "nothing" only when no leaf meets the grown cell. Every point of
+    // such a cell is then two units from any edge, and the search would
+    // have said the same. The margin also covers the point landing in
+    // the neighbouring cell through the rounding of (x - minX) * inv,
+    // which at this grid's size is a quarter of a unit at the most. A
+    // leaf that is not convex, or two leaves that overlap, or an edge
+    // within the margin, make the cell "mixed" and the old path runs.
+    //
+    // Built lazily, under a lock, published through one reference: the
+    // offline checks build a Renderer, and so one of these, dozens of
+    // times a room for a sector lookup that never asks it.
+    // ----------------------------------------------------------------
+
+    const short Mixed = -1, Nothing = -2;
+    const float Margin = 2f;
+    const int FineCap = 32768;
+
+    /// <summary>
+    /// The grid and its shape, one object so a reader that sees the
+    /// reference sees the dimensions that go with it - on the phone's
+    /// weak memory ordering as well as on the desktop's.
+    /// </summary>
+    sealed class Settled
+    {
+        public short[] Cells;
+        public float Inv;
+        public int Cols, Rows;
+    }
+
+    Settled _fine;
+    readonly object _fineGate = new object();
+
+    Settled Settle()
+    {
+        Settled have = _fine;
+        if (have != null) return have;
+        lock (_fineGate)
+        {
+            if (_fine != null) return _fine;
+
+            float w = MathF.Max(1f, _maxX - _minX), h = MathF.Max(1f, _maxY - _minY);
+            // Cells of 256 units, or larger if that would need more than
+            // the cap; always a power of two so the inverse is exact.
+            float cell = 256f;
+            while ((long)(w / cell + 1) * (long)(h / cell + 1) > FineCap) cell *= 2f;
+            int cols = (int)(w / cell) + 1, rows = (int)(h / cell) + 1;
+            var grid = new short[cols * rows];
+            bool indexable = _leaves.Length <= short.MaxValue;
+            var convex = new bool[_leaves.Length];
+            for (int i = 0; i < _leaves.Length; i++) convex[i] = IsConvex(ref _leaves[i]);
+
+            for (int cy = 0; cy < rows; cy++)
+                for (int cx = 0; cx < cols; cx++)
+                {
+                    // The grown cell, in doubles.
+                    double x0 = _minX + cx * (double)cell - Margin, x1 = _minX + (cx + 1) * (double)cell + Margin;
+                    double y0 = _minY + cy * (double)cell - Margin, y1 = _minY + (cy + 1) * (double)cell + Margin;
+                    int owner = -1; bool mixed = false;
+                    // Candidates from the coarse grid's cells under this one.
+                    int gx0 = ColD(x0), gx1 = ColD(x1), gy0 = RowD(y0), gy1 = RowD(y1);
+                    for (int gy = gy0; gy <= gy1 && !mixed; gy++)
+                        for (int gx = gx0; gx <= gx1 && !mixed; gx++)
+                        {
+                            List<int> here = _cells[gy * _cols + gx];
+                            if (here == null) continue;
+                            foreach (int i in here)
+                            {
+                                ref Leaf l = ref _leaves[i];
+                                if (l.MaxX < x0 || l.MinX > x1 || l.MaxY < y0 || l.MinY > y1) continue;
+                                if (i == owner) continue;
+                                int rel = Relate(ref l, convex[i], x0, y0, x1, y1);
+                                if (rel == 0) continue;                 // apart
+                                if (rel == 1 && owner < 0 && indexable) { owner = i; continue; }
+                                mixed = true; break;                    // crosses, second owner, or not convex
+                            }
+                        }
+                    grid[cy * cols + cx] = mixed ? Mixed : owner >= 0 ? (short)owner : Nothing;
+                }
+
+            var built = new Settled { Cells = grid, Inv = 1f / cell, Cols = cols, Rows = rows };
+            Volatile.Write(ref _fine, built);
+            return built;
+        }
+    }
+
+    int ColD(double x) => Math.Clamp((int)((x - _minX) / _cell), 0, _cols - 1);
+    int RowD(double y) => Math.Clamp((int)((y - _minY) / _cell), 0, _rows - 1);
+
+    /// <summary>
+    /// Strictly convex and simple enough to trust: every consecutive
+    /// cross product has the same sign and none is zero.
+    /// </summary>
+    static bool IsConvex(ref Leaf l)
+    {
+        float[] xs = l.Xs, ys = l.Ys;
+        int n = xs.Length;
+        if (n < 3) return false;
+        int sign = 0;
+        for (int i = 0; i < n; i++)
+        {
+            int j = (i + 1) % n, k = (i + 2) % n;
+            double cx = ((double)xs[j] - xs[i]) * ((double)ys[k] - ys[j])
+                      - ((double)ys[j] - ys[i]) * ((double)xs[k] - xs[j]);
+            if (cx == 0) return false;
+            int s = cx > 0 ? 1 : -1;
+            if (sign == 0) sign = s; else if (s != sign) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// How a leaf stands to a rectangle: 0 apart, 1 the rectangle is
+    /// wholly inside the leaf, 2 anything else - including a leaf that
+    /// is not convex, which is never trusted to contain anything.
+    /// </summary>
+    static int Relate(ref Leaf l, bool convex, double x0, double y0, double x1, double y1)
+    {
+        float[] xs = l.Xs, ys = l.Ys;
+        int n = xs.Length;
+        if (!convex) return 2;
+        // Winding, so "inside" is a known sign of the edge cross product.
+        double area = 0;
+        for (int i = 0, j = n - 1; i < n; j = i++) area += ((double)xs[j] * ys[i]) - ((double)xs[i] * ys[j]);
+        double inSign = area > 0 ? 1 : -1;
+
+        bool allInside = true, separated = false;
+        for (int i = 0, j = n - 1; i < n && !separated; j = i++)
+        {
+            double ex = (double)xs[i] - xs[j], ey = (double)ys[i] - ys[j];
+            int outCount = 0;
+            for (int c = 0; c < 4; c++)
+            {
+                double px = (c & 1) == 0 ? x0 : x1, py = (c & 2) == 0 ? y0 : y1;
+                double cr = (ex * (py - ys[j]) - ey * (px - xs[j])) * inSign;
+                if (cr <= 0) { allInside = false; outCount++; }
+            }
+            if (outCount == 4) separated = true;
+        }
+        if (separated) return 0;
+        if (allInside) return 1;
+        // Not separated by any edge of the leaf; try the rectangle's own
+        // sides, which with the leaf's edges is a complete test for two
+        // convex shapes.
+        bool left = true, right = true, below = true, above = true;
+        for (int i = 0; i < n; i++)
+        {
+            if (xs[i] >= x0) left = false;
+            if (xs[i] <= x1) right = false;
+            if (ys[i] >= y0) below = false;
+            if (ys[i] <= y1) above = false;
+        }
+        return (left || right || below || above) ? 0 : 2;
     }
 }

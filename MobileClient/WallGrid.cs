@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Meridian59.Files.ROO;
 
 /// <summary>
@@ -10,12 +12,23 @@ using Meridian59.Files.ROO;
 /// of the ones a ray can possibly hit, and the caller still sorts by
 /// distance. Output is therefore identical to testing every wall - which
 /// is exactly how it was verified.
+///
+/// The cells are stored flat: one array of wall indices, cell after cell,
+/// and one array of where each cell's run starts (<c>_start[k]</c> to
+/// <c>_start[k + 1]</c>). A list a cell used to cost a reference, a
+/// length and a bounds check per element, in memory scattered by the
+/// allocator; now a column's whole walk reads two arrays forwards. The
+/// walls come out in the same order they always did - cell by cell along
+/// the ray, and within a cell by wall number - which matters because the
+/// caller's sort is by distance and two walls at one distance keep the
+/// order they arrived in.
 /// </summary>
 public sealed class WallGrid
 {
     readonly float _minX, _minY, _cell;
     readonly int _cols, _rows;
-    readonly List<int>[] _cells;
+    readonly int[] _start;     // _cols * _rows + 1 entries
+    readonly int[] _ids;       // wall indices, cell by cell
     readonly RooWall[] _walls;
     public int Cols => _cols;
     public int Rows => _rows;
@@ -41,24 +54,36 @@ public sealed class WallGrid
         _cols = Math.Max(1, (int)MathF.Ceiling((maxX - _minX) / _cell) + 1);
         _rows = Math.Max(1, (int)MathF.Ceiling((maxY - _minY) / _cell) + 1);
 
-        _cells = new List<int>[_cols * _rows];
-
+        // Two passes: count each cell's walls, then lay them out. Walls
+        // are visited by number so each cell's run is in wall order.
+        int cellCount = _cols * _rows;
+        var counts = new int[cellCount];
+        var cx0s = new int[_walls.Length]; var cx1s = new int[_walls.Length];
+        var cy0s = new int[_walls.Length]; var cy1s = new int[_walls.Length];
         for (int i = 0; i < _walls.Length; i++)
         {
             RooWall w = _walls[i];
-            int cx0 = Clamp((int)((MathF.Min(w.X1, w.X2) - _minX) / _cell), 0, _cols - 1);
-            int cx1 = Clamp((int)((MathF.Max(w.X1, w.X2) - _minX) / _cell), 0, _cols - 1);
-            int cy0 = Clamp((int)((MathF.Min(w.Y1, w.Y2) - _minY) / _cell), 0, _rows - 1);
-            int cy1 = Clamp((int)((MathF.Max(w.Y1, w.Y2) - _minY) / _cell), 0, _rows - 1);
+            cx0s[i] = Clamp((int)((MathF.Min(w.X1, w.X2) - _minX) / _cell), 0, _cols - 1);
+            cx1s[i] = Clamp((int)((MathF.Max(w.X1, w.X2) - _minX) / _cell), 0, _cols - 1);
+            cy0s[i] = Clamp((int)((MathF.Min(w.Y1, w.Y2) - _minY) / _cell), 0, _rows - 1);
+            cy1s[i] = Clamp((int)((MathF.Max(w.Y1, w.Y2) - _minY) / _cell), 0, _rows - 1);
             // Bounding box rather than an exact walk: a few extra candidates
             // cost far less than the walls this removes.
-            for (int cy = cy0; cy <= cy1; cy++)
-                for (int cx = cx0; cx <= cx1; cx++)
+            for (int cy = cy0s[i]; cy <= cy1s[i]; cy++)
+                for (int cx = cx0s[i]; cx <= cx1s[i]; cx++)
+                    counts[cy * _cols + cx]++;
+        }
+        _start = new int[cellCount + 1];
+        for (int k = 0; k < cellCount; k++) _start[k + 1] = _start[k] + counts[k];
+        _ids = new int[_start[cellCount]];
+        var fill = new int[cellCount];
+        for (int i = 0; i < _walls.Length; i++)
+            for (int cy = cy0s[i]; cy <= cy1s[i]; cy++)
+                for (int cx = cx0s[i]; cx <= cx1s[i]; cx++)
                 {
                     int k = cy * _cols + cx;
-                    (_cells[k] ??= new List<int>(8)).Add(i);
+                    _ids[_start[k] + fill[k]++] = i;
                 }
-        }
     }
 
     static int Clamp(int v, int lo, int hi) => v < lo ? lo : (v > hi ? hi : v);
@@ -75,10 +100,18 @@ public sealed class WallGrid
     public void Collect(float ox, float oy, float dx, float dy,
                         List<RooWall> outWalls, int[] stamp, ref int tick)
     {
+        // The stamps are read through a bare reference below, so the
+        // buffer's size is checked here once rather than per wall.
+        if (stamp.Length < _walls.Length)
+            throw new ArgumentException("stamp buffer smaller than WallCount", nameof(stamp));
         tick++;
+        int t = tick;
 
         // Cell the ray starts in, clamped: a camera just outside the room's
-        // bounds still gets a sensible starting cell.
+        // bounds still gets a sensible starting cell. The divide by the
+        // cell is kept as a divide: which cell a point two cells' edges
+        // apart lands in decides which walls are offered, and a reciprocal
+        // can round the other way at a boundary.
         float gx = (ox - _minX) / _cell, gy = (oy - _minY) / _cell;
         int cx = Clamp((int)MathF.Floor(gx), 0, _cols - 1);
         int cy = Clamp((int)MathF.Floor(gy), 0, _rows - 1);
@@ -94,21 +127,28 @@ public sealed class WallGrid
         float tMaxY = dy > 0 ? (cy + 1 - gy) * tDeltaY
                     : dy < 0 ? (gy - cy) * tDeltaY : float.MaxValue;
 
-        int guard = _cols + _rows + 2;
+        ref int start0 = ref MemoryMarshal.GetArrayDataReference(_start);
+        ref int ids0   = ref MemoryMarshal.GetArrayDataReference(_ids);
+        ref int stamp0 = ref MemoryMarshal.GetArrayDataReference(stamp);
+        RooWall[] walls = _walls;
+        int cols = _cols, rows = _rows;
+
+        int guard = cols + rows + 2;
         while (guard-- > 0)
         {
-            List<int> bucket = _cells[cy * _cols + cx];
-            if (bucket != null)
-                for (int i = 0; i < bucket.Count; i++)
-                {
-                    int wi = bucket[i];
-                    if (stamp[wi] == tick) continue;
-                    stamp[wi] = tick;
-                    outWalls.Add(_walls[wi]);
-                }
+            int k = cy * cols + cx;
+            int a = Unsafe.Add(ref start0, k), b = Unsafe.Add(ref start0, k + 1);
+            for (int i = a; i < b; i++)
+            {
+                int wi = Unsafe.Add(ref ids0, i);
+                ref int s = ref Unsafe.Add(ref stamp0, wi);
+                if (s == t) continue;
+                s = t;
+                outWalls.Add(walls[wi]);
+            }
 
-            if (tMaxX < tMaxY) { tMaxX += tDeltaX; cx += stepX; if (cx < 0 || cx >= _cols) break; }
-            else               { tMaxY += tDeltaY; cy += stepY; if (cy < 0 || cy >= _rows) break; }
+            if (tMaxX < tMaxY) { tMaxX += tDeltaX; cx += stepX; if (cx < 0 || cx >= cols) break; }
+            else               { tMaxY += tDeltaY; cy += stepY; if (cy < 0 || cy >= rows) break; }
         }
     }
 }
