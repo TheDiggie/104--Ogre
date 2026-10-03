@@ -1342,6 +1342,22 @@ public partial class ActionButtons : Control
     /// </summary>
     public Action GoSend;
 
+    /// <summary>
+    /// The one press path, for a second control that shows the same
+    /// seats (HotkeyDock). A tap is <c>Perform(cfg, false)</c>; a frame
+    /// of a held Attack is <c>Perform(cfg, true)</c>, which keeps the
+    /// self-target latch alive exactly as the cluster's own hold does.
+    /// Nothing else is exposed: what a seat DOES is decided here and in
+    /// BaseClient, once, and a box that drew the seats with a dispatch
+    /// of its own would be a second answer to "what does Rest send".
+    /// </summary>
+    public bool Perform(ActionButtonConfig cfg, bool repeat) => cfg != null && Send(cfg, repeat);
+
+    /// <summary>The game's Attack action, the one binding a held press repeats everywhere.</summary>
+    public static bool IsAttack(ActionButtonConfig cfg) =>
+        cfg != null && cfg.ButtonType == ActionButtonType.Action
+        && cfg.Data is AvatarAction a && a == AvatarAction.Attack;
+
     bool Send(ActionButtonConfig cfg, bool keepLatch)
     {
         bool sent = true;

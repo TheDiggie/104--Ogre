@@ -362,6 +362,7 @@ public partial class GameView : Node2D
     InventoryPanel _bag;
     /// <summary>The pack on the glass. See InventoryDock.</summary>
     InventoryDock _dock;
+    HotkeyDock _hotdock;
 
     /// <summary>
     /// Controls live under a CanvasLayer, not directly under this Node2D.
@@ -2778,6 +2779,18 @@ public partial class GameView : Node2D
             _ui.AddChild(_dock);
         });
 
+        // The hotbar on the glass, hidden until the player unhides it in
+        // the arrange screen. A seat presses through the cluster's own
+        // Perform - one dispatch for every seat wherever it is drawn -
+        // and Edit opens the HotKeys panel exactly as the drawer tile does.
+        Widget("hotdock", () =>
+        {
+            _hotdock = new HotkeyDock();
+            if (_hotbar != null) _hotdock.Perform = _hotbar.Perform;
+            _hotdock.EditRequested += () => _hotkeys?.Open();
+            _ui.AddChild(_hotdock);
+        });
+
         WidgetsAfterPack(user, pass);
     }
 
@@ -3485,6 +3498,7 @@ public partial class GameView : Node2D
         FrameProbe.Mark("face+vitals");
         _bag?.Sync(_client.Data?.InventoryObjects);
         _dock?.Sync(_client.Data?.InventoryObjects);
+        _hotdock?.Sync(_client.Data);
         _lootList?.Sync(_client.Data?.RoomObjectsLoot);
         _contents?.Sync(_client.Data?.ObjectContents);
         _shop?.Sync(_client.Data?.Buy);
@@ -3557,7 +3571,7 @@ public partial class GameView : Node2D
         // allocation every frame.
         Show(_map, inWorld); Show(_bar, inWorld); Show(_roomBuffs, inWorld); Show(_names, inWorld);
         Show(_questMarks, inWorld); Show(_face, inWorld); Show(_vitals, inWorld); Show(_purse, inWorld);
-        Show(_dock, inWorld); Show(_chat, inWorld); Show(_overlays, inWorld);
+        Show(_dock, inWorld); Show(_hotdock, inWorld); Show(_chat, inWorld); Show(_overlays, inWorld);
         Show(_loot, inWorld);
         Show(_go, inWorld);
         if (_auto != null)
@@ -3593,6 +3607,9 @@ public partial class GameView : Node2D
             _dock.Covered = Covered();
             if (_dock.Covered) _dock.Deselect();
         }
+        // The hotkey box has the same scroll box and the same gate, and
+        // a held Attack in it must stop when something covers the glass.
+        if (_hotdock != null) _hotdock.Covered = Covered();
         bool bagOpen = (_bag != null && _bag.IsOpen) || (_dock != null && _dock.HasSelection);
         if (_client.Data != null)
         {

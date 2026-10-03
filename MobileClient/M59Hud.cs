@@ -68,6 +68,19 @@ public static class M59Hud
         public float Alpha = 1f;
         /// <summary>Hidden by the player. Not the same as hidden by the client.</summary>
         public bool Hidden;
+        /// <summary>
+        /// Whether the piece STARTS hidden - an optional piece the player
+        /// unhides in the editor, rather than one they can take away.
+        /// The hotkey box is the first: a second copy of the hotbar on
+        /// the glass is a thing to opt into, not a default. Set once, at
+        /// the first Register, before the file is read, so a saved line
+        /// still wins; and it is what "default" means for this piece -
+        /// Reset and a layout switch go back to it, Moved compares
+        /// against it, so an untouched optional piece writes no line
+        /// (Save) and an unhidden one writes hidden=0, which ApplySaved
+        /// reads as the player's choice.
+        /// </summary>
+        public bool DefaultHidden;
 
         /// <summary>
         /// How many across, for a piece that is a GRID of things and
@@ -141,7 +154,7 @@ public static class M59Hud
         /// <summary>Where it actually ends up: Natural moved by Offset.</summary>
         public Rect2 Rect => new Rect2(Natural.Position + Offset, Natural.Size);
 
-        internal bool Moved => Offset != Vector2.Zero || Scale != 1f || Alpha != 1f || Hidden || Columns != 0 || Rows != 0;
+        internal bool Moved => Offset != Vector2.Zero || Scale != 1f || Alpha != 1f || Hidden != DefaultHidden || Columns != 0 || Rows != 0;
 
         /// <summary>The columns in force: the player's, clamped, or the piece's default.</summary>
         public int ColumnsNow
@@ -179,12 +192,14 @@ public static class M59Hud
     /// the position the player gave it across a re-register, which
     /// happens whenever a panel rebuilds.
     /// </summary>
-    public static Piece Register(string id, string name, Control node = null)
+    public static Piece Register(string id, string name, Control node = null, bool hidden = false)
     {
         if (string.IsNullOrEmpty(id)) return null;
         if (!Pieces.TryGetValue(id, out Piece p))
         {
-            p = new Piece { Id = id };
+            // An optional piece starts hidden (Piece.DefaultHidden); the
+            // file read just below overrides it when the player has said.
+            p = new Piece { Id = id, DefaultHidden = hidden, Hidden = hidden };
             Pieces[id] = p;
             Order.Add(p);
             // A layout saved before this piece existed has nothing to
@@ -509,7 +524,7 @@ public static class M59Hud
         Slot = slot;
         foreach (Piece p in Order)
         {
-            p.Offset = Vector2.Zero; p.Scale = 1f; p.Alpha = 1f; p.Hidden = false; p.Columns = 0; p.Rows = 0;
+            p.Offset = Vector2.Zero; p.Scale = 1f; p.Alpha = 1f; p.Hidden = p.DefaultHidden; p.Columns = 0; p.Rows = 0;
             ApplySaved(p);
         }
         ApplyScheme();
@@ -530,7 +545,7 @@ public static class M59Hud
     public static void Reset(Piece p)
     {
         if (p == null) return;
-        p.Offset = Vector2.Zero; p.Scale = 1f; p.Alpha = 1f; p.Hidden = false; p.Columns = 0; p.Rows = 0;
+        p.Offset = Vector2.Zero; p.Scale = 1f; p.Alpha = 1f; p.Hidden = p.DefaultHidden; p.Columns = 0; p.Rows = 0;
         Touch();
     }
 

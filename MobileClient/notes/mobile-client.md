@@ -647,6 +647,68 @@ Done, relaunch on the same user data -> `dock=0,0,1,1,0,0,4`, box
 
 See also: InventoryDock.cs | M59Hud.cs | HudEditor.cs | the HUD editor -> godot-ui.md | the bag -> godot-ui.md "A model object held across a rebuild goes stale"
 
+## The hotkey box: the hotbar on the glass, hidden until asked for
+Tags: design, architecture | An OPTIONAL HUD piece ("hotkeys" / "Hotkey box") drawn exactly as the inventory dock is - same slot, box, slim bar, Across/Down - showing every hotbar seat by Num; a tap goes through the cluster's own Perform, Edit opens the HotKeys panel, and the piece starts hidden (M59Hud.Piece.DefaultHidden)
+
+Ashton (2026-10-03): "add a new optional box players can unhide in the
+ui customizer. A hotkey box that looks just like the inventory box and
+they can change the rows and colomns just like the inventory. And let
+them edit it with the hotkey customizer." `HotkeyDock.cs`.
+
+- HIDDEN BY DEFAULT, which the model had no word for: `Hidden` was
+  only ever the player's choice and `Moved` wrote it as a change. Now
+  `M59Hud.Register(id, name, node, hidden: true)` sets
+  `Piece.DefaultHidden` once, before the file is read, and that is
+  what "default" means for the piece: `Moved` compares Hidden against
+  it (an untouched optional piece writes no line), Reset and a layout
+  switch go back to it, and unhiding writes `hotkeys=0,0,1,1,0` -
+  hidden=0 is the player's choice, read as such by ApplySaved. The
+  editor needed nothing: Dress draws a hidden piece faint while
+  editing, a tap picks it, the Hide button reads "Show", and the
+  Across/Down steppers already act on whichever picked piece declares
+  a range (`HudEditor.HasColumns/HasRows`), so the card is the dock's.
+- THE SEATS are the cluster's model uncut: every config in
+  `Data.ActionButtons` by Num (`ActionButtons.Stable`), Attack among
+  them as one more seat, an Unset config as the empty square - the
+  arc is positional and a hole the HotKeys panel made is a hole here.
+  Grid padded to the box as the dock's is. Slots are named
+  `hotdock{Num}` / `hotdockEmpty{i}`; the strip is `hotdockStrip`
+  with one button `hotdockEdit`.
+- ONE PRESS PATH. `ActionButtons.Perform(cfg, repeat)` is new and is
+  the cluster's private `Send` made reachable - Run (HotbarAct) around
+  `Activate()`, or the view's SendReqGo for the Door seat. The view
+  hands it to the box (`_hotdock.Perform = _hotbar.Perform`), so what
+  Rest sends is decided once. A held Attack repeats every frame past
+  250 ms as the cluster's does (`ActionButtons.IsAttack`); the other
+  repeating kinds are tap-only in the box, because the cluster's rule
+  for an item reads its own hold state and that was not worth sharing.
+- SYNC: a signature of Num/type/name plus the art's resolution state
+  per seat (filename, colour, effect, frame), the ListChanged
+  subscription the cluster uses (field-only rebinds), Across/Down/
+  icon pixels, the HUD stamp every frame, and the 500 ms retry on a
+  missed compose. `Covered` is set from `GameView.Pump` beside the
+  dock's, and gates the scroll box's input and the hold.
+- THE PIECE IS BOX + STRIP, unlike the dock, whose strip comes and
+  goes with a selection: Edit is always there, so the handle and the
+  overlap test cover it. Natural place: a gutter right of the
+  inventory dock's NATURAL rect at the same top - (522,543) at
+  1920x1080 - clear of the target card (1336+) and above the chat.
+
+Played (harness, 1920x1080): fresh user data -> `hotdockHost
+Visible=False`, nothing on the glass; Menu > Settings > Arrange, tap
+the faint handle, Show, Across -2, Down +1, Done -> `hotkeys=
+0,0,1,1,0,6,3`, box (522,543,366,180), seats Rest Attack Loot Activate
+Inspect Buy / Trade Wave; relaunch -> same; `@name:hotdock0` ->
+`<- UserCommand Rest` on the fixture and the RESTING banner;
+`Target Next,@hold:hotdock1` -> ten `ReqAttack`; Edit -> the HotKeys
+panel; `hk1` Clear, `hk0` ▶, Close -> the box reads [empty, Attack,
+Rest, ...]; five Add pages -> 30 seats, bar in its own 28-point gutter
+beside the slots, a drag on the grid scrolls it; drag the handle in
+the editor, Done, relaunch -> `hotkeys=362.11,-312.63,1,1,0,6,3` and
+the box at (884,230).
+
+See also: HotkeyDock.cs | ActionButtons.Perform | M59Hud.Piece.DefaultHidden | the HotKeys panel above | the inventory dock above
+
 ## The chat box: width and lines in the arrange screen
 Tags: design | The "chat" piece borrows the store's Columns/Rows as WIDTH (steps of 40 points) and LINES; the piece names its own axes on the card (Piece.ColumnsLabel/RowsLabel, ColumnsUnit/RowsUnit); zero means today's box exactly
 
