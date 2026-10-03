@@ -62,14 +62,24 @@ public partial class LoginPrompt : Control
     /// box. Ashton: "on the login screen describe making an account".
     /// One string, one place, because this is the fact most likely to
     /// change about the server and least likely to be in the code.
+    ///
+    /// It used to end "Keep the password: it cannot be recovered", which
+    /// is true and is the wrong note to leave a new player on. Ashton,
+    /// 2026-10-03: "remove the note under login saying u cant recover
+    /// your password, instead say 'if you need help reach out to us on
+    /// discord'". The Discord button it points at is in the footer.
     /// </summary>
     public const string NewAccountHint =
         "New here? Type an account name and password of your own and press Connect - " +
-        "the server creates the account the first time you log in. Keep the password: it cannot be recovered.";
+        "the server creates the account the first time you log in. If you need help, reach out to us on Discord.";
+
+    /// <summary>Where "reach out to us on Discord" goes, and the wiki beside it.</summary>
+    public const string DiscordUrl = "https://discord.gg/vjEkbpxAJt";
+    public const string WikiUrl = "https://wiki.meridian59.us/";
     ColorRect _bg;
     Panel _card, _bar;
     LineEdit _user, _pass;
-    Button _go, _options;
+    Button _go, _options, _discord, _wiki;
     OptionButton _servers;
 
     /// <summary>
@@ -178,6 +188,25 @@ public partial class LoginPrompt : Control
         M59Skin.Dress(_options, M59Skin.Kind.Secondary);
         _options.Pressed += () => Options?.Invoke();
         AddChild(_options);
+
+        // The two doors out of the client, at the LEFT end of the footer
+        // where FootLeft puts the thing that must not be mistaken for the
+        // row of actions on the right. Ashton, 2026-10-03: "add a discord
+        // button on the left that links to ... on the right add a link to
+        // https://wiki.meridian59.us/". Discord takes the far left, the
+        // wiki sits beside it; both hand the address to the system
+        // browser the way Update does (OS.ShellOpen), which is the one
+        // place an outside window is the right answer - there is no
+        // in-page way to open Discord.
+        _discord = new Button { Text = "Discord", Name = "loginDiscord" };
+        M59Skin.Dress(_discord, M59Skin.Kind.Secondary);
+        _discord.Pressed += () => OS.ShellOpen(DiscordUrl);
+        AddChild(_discord);
+
+        _wiki = new Button { Text = "Wiki", Name = "loginWiki" };
+        M59Skin.Dress(_wiki, M59Skin.Kind.Secondary);
+        _wiki.Pressed += () => OS.ShellOpen(WikiUrl);
+        AddChild(_wiki);
 
         // The progress line and every refusal. Body-sized rather than
         // the small print it was: when something goes wrong this is the
@@ -573,7 +602,20 @@ public partial class LoginPrompt : Control
         _note.Size = new Vector2(w, noteH);
 
         // Connect last in the line, as the skin lays a footer out: the
-        // primary action is the one nearest the thumb.
-        M59Skin.FootRow(foot, _go, _options);
+        // primary action is the one nearest the thumb. Discord and Wiki
+        // from the other end. At 560 points the four take 514 of the
+        // footer's 524 (121 + 132 + 121 + 110 and three gaps), so the
+        // card need not grow - but it is checked, not trusted: should a
+        // caption ever lengthen, the links drop out rather than overlap
+        // Connect.
+        float left = M59Skin.FootRow(foot, _go, _options);
+        _discord.Visible = _wiki.Visible = true;
+        float right = M59Skin.FootLeftRow(foot, _discord, _wiki);
+        if (right + M59Skin.Gap > left)
+        {
+            _wiki.Visible = false;
+            right = M59Skin.FootLeftRow(foot, _discord);
+            if (right + M59Skin.Gap > left) _discord.Visible = false;
+        }
     }
 }

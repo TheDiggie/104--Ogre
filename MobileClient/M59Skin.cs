@@ -579,12 +579,28 @@ public static class M59Skin
     /// it, and a confirm on every drop would be worse, because a prompt
     /// answered fifty times a session stops being read.
     /// </summary>
-    public static void FootLeft(Rect2 foot, Button b)
+    public static void FootLeft(Rect2 foot, Button b) => FootLeftRow(foot, b);
+
+    /// <summary>
+    /// FootRow's mirror: a row laid out from the LEFT edge, in the order
+    /// given. For the things that are not actions on the card at all -
+    /// the login screen's Discord and Wiki links - which belong as far
+    /// from Connect as the footer allows. Same width rule as FootRow so
+    /// the two rows meet in the middle rather than on top of each other.
+    /// Returns the right edge reached.
+    /// </summary>
+    public static float FootLeftRow(Rect2 foot, params Button[] leftToRight)
     {
-        if (b == null) return;
-        float w = Mathf.Max(110f, b.Text.Length * 11f + 44f);
-        b.Position = foot.Position;
-        b.Size = new Vector2(w, foot.Size.Y);
+        float x = foot.Position.X;
+        foreach (Button b in leftToRight)
+        {
+            if (b == null || !b.Visible) continue;
+            float w = Mathf.Max(110f, b.Text.Length * 11f + 44f);
+            b.Position = new Vector2(x, foot.Position.Y);
+            b.Size = new Vector2(w, foot.Size.Y);
+            x += w + Gap;
+        }
+        return x - Gap;
     }
 
     public static float FootRow(Rect2 foot, params Button[] rightToLeft)
