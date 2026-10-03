@@ -1015,9 +1015,12 @@ public partial class ActionButtons : Control
         int first = _page * perPage;
         int count = Math.Min(perPage, Math.Max(0, arc.Count - first));
 
+        // Enums as ints: Append(enum) goes through Append(object) and
+        // boxes, 24 bytes a seat a frame for a comparison that is almost
+        // always "same" (notes/godot-ui.md, "Per-frame cost").
         var sb = Sig.Start();
         if (anchor != null)
-            sb.Append('!').Append(anchor.Num).Append(':').Append(anchor.ButtonType).Append(':').Append(anchor.Name)
+            sb.Append('!').Append(anchor.Num).Append(':').Append((int)anchor.ButtonType).Append(':').Append(anchor.Name)
               .Append(':').Append(anchor.Data is ObjectBase ao ? ao.Resource?.Filename : "").Append(';');
         // Phase: whether there is one, and whether its art has resolved
         // (the seat shows the spell's own icon once it can be composed).
@@ -1025,7 +1028,7 @@ public partial class ActionButtons : Control
         // The padlock's state, which redraws the glyph.
         sb.Append(HotbarStore.Locked ? 'L' : 'U');
         for (int i = 0; i < count; i++)
-            sb.Append(arc[first + i].Num).Append(':').Append(arc[first + i].ButtonType)
+            sb.Append(arc[first + i].Num).Append(':').Append((int)arc[first + i].ButtonType)
               .Append(':').Append(arc[first + i].Name).Append(';');
         // The viewport and the reserve, because the cluster is measured
         // off both corners of the glass.
@@ -1038,11 +1041,19 @@ public partial class ActionButtons : Control
         M59Hud.Piece piece = M59Hud.Get("combat");
         if (piece != null)
             sb.Append('@').Append((int)piece.Offset.X).Append(',').Append((int)piece.Offset.Y)
-              .Append('@').Append(piece.Scale.ToString("0.###"))
+              // To a thousandth, as the "0.###" string it replaces was,
+              // without formatting a string every frame.
+              .Append('@').Append(Mathf.RoundToInt(piece.Scale * 1000f))
               .Append('@').Append(piece.Hidden ? 1 : 0)
               .Append('@').Append(M59Hud.Editing ? 1 : 0);
+        // A picture that could not be composed yet - the resource is
+        // there, the bitmap behind it is not readable - changes nothing
+        // in the data, so no signature sees it: retry on a timer while
+        // any compose failed (notes/godot-ui.md, "A polled signature").
+        bool retry = _missed && Time.GetTicksMsec() >= _retryAt;
 
-        if (!Sig.Changed(sb, ref _signature)) return;
+        if (!Sig.Changed(sb, ref _signature) && !retry) return;
+        _missed = false;
 
         _nums.Clear();
         // Every pooled button gives its name back before any is
@@ -1443,6 +1454,7 @@ public partial class ActionButtons : Control
         for (int i = 0; i < ArcSeats; i++)
             top = Mathf.Min(top, Round(Seat(v, i), Btn).Position.Y - M59Skin.Gap);
         Ceiling = top;
+        if (_missed) _retryAt = Time.GetTicksMsec() + 500;
         Measure(v, anchor, count, paged);
 
         // The player's own hide, last and under everything the client
@@ -1846,9 +1858,17 @@ public partial class ActionButtons : Control
         ImageTexture tex = null;
         try { tex = M59Assets.FromTex(M59Compose.Icon(o, px)); }
         catch (Exception e) { GD.PrintErr($"[ActionButtons] icon: {e.Message}"); }
-        _icons[key] = tex;
+        // A miss is not cached, or it is answered from the cache for
+        // ever for everything sharing that art (notes/godot-ui.md); the
+        // retry timer in Sync composes it again.
+        if (tex != null) _icons[key] = tex;
+        else _missed = true;
         return tex;
     }
+
+    /// <summary>A compose came back empty this rebuild; Sync retries at _retryAt.</summary>
+    bool _missed;
+    ulong _retryAt;
 
     /// <summary>
     /// The reference's alias picture, shared by the hotbar button and by

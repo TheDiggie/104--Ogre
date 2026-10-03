@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using Godot;
 
@@ -474,17 +475,41 @@ public static class M59Hud
         // count, or from before they had a row count, still reads.
         string[] bits = v.Split(',');
         if (bits.Length < 5) return;
-        float.TryParse(bits[0], out float x);
-        float.TryParse(bits[1], out float y);
-        float.TryParse(bits[2], out float s);
-        float.TryParse(bits[3], out float a);
-        p.Offset = new Vector2(x, y);
-        p.Scale = s > 0f ? Mathf.Clamp(s, MinScale, MaxScale) : 1f;
-        p.Alpha = a > 0f ? Mathf.Clamp(a, MinAlpha, MaxAlpha) : 1f;
-        p.Hidden = bits[4] == "1";
-        p.Columns = bits.Length > 5 && int.TryParse(bits[5], out int c) && c > 0 ? c : 0;
-        p.Rows = bits.Length > 6 && int.TryParse(bits[6], out int r) && r > 0 ? r : 0;
+        Read(p, bits, true);
     }
+
+    /// <summary>
+    /// The five-to-seven fields of a piece line into the piece. One
+    /// reader for the file and the snapshot, because the two had drifted:
+    /// the file clamped the scale and the snapshot did not.
+    ///
+    /// INVARIANT CULTURE on every number, read and written. float.Parse
+    /// follows the phone's locale, and on a German or French device
+    /// "1.5" does not parse and "1,5" is two fields - a layout written
+    /// there would come back as a different layout, with no error.
+    /// NaN and the infinities are refused too: "NaN" parses as a float,
+    /// and an offset of NaN put a Control's size through Godot's
+    /// set_size guard once a frame for the life of the client.
+    /// </summary>
+    static void Read(Piece p, string[] bits, bool clamp)
+    {
+        float x = Num(bits[0]), y = Num(bits[1]), s = Num(bits[2]), a = Num(bits[3]);
+        p.Offset = new Vector2(x, y);
+        p.Scale = s > 0f ? (clamp ? Mathf.Clamp(s, MinScale, MaxScale) : s) : 1f;
+        p.Alpha = a > 0f ? (clamp ? Mathf.Clamp(a, MinAlpha, MaxAlpha) : a) : 1f;
+        p.Hidden = bits[4] == "1";
+        p.Columns = bits.Length > 5 && int.TryParse(bits[5], NumberStyles.Integer, Inv, out int c) && c > 0 ? c : 0;
+        p.Rows = bits.Length > 6 && int.TryParse(bits[6], NumberStyles.Integer, Inv, out int r) && r > 0 ? r : 0;
+    }
+
+    static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    /// <summary>A finite float from the file, or zero.</summary>
+    static float Num(string s)
+        => float.TryParse(s, NumberStyles.Float, Inv, out float f) && float.IsFinite(f) ? f : 0f;
+
+    /// <summary>A float into the file, culture-free, to the given places.</summary>
+    static string Fmt(float f, string format) => f.ToString(format, Inv);
 
     public static void Save()
     {
@@ -501,7 +526,7 @@ public static class M59Hud
                     // The seventh field needs the sixth in front of it,
                     // so a row count with default columns writes a 0
                     // there - which ApplySaved reads as "default".
-                    d[p.Id] = $"{p.Offset.X:0.##},{p.Offset.Y:0.##},{p.Scale:0.###},{p.Alpha:0.###},{(p.Hidden ? 1 : 0)}"
+                    d[p.Id] = $"{Fmt(p.Offset.X, "0.##")},{Fmt(p.Offset.Y, "0.##")},{Fmt(p.Scale, "0.###")},{Fmt(p.Alpha, "0.###")},{(p.Hidden ? 1 : 0)}"
                             + (p.Rows > 0 ? $",{p.Columns},{p.Rows}" : p.Columns > 0 ? $",{p.Columns}" : "");
                 else
                     d.Remove(p.Id);   // back at the default: say nothing rather than saying "default"
@@ -582,8 +607,8 @@ public static class M59Hud
         sb.Append(LookKey).Append('=').Append(LookStick ? StickValue : "touch").Append(';');
         foreach (Piece p in Order)
             sb.Append(p.Id).Append('=')
-              .Append(p.Offset.X).Append(',').Append(p.Offset.Y).Append(',')
-              .Append(p.Scale).Append(',').Append(p.Alpha).Append(',')
+              .Append(Fmt(p.Offset.X, "R")).Append(',').Append(Fmt(p.Offset.Y, "R")).Append(',')
+              .Append(Fmt(p.Scale, "R")).Append(',').Append(Fmt(p.Alpha, "R")).Append(',')
               .Append(p.Hidden ? 1 : 0).Append(',').Append(p.Columns).Append(',').Append(p.Rows).Append(';');
         return sb.ToString();
     }
@@ -602,16 +627,7 @@ public static class M59Hud
             if (p == null) continue;
             string[] b = row.Substring(eq + 1).Split(',');
             if (b.Length < 5) continue;
-            float.TryParse(b[0], out float x);
-            float.TryParse(b[1], out float y);
-            float.TryParse(b[2], out float s);
-            float.TryParse(b[3], out float a);
-            p.Offset = new Vector2(x, y);
-            p.Scale = s > 0f ? s : 1f;
-            p.Alpha = a > 0f ? a : 1f;
-            p.Hidden = b[4] == "1";
-            p.Columns = b.Length > 5 && int.TryParse(b[5], out int c) && c > 0 ? c : 0;
-            p.Rows = b.Length > 6 && int.TryParse(b[6], out int r) && r > 0 ? r : 0;
+            Read(p, b, false);
         }
         Touch();
     }

@@ -177,14 +177,54 @@ public static class HotbarStore
             string[] rows = (string[])file.GetValue(section, "buttons");
             if (rows == null || rows.Length == 0) return false;
 
+            // Read before the list is touched: a garbage value here
+            // throws out of the Variant cast, and a throw AFTER the list
+            // had been cleared and refilled left the restored rows in
+            // place with Load reporting false - so Seed then added its
+            // eight on top and every Num was there twice.
+            // And only an integer counts: a Variant holding "abc" casts
+            // to 0 without complaint, which made whatever sat at Num 0
+            // the big button.
+            int primary = -1;
+            if (file.HasSectionKey(section, "primary"))
+            {
+                Variant pv = file.GetValue(section, "primary", -1);
+                if (pv.VariantType == Variant.Type.Int) primary = (int)pv;
+            }
+
             var restored = new List<ActionButtonConfig>();
+            // The Nums already taken. The game's grid is positional and a
+            // Num names a cell, so two rows with one Num is a corrupt file
+            // - and a corrupt one that was let through drew a seat
+            // captioned Loot that fired Attack, because the press resolves
+            // its config by Num and GetByNum answers the first. The
+            // second row is moved to the next free Num rather than
+            // dropped: the binding was the player's, the position was not.
+            var taken = new HashSet<int>();
+            // Past every Num the file names, so a moved row never lands
+            // on one a later row is about to claim.
+            int free = 0;
+            foreach (string row in rows)
+            {
+                string[] f = row.Split('\t');
+                if (f.Length >= 1 && int.TryParse(f[0], out int n) && n >= free) free = n + 1;
+            }
             foreach (string row in rows)
             {
                 string[] f = row.Split('\t');
                 if (f.Length < 4) continue;
-                if (!int.TryParse(f[0], out int num)) continue;
-                if (!Enum.TryParse(f[1], out ActionButtonType type)) continue;
+                if (!int.TryParse(f[0], out int num) || num < 0) continue;
+                // TryParse accepts "999" as a member the enum does not
+                // have, and a seat of no known type is a seat that draws
+                // and does nothing when pressed.
+                if (!Enum.TryParse(f[1], out ActionButtonType type) || !Enum.IsDefined(typeof(ActionButtonType), type)) continue;
                 uint.TryParse(f[2], out uint same);
+                if (!taken.Add(num))
+                {
+                    GD.PrintErr($"[HotbarStore] load: two rows at Num {num}; moving '{f[3]}' to {free}");
+                    num = free++;
+                    taken.Add(num);
+                }
 
                 // An empty seat, kept as one. The game's loader builds
                 // the config whatever the type (`OgreClientConfig.cpp:630-636`)
@@ -270,9 +310,11 @@ public static class HotbarStore
             // The primary's Num, where the file has one; -1 where it does
             // not, which is every file written before the big button
             // could hold anything but Attack - see Save, and
-            // ActionButtons.Primary for what -1 then means.
-            ActionButtons.PrimaryNum = file.HasSectionKey(section, "primary")
-                ? (int)file.GetValue(section, "primary", -1) : -1;
+            // ActionButtons.Primary for what -1 then means. A Num no row
+            // carries (primary=999) is the same as none: Primary would
+            // fall back to the Attack seat anyway, and -1 says so in the
+            // file instead of carrying the number forward on every Save.
+            ActionButtons.PrimaryNum = primary >= 0 && taken.Contains(primary) ? primary : -1;
             return true;
         }
         catch (Exception e) { GD.PrintErr($"[HotbarStore] load: {e.Message}"); return false; }

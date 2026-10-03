@@ -269,8 +269,11 @@ public partial class InventoryDock : Control
         if (items == null) { if (relay) Layout(); return; }
 
         var sb = Sig.Start();
-        foreach (InventoryObject o in items)
+        // Indexed: items arrives as IList, and foreach over an interface
+        // boxes the list's enumerator - forty bytes a frame for nothing.
+        for (int i = 0; i < items.Count; i++)
         {
+            InventoryObject o = items[i];
             sb.Opt(o?.ID).Append(':').Opt(o?.Count)
               .Append(o != null && o.IsInUse ? "u" : "-").Append(':')
               .Append(o != null && o.Flags != null && o.Flags.IsApplyable ? "a" : "-").Append(':')

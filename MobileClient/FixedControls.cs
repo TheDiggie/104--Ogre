@@ -145,7 +145,9 @@ public partial class FixedControls : Control
     Part _pad, _stick;
     Rect2 _padRect, _stickRect;
     float _scalePad = 1f, _scaleStick = 1f;
-    string _stamp = "";
+    /// <summary>What the last redraw was queued for; a change in any of them queues another.</summary>
+    Rect2 _stampPad, _stampStick;
+    int _stampFlags = -1;
 
     /// <summary>
     /// One drawn control. A piece's node is what M59Hud.Dress fades and
@@ -271,8 +273,15 @@ public partial class FixedControls : Control
         if (_padFinger != -1 && !Usable(PadId)) { _padFinger = -1; _padSector = -1; Move = Vector2.Zero; }
         if (_stickFinger != -1 && !Usable(StickId)) { _stickFinger = -1; Look = Vector2.Zero; }
 
-        string stamp = $"{_padRect}|{_stickRect}|{(M59Hud.Editing ? 1 : 0)}|{(_showPad ? 1 : 0)}{(_showStick ? 1 : 0)}";
-        if (stamp != _stamp) { _stamp = stamp; _pad.QueueRedraw(); _stick.QueueRedraw(); }
+        // Compared as values, not as a string: the interpolated stamp
+        // this was cost ~700 bytes a frame for the life of the pad
+        // (notes/godot-ui.md, "A string built to compare").
+        int flags = (M59Hud.Editing ? 1 : 0) | (_showPad ? 2 : 0) | (_showStick ? 4 : 0);
+        if (_padRect != _stampPad || _stickRect != _stampStick || flags != _stampFlags)
+        {
+            _stampPad = _padRect; _stampStick = _stickRect; _stampFlags = flags;
+            _pad.QueueRedraw(); _stick.QueueRedraw();
+        }
     }
 
     // ---- input ------------------------------------------------------

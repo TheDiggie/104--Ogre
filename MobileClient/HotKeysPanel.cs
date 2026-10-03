@@ -475,7 +475,8 @@ public partial class HotKeysPanel : Control
     /// <summary>One config, with everything its seat draws - including whether its art has resolved.</summary>
     static void Entry(System.Text.StringBuilder sb, ActionButtonConfig b)
     {
-        sb.Append(b.Num).Append(':').Append(b.ButtonType).Append(':').Append(b.Name);
+        // (int): Append(enum) boxes, 24 bytes a seat a frame while open.
+        sb.Append(b.Num).Append(':').Append((int)b.ButtonType).Append(':').Append(b.Name);
         if (b.Data is ObjectBase o)
             sb.Append(':').Append(o.Resource?.Filename).Append(':').Append(o.ColorTranslation).Append(':').Append(o.Effect);
         sb.Append(';');
@@ -485,7 +486,7 @@ public partial class HotKeysPanel : Control
     {
         ActionButtonConfig anchor = Primary(data);
         sb.Append("c:").Append((int)_tab).Append(':').Append(_picked == PickPrimary ? 1 : 0)
-          .Append(':').Append(anchor?.Num ?? -1).Append(':').Append(anchor?.ButtonType).Append(':').Append(anchor?.Name).Append(';');
+          .Append(':').Append(anchor?.Num ?? -1).Append(':').Append(anchor != null ? (int)anchor.ButtonType : -1).Append(':').Append(anchor?.Name).Append(';');
         switch (_tab)
         {
             case Tab.Spells:
@@ -684,7 +685,11 @@ public partial class HotKeysPanel : Control
         Dress(b, _picked == pos ? SeatLook.Picked : empty ? SeatLook.Empty : SeatLook.Bound);
         b.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
         b.AddThemeConstantOverride("h_separation", 2);
-        b.Pressed += () => { _picked = _picked == pos ? -1 : pos; _signature = ""; };
+        // Layout too, not only the signature: the footer's Clear and the
+        // two movers are disabled while the Primary row is picked, and
+        // that is set in Layout - so a seat tapped after the primary
+        // left all three greyed until something else relaid the card.
+        b.Pressed += () => { _picked = _picked == pos ? -1 : pos; _signature = ""; Layout(); };
         return b;
     }
 

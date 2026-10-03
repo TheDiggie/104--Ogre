@@ -888,13 +888,19 @@ public partial class HudEditor : Control
     /// the guides actually complain about: not the geometry, but a swipe
     /// that lands on the neighbour.
     /// </summary>
+    readonly List<M59Hud.Piece> _live = new List<M59Hud.Piece>();
+
     void Clashes()
     {
         _clash.Clear();
         _shared.Clear();
-        var live = new List<M59Hud.Piece>();
-        foreach (M59Hud.Piece p in M59Hud.All)
-            if (Drawn(p) && !p.Hidden) live.Add(p);
+        // Reused, and indexed rather than foreach'd: this runs every
+        // frame the editor is open, and a fresh list plus the boxed
+        // enumerator an IReadOnlyList hands out were garbage for nothing.
+        List<M59Hud.Piece> live = _live; live.Clear();
+        IReadOnlyList<M59Hud.Piece> all = M59Hud.All;
+        for (int i = 0; i < all.Count; i++)
+            if (Drawn(all[i]) && !all[i].Hidden) live.Add(all[i]);
 
         for (int i = 0; i < live.Count; i++)
             for (int j = i + 1; j < live.Count; j++)
@@ -1156,6 +1162,43 @@ public partial class HudEditor : Control
 
     // ---- drawing ----------------------------------------------------
 
+    /// <summary>
+    /// A piece's name chip, built once and kept until something in it
+    /// changes. _Draw runs every frame the editor is open, and building
+    /// the tag was five concatenations and a measured string per piece
+    /// per frame - the same text every time.
+    /// </summary>
+    sealed class Chip
+    {
+        public string Name, Tag;
+        public bool Hidden, Bad;
+        public float Scale, Alpha, Width;
+        public int Columns, Rows;
+    }
+    readonly Dictionary<M59Hud.Piece, Chip> _chips = new Dictionary<M59Hud.Piece, Chip>();
+
+    Chip ChipFor(M59Hud.Piece p, bool bad, Font f)
+    {
+        if (!_chips.TryGetValue(p, out Chip c)) _chips[p] = c = new Chip();
+        if (c.Tag != null && c.Name == p.Name && c.Hidden == p.Hidden && c.Bad == bad
+            && c.Scale == p.Scale && c.Alpha == p.Alpha && c.Columns == p.Columns && c.Rows == p.Rows)
+            return c;
+        c.Name = p.Name; c.Hidden = p.Hidden; c.Bad = bad;
+        c.Scale = p.Scale; c.Alpha = p.Alpha; c.Columns = p.Columns; c.Rows = p.Rows;
+        string tag = p.Name;
+        if (p.Hidden) tag += "  (hidden)";
+        if (bad) tag += "  overlapping";
+        if (p.Scale != 1f) tag += $"  {p.Scale:0.00}x";
+        if (p.Alpha != 1f) tag += $"  {p.Alpha * 100f:0}%";
+        // "8 across" for a grid, "1000 width" / "12 lines" for the
+        // chat: the piece's own word, in its own unit (Follow).
+        if (p.Columns > 0 && HasColumns(p)) tag += $"  {p.ColumnsNow * p.ColumnsUnit} {p.ColumnsLabel.ToLowerInvariant()}";
+        if (p.Rows > 0 && HasRows(p)) tag += $"  {p.RowsNow * p.RowsUnit} {p.RowsLabel.ToLowerInvariant()}";
+        c.Tag = tag;
+        c.Width = f.GetStringSize(tag, HorizontalAlignment.Left, -1, 16).X;
+        return c;
+    }
+
     public override void _Draw()
     {
         Vector2 v = GetViewportRect().Size;
@@ -1171,8 +1214,10 @@ public partial class HudEditor : Control
         foreach (Rect2 r in _shared)
             DrawRect(r, new Color(M59Skin.Danger.R, M59Skin.Danger.G, M59Skin.Danger.B, 0.22f), true);
 
-        foreach (M59Hud.Piece p in M59Hud.All)
+        IReadOnlyList<M59Hud.Piece> all = M59Hud.All;
+        for (int pi = 0; pi < all.Count; pi++)
         {
+            M59Hud.Piece p = all[pi];
             if (!Drawn(p)) continue;
             Rect2 r = p.Rect;
             bool on = p == _picked;
@@ -1202,17 +1247,9 @@ public partial class HudEditor : Control
                 DrawLine(b, b - new Vector2(0, t), M59Skin.GoldBright, 5f);
             }
 
-            string tag = p.Name;
-            if (p.Hidden) tag += "  (hidden)";
-            if (bad) tag += "  overlapping";
-            if (p.Scale != 1f) tag += $"  {p.Scale:0.00}x";
-            if (p.Alpha != 1f) tag += $"  {p.Alpha * 100f:0}%";
-            // "8 across" for a grid, "1000 width" / "12 lines" for the
-            // chat: the piece's own word, in its own unit (Follow).
-            if (p.Columns > 0 && HasColumns(p)) tag += $"  {p.ColumnsNow * p.ColumnsUnit} {p.ColumnsLabel.ToLowerInvariant()}";
-            if (p.Rows > 0 && HasRows(p)) tag += $"  {p.RowsNow * p.RowsUnit} {p.RowsLabel.ToLowerInvariant()}";
-
-            float tw = f.GetStringSize(tag, HorizontalAlignment.Left, -1, 16).X;
+            Chip label = ChipFor(p, bad, f);
+            string tag = label.Tag;
+            float tw = label.Width;
             // Kept on the glass: a piece hung from the right edge (the
             // room enchantments, two icons wide) has a chip wider than
             // itself, and "Room enchantm" is not a name.

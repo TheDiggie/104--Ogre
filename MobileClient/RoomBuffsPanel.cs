@@ -229,7 +229,15 @@ public partial class RoomBuffsPanel : Control
         sb.Append(px).Append('|');
         foreach (ObjectBase b in buffs)
             sb.Opt(b?.ID).Append(b?.Resource != null ? "+" : "-").Append(';');
-        if (!Sig.Changed(sb, ref _signature)) return;
+        // The third half of the rule the comment above quotes: a sprite
+        // that exists but is not yet readable changes nothing in the
+        // data, so no signature can see it - retry on a timer while any
+        // compose failed (SpellsPanel.cs, AvatarPanel.cs do the same).
+        // Without it a slot whose first compose missed stayed invisible
+        // for as long as the room held the enchantment.
+        bool retry = _missed && Time.GetTicksMsec() >= _retryAt;
+        if (!Sig.Changed(sb, ref _signature) && !retry) return;
+        _missed = false;
 
         int used = 0;
         foreach (ObjectBase b in buffs)
@@ -255,6 +263,7 @@ public partial class RoomBuffsPanel : Control
         }
         Hide(used);
         _used = used;
+        if (_missed) _retryAt = Time.GetTicksMsec() + 500;
         // Placed after the rebuild: the natural rect is the filled
         // slots, so it is only known now.
         Relay();
@@ -296,6 +305,11 @@ public partial class RoomBuffsPanel : Control
         // bitmap behind it is unread - and a cached null would then be
         // answered for ever instead of being composed on the next rebuild.
         if (tex != null) _icons[key] = tex;
+        else _missed = true;
         return tex;
     }
+
+    /// <summary>A compose came back empty this rebuild; Sync retries at _retryAt.</summary>
+    bool _missed;
+    ulong _retryAt;
 }
