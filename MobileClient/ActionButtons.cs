@@ -48,6 +48,15 @@ using Meridian59.Data.Models;
 ///  - Next sits at the top of that arc, because acquiring a target is
 ///    part of attacking and it was a tile in the menu drawer, four taps
 ///    from the fight;
+///  - Door and Phase sit INSIDE the arc, between its lower end and the
+///    primary, fixed: neither is paged, cleared or saved. Door is the
+///    only way out of a room; Phase is the spell every character has
+///    and, in the owner's words, "very important". A padlock in the
+///    cluster's bottom-right corner locks every seat against the
+///    pull-off clear (default locked), and the primary, Door and Phase
+///    can never be pulled off at all;
+///  - the primary is whatever the player put there. It is Attack until
+///    the HotKeys panel's Primary row says otherwise (PrimaryNum);
 ///  - the bottom LEFT is untouched. That corner belongs to the movement
 ///    stick, which is a floating one that appears wherever the thumb
 ///    lands (TouchControls.cs:8-9), so anything drawn there is a
@@ -188,7 +197,7 @@ public partial class ActionButtons : Control
     public const float ArcFrom = 70f, ArcTo = 180f;
 
     /// <summary>
-    /// Seats on the arc: Door, four bindings, Target Next.
+    /// Seats on the arc: Target Next, then five bindings.
     ///
     /// SIX, and the arithmetic is the whole argument - the same
     /// arithmetic that said five, run again after the radius moved.
@@ -202,28 +211,93 @@ public partial class ActionButtons : Control
     /// So the radius went to 300 rather than the seat count down to
     /// five: 2*300*sin(11deg) = 114.5 points of chord, an 18.5-point
     /// rim gap, which is slightly MORE room than the five-seat layout
-    /// had at 18.1. Both ends of the arc are permanent controls, so
-    /// four seats hold bindings and a page is four - which is what was
-    /// asked for, and what the pager was written around.
+    /// had at 18.1.
     ///
     /// The cost is a bigger cluster: the arc reaches 60 points further
     /// from the primary, so Ceiling rises and the target block sits
     /// higher. That is the trade for a fourth binding on every page.
+    ///
+    /// Door was the sixth seat, at 180 degrees. It is not on the arc
+    /// any more (<see cref="DoorSeat"/>), and the seat it held is the
+    /// fifth binding: the owner's words were "add one more to the arc
+    /// but move the door button over to the right as i did in the
+    /// picture", and in the picture Door sits inside the arc, between
+    /// its lower end and the primary. So the arc keeps its six seats,
+    /// its radius and its chord - every number above still holds - and
+    /// gains a binding without gaining a seat.
     /// </summary>
     public const int ArcSeats = 6;
 
     /// <summary>
-    /// Hotbar seats: the arc, less the two ends.
+    /// Hotbar seats: the arc, less Target Next at the top.
     ///
-    /// Both ends of the arc are permanent controls - Target Next at
-    /// 70 degrees and Door at 180 - so four of the six seats hold
-    /// bindings. The ends are fixed because:
-    /// Door is pressed in a corridor, between fights, when the thing you
-    /// want is "take me through" and not whatever the page happens to
-    /// be showing. A control you have to turn a page to reach is a
-    /// control you do not use.
+    /// Five, from four, and that is the whole of the owner's second
+    /// request. Next stays fixed at 70 degrees because acquiring a
+    /// target is part of attacking. Door stays fixed too, but inside
+    /// the arc now rather than at its end, for the reason it always
+    /// was: it is pressed in a corridor, between fights, when the thing
+    /// you want is "take me through" and not whatever the page happens
+    /// to be showing. A control you have to turn a page to reach is a
+    /// control you do not use. Phase (<see cref="PhaseSeat"/>) is fixed
+    /// for the same reason, in the owner's words: "every player has it
+    /// and it is very important".
     /// </summary>
-    public const int HotSeats = ArcSeats - 2;
+    public const int HotSeats = ArcSeats - 1;
+
+    // ---- inside the arc -----------------------------------------------
+    //
+    // Three fixed controls sit in the annulus between the primary's rim
+    // (80 from the pivot) and the arc seats' inner rims (300 - 48 = 252):
+    // Door, Phase and the pager. Each is placed by angle and distance
+    // from the pivot, as the arc is, so they scale and move with it, and
+    // each is checked against its neighbours rim to rim below (Measure
+    // prints every gap). The numbers at 1x:
+    //
+    //   Door   180 deg, r 166: 38 to the primary, 38 to the arc's 180 seat.
+    //   Phase  135 deg, r 165: 37 to the primary, 39 to the arc, 31 to Door.
+    //   Pager   95 deg, r 190: 74 to the primary, 27 to the arc's seat 1,
+    //                          40 to Phase.
+    //
+    // All over the 8-point floor between targets of this size; none of
+    // them is near a screen edge, where 16 would apply.
+
+    /// <summary>
+    /// Door's distance from the pivot, straight left of it (180 degrees).
+    /// Centred in the annulus: the primary's rim is at 80 and the arc
+    /// seat's inner rim at 252, so a 96 seat at 166 leaves 38 to each.
+    /// Where the owner drew it: "right of the new seat, just left of
+    /// Attack and below Phase".
+    /// </summary>
+    const float DoorIn = 166f;
+    /// <summary>
+    /// Phase's place: 135 degrees from the pivot - the bisector of the
+    /// annulus's lower-left quarter, above-left of the primary, over
+    /// Door - at 165, which is the same depth as Door and so the same
+    /// gaps to the primary and the arc.
+    /// </summary>
+    const float PhaseAngle = 135f, PhaseIn = 165f;
+    /// <summary>
+    /// The pager's place: 95 degrees, almost straight above the primary,
+    /// at 190. It used to sit on the 125-degree bisector; Phase has that
+    /// now, and the stepper - 72 wide, the smallest thing here - takes
+    /// the narrower gap over the primary, where it is 27 from the arc's
+    /// first binding and 74 from the disc.
+    /// </summary>
+    const float TurnAngle = 95f, TurnIn = 190f;
+    /// <summary>
+    /// The padlock's edge. 44 is the tap floor, and that is all it needs
+    /// to be: it is pressed once a session, not in a fight.
+    /// </summary>
+    const float LockSize = 44f;
+    /// <summary>
+    /// Gap from the primary's bounding box to the padlock's. The lock
+    /// sits in the bottom-right corner of the cluster, right of the
+    /// primary's disc and bottom-aligned with it: with EdgeRight at 80
+    /// and a 44 lock, 20 leaves it 16 from the glass, which is the
+    /// edge rule's number. The disc is round, so the real rim gap at
+    /// the lock's top edge is 29 and grows below it.
+    /// </summary>
+    const float LockGap = 20f;
 
     // ---- the player's size, applied to that geometry ----------------
     //
@@ -261,6 +335,8 @@ public partial class ActionButtons : Control
     float Atk => Mathf.Max(TapFloor, AttackSize * HudScale());
     /// <summary>The page stepper's diameter at the player's size.</summary>
     float Turn => Mathf.Max(TapFloor, TurnSize * HudScale());
+    /// <summary>The padlock's edge at the player's size. Never under the tap floor.</summary>
+    float Lock => Mathf.Max(TapFloor, LockSize * HudScale());
     /// <summary>The composed icon's edge at the player's size.</summary>
     int IconPx => Mathf.Max(8, Mathf.RoundToInt(IconSize * HudScale()));
     /// <summary>A scaled font size, never small enough to stop being text.</summary>
@@ -280,9 +356,11 @@ public partial class ActionButtons : Control
 
     /// <summary>
     /// The cluster's own box, before the player has dragged it: the
-    /// primary and every arc seat. This is the natural rect the layout
-    /// store is handed, and the whole cluster moves by the difference
-    /// between it and what comes back.
+    /// primary, every arc seat, Door, Phase and the padlock. This is the
+    /// natural rect the layout store is handed, and the whole cluster
+    /// moves by the difference between it and what comes back. The lock
+    /// is in it so the editor's handle and its overlap test cover the
+    /// whole thing the player sees as "the buttons".
     /// </summary>
     Rect2 Natural(Vector2 v)
     {
@@ -290,13 +368,15 @@ public partial class ActionButtons : Control
         _shift = Vector2.Zero;
         Rect2 box = Round(Pivot(v), Atk);
         for (int i = 0; i < ArcSeats; i++) box = box.Merge(Round(Seat(v, i), Btn));
+        box = box.Merge(Round(DoorSeat(v), Btn)).Merge(Round(PhaseSeat(v), Btn)).Merge(LockRect(v));
         _shift = held;
         return box;
     }
 
     /// <summary>
     /// Seat 0 is the top of the arc and holds Next; 1 upwards are the
-    /// hotbar's, running down and round towards the left.
+    /// hotbar's, running down and round towards the left, the last at
+    /// 180 degrees where Door used to be.
     /// </summary>
     Vector2 Seat(Vector2 v, int i)
     {
@@ -304,17 +384,40 @@ public partial class ActionButtons : Control
         return Pivot(v) + new Vector2(Mathf.Cos(a), -Mathf.Sin(a)) * Arc;
     }
 
-    /// <summary>
-    /// The page stepper's seat: inside the arc, on the bisector between
-    /// the two middle seats, where it is 100 points from either of them
-    /// and 34 from the primary. It is not ON the arc because an arc seat
-    /// spent on turning the page is a binding the player cannot reach,
-    /// which is the whole complaint the paging answers.
-    /// </summary>
-    Vector2 TurnSeat(Vector2 v)
+    /// <summary>A point inside the arc, by angle and 1x distance from the pivot.</summary>
+    Vector2 Inside(Vector2 v, float deg, float at)
     {
-        float a = Mathf.DegToRad(ArcFrom + (ArcTo - ArcFrom) * 2.5f / (ArcSeats - 1));
-        return Pivot(v) + new Vector2(Mathf.Cos(a), -Mathf.Sin(a)) * (Arc * 0.625f);
+        float a = Mathf.DegToRad(deg);
+        return Pivot(v) + new Vector2(Mathf.Cos(a), -Mathf.Sin(a)) * (at * HudScale());
+    }
+
+    /// <summary>Door's centre: straight left of the primary, inside the arc. See DoorIn.</summary>
+    Vector2 DoorSeat(Vector2 v) => Inside(v, ArcTo, DoorIn);
+
+    /// <summary>Phase's centre: above-left of the primary, over Door. See PhaseIn.</summary>
+    Vector2 PhaseSeat(Vector2 v) => Inside(v, PhaseAngle, PhaseIn);
+
+    /// <summary>
+    /// The page stepper's seat: inside the arc, over the primary. It is
+    /// not ON the arc because an arc seat spent on turning the page is a
+    /// binding the player cannot reach, which is the whole complaint the
+    /// paging answers. See TurnIn for the numbers.
+    /// </summary>
+    Vector2 TurnSeat(Vector2 v) => Inside(v, TurnAngle, TurnIn);
+
+    /// <summary>
+    /// The padlock's rect: bottom-right of the cluster, right of the
+    /// primary's disc and bottom-aligned with it. "A padlock icon on the
+    /// bottom right of the hotkey ui element" - the owner's words, and
+    /// the one corner of the cluster nothing else wanted: the arc leans
+    /// up and left, the thumb rests on the disc, and the margin between
+    /// the disc and the glass (EdgeRight) was empty.
+    /// </summary>
+    Rect2 LockRect(Vector2 v)
+    {
+        Rect2 atk = Round(Pivot(v), Atk);
+        float d = Lock;
+        return new Rect2(Mathf.Round(atk.End.X + LockGap * HudScale()), Mathf.Round(atk.End.Y - d), d, d);
     }
 
     /// <summary>A round control's rect, from its centre and diameter.</summary>
@@ -509,6 +612,8 @@ public partial class ActionButtons : Control
         // character is chosen (`OgreClient.cpp:984`), and falls back to
         // a default set when there are none.
         if (HotbarStore.Load(data)) return;
+        // A fresh set has no chosen primary: Attack is, by the old rule.
+        PrimaryNum = -1;
 
         object[] starting =
         {
@@ -523,7 +628,7 @@ public partial class ActionButtons : Control
             // already seeded, and a starting set that holds Wave but
             // not Go is a set that cannot get out of the inn without
             // opening a menu. The argument for the POSITION is the
-            // pager: four bindings fit a page (HotSeats), the arc is
+            // pager: HotSeats bindings fit a page, the arc is
             // Attack-less and in list order, so this seed fills page
             // one with Rest, Go, Loot, Activate and pushes Inspect to
             // page two. Inspect is the right thing to push - it reads
@@ -598,6 +703,62 @@ public partial class ActionButtons : Control
 
     /// <summary>The page the last rebuild drew, zero-based. For the panel's "showing" mark.</summary>
     public static int CurrentPage { get; private set; }
+
+    /// <summary>
+    /// The Num of the config that is the primary - the big disc under
+    /// the thumb - or -1 for "the seat holding Attack", which is the
+    /// rule the cluster had before the disc could hold anything else.
+    ///
+    /// THE MODEL. The primary is one of the configs in the client's
+    /// list, like every seat: it is drawn at AttackSize instead of on
+    /// the arc, and that is the whole of the difference. Which one it
+    /// is was decided by TYPE - the first config holding Attack - and
+    /// the owner's fifth request ("allow ppl to change their big attack
+    /// button to other things") needed it decided by NUM instead: a
+    /// spell on the disc has no type to find it by. So the primary is
+    /// the config at this Num, the HotKeys panel's Set on the Primary
+    /// row writes THAT config in place with the library's own setters
+    /// (the Num does not move, so the arc does not either), and
+    /// HotbarStore saves the Num as a `primary` line beside the rows.
+    ///
+    /// -1 keeps every old file working unchanged: no line, no chosen
+    /// primary, the Attack seat is the disc, which is what those files
+    /// were saved under. It stays -1 until the player changes the disc,
+    /// so a player who never opens the panel never writes the line.
+    ///
+    /// Static for the reason LastBound is: one hotbar, and the store,
+    /// the panel and the cluster all read it. Set by HotbarStore.Load,
+    /// Seed and the panel; nothing else writes it.
+    /// </summary>
+    public static int PrimaryNum = -1;
+
+    /// <summary>
+    /// The primary's config, or null when there is none: the config at
+    /// <see cref="PrimaryNum"/> when that is set and present, else the
+    /// first config holding Attack in list order (the old rule, and the
+    /// fallback when a chosen Num has gone - a corrupt file, or a list
+    /// the server replaced). An Unset config at the chosen Num is still
+    /// the primary and draws as the disc's ring; the panel never writes
+    /// one, but a file might hold one.
+    ///
+    /// One function, because three places asked the question with
+    /// three copies of the type test - the cluster, the HotKeys panel's
+    /// rows and its chooser - and a model that changes in one place and
+    /// not the other two is a panel that shows one primary while the
+    /// disc shows another.
+    /// </summary>
+    public static ActionButtonConfig Primary(DataController data)
+    {
+        if (data?.ActionButtons == null) return null;
+        if (PrimaryNum >= 0)
+        {
+            ActionButtonConfig chosen = data.ActionButtons.GetByNum(PrimaryNum);
+            if (chosen != null) return chosen;
+        }
+        foreach (ActionButtonConfig b in data.ActionButtons)
+            if (IsAttack(b)) return b;
+        return null;
+    }
 
     /// <summary>
     /// The arc's order: by Num, not by list position. The reference's
@@ -720,6 +881,8 @@ public partial class ActionButtons : Control
             if (_turn != null) _turn.Visible = false;
             if (_nextBtn != null) _nextBtn.Visible = false;
             if (_doorBtn != null) _doorBtn.Visible = false;
+            if (_phaseBtn != null) _phaseBtn.Visible = false;
+            if (_lockBtn != null) _lockBtn.Visible = false;
             _signature = "";
             return;
         }
@@ -739,24 +902,33 @@ public partial class ActionButtons : Control
         Rect2 nat = Natural(v);
         _shift = M59Hud.Place("combat", nat, v).Position - nat.Position;
 
-        // The primary is the slot that holds the game's Attack action -
-        // the same config, the same press, the same hold - drawn at
-        // AttackSize in the middle of the cluster instead of as one more
-        // seat on the arc. Same test as Repeats uses, so the one control
-        // that swings while you lean on it is the one that gets the
-        // thumb's resting place.
+        // The primary is one slot out of the list - the same config, the
+        // same press, the same hold - drawn at AttackSize in the middle
+        // of the cluster instead of as one more seat on the arc. Which
+        // slot is Primary's question: the chosen Num, or the seat holding
+        // the game's Attack action where none has been chosen (see
+        // PrimaryNum). The hold still repeats by what the slot HOLDS
+        // (Repeats), so a spell on the disc re-casts while leant on and
+        // Rest on the disc does not flap.
         //
         // Nothing synthesises an Attack that is not in the list. A
         // config the client's list does not hold is one BaseClient never
         // subscribed to, so pressing it would do nothing at all
-        // (see Seed) - and the player who drags Attack off the cluster
-        // meant to. The seat then shows its empty ring until Attack is
-        // bound again from the Acts panel, which lands it straight back
-        // here: Bind keeps the slot number and this finds it by type.
-        ActionButtonConfig anchor = null;
-        foreach (ActionButtonConfig b in set)
-            if (b.ButtonType == ActionButtonType.Action
-                && b.Data is AvatarAction act && act == AvatarAction.Attack) { anchor = b; break; }
+        // (see Seed). An empty disc shows its ring until something is
+        // put there from the HotKeys panel's Primary row, or Attack is
+        // bound again from the Acts panel, which Primary finds by type.
+        ActionButtonConfig chosen = Primary(data);
+        // An Unset primary is still kept off the arc; it draws as the
+        // disc's ring, not as a seat.
+        ActionButtonConfig anchor = chosen != null && chosen.ButtonType != ActionButtonType.Unset ? chosen : null;
+
+        // Phase, which every character has and which the owner wants
+        // one press away at all times: the player's own spell of that
+        // name, looked up on every Sync because the list fills and its
+        // names resolve after login (notes/godot-ui.md, "A polled
+        // signature must hold everything the panel draws"). Null is a
+        // character without it, or one whose spells have not arrived.
+        SpellObject phase = FindPhase(data);
 
         // THE ARC IS POSITIONAL NOW, which is a change from "the set
         // buttons, compacted". Unset configs stay in their seats and are
@@ -774,7 +946,7 @@ public partial class ActionButtons : Control
         // exist.
         List<ActionButtonConfig> arc = _arc; arc.Clear();
         foreach (ActionButtonConfig b in data.ActionButtons)
-            if (b != null && b != anchor) arc.Add(b);
+            if (b != null && b != chosen) arc.Add(b);
         Stable(arc);
 
         // The game draws all forty-eight buttons at once, twelve by four
@@ -793,7 +965,7 @@ public partial class ActionButtons : Control
         // sweep, and dropping the overflow is what used to happen and
         // reads as a client that lost your binding. The stepper does NOT
         // cost a seat any more - it sits inside the arc (see TurnSeat),
-        // so a page is four bindings rather than three.
+        // so a page is HotSeats bindings - five now - rather than one fewer.
         bool paged = arc.Count > HotSeats;
         int perPage = HotSeats;
         int pages = paged ? (arc.Count + perPage - 1) / perPage : 1;
@@ -832,7 +1004,13 @@ public partial class ActionButtons : Control
 
         var sb = Sig.Start();
         if (anchor != null)
-            sb.Append('!').Append(anchor.Num).Append(':').Append(anchor.Name).Append(';');
+            sb.Append('!').Append(anchor.Num).Append(':').Append(anchor.ButtonType).Append(':').Append(anchor.Name)
+              .Append(':').Append(anchor.Data is ObjectBase ao ? ao.Resource?.Filename : "").Append(';');
+        // Phase: whether there is one, and whether its art has resolved
+        // (the seat shows the spell's own icon once it can be composed).
+        sb.Append('~').Append(phase == null ? "-" : phase.Resource?.Filename ?? "?").Append(';');
+        // The padlock's state, which redraws the glyph.
+        sb.Append(HotbarStore.Locked ? 'L' : 'U');
         for (int i = 0; i < count; i++)
             sb.Append(arc[first + i].Num).Append(':').Append(arc[first + i].ButtonType)
               .Append(':').Append(arc[first + i].Name).Append(';');
@@ -854,6 +1032,17 @@ public partial class ActionButtons : Control
         if (!Sig.Changed(sb, ref _signature)) return;
 
         _nums.Clear();
+        // Every pooled button gives its name back before any is
+        // renamed. A button named `hot{Num}` from the last layout is a
+        // sibling-name clash for the button that takes that Num in this
+        // one, and Godot renames the newcomer - `hot5` came out as
+        // `hot6` - so a scripted run pressed the wrong seat or none
+        // (notes/harness.md, "Free a row before you add its
+        // replacement" is the same trap on a list).
+        for (int i = 0; i < _pool.Count; i++) _pool[i].Name = $"pool{i}";
+        // Pool slot 0 is the primary when there is one - OnUp needs to
+        // know, because the disc is never cleared by the pull-off.
+        _primarySlot = anchor != null ? 0 : -1;
 
         // Pool index 0 is the primary when there is one, then the arc in
         // seat order. The handlers below capture the POOL index and
@@ -875,7 +1064,10 @@ public partial class ActionButtons : Control
 
             // Label is an empty string rather than null when unset, so a
             // null-coalesce picks the blank one and every button reads "?".
-            Texture2D icon = Icon(cfg);
+            // The disc's picture is composed at the disc's proportion of a
+            // seat - a 56-pixel sprite in a 160 circle is a smudge, and
+            // the whole reason the primary is big is to be read at a glance.
+            Texture2D icon = primary ? Icon(cfg, Mathf.RoundToInt(IconPx * (Atk / Btn))) : Icon(cfg);
             b.Icon = icon;
             // Every alias shares one picture, so the picture alone says
             // "an alias" and never which one. The reference can afford
@@ -1023,7 +1215,7 @@ public partial class ActionButtons : Control
         SlotEdge(_nextBtn, Btn, false, true, sc);
         _nextBtn.Visible = true;
 
-        // DOOR, the other fixed end of the arc.
+        // DOOR, fixed, inside the arc.
         //
         // It used to be a hotbar binding - Extra.Go, seeded onto page
         // one - and that was wrong for the same reason Next is not a
@@ -1032,9 +1224,10 @@ public partial class ActionButtons : Control
         // has been paged away, or dragged off by accident, leaves a
         // player able to walk around one room and never leave it.
         //
-        // At 180 degrees, the far end of the arc: straight left of the
-        // primary, which is the bottom-left corner of the cluster and
-        // the furthest seat from the thumb that fires Attack.
+        // It held the arc's 180-degree seat; that seat is a binding now
+        // and Door sits straight left of the primary at DoorIn, between
+        // the arc's lower end and the disc - "move the door button over
+        // to the right as i did in the picture".
         if (_doorBtn == null)
         {
             _doorBtn = new Button { Text = "Door" };
@@ -1044,11 +1237,124 @@ public partial class ActionButtons : Control
             AddChild(_doorBtn);
         }
         _doorBtn.AddThemeFontSizeOverride("font_size", Pt(FontSize, sc));
-        Rect2 doorCell = Round(Seat(v, ArcSeats - 1), Btn);
+        Rect2 doorCell = Round(DoorSeat(v), Btn);
         _doorBtn.Position = doorCell.Position;
         _doorBtn.Size = doorCell.Size;
         SlotEdge(_doorBtn, Btn, false, true, sc);
         _doorBtn.Visible = true;
+
+        // PHASE, fixed, over Door. "A normal sized button that cast the
+        // spell phase (every player has it and it is very important)."
+        //
+        // Not a config in the list: a config is paged, cleared and
+        // saved, and this is none of those - it is a fixed control like
+        // Door, whose press is the player's own Phase spell. The send is
+        // the spell book's (CastSend, `BaseClient.SendReqCastMessage
+        // (SpellObject)`, BaseClient.cs:1717 - the same method a Spell
+        // seat's Activate reaches through OnActionButtonActivated at
+        // :284-285), through Run, so the IsWaiting gate and the
+        // self-target latch apply exactly as they do for a seat.
+        //
+        // Dimmed, and inert, for a character without the spell: the
+        // library would refuse to cast a spell the character does not
+        // know (SendReqCastMessage(uint) looks the id up in
+        // Data.SpellObjects, :1702-1709), so there is nothing to send,
+        // and a dim seat says why. It stays on screen rather than
+        // hiding so the cluster does not change shape by character.
+        if (_phaseBtn == null)
+        {
+            _phaseBtn = new Button { Text = "Phase", ClipText = true, ExpandIcon = false,
+                                     IconAlignment = HorizontalAlignment.Center };
+            _phaseBtn.Name = "hotphase";
+            _phaseBtn.TooltipText = "Cast Phase";
+            _phaseBtn.Pressed += PressPhase;
+            AddChild(_phaseBtn);
+            // The name under the picture, inside the ring. A Spell seat
+            // on the arc shows its picture alone, because the player put
+            // it there and knows it; this seat was put here by the
+            // client, so it says what it is.
+            _phaseCap = new Label
+            {
+                Text = "Phase", MouseFilter = MouseFilterEnum.Ignore,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom,
+            };
+            _phaseCap.AddThemeColorOverride("font_color", M59Skin.Gold);
+            _phaseBtn.AddChild(_phaseCap);
+        }
+        _phaseBtn.AddThemeFontSizeOverride("font_size", Pt(FontSize, sc));
+        Rect2 phaseCell = Round(PhaseSeat(v), Btn);
+        _phaseBtn.Position = phaseCell.Position;
+        _phaseBtn.Size = phaseCell.Size;
+        // The spell's own picture when the resource has arrived, as a
+        // Spell seat shows; the word alone until then, and for ever when
+        // the character has no such spell.
+        Texture2D phaseIcon = phase != null && phase.Resource != null ? Icon(phase, IconPx) : null;
+        _phaseBtn.Icon = phaseIcon;
+        _phaseBtn.Text = phaseIcon != null ? "" : "Phase";
+        SlotEdge(_phaseBtn, Btn, false, true, sc);
+        // With a picture, the caption takes the bottom of the ring and
+        // the picture is pushed up to leave it room: the stylebox's
+        // content margin is the one lever a Button has over where its
+        // icon sits vertically.
+        float capH = phaseIcon != null ? Mathf.Round(Btn * 0.22f) : 0f;
+        foreach (string state in new[] { "normal", "hover", "focus", "pressed" })
+            if (_phaseBtn.GetThemeStylebox(state) is StyleBoxFlat sbf) sbf.ContentMarginBottom = capH;
+        _phaseCap.Visible = phaseIcon != null;
+        _phaseCap.AddThemeFontSizeOverride("font_size", Pt(FontSize - 4, sc));
+        _phaseCap.Position = new Vector2(0f, Btn - capH - Rim(2, sc) * 2f);
+        _phaseCap.Size = new Vector2(Btn, capH);
+        _phaseBtn.Disabled = phase == null;
+        _phaseBtn.Modulate = phase == null ? new Color(1f, 1f, 1f, 0.45f) : Colors.White;
+        _phaseBtn.Visible = true;
+
+        // THE PADLOCK. "A padlock icon on the bottom right of the hotkey
+        // ui element that unlocks and locks the hotkeys so people dont
+        // accidentally remove their hotkeys while playing."
+        //
+        // Locked, the pull-off clear (OnUp) does nothing on any seat;
+        // presses, holds and paging work as before. Unlocked, a seat can
+        // be pulled off and emptied as it always could. Default locked,
+        // kept across sessions and characters (HotbarStore.Locked). The
+        // glyph is drawn, not a font character: the house font has no
+        // padlock, and a square with a shackle reads the same in every
+        // language the client ships in.
+        if (_lockBtn == null)
+        {
+            _lockBtn = new Button { Name = "hotlock" };
+            _lockGlyph = new LockGlyph { MouseFilter = MouseFilterEnum.Ignore };
+            _lockBtn.AddChild(_lockGlyph);
+            _lockBtn.Pressed += () =>
+            {
+                HotbarStore.Locked = !HotbarStore.Locked;
+                Locked?.Invoke(HotbarStore.Locked);
+                _signature = "";
+            };
+            AddChild(_lockBtn);
+        }
+        bool locked = HotbarStore.Locked;
+        _lockBtn.TooltipText = locked ? "Hotkeys locked: tap to allow clearing seats"
+                                      : "Hotkeys unlocked: pull a seat off the cluster to clear it";
+        Rect2 lockCell = LockRect(v);
+        _lockBtn.Position = lockCell.Position;
+        _lockBtn.Size = lockCell.Size;
+        // Dressed as a stepper, like the pager: it is chrome, not an
+        // action, and it must never read as a seventh thing to press in
+        // a fight. Open, the glyph goes gold - the one state worth a
+        // glance, because it is the state in which a seat can be lost.
+        var lockFace = Cell(locked ? M59Skin.Rule : M59Skin.GoldDim,
+                            new Color(0.157f, 0.141f, 0.118f, 0.94f), Rim(2, sc), lockCell.Size.X * 0.5f);
+        var lockHit = Cell(M59Skin.Gold, new Color(0.267f, 0.224f, 0.157f, 0.96f), Rim(2, sc), lockCell.Size.X * 0.5f);
+        _lockBtn.AddThemeStyleboxOverride("normal", lockFace);
+        _lockBtn.AddThemeStyleboxOverride("hover", lockFace);
+        _lockBtn.AddThemeStyleboxOverride("focus", lockFace);
+        _lockBtn.AddThemeStyleboxOverride("pressed", lockHit);
+        _lockGlyph.Position = Vector2.Zero;
+        _lockGlyph.Size = lockCell.Size;
+        _lockGlyph.Open = !locked;
+        _lockGlyph.Tint = locked ? M59Skin.TextDim : M59Skin.Gold;
+        _lockGlyph.QueueRedraw();
+        _lockBtn.Visible = true;
 
         // The page button, saying where you are.
         // Its own button, not one out of the pool: a pooled button
@@ -1131,6 +1437,8 @@ public partial class ActionButtons : Control
             if (_turn != null) _turn.Visible = false;
             if (_nextBtn != null) _nextBtn.Visible = false;
             if (_doorBtn != null) _doorBtn.Visible = false;
+            if (_phaseBtn != null) _phaseBtn.Visible = false;
+            if (_lockBtn != null) _lockBtn.Visible = false;
         }
     }
 
@@ -1206,7 +1514,21 @@ public partial class ActionButtons : Control
         if (pulled)
         {
             // The reference's clear: drop the button on the root window
-            // (`UIActionButtons.cpp:471-473`).
+            // (`UIActionButtons.cpp:471-473`). Two things stop it here
+            // that the reference does not have:
+            //
+            // THE PADLOCK (HotbarStore.Locked, default on). The owner's
+            // words: "so people dont accidentally remove their hotkeys
+            // while playing". A thumb that slides off the disc in a
+            // fight is exactly the gesture, and the reference never
+            // faced it because a mouse does not slip.
+            //
+            // THE PRIMARY. "do not let people drag off the attack
+            // action, phase action or door action" - Phase and Door are
+            // not pooled seats and have no pull-off at all; the disc is,
+            // and whatever it holds stays. It is changed from the
+            // HotKeys panel's Primary row, never lost to a slip.
+            if (HotbarStore.Locked || slot == _primarySlot) return;
             ActionButtonConfig cfg = _data?.ActionButtons?.GetByNum(num);
             if (cfg == null) return;
             string name = cfg.Name;
@@ -1343,6 +1665,60 @@ public partial class ActionButtons : Control
     public Action GoSend;
 
     /// <summary>
+    /// What the Phase seat sends: the view's `_client.SendReqCastMessage
+    /// (SpellObject)` (`BaseClient.cs:1717`), which is the method the
+    /// spell book's cast reaches (`GameView` wires `_book.Cast` to the
+    /// uint overload at `:1702`, which looks the object up and calls
+    /// this one at `:1709`) and the method a bound Spell seat's
+    /// Activate reaches (`BaseClient.OnActionButtonActivated`,
+    /// `:284-285`). One send, three ways in. Supplied, not called, for
+    /// the reason GoSend is; null in a bare harness.
+    /// </summary>
+    public Action<SpellObject> CastSend;
+
+    /// <summary>Raised when the padlock is tapped, with the new state, for the chat line.</summary>
+    public event Action<bool> Locked;
+
+    /// <summary>
+    /// The player's Phase spell, by name, case-insensitively: the spell
+    /// list's names are resources that resolve after the ids arrive, so
+    /// a character's "phase" is compared as text once it is there. Null
+    /// until then, and for a character who has not learnt it.
+    /// </summary>
+    static SpellObject FindPhase(DataController data)
+    {
+        if (data?.SpellObjects == null) return null;
+        foreach (SpellObject s in data.SpellObjects)
+            if (s != null && string.Equals(s.Name, PhaseName, StringComparison.OrdinalIgnoreCase)) return s;
+        return null;
+    }
+
+    /// <summary>The spell's name in the game's string table, lower case as the server has it.</summary>
+    public const string PhaseName = "phase";
+
+    /// <summary>
+    /// The Phase seat's press: the spell, through Run, as every seat's
+    /// send goes. Looked up at the press rather than held, for the
+    /// reason Fire resolves a Num at the press: the list is replaced
+    /// on a relogin and a held object would be one the server has
+    /// forgotten. Nothing for a character without it - the seat is
+    /// Disabled, which a finger honours, and this is the guard for the
+    /// harness's emitted Pressed, which Disabled does not stop.
+    /// </summary>
+    void PressPhase()
+    {
+        SpellObject spell = FindPhase(_data);
+        if (spell == null) return;
+        Action go = () =>
+        {
+            try { CastSend?.Invoke(spell); }
+            catch (Exception e) { GD.PrintErr($"[ActionButtons] phase: {e.Message}"); }
+        };
+        if (Run != null) Run(go, false);
+        else go();
+    }
+
+    /// <summary>
     /// The one press path, for a second control that shows the same
     /// seats (HotkeyDock). A tap is <c>Perform(cfg, false)</c>; a frame
     /// of a held Attack is <c>Perform(cfg, true)</c>, which keeps the
@@ -1419,7 +1795,9 @@ public partial class ActionButtons : Control
     /// first picture it was ever drawn with for the rest of the session -
     /// where the game re-pushes the texture every time the object changes.
     /// </summary>
-    Texture2D Icon(ActionButtonConfig cfg)
+    Texture2D Icon(ActionButtonConfig cfg) => Icon(cfg, IconPx);
+
+    Texture2D Icon(ActionButtonConfig cfg, int px)
     {
         // An alias has no game object behind it and so nothing to
         // compose, which is why the reference gives it a fixed picture
@@ -1431,12 +1809,18 @@ public partial class ActionButtons : Control
 
         if (cfg.ButtonType == ActionButtonType.Action ||
             cfg.ButtonType == ActionButtonType.Unset) return null;
-        if (cfg.Data is not ObjectBase o || o.Resource == null) return null;
+        if (cfg.Data is not ObjectBase o) return null;
+        return Icon(o, px);
+    }
+
+    /// <summary>The composed picture of a game object - a seat's data, or the Phase spell itself - at a pixel edge.</summary>
+    Texture2D Icon(ObjectBase o, int px)
+    {
+        if (o?.Resource == null) return null;
 
         int frame = o.ViewerFrameIndex >= 0 ? o.ViewerFrameIndex : 0;
         // The composed size is in the key, so a scaled cluster composes
         // its pictures again rather than stretching the small ones.
-        int px = IconPx;
         string key = $"{o.Resource.Filename}:{frame}:{px}:{o.ColorTranslation}:{o.Effect}";
         if (_icons.TryGetValue(key, out ImageTexture cached)) return cached;
 
@@ -1654,21 +2038,63 @@ public partial class ActionButtons : Control
         GD.Print($"[hud] viewport {v.X}x{v.Y} reserve b={BottomReserve} l={LeftReserve}" +
                  $" ceiling={Ceiling:0} page={_page + 1} paged={paged}" +
                  $" scale={HudScale():0.00} shift={_shift.X:0},{_shift.Y:0}");
-        Say(anchor != null ? "ATTACK" : "attack(-)", Round(Pivot(v), Atk));
-        Say("next", Round(Seat(v, 0), Btn));
+        // Every round control as (centre, diameter), so the gaps below
+        // can be rim to rim - which is what a thumb feels, not centre to
+        // centre - and so the overlap count is over circles, not boxes.
+        var discs = new List<(string name, Vector2 c, float d)>();
+        discs.Add((anchor != null ? "ATTACK" : "attack(-)", Pivot(v), Atk));
+        discs.Add(("next", Seat(v, 0), Btn));
         for (int i = 1; i <= HotSeats; i++)
-            Say(i <= count ? $"seat{i}" : $"seat{i}(-)", Round(Seat(v, i), Btn));
-        Say("door", Round(Seat(v, ArcSeats - 1), Btn));
-        if (paged) Say("page", Round(TurnSeat(v), Turn));
+            discs.Add((i <= count ? $"seat{i}" : $"seat{i}(-)", Seat(v, i), Btn));
+        discs.Add(("door", DoorSeat(v), Btn));
+        discs.Add(("phase", PhaseSeat(v), Btn));
+        if (paged) discs.Add(("page", TurnSeat(v), Turn));
+        foreach (var (name, c, d) in discs) Say(name, Round(c, d));
+        Rect2 pad = LockRect(v);
+        Say("lock", pad);
 
-        // The gaps that the rules are actually about: rim to rim, which
-        // is what a thumb feels, not centre to centre.
+        // The gaps the rules are about.
         float rim = Arc - Atk * 0.5f - Btn * 0.5f;
         float step = (Seat(v, 1) - Seat(v, 0)).Length() - Btn;
+        float door = (DoorSeat(v) - Pivot(v)).Length() - Atk * 0.5f - Btn * 0.5f;
+        float doorArc = (Seat(v, ArcSeats - 1) - DoorSeat(v)).Length() - Btn;
+        float phase = (PhaseSeat(v) - Pivot(v)).Length() - Atk * 0.5f - Btn * 0.5f;
+        float phaseArc = Arc - (PhaseSeat(v) - Pivot(v)).Length() - Btn;
+        float phaseDoor = (PhaseSeat(v) - DoorSeat(v)).Length() - Btn;
         float turn = (TurnSeat(v) - Pivot(v)).Length() - Atk * 0.5f - Turn * 0.5f;
-        float near = (TurnSeat(v) - Seat(v, 2)).Length() - Turn * 0.5f - Btn * 0.5f;
+        float near = (TurnSeat(v) - Seat(v, 1)).Length() - Turn * 0.5f - Btn * 0.5f;
+        float turnPhase = (TurnSeat(v) - PhaseSeat(v)).Length() - Turn * 0.5f - Btn * 0.5f;
+        // The lock is a square beside a circle: its nearest corner to the
+        // disc's centre, less the disc's radius.
+        Vector2 lockNear = new Vector2(pad.Position.X, Mathf.Clamp(Pivot(v).Y, pad.Position.Y, pad.End.Y));
+        float lockGap = (lockNear - Pivot(v)).Length() - Atk * 0.5f;
         GD.Print($"[hud] gaps primary-to-arc={rim:0} arc-to-arc={step:0}" +
-                 $" primary-to-page={turn:0} page-to-arc={near:0}");
+                 $" primary-to-door={door:0} door-to-arc={doorArc:0}" +
+                 $" primary-to-phase={phase:0} phase-to-arc={phaseArc:0} phase-to-door={phaseDoor:0}" +
+                 $" primary-to-page={turn:0} page-to-arc={near:0} page-to-phase={turnPhase:0}" +
+                 $" primary-to-lock={lockGap:0} lock-to-edge={v.X - pad.End.X:0}");
+
+        // The two claims the whole layout rests on, counted rather than
+        // eyeballed: nothing under the tap floor, nothing touching.
+        int small = 0, overlaps = 0;
+        foreach (var (_, _, d) in discs) if (d < TapFloor) small++;
+        if (pad.Size.X < TapFloor) small++;
+        for (int i = 0; i < discs.Count; i++)
+            for (int j = i + 1; j < discs.Count; j++)
+                if ((discs[i].c - discs[j].c).Length() < (discs[i].d + discs[j].d) * 0.5f)
+                { overlaps++; GD.Print($"[hud] OVERLAP {discs[i].name} x {discs[j].name}"); }
+        foreach (var (name, c, d) in discs)
+        {
+            // Circle against the lock's square: the nearest point of the
+            // square to the centre, inside the radius.
+            Vector2 q = new Vector2(Mathf.Clamp(c.X, pad.Position.X, pad.End.X), Mathf.Clamp(c.Y, pad.Position.Y, pad.End.Y));
+            if ((q - c).Length() < d * 0.5f) { overlaps++; GD.Print($"[hud] OVERLAP {name} x lock"); }
+        }
+        Rect2 all = pad;
+        foreach (var (_, c, d) in discs) all = all.Merge(Round(c, d));
+        bool off = all.Position.X < 0 || all.Position.Y < 0 || all.End.X > v.X || all.End.Y > v.Y;
+        GD.Print($"[hud] controls={discs.Count + 1} under44={small} overlaps={overlaps} offglass={(off ? 1 : 0)}" +
+                 $" box={all.Position.X:0},{all.Position.Y:0} {all.Size.X:0}x{all.Size.Y:0}");
     }
 
     /// <summary>Which page of bindings the row is showing.</summary>
@@ -1686,6 +2112,52 @@ public partial class ActionButtons : Control
     /// <summary>The target control. Not a binding - see where it is placed.</summary>
     Button _nextBtn;
     Button _doorBtn;
+    /// <summary>The Phase seat. Not a binding either - see where it is placed.</summary>
+    Button _phaseBtn;
+    Label _phaseCap;
+    /// <summary>The padlock, and the glyph drawn on it.</summary>
+    Button _lockBtn;
+    LockGlyph _lockGlyph;
+    /// <summary>The pool slot the primary is in this layout, or -1. OnUp spares it.</summary>
+    int _primarySlot = -1;
+
+    /// <summary>
+    /// A padlock, drawn. A square body with a shackle over it; open, the
+    /// shackle lifts and swings its free leg clear of the body, which is
+    /// the shape every lock-screen icon uses and the one a glance reads
+    /// without a caption. Drawn in the button's own rect, scaled to it,
+    /// so it follows the player's size with the rest of the cluster.
+    /// </summary>
+    sealed partial class LockGlyph : Control
+    {
+        public bool Open;
+        public Color Tint = Colors.White;
+
+        public override void _Draw()
+        {
+            float s = Mathf.Min(Size.X, Size.Y);
+            float w = Mathf.Max(1.5f, s * 0.08f);
+            Vector2 c = Size * 0.5f;
+            // The body: a square a little wider than tall, in the lower
+            // half, so the shackle has the upper half to stand in.
+            float bw = s * 0.46f, bh = s * 0.34f;
+            var body = new Rect2(c.X - bw * 0.5f, c.Y + s * 0.02f, bw, bh);
+            DrawRect(body, Tint, true);
+            // The keyhole: a dark dot in the body's face.
+            DrawCircle(new Vector2(c.X, body.Position.Y + bh * 0.45f), w * 1.1f, new Color(0.157f, 0.141f, 0.118f));
+            // The shackle: a half ring a third of the body's width,
+            // standing on the body. Closed, both legs reach the body.
+            // Open, the whole shackle is lifted by most of its radius and
+            // the right leg stops short of the body - the gap is the sign.
+            float r = bw * 0.34f;
+            float lift = Open ? r * 0.9f : 0f;
+            float topY = body.Position.Y - r - lift;
+            DrawArc(new Vector2(c.X, topY), r, Mathf.Pi, Mathf.Tau, 16, Tint, w);
+            DrawLine(new Vector2(c.X - r, topY), new Vector2(c.X - r, body.Position.Y), Tint, w);
+            float legEnd = Open ? topY + r * 0.6f : body.Position.Y;
+            DrawLine(new Vector2(c.X + r, topY), new Vector2(c.X + r, legEnd), Tint, w);
+        }
+    }
 
     void HideFrom(int from)
     {

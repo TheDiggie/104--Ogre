@@ -32,9 +32,12 @@ using Meridian59.Data.Models;
 /// in Num order; the configs themselves, their listeners and the
 /// client's subscriptions to them, are never touched.
 ///
-/// Attack is shown once at the top as the primary and is not editable
-/// in the rows, because it is not in them: it is the big disc under
-/// the thumb on every page. Unbound, the row offers to put it back.
+/// The primary is shown once at the top and is not a seat in the rows,
+/// because it is not in them: it is the big disc under the thumb on
+/// every page. It CAN be Set - the owner asked to "change their big
+/// attack button to other things" - and the disc is then whatever was
+/// chosen, by Num (ActionButtons.PrimaryNum); it cannot be cleared or
+/// moved. Empty, the row offers to put Attack back.
 /// </summary>
 public partial class HotKeysPanel : Control
 {
@@ -42,7 +45,7 @@ public partial class HotKeysPanel : Control
     const float SlotSize = 88f;
     /// <summary>The composed picture inside a seat, and inside a chooser row.</summary>
     const int SlotIcon = 52, RowIcon = 36;
-    /// <summary>The page caption's column, so the four seats line up page to page.</summary>
+    /// <summary>The page caption's column, so the seats line up page to page.</summary>
     const float PageW = 150f;
     /// <summary>Height of the chooser's tab strip at the top of the body.</summary>
     const float TabH = 44f;
@@ -121,7 +124,7 @@ public partial class HotKeysPanel : Control
         // footer where it is the same four targets whichever page the
         // seat is on, rather than a strip per row that would put
         // sixteen small buttons under the pages.
-        _set = Foot("Set…", "hkSet", M59Skin.Kind.Primary, () => { if (_picked >= 0) { _choosing = true; _signature = ""; Layout(); } });
+        _set = Foot("Set…", "hkSet", M59Skin.Kind.Primary, () => { if (_picked >= 0 || _picked == PickPrimary) { _choosing = true; _signature = ""; Layout(); } });
         _clear = Foot("Clear", "hkClear", M59Skin.Kind.Secondary, () => Clear(_picked));
         _left = Foot("◀", "hkLeft", M59Skin.Kind.Secondary, () => Swap(_picked, -1));
         _right = Foot("▶", "hkRight", M59Skin.Kind.Secondary, () => Swap(_picked, +1));
@@ -173,7 +176,7 @@ public partial class HotKeysPanel : Control
         _scrim.Size = v;
 
         // As tall as its pages and as wide as a list: a row here is a
-        // word and four seats, which across the whole of a sideways
+        // word and five seats, which across the whole of a sideways
         // screen would be a caption at one end and the seats a long way
         // off. The chooser takes all the height it can get, since a
         // spell list is as long as the character is old. Frame caps
@@ -211,6 +214,13 @@ public partial class HotKeysPanel : Control
         _back.Visible = on && _choosing;
         _close.Visible = on && !_choosing;
         _set.Visible = _clear.Visible = _left.Visible = _right.Visible = on && !_choosing;
+        // The Primary row takes Set and nothing else: "do not let people
+        // drag off the attack action" is a rule about losing the disc,
+        // and Clear here would be the same loss by another door; and a
+        // move is a swap of arc Nums, which the disc is not among. Set
+        // REPLACES, which is how the disc changes.
+        bool primary = _picked == PickPrimary;
+        _clear.Disabled = _left.Disabled = _right.Disabled = primary;
         if (_choosing) M59Skin.FootRow(foot, _back);
         else
         {
@@ -225,15 +235,16 @@ public partial class HotKeysPanel : Control
 
     // ---- the model -------------------------------------------------
 
-    /// <summary>The Attack primary, as the cluster finds it: first in list order.</summary>
-    static ActionButtonConfig Primary(DataController data)
-    {
-        if (data?.ActionButtons == null) return null;
-        foreach (ActionButtonConfig b in data.ActionButtons)
-            if (b != null && b.ButtonType == ActionButtonType.Action
-                && b.Data is AvatarAction a && a == AvatarAction.Attack) return b;
-        return null;
-    }
+    /// <summary>
+    /// The primary, as the cluster finds it (ActionButtons.Primary): the
+    /// chosen Num, or the seat holding Attack. One answer for the disc
+    /// and these rows, or the panel would show one primary while the
+    /// cluster drew another.
+    /// </summary>
+    static ActionButtonConfig Primary(DataController data) => ActionButtons.Primary(data);
+
+    /// <summary>The chosen seat is the Primary row, not a position in the arc.</summary>
+    const int PickPrimary = -2;
 
     /// <summary>Everything but the primary, in Num order - the cluster's arc.</summary>
     List<ActionButtonConfig> Arc(DataController data)
@@ -281,7 +292,7 @@ public partial class HotKeysPanel : Control
 
     void Clear(int pos)
     {
-        if (pos < 0) return;
+        if (pos < 0) return; // includes PickPrimary: the disc is never cleared
         List<ActionButtonConfig> arc = Arc(_data);
         if (pos >= arc.Count || arc[pos].ButtonType == ActionButtonType.Unset) return;
         // The reference's clear (`UIActionButtons.cpp:471-473`): the
@@ -350,8 +361,14 @@ public partial class HotKeysPanel : Control
     /// <summary>Writes the chosen seat with the library's setter for what was picked, and comes back to the pages.</summary>
     void Put(object what)
     {
-        ActionButtonConfig slot = Ensure(_picked);
-        if (slot == null || what == null) return;
+        if (what == null) return;
+        bool primary = _picked == PickPrimary;
+        ActionButtonConfig slot = primary ? EnsurePrimary() : Ensure(_picked);
+        if (slot == null) return;
+        // A second copy of what the disc already holds, on the arc, is
+        // the same swing twice; the chooser hides it, and this is the
+        // same refusal at the writer.
+        if (!primary && Same(Primary(_data), what)) return;
         switch (what)
         {
             case SpellObject spell:    slot.SetToSpell(spell); break;
@@ -361,12 +378,55 @@ public partial class HotKeysPanel : Control
             case SkillObject skill:    slot.SetToSkill(skill); break;
             case InventoryObject item: slot.SetToItem(item);   break;
             case AvatarAction act:     slot.SetToAction(act);  break;
+            // Go is not offered for the disc (Door is fixed beside it).
+            case ActionButtons.Extra.Go when primary: return;
             case ActionButtons.Extra.Go: ActionButtons.SetToGo(slot); break;
             default: return;
         }
+        if (primary)
+        {
+            // The disc is THIS config from now on, by Num - see
+            // ActionButtons.PrimaryNum. Writing the Num even when it is
+            // the Attack seat's own costs nothing and means a later
+            // Attack bound to the arc does not become a second disc.
+            ActionButtons.PrimaryNum = slot.Num;
+        }
         _choosing = false;
-        Changed(_picked);
+        Changed(primary ? -1 : _picked);
         Layout();
+    }
+
+    /// <summary>
+    /// The config the disc is to be written into: the primary where
+    /// there is one - rewritten in place, so its Num and the arc stay
+    /// put - or a new config at the next free Num where the list holds
+    /// no primary at all (Attack dragged off before the lock existed,
+    /// or a seeded set a file never held). The new one is kept off the
+    /// arc by PrimaryNum, which Put sets right after.
+    /// </summary>
+    ActionButtonConfig EnsurePrimary()
+    {
+        if (_data?.ActionButtons == null) return null;
+        ActionButtonConfig have = Primary(_data);
+        if (have != null) return have;
+        int next = 0;
+        foreach (ActionButtonConfig b in _data.ActionButtons) if (b != null && b.Num >= next) next = b.Num + 1;
+        var made = new ActionButtonConfig(next, ActionButtonType.Unset, "");
+        _data.ActionButtons.Add(made);
+        return made;
+    }
+
+    /// <summary>Whether a chooser pick is the thing a config already holds.</summary>
+    static bool Same(ActionButtonConfig cfg, object what)
+    {
+        if (cfg == null || what == null) return false;
+        return what switch
+        {
+            AvatarAction a => cfg.ButtonType == ActionButtonType.Action && cfg.Data is AvatarAction b && a == b && a != AvatarAction.None,
+            SpellObject s => cfg.ButtonType == ActionButtonType.Spell && cfg.Data is SpellObject t && s.ID == t.ID,
+            SkillObject s => cfg.ButtonType == ActionButtonType.Skill && cfg.Data is SkillObject t && s.ID == t.ID,
+            _ => false,
+        };
     }
 
     // ---- the rows --------------------------------------------------
@@ -400,8 +460,10 @@ public partial class HotKeysPanel : Control
     void PagesSig(System.Text.StringBuilder sb, DataController data)
     {
         ActionButtonConfig anchor = Primary(data);
-        sb.Append("p:").Append(anchor?.Num ?? -1).Append(':').Append(_picked)
-          .Append(':').Append(ActionButtons.CurrentPage).Append(';');
+        sb.Append("p:").Append(_picked).Append(':').Append(ActionButtons.CurrentPage).Append(';');
+        // The primary row draws what the disc holds, so its entry is in
+        // full - type, name and whether its art has resolved.
+        if (anchor != null) Entry(sb, anchor); else sb.Append("-;");
         foreach (ActionButtonConfig b in Arc(data)) Entry(sb, b);
     }
 
@@ -416,7 +478,9 @@ public partial class HotKeysPanel : Control
 
     void ChooserSig(System.Text.StringBuilder sb, DataController data)
     {
-        sb.Append("c:").Append((int)_tab).Append(':').Append(Primary(data) != null ? 1 : 0).Append(';');
+        ActionButtonConfig anchor = Primary(data);
+        sb.Append("c:").Append((int)_tab).Append(':').Append(_picked == PickPrimary ? 1 : 0)
+          .Append(':').Append(anchor?.Num ?? -1).Append(':').Append(anchor?.ButtonType).Append(':').Append(anchor?.Name).Append(';');
         switch (_tab)
         {
             case Tab.Spells:
@@ -490,7 +554,7 @@ public partial class HotKeysPanel : Control
         M59Skin.Dress(drop, M59Skin.Kind.Secondary);
         drop.Pressed += RemovePage;
         tail.AddChild(drop);
-        var hint = M59Skin.Caption(_picked < 0 ? "Tap a seat, then Set, Clear or move it." : "");
+        var hint = M59Skin.Caption(_picked == -1 ? "Tap a seat, then Set, Clear or move it." : "");
         hint.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         hint.VerticalAlignment = VerticalAlignment.Center;
         hint.ClipText = true;
@@ -499,10 +563,18 @@ public partial class HotKeysPanel : Control
     }
 
     /// <summary>
-    /// The primary's row. Read, not edited: Attack is not a seat in the
-    /// arc, so moving or setting it here would be moving nothing. When
-    /// it has been dragged off, the one thing to offer is to put it back
-    /// - through Bind, which is how the Acts panel does it.
+    /// The primary's row: the disc, as a seat that can be picked and
+    /// Set. "in the hotkey customizer allow ppl to change their big
+    /// attack button to other things" - so the seat is a button like the
+    /// arc's, a tap picks it (`hkPrimary`), and Set… opens the chooser
+    /// with Attack among the actions. It cannot be cleared or moved -
+    /// see Layout - because the disc is never emptied by anything
+    /// (ActionButtons.OnUp) and is not a position in the arc. Set
+    /// replaces what it holds, in place, by Num (ActionButtons.PrimaryNum).
+    ///
+    /// Empty - a list with no primary at all - the row still offers
+    /// "Set Attack" as the one-tap way back to the game's default,
+    /// beside the general Set.
     /// </summary>
     Control PrimaryRow(ActionButtonConfig anchor)
     {
@@ -521,14 +593,38 @@ public partial class HotKeysPanel : Control
         cap.AddThemeColorOverride("font_color", M59Skin.Text);
         line.AddChild(cap);
 
-        if (anchor != null)
+        bool empty = anchor == null || anchor.ButtonType == ActionButtonType.Unset;
+        var seat = new Button
         {
-            var seat = new Button { Text = "Attack", Disabled = true, Name = "hkPrimary" };
-            Dress(seat, SeatLook.Primary);
-            seat.CustomMinimumSize = new Vector2(SlotSize, SlotSize);
-            seat.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-            line.AddChild(seat);
-            var note = M59Skin.Caption("The big button, on every page.");
+            Name = "hkPrimary",
+            CustomMinimumSize = new Vector2(SlotSize, SlotSize),
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            ClipText = true,
+            ExpandIcon = false,
+            IconAlignment = HorizontalAlignment.Center,
+        };
+        if (!empty)
+        {
+            // Captioned as the disc captions itself: the picture when
+            // there is one, the name when there is not.
+            Texture2D icon = Icon(anchor);
+            seat.Icon = icon;
+            bool alias = anchor.ButtonType == ActionButtonType.Alias;
+            seat.Text = icon != null && !alias ? "" : Short(anchor.Name, alias ? 6 : 8);
+            if (!string.IsNullOrEmpty(seat.Text) && icon != null) seat.IconAlignment = HorizontalAlignment.Left;
+            seat.TooltipText = anchor.Name;
+        }
+        Dress(seat, _picked == PickPrimary ? SeatLook.Picked : empty ? SeatLook.Empty : SeatLook.Primary);
+        seat.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        seat.AddThemeConstantOverride("h_separation", 2);
+        seat.Pressed += () => { _picked = _picked == PickPrimary ? -1 : PickPrimary; _signature = ""; Layout(); };
+        line.AddChild(seat);
+
+        if (!empty)
+        {
+            var note = M59Skin.Caption(_picked == PickPrimary
+                ? "Set… puts something else on the big button."
+                : "The big button, on every page. Tap it, then Set…");
             note.VerticalAlignment = VerticalAlignment.Center;
             note.SizeFlagsHorizontal = SizeFlags.ExpandFill;
             note.ClipText = true;
@@ -536,17 +632,13 @@ public partial class HotKeysPanel : Control
         }
         else
         {
-            var seat = new Button { Name = "hkPrimary", Disabled = true };
-            Dress(seat, SeatLook.Empty);
-            seat.CustomMinimumSize = new Vector2(SlotSize, SlotSize);
-            seat.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-            line.AddChild(seat);
             var set = new Button { Text = "Set Attack", Name = "hkSetAttack", CustomMinimumSize = new Vector2(PageW, M59Skin.TapMin) };
             M59Skin.Dress(set, M59Skin.Kind.Primary);
             set.SizeFlagsVertical = SizeFlags.ShrinkCenter;
             set.Pressed += () =>
             {
-                if (ActionButtons.Bind(_data, AvatarAction.Attack)) Changed(-1);
+                _picked = PickPrimary;
+                Put(AvatarAction.Attack);
             };
             line.AddChild(set);
         }
@@ -663,29 +755,37 @@ public partial class HotKeysPanel : Control
         switch (_tab)
         {
             case Tab.Actions:
-                bool hasAttack = Primary(data) != null;
+                ActionButtonConfig disc = Primary(data);
+                bool forPrimary = _picked == PickPrimary;
                 foreach (AvatarAction a in Actions)
                 {
-                    // Attack is the primary and is set from the row at
-                    // the top; a second Attack in the arc would be the
-                    // same swing twice.
-                    if (a == AvatarAction.Attack && hasAttack) continue;
-                    string label = a == AvatarAction.GuildInvite ? "Guild invite"
-                                 : a == AvatarAction.Attack ? "Attack (becomes the primary)" : a.ToString();
+                    // Whatever the disc holds is not offered to an arc
+                    // seat: a second copy on the arc would be the same
+                    // swing twice. For the disc itself everything is
+                    // offered, Attack first - it is the game's default
+                    // and the way back to it.
+                    if (!forPrimary && Same(disc, a)) continue;
+                    string label = a == AvatarAction.GuildInvite ? "Guild invite" : a.ToString();
                     _rows.AddChild(Row($"pick{a}", label, null, n++, () => Put(a)));
                 }
-                _rows.AddChild(Row("pickGo", "Go (through the door)", null, n++, () => Put(ActionButtons.Extra.Go)));
+                // Door is a fixed seat beside the disc, so Go on the disc
+                // would be Door twice; it stays an arc option for the
+                // player who wants it under a thumb elsewhere.
+                if (!forPrimary)
+                    _rows.AddChild(Row("pickGo", "Go (through the door)", null, n++, () => Put(ActionButtons.Extra.Go)));
                 break;
             case Tab.Spells:
                 if (data.SpellObjects != null)
                     foreach (SpellObject s in data.SpellObjects)
-                        _rows.AddChild(Row($"pick{s.ID}", s.Name, s, n++, () => Put(s)));
+                        if (_picked == PickPrimary || !Same(Primary(data), s))
+                            _rows.AddChild(Row($"pick{s.ID}", s.Name, s, n++, () => Put(s)));
                 if (n == 0) Nothing("No spells known yet.");
                 break;
             case Tab.Skills:
                 if (data.SkillObjects != null)
                     foreach (SkillObject s in data.SkillObjects)
-                        if (s.IsActiveSkill) _rows.AddChild(Row($"pick{s.ID}", s.Name, s, n++, () => Put(s)));
+                        if (s.IsActiveSkill && (_picked == PickPrimary || !Same(Primary(data), s)))
+                            _rows.AddChild(Row($"pick{s.ID}", s.Name, s, n++, () => Put(s)));
                 if (n == 0) Nothing("No skills you can perform.");
                 break;
             case Tab.Items:

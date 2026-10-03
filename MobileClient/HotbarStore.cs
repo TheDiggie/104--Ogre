@@ -93,10 +93,66 @@ public static class HotbarStore
                 rows.Add($"{b.Num}\t{b.ButtonType}\t{b.NumOfSameName}\t{b.Name}");
             }
 
-            file.SetValue(Key(data.ActionButtons.PlayerName), "buttons", rows.ToArray());
+            string section = Key(data.ActionButtons.PlayerName);
+            file.SetValue(section, "buttons", rows.ToArray());
+            // WHICH ROW IS THE BIG BUTTON. The game has no such thing -
+            // all forty-eight cells are the same size - so this is the
+            // one field here with no `OgreClientConfig.cpp` line behind
+            // it. It is a Num, not a row, because the primary is one of
+            // the rows above and is written there like any other seat;
+            // this only says which. Absent, the loader falls back to the
+            // rule the cluster always had - the seat holding Attack is
+            // the primary - so a file written before this line still
+            // reads, with the same big button it had (ActionButtons.Primary).
+            if (ActionButtons.PrimaryNum >= 0) file.SetValue(section, "primary", ActionButtons.PrimaryNum);
+            else if (file.HasSectionKey(section, "primary")) file.EraseSectionKey(section, "primary");
             file.Save(Path);
         }
         catch (Exception e) { GD.PrintErr($"[HotbarStore] save: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// Whether the seats are locked against the clear gesture. GLOBAL,
+    /// not per character and not per layout: the player's words were
+    /// "so people dont accidentally remove their hotkeys while playing",
+    /// which is a statement about the player's thumb, not about one
+    /// character's bar. In this file rather than settings.cfg because
+    /// OptionsPanel rewrites that file whole on every change (`Keep`),
+    /// and a second writer on it is the race ServerList moved out of
+    /// the way of; this file is Load-then-Save on every write, so a
+    /// section of its own is safe here. Default LOCKED: a new player
+    /// has not yet learnt the gesture that would empty a seat, and the
+    /// one who wants it finds the padlock on the cluster.
+    /// </summary>
+    public static bool Locked
+    {
+        get { if (!_lockRead) ReadLock(); return _locked; }
+        set
+        {
+            _lockRead = true;
+            _locked = value;
+            try
+            {
+                var file = new ConfigFile();
+                file.Load(Path);
+                file.SetValue("client", "locked", value);
+                file.Save(Path);
+            }
+            catch (Exception e) { GD.PrintErr($"[HotbarStore] lock: {e.Message}"); }
+        }
+    }
+    static bool _locked = true, _lockRead;
+
+    static void ReadLock()
+    {
+        _lockRead = true;
+        try
+        {
+            var file = new ConfigFile();
+            if (file.Load(Path) != Error.Ok) return;
+            _locked = (bool)file.GetValue("client", "locked", true);
+        }
+        catch (Exception e) { GD.PrintErr($"[HotbarStore] lock: {e.Message}"); }
     }
 
     /// <summary>
@@ -211,6 +267,12 @@ public static class HotbarStore
 
             data.ActionButtons.Clear();
             foreach (ActionButtonConfig b in restored) data.ActionButtons.Add(b);
+            // The primary's Num, where the file has one; -1 where it does
+            // not, which is every file written before the big button
+            // could hold anything but Attack - see Save, and
+            // ActionButtons.Primary for what -1 then means.
+            ActionButtons.PrimaryNum = file.HasSectionKey(section, "primary")
+                ? (int)file.GetValue(section, "primary", -1) : -1;
             return true;
         }
         catch (Exception e) { GD.PrintErr($"[HotbarStore] load: {e.Message}"); return false; }

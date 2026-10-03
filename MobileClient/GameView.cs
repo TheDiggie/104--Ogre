@@ -2681,7 +2681,15 @@ public partial class GameView : Node2D
             // tile makes, through the same gate: the hotbar wraps this
             // in Run, which is HotbarAct, which is WorldAct for a tap.
             _hotbar.GoSend = () => _client.SendReqGo(true);
+            // The Phase seat's send: the same SendReqCastMessage the
+            // spell book's Cast reaches (above, through the uint
+            // overload) and a Spell seat's Activate reaches
+            // (`BaseClient.cs:284-285`), wrapped in Run as Go is.
+            _hotbar.CastSend = spell => _client.SendReqCastMessage(spell);
             _hotbar.Cleared += name => _chat?.Local($"{name} cleared from the hotbar.");
+            _hotbar.Locked += on => _chat?.Local(on
+                ? "Hotkeys locked. Seats cannot be cleared by pulling them off."
+                : "Hotkeys unlocked. Pull a seat off the cluster and let go to clear it.");
             ActionButtons.Seed(_client.Data);
             // Above the target row, which is itself above the chat block:
             // the row is one button tall plus the name label over it.

@@ -227,6 +227,11 @@ the message fires before frame 1 and every shot looks unchanged.
   2's file, and where each room puts the avatar. Room-1 objects are now
   placed relative to the spawn; unset, the spawn is barinn's 752,672 as
   before (barlmarket as room 1 was run and works).
+- M59_PHASE=1 adds spell 5003 "phase" (lower case, as the live string
+  table has it) with `iphase.bgf`, which the dump ships, and ZERO
+  targets, as the live spell has: the client's fixed Phase seat finds
+  it by name, and with the fixture's default of one target the library
+  sends nothing until something is targeted (`BaseClient.cs:1719-1746`).
 - M59_STATICONS=1 gives stat rows a ResourceIconID (user.kod 9409-9447);
   spells get coin/book art and skills axe/coin, deliberately different from
   the object's own art so the row icon is what is seen.

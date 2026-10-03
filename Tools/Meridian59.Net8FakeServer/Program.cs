@@ -74,6 +74,14 @@ static class FakeServer
     const uint RID_RATLOOK = 60050;
     const uint RID_SPELL1 = 60060;
     const uint RID_SPELL2 = 60061;
+    // M59_PHASE=1: a third spell, "phase", with the real icon (iphase.bgf
+    // ships in the resource dump). Every live character has Phase and the
+    // client gives it a fixed seat on the combat cluster; the fixture's
+    // two spells were a touch and a blessing, so that seat could only
+    // ever be photographed dimmed.
+    const uint RID_SPELL3 = 60214;
+    const uint RID_SPELL3BGF = 60215;
+    static readonly bool wantPhase = EnvOn("M59_PHASE");
     const uint RID_SKILL1 = 60062;
     const uint RID_SKILL2 = 60063;
     const uint RID_COND1 = 60160;
@@ -768,6 +776,12 @@ static class FakeServer
             new RsbResourceID(RID_BORIS,      "Boris the Outlaw", 4),
             new RsbResourceID(RID_SPELL1,     "shalille's touch", 4),
             new RsbResourceID(RID_SPELL2,     "kraanan's blessing", 4),
+            // Lower case, as the live string table has it: the client
+            // finds the Phase seat's spell by name, case-insensitively,
+            // and a fixture that capitalised it would pass a comparison
+            // the real server never exercises.
+            new RsbResourceID(RID_SPELL3,     "phase",            4),
+            new RsbResourceID(RID_SPELL3BGF,  "iphase.bgf",       4),
             new RsbResourceID(RID_SKILL1,     "slash",            4),
             new RsbResourceID(RID_SKILL2,     "bandaging",        4),
             // A mail's subject is not a field on the wire: it is the
@@ -2019,19 +2033,26 @@ static class FakeServer
     /// </summary>
     static void SendSpells(NetworkStream ns, MessageControllerClient ctrl)
     {
-        var objects = new[]
+        var objects = new List<SpellObject>
         {
             Spell(5001, RID_SPELL1, RID_BOOKBGF),
             Spell(5002, RID_SPELL2, RID_AXEBGF),
         };
-        Send(ns, ctrl, new SpellsMessage(objects));
+        // Phase is cast on the caster and asks for no target, as the
+        // live spell does; with the fixture's default of one target the
+        // library would send nothing until something was targeted
+        // (`BaseClient.cs:1719-1746`, targetIDs stays null), which is not
+        // the shape a player's Phase has.
+        if (wantPhase) objects.Add(Spell(5003, RID_SPELL3, RID_SPELL3BGF, 0));
+        Send(ns, ctrl, new SpellsMessage(objects.ToArray()));
 
-        var stats = new Stat[]
+        var stats = new List<Stat>
         {
             new StatList(1, RID_SPELL1, 5001, 63, wantStatIcons ? RID_COINBGF : 0),
             new StatList(2, RID_SPELL2, 5002, 21, wantStatIcons ? RID_BOOKBGF : 0),
         };
-        Send(ns, ctrl, new StatGroupMessage(StatGroup.Spells, stats));
+        if (wantPhase) stats.Add(new StatList(3, RID_SPELL3, 5003, 99, wantStatIcons ? RID_SPELL3BGF : 0));
+        Send(ns, ctrl, new StatGroupMessage(StatGroup.Spells, stats.ToArray()));
     }
 
     static void SendSkills(NetworkStream ns, MessageControllerClient ctrl)
@@ -2058,7 +2079,7 @@ static class FakeServer
     /// all, and a null there looks exactly like a client that forgot to
     /// compose one. Real spells have art, so these do too.
     /// </summary>
-    static SpellObject Spell(uint id, uint nameRid, uint bgfRid)
+    static SpellObject Spell(uint id, uint nameRid, uint bgfRid, byte targets = 1)
     {
         return new SpellObject(
             id, 1, bgfRid, nameRid, 0,
@@ -2066,7 +2087,7 @@ static class FakeServer
             AnimationType.NONE, 0, 0,
             new AnimationNone(),
             new List<SubOverlay>(),
-            1, 0);
+            targets, 0);
     }
 
     static SkillObject Skill(uint id, uint nameRid, uint bgfRid)

@@ -808,6 +808,36 @@ public partial class SceneShot : Node
                     GD.Print($"[SceneShot] held {want}");
                 }
             }
+            else if (step.StartsWith("@pull:"))
+            {
+                // A press that slides OFF the control and lets go: the
+                // cluster's clear gesture (ActionButtons.OnGui/OnUp, the
+                // reference's drop-on-root at `UIActionButtons.cpp:471`).
+                // @hold could not make it - a hold stays on the button -
+                // so the one gesture that can empty a seat, and the
+                // padlock that now stops it, had no scripted proof.
+                //
+                // Down, a drag to a point well past PullOffPx (the
+                // control's own size again, diagonally), then up. No
+                // Pressed: Godot does not raise it for a release outside
+                // the button, and emitting one would be a tap the finger
+                // did not make.
+                string want = step.Substring(6);
+                Button b = FindNamed(GetTree().Root, want);
+                if (b == null)
+                    GD.Print($"[SceneShot] no node called {want}; visible buttons: {Names()}");
+                else
+                {
+                    b.EmitSignal(BaseButton.SignalName.ButtonDown);
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    Vector2 away = b.Size * 2f;
+                    b.EmitSignal(Control.SignalName.GuiInput,
+                        new InputEventScreenDrag { Index = 0, Position = away, Relative = away });
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    b.EmitSignal(BaseButton.SignalName.ButtonUp);
+                    GD.Print($"[SceneShot] pulled {want} off to {away}");
+                }
+            }
             else if (step.StartsWith("@obj:"))
             {
                 // Tap a thing by NAME rather than by guessing where it

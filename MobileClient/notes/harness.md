@@ -14,13 +14,18 @@ Steps in `--press`: a bare node name, `@tap:XxY`, `@hold:<Node>`,
 `@type`, `@type:<Node>=<text>`, `@submit`, `@name:<Node>`, `@slot`,
 `@drag:<from>><to>@<frames>`, `@sweep:<from>><to>@<frames>`,
 `@state[:<Node>]`, `@obj:<name>`, `@wait:<frames>` (nothing at all,
-for the idle numbers). `M59PROF=120` in the environment prints the
+for the idle numbers), `@pull:<Node>` (press, slide off past
+PullOffPx, release - the cluster's clear gesture, which @hold cannot
+make; no Pressed is emitted, as Godot emits none for a release
+outside). `--resolution 2400x1080` before the scene path gives a
+wider viewport (stretch is canvas_items/expand). `M59PROF=120` in the environment prints the
 per-frame cost probe every 120 frames - see godot-ui.md, "Per-frame
 cost in the Godot layer".
 
 Fixture switches on the fake server: `M59_STATCHANGE=1`, `M59_NEWS=1`,
 `M59_CHATFLOOD=1`, `M59_PARALYZE=1`, `M59_WAIT=1`, `M59_QUESTLOG=1`,
-`M59_NPCQ=empty|changing`, `M59_NEWSROW=1`.
+`M59_NPCQ=empty|changing`, `M59_NEWSROW=1`, `M59_PHASE=1` (a third
+spell, "phase", zero targets, the real `iphase.bgf`).
 
 See also: the fixture -> fake-server.md
 

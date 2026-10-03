@@ -48,10 +48,12 @@ screen and a spell is DRAGGED onto the one you want
 the arc, so Bind takes the first empty seat, and until this panel
 nothing could choose the seat or move a binding afterwards.
 
-The rows are the cluster's own model: every config but the Attack
-primary, in Num order, cut into pages of `ActionButtons.HotSeats`
-(four). Attack is shown once at the top as the primary and is not a
-seat; unbound, the row offers "Set Attack" through Bind. Tap a seat,
+The rows are the cluster's own model: every config but the primary,
+in Num order, cut into pages of `ActionButtons.HotSeats` (five). The
+primary is shown once at the top and is not a seat; it CAN be Set
+(see "The combat cluster: Phase, Door inside, the padlock and a
+chosen primary" below), never cleared or moved; unbound, the row
+offers "Set Attack". Tap a seat,
 then the footer strip: Set… opens an in-panel chooser (Actions as
 `ActionsPanel` lists them plus Go, Spells, active Skills, Items you
 carry) and writes the seat with the library's own setters
@@ -86,6 +88,93 @@ chooser rows `pick{id}` / `pick{Action}` / `pickGo`, the tabs
 `hkLeft`, `hkRight`, `hkAddPage`, `hkRemovePage`, `hkClose`, `hkBack`.
 
 See also: HotKeysPanel.cs | the hotbar -> ActionButtons.cs | HotbarStore.cs
+
+## The combat cluster: Phase, Door inside, the padlock and a chosen primary
+Tags: design, architecture | Five bindings a page; Door and a fixed Phase seat inside the arc; a padlock (default locked, global, in hotbar.cfg) gates the pull-off clear; the big disc is any config, chosen by Num (`primary=` in hotbar.cfg), and is never cleared
+
+Ashton (2026-10-03, a marked-up phone shot): a normal-sized button that
+casts Phase ("every player has it and it is very important"); one more
+seat on the arc with Door moved right; no dragging off Attack, Phase
+or Door; a padlock bottom-right that locks the hotkeys; and the
+customizer able to put other things on the big attack button.
+
+- THE ARC KEEPS ITS SIX SEATS, radius and chord (`ActionButtons.
+  ArcSeats`, `ArcR`): Door left the 180-degree seat and that seat is
+  the fifth binding (`HotSeats = ArcSeats - 1`). Every old number in
+  the arc arithmetic still holds; a page is five.
+- INSIDE THE ARC, by angle and 1x distance from the pivot, scaled with
+  it: Door at 180 deg / 166, Phase at 135 deg / 165, the pager at
+  95 deg / 190 (it was on the 125 bisector; Phase has that). Rim gaps
+  at 1x, all printed by `M59HUDRECTS`: door 38 to the disc and 38 to
+  the arc, phase 37/39 and 31 to Door, pager 74 to the disc, 27 to
+  seat 1, 40 to Phase. `Measure` now counts `under44` and `overlaps`
+  over every control (circles, and the lock's square) and prints
+  `offglass`; the proof is `controls=11 under44=0 overlaps=0
+  offglass=0` at 1920x1080 and 2400x1080.
+- PHASE is a fixed control like Door, not a config: never paged,
+  cleared or saved. It finds the player's spell by name
+  (`ActionButtons.FindPhase`, "phase", case-insensitive, on every
+  Sync because names resolve late) and sends it through
+  `CastSend` = `_client.SendReqCastMessage(SpellObject)`
+  (`BaseClient.cs:1717`) - the method the spell book's cast reaches
+  (`GameView` wires `_book.Cast` to the uint overload at `:1702`,
+  which calls it at `:1709`) and a Spell seat's `Activate` reaches
+  (`OnActionButtonActivated`, `:284-285`). Through `Run`, so gated and
+  latched like a seat. Shows the spell's own icon with "Phase" under
+  it; without the spell it is dimmed (modulate 0.45, Disabled) and the
+  press is guarded for the harness's emitted Pressed too. The fixture
+  gives it as `M59_PHASE=1`: spell 5003 "phase", `iphase.bgf` (in the
+  dump), ZERO targets as the live spell has - with the fixture's
+  default of one the library sends nothing untargeted
+  (`BaseClient.cs:1719-1746`), which looked like a dead seat.
+- THE PADLOCK (`hotlock`, 44x44 at the disc's bottom-right, 16 from
+  the glass, 26 from the disc's rim at its nearest; a drawn glyph,
+  `ActionButtons.LockGlyph`, open and gold when unlocked). Locked, the
+  pull-off clear (`OnUp`) does nothing on any seat; everything else
+  works. `HotbarStore.Locked`, `[client] locked=` in hotbar.cfg -
+  global, not per character or layout, and not in settings.cfg because
+  `OptionsPanel.Keep` rewrites that file whole. DEFAULT LOCKED. The
+  disc is never pulled off, locked or not; Door, Phase and Next have
+  no pull-off path at all. The hotkey box (HotkeyDock) has no clear
+  gesture, so nothing to gate there.
+- THE PRIMARY IS A NUM. `ActionButtons.PrimaryNum` (-1 = the seat
+  holding Attack, the old rule) and `ActionButtons.Primary(data)` is
+  the one resolver the cluster, the HotKeys panel and its chooser use.
+  The panel's Primary row seat (`hkPrimary`) is pressable; Set… offers
+  Actions (Attack included), Spells, Skills, Items; Put rewrites the
+  primary's config IN PLACE with the library's setters and sets
+  PrimaryNum to its Num, so nothing on the arc moves. Clear and ◀ ▶
+  are disabled for it. Whatever the disc holds is withheld from the
+  arc's chooser (same swing twice); Go is withheld from the disc
+  (Door is beside it). `HotbarStore` writes `primary=<num>` in the
+  character section; a file without it loads exactly as before. The
+  disc's picture is composed at the disc's proportion (`IconPx *
+  Atk/Btn`), or a 56-pixel sprite is a smudge in a 160 circle. Hold-
+  repeat stays `Repeats` by what the disc holds (a spell on the disc
+  re-casts while leant on, as a spell seat does; the library's
+  CanReqCast is the cadence).
+- HARNESS: `@pull:<Node>` is the clear gesture (down, a drag past
+  PullOffPx, up, no Pressed). Pooled seat buttons are renamed
+  `pool{i}` at every rebuild, or a `hot{Num}` left on a hidden one
+  made Godot rename the newcomer (`hot5` came out `hot6`).
+
+Played, `--shots`, fresh `XDG_DATA_HOME`, `M59_PHASE=1`:
+`@name:hotphase` -> `<- ReqCast id 5003`; `@pull:hot0` locked -> Rest
+still there; `@name:hotlock` (chat: "Hotkeys unlocked…"), `@pull:hot0`
+-> ring, "Rest cleared from the hotbar."; `@pull:hot1` (the disc),
+`@pull:hotdoor`, `@pull:hotphase` -> nothing changes; Menu > HotKeys >
+`hkPrimary` > `hkSet` > `hkTabSpells` > `pick5002` > `hkClose` -> the
+disc shows kraanan's blessing, `Target Next,@name:hot1` ->
+`<- ReqCast id 5002`; hotbar.cfg reads `locked=false`, row 0 Unset,
+row 1 Spell, `primary=1`. Relaunch at `--resolution 2400x1080` ->
+same disc, open padlock, same rects right-anchored, `@pull:hot2`
+clears Loot, `@name:hotlock` -> `locked=true`. An old-format file
+(nine rows, no `primary`, no `[client]`) -> Attack is the disc, two
+pages of five with the hole kept, locked by default, `@pull:hot0`
+does nothing. Without `M59_PHASE` the seat reads "Phase" at 0.45
+and its press puts nothing on the wire.
+
+See also: ActionButtons.cs | HotKeysPanel.cs | HotbarStore.cs | the fixture -> fake-server.md | harness.md
 
 ## First run, and the half-installed game
 Tags: gotchas, lessons | The "unpacked" test was "the folder holds one .roo", which is true seconds into a ~470MB copy - so an interrupted first run left the game permanently half-installed with no message anywhere
