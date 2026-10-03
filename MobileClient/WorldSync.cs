@@ -245,8 +245,12 @@ public sealed class WorldSync
         });
     }
 
-    public void SyncSprites(IEnumerable<RoomObject> objects, RoomObject avatar,
-                            IEnumerable<Projectile> projectiles = null)
+    // List<T>, not IEnumerable<T>: the library's lists derive from
+    // List<T>, and a foreach over the interface boxes the enumerator -
+    // one allocation per list per frame, which the probe charged to
+    // "sprites" and "names" at rest (40 B each).
+    public void SyncSprites(List<RoomObject> objects, RoomObject avatar,
+                            List<Projectile> projectiles = null)
     {
         if (Renderer == null) return;
         // Empties the list and offers last frame's Sprite objects back,
@@ -360,7 +364,7 @@ public sealed class WorldSync
     /// renderer pick from an angle, as it does for a creature, would
     /// subtract the viewer's angle a second time.
     /// </summary>
-    void AddProjectiles(IEnumerable<Projectile> projectiles, V2 eye)
+    void AddProjectiles(List<Projectile> projectiles, V2 eye)
     {
         if (projectiles == null) return;
 
@@ -539,6 +543,8 @@ public sealed class WorldSync
     }
 
     /// <summary>The avatar's drawn height, composed body and all.</summary>
+    readonly Renderer.Sprite _probe = new Renderer.Sprite();
+
     float Measured(RoomObject avatar)
     {
         if (Renderer == null || avatar == null) return 0f;
@@ -546,9 +552,12 @@ public sealed class WorldSync
         {
             ComposeCache.Entry c = Composed ? _compose.Get(avatar, avatar.Position2D, false) : null;
             if (c != null && c.WorldH > 0f) return c.WorldH;
-            var probe = new Renderer.Sprite { Bgf = avatar.Resource, Group = 1,
-                                              AngleUnits = avatar.ViewerAngle };
-            return Renderer.WorldHeight(probe);
+            // One probe, reused: this runs every frame from Camera, and
+            // a fresh Sprite each time was 93 B a frame charged to the
+            // "status" section at rest, for a number that does not move.
+            _probe.Bgf = avatar.Resource; _probe.Group = 1;
+            _probe.AngleUnits = avatar.ViewerAngle;
+            return Renderer.WorldHeight(_probe);
         }
         catch { return 0f; }
     }

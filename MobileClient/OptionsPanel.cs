@@ -498,10 +498,29 @@ public partial class OptionsPanel : Control
         M59Skin.FootRow(foot, _close);
     }
 
-    /// <summary>The flags this panel switches; read every time it opens.</summary>
+    /// <summary>
+    /// What FollowPreferences last drew from: the flags object, whether
+    /// the server has spoken, and the word itself. GameView calls Follow
+    /// every frame (`GameView.cs` misc-sync), and once Settings had been
+    /// opened the whole row walk - a theme override per label, which
+    /// Godot treats as a re-shape - ran every frame with the panel shut:
+    /// 0.38 ms and 672 B a frame for nothing. The rows move only when
+    /// one of these three does, or when Build has made new rows.
+    /// </summary>
+    PreferencesFlags _seenPrefs;
+    bool _seenLive;
+    uint _seenWord;
+    bool _prefsDirty = true;
+
+    /// <summary>The flags this panel switches; re-read when they change.</summary>
     public void Follow(PreferencesFlags prefs)
     {
         _prefs = prefs;
+        bool live = prefs != null && prefs.Enabled;
+        uint word = prefs != null ? prefs.Value : 0u;
+        if (!_prefsDirty && ReferenceEquals(prefs, _seenPrefs) && live == _seenLive && word == _seenWord)
+            return;
+        _seenPrefs = prefs; _seenLive = live; _seenWord = word; _prefsDirty = false;
         FollowPreferences();
     }
 
@@ -517,6 +536,7 @@ public partial class OptionsPanel : Control
         // walking rows whose CheckBox had been queued for freeing. It
         // only ever threw on the reopen, which is why nothing noticed.
         _prefRows.Clear();
+        _prefsDirty = true;
         _oldPass = _newPass = _confirmPass = null;
         _signature = "";
 

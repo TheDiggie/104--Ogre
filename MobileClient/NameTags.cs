@@ -159,7 +159,7 @@ public partial class NameTags : Control
     /// <paramref name="scale"/> converts the renderer's own buffer to
     /// screen pixels, because the world is drawn small and stretched up.
     /// </summary>
-    public void Sync(Renderer renderer, IEnumerable<RoomObject> objects, Vector2 scale)
+    public void Sync(Renderer renderer, List<RoomObject> objects, Vector2 scale)
     {
         if (renderer == null || objects == null) { Hide(0); return; }
 

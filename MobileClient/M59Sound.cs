@@ -637,7 +637,7 @@ public partial class M59Sound : Node
 
     static void Drop(Voice v)
     {
-        v?.Player?.Stop();
+        Release(v);
         v?.Player?.QueueFree();
     }
 
@@ -715,6 +715,62 @@ public partial class M59Sound : Node
     }
 
     /// <summary>
+    /// Lets go of the music's private stream. The copy is a RefCounted
+    /// the player and this wrapper both hold; Godot drops the player's
+    /// reference when the node is freed, and the C# wrapper's only when
+    /// the finalizer runs - which at exit it does not, so every run that
+    /// had played music ended with "4 ObjectDB instances were leaked"
+    /// (the stream, its packet sequence, the playback, its playback).
+    /// Dispose releases the wrapper's reference now.
+    /// </summary>
+    void ReleaseMusic()
+    {
+        if (_music == null) return;
+        _music.Stop();
+        AudioStream had = _music.Stream;
+        _music.Stream = null;
+        had?.Dispose();
+    }
+
+    /// <summary>
+    /// Everything this node holds goes before it does: the players
+    /// stop (a playing one keeps its playback alive in the mixer past
+    /// the tree), the loop copies and the music copy are disposed, and
+    /// the cache of masters with them.
+    /// </summary>
+    public override void _ExitTree() => Silence();
+
+    /// <summary>Everything stopped and every stream let go; see _ExitTree.</summary>
+    public void Silence()
+    {
+        try
+        {
+            ReleaseMusic();
+            _musicPlaying = "";
+            foreach (var kv in _loops) Release(kv.Value);
+            _loops.Clear();
+            foreach (Voice v in _pool) Release(v);
+            _pool.Clear();
+            foreach (var kv in _streams) kv.Value?.Dispose();
+            _streams.Clear();
+        }
+        catch (Exception e) { GD.PrintErr($"[M59Sound] exit: {e.Message}"); }
+    }
+
+    /// <summary>A voice's player stopped and its own stream copy let go.</summary>
+    static void Release(Voice v)
+    {
+        AudioStreamPlayer2D p = v?.Player;
+        if (p == null || !GodotObject.IsInstanceValid(p)) return;
+        p.Stop();
+        AudioStream had = p.Stream;
+        p.Stream = null;
+        // One-shots share the cached master, which _ExitTree disposes
+        // once; only a loop's copy is this voice's own.
+        if (had is AudioStreamOggVorbis o && o.Loop) had.Dispose();
+    }
+
+    /// <summary>
     /// The room's background music. Changed only when the track changes,
     /// so walking around does not restart it.
     /// </summary>
@@ -737,9 +793,13 @@ public partial class M59Sound : Node
 
         _musicPlaying = path;
         // The game plays music with play2D(..., looped = true), so it
-        // runs until the room changes it.
-        if (stream is AudioStreamOggVorbis ogg) ogg.Loop = true;
-        _music.Stream = stream;
+        // runs until the room changes it. On a COPY: Load's cache is
+        // shared with the one-shots, and setting Loop on the master
+        // made every later one-shot of the same file loop for ever.
+        ReleaseMusic();
+        AudioStream own = (AudioStream)stream.Duplicate();
+        if (own is AudioStreamOggVorbis ogg) ogg.Loop = true;
+        _music.Stream = own;
         _music.VolumeDb = Mathf.LinearToDb(Mathf.Clamp(MusicLevel, 0.0001f, 1f));
         _music.Play();
         if (Verbose) GD.Print($"[M59Sound] music {info.ResourceName}");

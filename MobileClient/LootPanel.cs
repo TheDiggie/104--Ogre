@@ -309,10 +309,18 @@ public partial class LootPanel : Control
     public void Sync(ObjectContents contents)
     {
         _contents = contents; _loot = null;
-        if (contents == null) { Fill(null, false); return; }
-        var list = new List<ObjectBase>(contents.Items ?? (System.Collections.Generic.IEnumerable<ObjectBase>)Array.Empty<ObjectBase>());
-        Fill(list, contents.IsVisible);
+        // The list is built only for a window that is up. Both Syncs
+        // used to copy the model's items into a fresh List every frame,
+        // closed or open, and the view runs two of these panels - 88 B
+        // a frame at rest for a window nobody could see.
+        if (contents == null || !contents.IsVisible) { Fill(null, false); return; }
+        _scratch.Clear();
+        if (contents.Items != null) foreach (ObjectBase o in contents.Items) _scratch.Add(o);
+        Fill(_scratch, true);
     }
+
+    /// <summary>The items handed to Fill, reused across frames; see Sync.</summary>
+    readonly List<ObjectBase> _scratch = new List<ObjectBase>();
 
     /// <summary>
     /// Follows what is loose on the floor around you. Same window, same
@@ -322,10 +330,10 @@ public partial class LootPanel : Control
     public void Sync(LootInfo loot)
     {
         _loot = loot; _contents = null;
-        if (loot == null) { Fill(null, false); return; }
-        var list = new List<ObjectBase>();
-        if (loot.Items != null) foreach (RoomObject o in loot.Items) list.Add(o);
-        Fill(list, loot.IsVisible);
+        if (loot == null || !loot.IsVisible) { Fill(null, false); return; }
+        _scratch.Clear();
+        if (loot.Items != null) foreach (RoomObject o in loot.Items) _scratch.Add(o);
+        Fill(_scratch, true);
     }
 
     void Fill(IList<ObjectBase> items, bool visible)

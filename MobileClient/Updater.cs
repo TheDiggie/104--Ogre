@@ -178,9 +178,28 @@ public partial class Updater : Control
             // generator is fixed; this is the end that cannot be, since
             // the manifest is a file on a server somebody may edit by
             // hand at three in the morning.
-            var json = Json.ParseString(
+            // An instance, not Json.ParseString: the static one prints an
+            // engine ERROR with a C# backtrace for every byte of garbage
+            // the server hands back, and a manifest that is an HTML
+            // error page is the ordinary case this is for. Parse() just
+            // returns the Error, and it does not throw on garbage
+            // either: a manifest that is a list or a bare string parses
+            // fine and is not a dictionary. Each of those used to return
+            // here in silence - the one outcome this check was rebuilt
+            // to never have - so a 200 with an error page in it read as
+            // "the check never ran".
+            var parser = new Json();
+            Error parsed = parser.Parse(
                 System.Text.Encoding.UTF8.GetString(body).TrimStart('\uFEFF'));
-            if (json.VariantType != Variant.Type.Dictionary) return;
+            Variant json = parsed == Error.Ok ? parser.Data : default;
+            if (parsed != Error.Ok || json.VariantType != Variant.Type.Dictionary)
+            {
+                GD.Print(parsed != Error.Ok
+                    ? $"[Updater] bad manifest: line {parser.GetErrorLine()}: {parser.GetErrorMessage()}"
+                    : $"[Updater] bad manifest: not a JSON object ({json.VariantType})");
+                Say("Update check: the update file could not be read.");
+                return;
+            }
             var d = json.AsGodotDictionary();
             version = d.TryGetValue("version", out Variant v) ? v.AsString() : "";
             url = d.TryGetValue("url", out Variant u) ? u.AsString() : "";

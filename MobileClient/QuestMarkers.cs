@@ -77,7 +77,7 @@ public partial class QuestMarkers : Control
         MouseFilter = MouseFilterEnum.Ignore;
     }
 
-    public void Sync(Renderer renderer, IEnumerable<RoomObject> objects, Vector2 scale)
+    public void Sync(Renderer renderer, List<RoomObject> objects, Vector2 scale)
     {
         if (renderer == null || objects == null) { Hide(0); return; }
 

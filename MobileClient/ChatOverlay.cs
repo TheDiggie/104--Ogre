@@ -676,6 +676,13 @@ public partial class ChatOverlay : Control
         _fullTitle.Visible = false;
         _fullCard.Visible = false; _fullBar.Visible = false; _fullPage.Visible = false; _fullX.Visible = false;
         _fullPlain.Visible = false; _fullCopy.Visible = false; _fullNote.Visible = false;
+        // The strip's backing is hidden while the page is up (Layout and
+        // HudDress both AND it with !ShowingHistory) and only those two
+        // put it back - neither ran on a close, so after Log then Close
+        // the HUD lines sat on the bare carpet until the next HUD change.
+        // Seen in the panel tour's invariant diff: frame 34 against
+        // frame 3 differed by 184,778 pixels, all of them the backing.
+        HudDress();
     }
 
     /// <summary>

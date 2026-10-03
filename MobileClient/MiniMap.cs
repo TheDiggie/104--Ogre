@@ -132,7 +132,7 @@ public partial class MiniMap : Control
     // Walls worth drawing, in server units, filtered once per room.
     readonly List<Vector2> _walls = new List<Vector2>();
 
-    IEnumerable<RoomObject> _objects;
+    List<RoomObject> _objects;
     float _px, _py, _angle;
 
     /// <summary>
@@ -640,7 +640,7 @@ public partial class MiniMap : Control
     public int MappedWalls => _walls.Count / 2;
 
     /// <summary>Objects to show. The avatar among them is skipped.</summary>
-    public void SetObjects(IEnumerable<RoomObject> objects) => _objects = objects;
+    public void SetObjects(List<RoomObject> objects) => _objects = objects;
 
     /// <summary>
     /// Where you are, in server units, and which way you face. Cheap: the

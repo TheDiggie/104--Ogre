@@ -1484,6 +1484,40 @@ public partial class GameView : Node2D
     /// (`OnDisk`, used by `Load`) is what makes the mismatch harmless,
     /// and asking the way the reference asks is the point of citing it.
     /// </summary>
+    /// <summary>
+    /// Shuts the windows that are not driven by the model. Trade, Buy,
+    /// Loot and the rest close themselves when Data.Reset clears their
+    /// IsVisible; the bag, the book, Stats and the other drawer windows
+    /// are open until somebody closes them, and nobody did on the way
+    /// out of the world. A kick with the bag up left "Carrying nothing"
+    /// over the character picker, and a dropped socket left it behind
+    /// the Lost connection card - photographed with the server killed
+    /// under an open Inventory. The reference loads a fresh scene on
+    /// both paths (`OgreClient.cpp:641`, :961), which closes everything.
+    /// </summary>
+    void LeaveWindows()
+    {
+        try
+        {
+            if (_bag != null && _bag.IsOpen) _bag.Close();
+            if (_book != null && _book.IsOpen) _book.Close();
+            if (_acts != null && _acts.IsOpen) _acts.Close();
+            if (_hotkeys != null && _hotkeys.IsOpen) _hotkeys.Close();
+            if (_sheet != null && _sheet.IsOpen) _sheet.Close();
+            if (_players != null && _players.IsOpen) _players.Close();
+            if (_quests != null && _quests.IsOpen) _quests.Close();
+            if (_mail != null && _mail.IsOpen) _mail.Close();
+            if (_news != null && _news.IsOpen) _news.Close();
+            if (_options != null && _options.IsOpen) _options.Close();
+            if (_guild != null && _guild.IsOpen) _guild.Close();
+            if (_shieldDesigner != null && _shieldDesigner.IsOpen) _shieldDesigner.Close();
+            // Not the look window: it follows the model's IsVisible,
+            // which Reset clears, and its Close may send a description.
+            Panels.Drawer?.Close();
+        }
+        catch (Exception e) { GD.Print($"[M59] closing windows: {e.Message}"); }
+    }
+
     void LeftTheWorldAudio()
     {
         if (_sound == null) return;
@@ -1686,7 +1720,23 @@ public partial class GameView : Node2D
             // (`BaseClient.cs:142-147`) - which is what the line below
             // makes visible here.
             try { _client.Disconnect(); } catch { }
+            // Out of the world, as a Quit is: Disconnect has reset the
+            // data, and with this flag still up the bars, the hotbar,
+            // the chat strip and the combat arc stayed drawn over the
+            // login card behind the Lost connection card - at zero
+            // shillings and no objects. Seen with the server killed
+            // under an open Inventory.
+            _wasInGame = false;
+            // And the room itself: Reset clears RoomInformation but
+            // never its ResourceRoom (see M59Client.HandleQuitMessage
+            // for the citation), so the renderer kept drawing the room
+            // from the held camera pose under the card. Nulling it is
+            // what the next SyncRoom unloads on - the reference's
+            // DemoSceneLoadBrax on this path (`OgreClient.cpp:641`).
+            try { if (_client.Data?.RoomInformation != null) _client.Data.RoomInformation.ResourceRoom = null; }
+            catch (Exception e) { GD.Print($"[M59] unloading the room: {e.Message}"); }
             LoginMode();
+            LeaveWindows();
             LeftTheWorldAudio();
             _lost?.Show(why);
         };
@@ -2447,6 +2497,7 @@ public partial class GameView : Node2D
                 // it: inWorld is read from this flag or a live avatar,
                 // and Reset has already taken the avatar.
                 _wasInGame = false;
+                LeaveWindows();
                 // And the room's soundscape with it. The reference
                 // reaches the same call from its Quit handler as from
                 // its Disconnect - `DemoSceneLoadBrax()` at
@@ -2483,6 +2534,7 @@ public partial class GameView : Node2D
             _client.LeftForPicker += () =>
             {
                 _wasInGame = false;
+                LeaveWindows();
                 LeftTheWorldAudio();
                 // In the log, because the gap is a round trip long and
                 // "my screen went black" deserves a sentence. It survives
@@ -3708,7 +3760,15 @@ public partial class GameView : Node2D
 
         FrameProbe.Mark("minimap");
         _fpsAccum += delta; _frames++;
-        if (_fpsAccum >= 0.5) { _fps = $"{_frames / _fpsAccum:F0} fps"; _fpsAccum = 0; _frames = 0; }
+        // Only the debug overlay reads this, and a fresh string every
+        // half second made Status() re-join the whole log just as often
+        // - about 100 B a frame at rest in the harness for a corner a
+        // player never sees.
+        if (_fpsAccum >= 0.5)
+        {
+            if (Debugging) _fps = $"{_frames / _fpsAccum:F0} fps";
+            _fpsAccum = 0; _frames = 0;
+        }
 
         RenderFrame();
         FrameProbe.Mark("status");
@@ -4620,12 +4680,20 @@ public partial class GameView : Node2D
         // (`ControllerSound.cpp:405-408`, :420-428) and the listener
         // (:140-142); measuring the distance flat made a sound one floor
         // down as loud as one in the room.
-        _sound.Follow(id =>
-        {
-            RoomObject o = _client.Data.RoomObjects?.GetItemByID(id);
-            return o == null ? (false, 0f, 0f, 0f)
-                             : (true, o.Position3D.X, o.Position3D.Z, o.Position3D.Y);
-        }, me.Position3D.X, me.Position3D.Z, me.Position3D.Y, me.Angle);
+        // One delegate for the life of the view: a lambda over `this`
+        // is a fresh delegate every call, and this runs every frame -
+        // 64 B a frame charged to "sounds" at rest.
+        _whereIs ??= WhereIs;
+        _sound.Follow(_whereIs, me.Position3D.X, me.Position3D.Z, me.Position3D.Y, me.Angle);
+    }
+
+    Func<uint, (bool, float, float, float)> _whereIs;
+
+    (bool, float, float, float) WhereIs(uint id)
+    {
+        RoomObject o = _client?.Data?.RoomObjects?.GetItemByID(id);
+        return o == null ? (false, 0f, 0f, 0f)
+                         : (true, o.Position3D.X, o.Position3D.Z, o.Position3D.Y);
     }
 
     /// <summary>When the last splash was, so the next one waits its turn.</summary>

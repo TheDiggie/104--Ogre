@@ -114,7 +114,7 @@ public partial class SceneShot : Node
         Image img = GetViewport().GetTexture().GetImage();
         Error e = img.SavePng(path);
         GD.Print(e == Error.Ok ? $"[SceneShot] wrote {path}" : $"[SceneShot] save failed: {e}");
-        GetTree().Quit();
+        await Leave();
     }
 
     /// <summary>
@@ -152,7 +152,7 @@ public partial class SceneShot : Node
         foreach (Key k in held)
             Input.ParseInputEvent(new InputEventKey { Keycode = k, PhysicalKeycode = k, Pressed = false });
 
-        GetTree().Quit();
+        await Leave();
     }
 
     /// <summary>
@@ -197,7 +197,7 @@ public partial class SceneShot : Node
         Image img = GetViewport().GetTexture().GetImage();
         img.SavePng(path);
         GD.Print($"[SceneShot] wrote {path}");
-        GetTree().Quit();
+        await Leave();
     }
 
     /// <summary>
@@ -267,7 +267,7 @@ public partial class SceneShot : Node
         Image img = GetViewport().GetTexture().GetImage();
         img.SavePng(path);
         GD.Print($"[SceneShot] wrote {path}");
-        GetTree().Quit();
+        await Leave();
     }
 
     /// <summary>
@@ -302,7 +302,7 @@ public partial class SceneShot : Node
         await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
         GetViewport().GetTexture().GetImage().SavePng(path);
         GD.Print($"[SceneShot] wrote {path}");
-        GetTree().Quit();
+        await Leave();
     }
 
     /// <summary>
@@ -381,7 +381,7 @@ public partial class SceneShot : Node
         await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
         GetViewport().GetTexture().GetImage().SavePng(path);
         GD.Print($"[SceneShot] wrote {path}");
-        GetTree().Quit();
+        await Leave();
     }
 
     /// <summary>
@@ -410,6 +410,34 @@ public partial class SceneShot : Node
     {
         if (from is InventorySlot s) into.Add(s);
         foreach (Node n in from.GetChildren()) Collect(n, into);
+    }
+
+    /// <summary>
+    /// Silences the audio and lets two frames pass before quitting.
+    ///
+    /// Godot deletes a stopped playback on the mixer thread's next
+    /// step, and a quit that lands before that step leaves the music's
+    /// stream, its packet sequence and the playback in the ObjectDB
+    /// check - "4 ObjectDB instances were leaked at exit", on about
+    /// one run in three, for a client that had let go of every
+    /// reference it held (M59Sound._ExitTree). A phone never runs this
+    /// check; the harness runs it on every exit, so the harness stops
+    /// the sound early.
+    /// </summary>
+    async System.Threading.Tasks.Task Leave()
+    {
+        // By script type, walking the tree: FindChildren's type filter
+        // matches the native class ("Node"), never a C# one.
+        var stack = new Stack<Node>(); stack.Push(GetTree().Root);
+        while (stack.Count > 0)
+        {
+            Node n = stack.Pop();
+            if (n is M59Sound s) s.Silence();
+            foreach (Node c in n.GetChildren()) stack.Push(c);
+        }
+        for (int i = 0; i < 2; i++)
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        GetTree().Quit();
     }
 
     static void Ticks(Node from, List<CheckBox> into)
@@ -928,7 +956,7 @@ public partial class SceneShot : Node
         await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
         GetViewport().GetTexture().GetImage().SavePng(path);
         GD.Print($"[SceneShot] wrote {path}");
-        GetTree().Quit();
+        await Leave();
     }
 
     /// <summary>
