@@ -278,13 +278,20 @@ public sealed class Renderer
     /// camera keeps it level with the geometry, whose own pitch is the
     /// same shear (Renderer.Horizon) - the reference has a real 3D
     /// camera and rotates both together.
+    ///
+    /// <paramref name="rdx"/> and <paramref name="rdy"/> are the column's
+    /// ray, cos and sin of its angle - the very values the column loop
+    /// worked out once, and what this used to recompute from the angle
+    /// for every sky pixel: two transcendentals a pixel, for the same
+    /// two numbers. MathF.Cos of the same float is the same float, so
+    /// handing them over cannot move a bit.
     /// </summary>
-    static uint SkyAt(M59Sky sky, uint fallback, float rayA, float cosFix,
+    static uint SkyAt(M59Sky sky, uint fallback, float rdx, float rdy, float cosFix,
                       int y, float horizon, float proj)
     {
         if (sky == null) return fallback;
         float up = (horizon - y) / proj * cosFix;
-        return sky.Sample(MathF.Cos(rayA), MathF.Sin(rayA), up);
+        return sky.Sample(rdx, rdy, up);
     }
 
     public struct Hit { public RooWall Wall; public float Dist, Along, Len; public bool Right; }
@@ -854,6 +861,8 @@ public sealed class Renderer
     {
         public readonly List<Hit> Hits = new List<Hit>(64);
         public readonly List<RooWall> Candidates = new List<RooWall>(64);
+        /// <summary>The same as indices, for the flat-array test. See CollectHits.</summary>
+        public readonly List<int> CandidateIdx = new List<int>(64);
         public int[] Stamp;
         public int Tick;
         public int SolidCols;
@@ -863,7 +872,7 @@ public sealed class Renderer
         /// than on the table because the bands run concurrently - see
         /// FlatAnchors.TryAnchor.
         /// </summary>
-        public int AnchorMemo = -1;
+        public FlatAnchors.Cursor AnchorMemo = FlatAnchors.Cursor.Start;
         /// <summary>The lights that can reach this column, and this wall part.</summary>
         public readonly List<Light> ColLights = new List<Light>(16);
         public readonly List<Light> PartLights = new List<Light>(16);
@@ -1143,7 +1152,7 @@ public sealed class Renderer
                 // It has to finish before any column writes a depth, so
                 // it is its own fork and join, not part of the bands'.
                 _bW = W; _bH = H; _bPer = (H + bands - 1) / bands;
-                Parallel.For(0, bands, _bClear ??= ClearRows);
+                RunBands(bands, clear: true);
             }
         }
         if (Profile) Phase[PhClear] += System.Diagnostics.Stopwatch.GetTimestamp() - tClear;
@@ -1155,21 +1164,20 @@ public sealed class Renderer
         }
         else
         {
-            // The band's arguments go into fields and the delegate is
-            // built once, rather than a fresh closure object and a fresh
-            // Action every frame. Those were 1950 of the renderer's 2031
-            // bytes a frame - not a stutter, there were no gen0
-            // collections in two hundred frames, but it is the whole of
-            // what the renderer allocates and it costs nothing to not do
-            // it. Safe because Render is not reentrant - it already
-            // writes _depth, _clipN and the scratch array - and
-            // Parallel.For is a full barrier at both ends.
+            // The band's arguments go into fields rather than a fresh
+            // closure object every frame. Those were 1950 of the
+            // renderer's 2031 bytes a frame - not a stutter, there were
+            // no gen0 collections in two hundred frames, but it is the
+            // whole of what the renderer allocates and it costs nothing
+            // to not do it. Safe because Render is not reentrant - it
+            // already writes _depth, _clipN and the scratch array - and
+            // RunBands is a full barrier at both ends.
             _bPx = px; _bW = W; _bH = H;
             _bCamX = camX; _bCamY = camY; _bCamZ = camZ;
             _bAngle = angle; _bProj = proj; _bHorizon = horizon;
             _bSector = camSector; _bLights = frameLights; _bAnyLights = anyLights;
             _bPer = (W + bands - 1) / bands;
-            Parallel.For(0, bands, _bBand ??= RenderOneBand);
+            RunBands(bands, clear: false);
         }
         for (int b = 0; b < bands; b++) solidCols += _scratch[b].SolidCols;
 
@@ -1193,7 +1201,99 @@ public sealed class Renderer
     RooSector _bSector;
     List<Light> _bLights;
     bool _bAnyLights;
-    Action<int> _bBand, _bClear;
+
+    // ----------------------------------------------------------------
+    // The fork and join, without Parallel.For.
+    //
+    // Parallel.For is the right tool and it allocates: a task, a loop
+    // state, a replicable-task record and the rest, about 1.8 KB a
+    // call, twice a frame - 3.6 KB a frame with nothing else in the
+    // renderer allocating at all, and on the phone the gen0 collection
+    // it eventually buys is a hitch in the one place a hitch shows.
+    //
+    // This is the same shape with nothing allocated after the first
+    // frame: one reusable work item per band, queued to the same thread
+    // pool, and a band counter every participant - the calling thread
+    // included - takes from until the bands run out. The calling thread
+    // therefore finishes the frame on its own if the pool is slow to
+    // pick the items up, exactly as Parallel.For's calling thread does,
+    // and a worker that arrives to find no band left simply returns.
+    // The join is a CountdownEvent of one signal per BAND, not per
+    // item, so a band is counted by whoever ran it. Its Wait and the
+    // Signals are full fences: everything the bands wrote is visible
+    // when Wait returns. An exception in a band is caught, kept, and
+    // rethrown on the calling thread after the join, so the frame still
+    // joins and the error still surfaces.
+    // ----------------------------------------------------------------
+
+    sealed class BandJob : System.Threading.IThreadPoolWorkItem
+    {
+        public Renderer R;
+        /// <summary>The frame this item was queued for. See RunBandsWorker.</summary>
+        public int Gen;
+        public void Execute() => R.RunBandsWorker(Gen);
+    }
+
+    BandJob[] _jobs = Array.Empty<BandJob>();
+    readonly System.Threading.CountdownEvent _bandsDone = new System.Threading.CountdownEvent(1);
+    /// <summary>
+    /// The frame number in the high half and the next band to hand out
+    /// in the low half, one word, so that handing out a band and
+    /// checking it is this frame's are one compare-and-swap. A work
+    /// item the pool only gets round to running after its frame has
+    /// joined - the pool was busy, the frame was finished by the
+    /// calling thread - sees a frame number that is not its own and
+    /// returns without touching anything; it can neither take a band
+    /// of the next frame nor signal its countdown.
+    /// </summary>
+    long _bandState;
+    int _bandGen, _bandCount;
+    bool _bandClear;
+    Exception _bandError;
+
+    void RunBands(int bands, bool clear)
+    {
+        if (bands <= 1) { if (clear) ClearRows(0); else RenderOneBand(0); return; }
+        if (_jobs.Length < bands)
+        {
+            var next = new BandJob[bands];
+            Array.Copy(_jobs, next, _jobs.Length);
+            for (int i = _jobs.Length; i < bands; i++) next[i] = new BandJob { R = this };
+            _jobs = next;
+        }
+        // Count first, then the frame's parameters, then publish the
+        // state word that lets anyone take a band: a worker that sees
+        // the new frame number sees everything written before it.
+        _bandsDone.Reset(bands);
+        _bandClear = clear; _bandCount = bands; _bandError = null;
+        int gen = ++_bandGen;
+        System.Threading.Volatile.Write(ref _bandState, (long)gen << 32);
+        for (int i = 1; i < bands; i++)
+        {
+            _jobs[i].Gen = gen;
+            System.Threading.ThreadPool.UnsafeQueueUserWorkItem(_jobs[i], preferLocal: false);
+        }
+        RunBandsWorker(gen);
+        _bandsDone.Wait();
+        Exception e = _bandError;
+        if (e != null) throw new InvalidOperationException("a render band failed", e);
+    }
+
+    /// <summary>Takes this frame's bands until there are none. See RunBands.</summary>
+    void RunBandsWorker(int gen)
+    {
+        while (true)
+        {
+            long st = System.Threading.Volatile.Read(ref _bandState);
+            if ((int)(st >> 32) != gen) return;              // not this frame's
+            int b = (int)st;
+            if (b >= _bandCount) return;                      // all handed out
+            if (System.Threading.Interlocked.CompareExchange(ref _bandState, st + 1, st) != st) continue;
+            try { if (_bandClear) ClearRows(b); else RenderOneBand(b); }
+            catch (Exception e) { System.Threading.Interlocked.CompareExchange(ref _bandError, e, null); }
+            finally { _bandsDone.Signal(); }
+        }
+    }
 
     /// <summary>One band's share of the depth reset, by rows. See Render.</summary>
     void ClearRows(int b)
@@ -1431,7 +1531,7 @@ public sealed class Renderer
                              oneWet ? TextureScrollSpeed.NONE
                                     : side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time, Sky, rayA, cosFix, horizon, proj, wallLights, hx, hy,
+                             Time, Sky, rdx, rdy, cosFix, horizon, proj, wallLights, hx, hy,
                              VOrigin(side != null && side.Flags.IsNormalTopDown,
                                      side != null && side.Flags.IsNormalTopDown ? ncA : nfA,
                                      side != null && side.Flags.IsNormalTopDown ? ncB : nfB),
@@ -1469,7 +1569,7 @@ public sealed class Renderer
                              upWet ? TextureScrollSpeed.NONE
                                    : side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time, Sky, rayA, cosFix, horizon, proj, wallLights, hx, hy,
+                             Time, Sky, rdx, rdy, cosFix, horizon, proj, wallLights, hx, hy,
                              UpTop ? VOrigin(true, ncA, ncB) : VOrigin(false, fcA, fcB),
                              upWet ? new LiquidWall(wnx, wny, camX, camY, camZ,
                                                     WallWave(side.Flags.ScrollSpeed,
@@ -1484,7 +1584,7 @@ public sealed class Renderer
                     // behind it is the skybox, which is what shows here.
                     else for (int y = Math.Max(0, yTop);
                               y < Math.Min(H, Math.Min(yBot + 1, farCeilY)); y++)
-                        px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
+                        px[y * W + sx] = SkyAt(Sky, Tex.Void, rdx, rdy, cosFix, y, horizon, proj);
                     if (prof) { long n = System.Diagnostics.Stopwatch.GetTimestamp(); Phase[PhWalls] += n - tUp; Phase[PhColumn] -= n - tUp; }
                     yTop = Math.Max(yTop, farCeilY);
                     // Past this wall the column can only show what is
@@ -1506,7 +1606,7 @@ public sealed class Renderer
                              lowWet ? TextureScrollSpeed.NONE
                                     : side != null ? side.Flags.ScrollSpeed : TextureScrollSpeed.NONE,
                              side != null ? side.Flags.ScrollDirection : TextureScrollDirection.N,
-                             Time, Sky, rayA, cosFix, horizon, proj, wallLights, hx, hy,
+                             Time, Sky, rdx, rdy, cosFix, horizon, proj, wallLights, hx, hy,
                              LowTop ? VOrigin(true, ffA, ffB) : VOrigin(false, nfA, nfB),
                              lowWet ? new LiquidWall(wnx, wny, camX, camY, camZ,
                                                      WallWave(side.Flags.ScrollSpeed,
@@ -1515,7 +1615,7 @@ public sealed class Renderer
                                     : LiquidWall.None, sc.Luts);
                     else for (int y = Math.Max(0, Math.Max(yTop, farFloorY));
                               y < Math.Min(H, yBot + 1); y++)
-                        px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
+                        px[y * W + sx] = SkyAt(Sky, Tex.Void, rdx, rdy, cosFix, y, horizon, proj);
                     if (prof) { long n = System.Diagnostics.Stopwatch.GetTimestamp(); Phase[PhWalls] += n - tLo; Phase[PhColumn] -= n - tLo; }
                     yBot = Math.Min(yBot, farFloorY);
                     Narrow(sx, perp, yTop, yBot);
@@ -1604,7 +1704,7 @@ public sealed class Renderer
                                      HonourNoVTile && side.Flags.IsNoVTile,
                                      midWet ? TextureScrollSpeed.NONE : side.Flags.ScrollSpeed,
                                      side.Flags.ScrollDirection, Time,
-                                     Sky, rayA, cosFix, horizon, proj, wallLights, hx, hy,
+                                     Sky, rdx, rdy, cosFix, horizon, proj, wallLights, hx, hy,
                                      midOrigin,
                                      midWet ? new LiquidWall(wnx, wny, camX, camY, camZ,
                                                              WallWave(side.Flags.ScrollSpeed,
@@ -1647,7 +1747,7 @@ public sealed class Renderer
                 _depth[sx] = _depth[sx] == float.MaxValue ? 1e9f : _depth[sx];
                 long tSky = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                 for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0)
-                    px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
+                    px[y * W + sx] = SkyAt(Sky, Tex.Void, rdx, rdy, cosFix, y, horizon, proj);
                 if (prof) { long n = System.Diagnostics.Stopwatch.GetTimestamp(); Phase[PhSky] += n - tSky; Phase[PhColumn] -= n - tSky; }
             }
             if (prof) Phase[PhColumn] += System.Diagnostics.Stopwatch.GetTimestamp() - tCol;
@@ -1716,7 +1816,7 @@ public sealed class Renderer
                      m.Fog, m.Tpp, true, haveSprites ? _spriteDepth : null, m.Depth, W,
                      haveSprites ? _flatDepth : null,
                      m.NoVTile, m.ScrollSpeed, m.ScrollDir, Time,
-                     null, 0f, 1f, 0f, 1f, null, 0f, 0f, m.VOrigin, default, _mainLuts);
+                     null, 1f, 0f, 1f, 0f, 1f, null, 0f, 0f, m.VOrigin, default, _mainLuts);
         }
     }
 
@@ -2376,7 +2476,7 @@ public sealed class Renderer
                          TextureScrollSpeed scrollSpeed = TextureScrollSpeed.NONE,
                          TextureScrollDirection scrollDir = TextureScrollDirection.N,
                          float time = 0f,
-                         M59Sky sky = null, float rayA = 0f, float cosFix = 1f,
+                         M59Sky sky = null, float rdx = 1f, float rdy = 0f, float cosFix = 1f,
                          float horizon = 0f, float proj = 1f,
                          List<Light> lights = null, float hx = 0f, float hy = 0f,
                          float vOrigin = float.NaN,
@@ -2481,7 +2581,7 @@ public sealed class Renderer
                 float worldH = spanTopH + f * spanDh;
                 float v = vBase + worldH * vPerHeight;
                 if (noVTile && v < 0f)
-                { px[y * W + sx] = SkyAt(sky, 0xFF000000u, rayA, cosFix, y, horizon, proj); continue; }
+                { px[y * W + sx] = SkyAt(sky, 0xFF000000u, rdx, rdy, cosFix, y, horizon, proj); continue; }
                 int tx = (int)((v - MathF.Floor(v)) * lw);
                 if (tx < 0) tx = 0; else if (tx >= lw) tx = lw - 1;
                 Unsafe.Add(ref px0, y * W + sx) = ShadeLutPx(Unsafe.Add(ref lp0, tx), ref lut0);
@@ -2489,7 +2589,49 @@ public sealed class Renderer
             return;
         }
 
+        if (lut != null && masked)
+        {
+            // The see-through wall, tight, the same way: the plain
+            // loop's rows plus the three tests a masked part has - the
+            // texel's own alpha, the sprite that may be nearer, and the
+            // depth it leaves for the pick - each a line of the general
+            // loop below. In a1, half the frame goes through here.
+            if (Profile) { DbgSlowPx += Math.Max(0, y1 - y0 + 1); DbgMaskedPx += Math.Max(0, y1 - y0 + 1); }
+            ref uint px0 = ref MemoryMarshal.GetArrayDataReference(px);
+            ref uint lp0 = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(lp), rowBase);
+            ref byte lut0 = ref MemoryMarshal.GetArrayDataReference(lut);
+            float spanDh = spanBotH - spanTopH;
+            for (int y = y0; y <= y1; y++)
+            {
+                float f = (y - spanTopY) / span;
+                float worldH = spanTopH + f * spanDh;
+                float v = vBase + worldH * vPerHeight;
+                if (noVTile && v < 0f) continue;
+                int tx = (int)((v - MathF.Floor(v)) * lw);
+                if (tx < 0) tx = 0; else if (tx >= lw) tx = lw - 1;
+                uint texel = Unsafe.Add(ref lp0, tx);
+                if ((texel >> 24) == 0) continue;
+                if (spriteDepth != null)
+                {
+                    float sd = spriteDepth[y * stride + sx];
+                    if (sd > 0f && sd < depth) continue;
+                }
+                if (coverDepth != null)
+                {
+                    ref float cd = ref coverDepth[y * stride + sx];
+                    if (depth < cd) cd = depth;
+                }
+                Unsafe.Add(ref px0, y * W + sx) = ShadeLutPx(texel, ref lut0);
+            }
+            return;
+        }
+
         if (Profile) { if (t == null) DbgNullPx += Math.Max(0, y1 - y0 + 1); else DbgSlowPx += Math.Max(0, y1 - y0 + 1); if (masked) DbgMaskedPx += Math.Max(0, y1 - y0 + 1); }
+        // The liquid shader's part constants, once. See M59Water.Span.
+        M59Water.Span water = liquid.On && t != null
+            ? M59Water.Begin(t, liquid.CamX, liquid.CamY, liquid.CamZ, liquid.Nx, liquid.Ny, 0f,
+                             liquid.WaveX, 0f, liquid.Time, liquid.Ambient)
+            : default;
         for (int y = y0; y <= y1; y++)
         {
             uint c;
@@ -2500,7 +2642,7 @@ public sealed class Renderer
             // (`ControllerRoom.cpp:686`). So what is behind the missing
             // quad shows through, which is the sky. A grey fill instead
             // made every missing texture look like a wall that is there.
-            if (t == null) c = SkyAt(sky, Tex.Void, rayA, cosFix, y, horizon, proj);
+            if (t == null) c = SkyAt(sky, Tex.Void, rdx, rdy, cosFix, y, horizon, proj);
             else
             {
                 float f = (y - spanTopY) / span;                 // 0 at top of span
@@ -2541,7 +2683,7 @@ public sealed class Renderer
                     // Declining the rows above is the same picture as the
                     // library's shortened quad: what shows past the end
                     // of geometry is the sky.
-                    if (!masked) px[y * W + sx] = SkyAt(sky, 0xFF000000u, rayA, cosFix, y, horizon, proj);
+                    if (!masked) px[y * W + sx] = SkyAt(sky, 0xFF000000u, rdx, rdy, cosFix, y, horizon, proj);
                     continue;
                 }
                 // A see-through wall reads the same reduced copy a
@@ -2585,11 +2727,7 @@ public sealed class Renderer
                     // No fog and no lights either: the water pass is one
                     // `illumination_stage ambient` with `ambient` its only
                     // uniform (general.material:414-445).
-                    c = M59Water.Shade(t, hx, hy, worldH,
-                                       liquid.CamX, liquid.CamY, liquid.CamZ,
-                                       liquid.Nx, liquid.Ny, 0f,
-                                       liquid.WaveX, 0f, liquid.Time, liquid.Ambient,
-                                       worldPerPixel);
+                    c = M59Water.Shade(in water, hx, hy, worldH, worldPerPixel);
                 }
                 else if (lut != null) c = ShadeLutPx(texel, lut);
                 else if (lights == null || lights.Count == 0) c = Shade(texel | 0xFF000000u, fog);
@@ -2782,6 +2920,13 @@ public sealed class Renderer
         // The shader's clock is time_0_x with a period of 100 seconds
         // (general.material:96), so it is a sawtooth, not a ramp.
         float waterTime = time - 100f * MathF.Floor(time / 100f);
+        // The liquid shader's span constants, once. See M59Water.Span.
+        // The PLAIN ambient, not `bright`: the water pass is one
+        // `illumination_stage ambient` and its only uniform is
+        // `ambient_light_colour` (general.material:160-170, :414-445).
+        M59Water.Span water = liquid
+            ? M59Water.Begin(t, camX, camY, camZ, fnx, fny, fnz, waveX, waveY, waterTime, ambient)
+            : default;
         // rdx, rdy and cosFix arrive from the column, which had already
         // worked them out from the same rayA and angle: three
         // transcendentals a span, for nothing.
@@ -2845,6 +2990,20 @@ public sealed class Renderer
             return;
         }
 
+        // The level liquid span - the pool, the river, the lava lake -
+        // takes a loop of its own for the same reason the plain span
+        // does: the general loop below carries sixty locals for the
+        // branches this case never takes, and the liquid shader's own
+        // chain is long enough that what the core can overlap across
+        // pixels decides its speed. Same arithmetic, same order, held to
+        // the same pixels by the golden frames.
+        if (slope == null && t != null && liquid && !noSample)
+        {
+            FillLevelLiquid(px, fd, W, sx, y0, y1, horizon, proj, camX, camY, camZ, planeH,
+                            rdx, rdy, cosFixMax, in water, flat);
+            return;
+        }
+
         for (int y = y0; y <= y1; y++)
         {
             // Texture 0 leaves the sector with no resource and no
@@ -2853,7 +3012,7 @@ public sealed class Renderer
             // the skybox is what fills the hole. Floors as well as
             // ceilings: the early-out is the same for both.
             if (t == null)
-            { px[y * W + sx] = SkyAt(sky, flat, rayA, cosFix, y, horizon, proj); continue; }
+            { px[y * W + sx] = SkyAt(sky, flat, rdx, rdy, cosFix, y, horizon, proj); continue; }
             float dy = y - horizon;
             if (MathF.Abs(dy) < 0.5f) { px[y * W + sx] = flat; continue; }
 
@@ -2902,11 +3061,7 @@ public sealed class Renderer
                 // `illumination_stage ambient` and its only uniform is
                 // `ambient_light_colour` (general.material:160-170,
                 // :414-445). See M59Water.Shade.
-                px[y * W + sx] = M59Water.Shade(t, wx, wy, surfaceZ,
-                                                camX, camY, camZ,
-                                                fnx, fny, fnz,
-                                                waveX, waveY, waterTime, ambient,
-                                                noisePerPixel);
+                px[y * W + sx] = M59Water.Shade(in water, wx, wy, surfaceZ, noisePerPixel);
                 continue;
             }
 
@@ -3014,6 +3169,33 @@ public sealed class Renderer
         }
     }
     /// <summary>
+    /// FillFlat's row loop for the level liquid span. Every line is a
+    /// line of the general loop with the dry branches left out; see
+    /// the call site.
+    /// </summary>
+    static void FillLevelLiquid(uint[] px, float[] fd, int W, int sx, int y0, int y1,
+                                float horizon, float proj, float camX, float camY, float camZ,
+                                float planeH, float rdx, float rdy, float cosFixMax,
+                                in M59Water.Span water, uint flat)
+    {
+        ref uint px0 = ref MemoryMarshal.GetArrayDataReference(px);
+        ref float fd0 = ref MemoryMarshal.GetArrayDataReference(fd);
+        for (int y = y0; y <= y1; y++)
+        {
+            float dy = y - horizon;
+            if (MathF.Abs(dy) < 0.5f) { px[y * W + sx] = flat; continue; }
+            float straight = MathF.Abs((camZ - planeH) * proj / dy);
+            float d = straight / cosFixMax;
+            int at = y * W + sx;
+            Unsafe.Add(ref fd0, at) = straight;
+            float wx = camX + rdx * d, wy = camY + rdy * d;
+            float worldPerPixel = straight / MathF.Max(1f, MathF.Abs(dy));
+            float noisePerPixel = MathF.Max(worldPerPixel, straight / proj);
+            Unsafe.Add(ref px0, at) = M59Water.Shade(in water, wx, wy, planeH, noisePerPixel);
+        }
+    }
+
+    /// <summary>
     /// FillFlat's row loop for the level, textured, dry, unlit span. See
     /// the call site: every line here is a line of the general loop,
     /// with the branches that case never takes left out, and the golden
@@ -3025,33 +3207,77 @@ public sealed class Renderer
                                float texOffX, float texOffY, float scrollU, float scrollV,
                                FlatMemo memo, byte[] lut, FlatAnchors anchors, Scratch sc, uint flat)
     {
-        float rise = camZ - planeH;
+        // (rise * proj) / dy is what `rise * proj / dy` is, left to
+        // right, so the product is the same float formed once.
+        float rp = (camZ - planeH) * proj;
         int lodMax = memo.Max;
         uint[][] lp = memo.Lp; int[] lws = memo.Lw, lhs = memo.Lh;
         // References, as in DrawWall's plain loop: every index below is
         // clamped before use. The table is read through its first byte;
-        // null here means a factor of one, the texel as it is.
+        // null here means a factor of one, the texel as it is. The
+        // level arrays are sixteen long and lod is clamped to Max, which
+        // FlatMemo.Set keeps under sixteen, so those three are in range
+        // by construction too.
         ref uint px0 = ref MemoryMarshal.GetArrayDataReference(px);
         ref float fd0 = ref MemoryMarshal.GetArrayDataReference(fd);
         ref byte lut0 = ref (lut != null ? ref MemoryMarshal.GetArrayDataReference(lut) : ref Unsafe.NullRef<byte>());
+        ref uint[] lp0 = ref MemoryMarshal.GetArrayDataReference(lp);
+        ref int lw0 = ref MemoryMarshal.GetArrayDataReference(lws);
+        ref int lh0 = ref MemoryMarshal.GetArrayDataReference(lhs);
         bool shade = lut != null;
+        if (anchors == null)
+        {
+            // The room anchors every flat at the origin: no lookup in
+            // the loop at all. `wy - 0f - texOffY` is `wy - texOffY` for
+            // every wy, so the anchor terms are simply not written.
+            for (int y = y0; y <= y1; y++)
+            {
+                float dy = y - horizon;
+                if (MathF.Abs(dy) < 0.5f) { px[y * W + sx] = flat; continue; }
+                float straight = MathF.Abs(rp / dy);
+                float d = straight / cosFixMax;
+                int at = y * W + sx;
+                Unsafe.Add(ref fd0, at) = straight;
+                float wx = camX + rdx * d, wy = camY + rdy * d;
+                float worldPerPixel = straight / MathF.Max(1f, MathF.Abs(dy));
+                float texelsPerPixel = worldPerPixel * uvW * InvFineness;
+                float sU = (wy - texOffY) * InvFineness + scrollU;
+                float sV = (wx - texOffX) * InvFineness + scrollV;
+                int lod = 0;
+                if (texelsPerPixel >= 2f && lodMax > 0)
+                {
+                    lod = ((BitConverter.SingleToInt32Bits(texelsPerPixel) >> 23) & 0xFF) - 127;
+                    if (lod > lodMax) lod = lodMax;
+                }
+                int lw = Unsafe.Add(ref lw0, lod), lh = Unsafe.Add(ref lh0, lod);
+                int tx = (int)((sU - MathF.Floor(sU)) * lw);
+                int ty = (int)((sV - MathF.Floor(sV)) * lh);
+                if (tx < 0) tx = 0; else if (tx >= lw) tx = lw - 1;
+                if (ty < 0) ty = 0; else if (ty >= lh) ty = lh - 1;
+                uint texel = Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(Unsafe.Add(ref lp0, lod)), ty * lw + tx);
+                Unsafe.Add(ref px0, at) = shade ? ShadeLutPx(texel, ref lut0) : texel;
+            }
+            return;
+        }
+        // The band's anchor cursor, in a local for the loop and written
+        // back after it: a field through a class reference would be
+        // re-read, and its owner null-tested, at every pixel.
+        FlatAnchors.Cursor cur = sc != null ? sc.AnchorMemo : FlatAnchors.Cursor.Start;
+        bool memoised = sc != null;
         for (int y = y0; y <= y1; y++)
         {
             float dy = y - horizon;
             if (MathF.Abs(dy) < 0.5f) { px[y * W + sx] = flat; continue; }
-            float straight = MathF.Abs(rise * proj / dy);
+            float straight = MathF.Abs(rp / dy);
             float d = straight / cosFixMax;
             int at = y * W + sx;
             Unsafe.Add(ref fd0, at) = straight;
             float wx = camX + rdx * d, wy = camY + rdy * d;
             float worldPerPixel = straight / MathF.Max(1f, MathF.Abs(dy));
             float texelsPerPixel = worldPerPixel * uvW * InvFineness;
-            float anchorX = 0f, anchorY = 0f;
-            if (anchors != null)
-            {
-                if (sc != null) anchors.TryAnchor(wx, wy, ref sc.AnchorMemo, out anchorX, out anchorY);
-                else            anchors.TryAnchor(wx, wy, out anchorX, out anchorY);
-            }
+            float anchorX, anchorY;
+            if (memoised) anchors.TryAnchor(wx, wy, ref cur, out anchorX, out anchorY);
+            else          anchors.TryAnchor(wx, wy, out anchorX, out anchorY);
             float sU = (wy - anchorY - texOffY) * InvFineness + scrollU;
             float sV = (wx - anchorX - texOffX) * InvFineness + scrollV;
             int lod = 0;
@@ -3060,14 +3286,15 @@ public sealed class Renderer
                 lod = ((BitConverter.SingleToInt32Bits(texelsPerPixel) >> 23) & 0xFF) - 127;
                 if (lod > lodMax) lod = lodMax;
             }
-            int lw = lws[lod], lh = lhs[lod];
+            int lw = Unsafe.Add(ref lw0, lod), lh = Unsafe.Add(ref lh0, lod);
             int tx = (int)((sU - MathF.Floor(sU)) * lw);
             int ty = (int)((sV - MathF.Floor(sV)) * lh);
             if (tx < 0) tx = 0; else if (tx >= lw) tx = lw - 1;
             if (ty < 0) ty = 0; else if (ty >= lh) ty = lh - 1;
-            uint texel = Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(lp[lod]), ty * lw + tx);
+            uint texel = Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(Unsafe.Add(ref lp0, lod)), ty * lw + tx);
             Unsafe.Add(ref px0, at) = shade ? ShadeLutPx(texel, ref lut0) : texel;
         }
+        if (sc != null) sc.AnchorMemo = cur;
     }
 
     /// <summary>
@@ -3258,22 +3485,37 @@ public sealed class Renderer
         outHits.Clear();
         if (UseGrid && _grid != null)
         {
-            sc.Candidates.Clear();
-            long tA = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-            _grid.Collect(ox, oy, dx, dy, sc.Candidates, sc.Stamp, ref sc.Tick);
-            long tB = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-            List<RooWall> cand = sc.Candidates;
+            long tA = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0, tB = 0;
+            int nCand;
             if (_wX1 != null)
-                for (int i = 0; i < cand.Count; i++)
+            {
+                // By index: the endpoint arrays are laid out by wall
+                // number, which the constructor checked is the list
+                // position plus one, so a candidate is tested without
+                // touching its RooWall - that is loaded for the hits
+                // alone. Same candidates in the same order, same test.
+                List<int> cand = sc.CandidateIdx;
+                cand.Clear();
+                _grid.Collect(ox, oy, dx, dy, cand, sc.Stamp, ref sc.Tick);
+                if (Profile) tB = System.Diagnostics.Stopwatch.GetTimestamp();
+                nCand = cand.Count;
+                for (int i = 0; i < nCand; i++)
                 {
-                    RooWall w = cand[i];
-                    int k = w.Num;
-                    TestWall(w, _wX1[k], _wY1[k], _wX2[k], _wY2[k], ox, oy, dx, dy, outHits);
+                    int k = cand[i] + 1;
+                    TestWall(_grid, k - 1, _wX1[k], _wY1[k], _wX2[k], _wY2[k], ox, oy, dx, dy, outHits);
                 }
+            }
             else
-                for (int i = 0; i < cand.Count; i++)
+            {
+                List<RooWall> cand = sc.Candidates;
+                cand.Clear();
+                _grid.Collect(ox, oy, dx, dy, cand, sc.Stamp, ref sc.Tick);
+                if (Profile) tB = System.Diagnostics.Stopwatch.GetTimestamp();
+                nCand = cand.Count;
+                for (int i = 0; i < nCand; i++)
                     TestWall(cand[i], ox, oy, dx, dy, outHits);
-            if (Profile) { long tC = System.Diagnostics.Stopwatch.GetTimestamp(); DbgGrid += tB - tA; DbgTest += tC - tB; DbgCand += sc.Candidates.Count; DbgHits += outHits.Count; }
+            }
+            if (Profile) { long tC = System.Diagnostics.Stopwatch.GetTimestamp(); DbgGrid += tB - tA; DbgTest += tC - tB; DbgCand += nCand; DbgHits += outHits.Count; }
         }
         else
         {
@@ -3311,6 +3553,31 @@ public sealed class Renderer
 
     static void TestWall(RooWall w, float ox, float oy, float dx, float dy, List<Hit> outHits)
         => TestWall(w, w.X1, w.Y1, w.X2, w.Y2, ox, oy, dx, dy, outHits);
+
+    /// <summary>
+    /// <see cref="TestWall(RooWall,float,float,float,float,float,float,float,float,List{Hit})"/>
+    /// with the wall named by index and fetched only on a hit.
+    /// </summary>
+    static void TestWall(WallGrid grid, int index, float x1, float y1, float x2, float y2,
+                         float ox, float oy, float dx, float dy, List<Hit> outHits)
+    {
+        float ex = x2 - x1, ey = y2 - y1;
+        float den = dx * ey - dy * ex;
+        if (MathF.Abs(den) < 1e-6f) return;
+        float sNum = (x1 - ox) * dy - (y1 - oy) * dx;
+        float aDen = MathF.Abs(den);
+        if ((sNum < 0f) != (den < 0f) && MathF.Abs(sNum) > aDen * 1e-30f) return;
+        if (MathF.Abs(sNum) > aDen * 1.000001f) return;
+        float t = ((x1 - ox) * ey - (y1 - oy) * ex) / den;
+        float s = sNum / den;
+        if (t <= 1f || s < 0f || s > 1f) return;
+        float len = MathF.Sqrt(ex * ex + ey * ey);
+        outHits.Add(new Hit {
+            Wall = grid.Wall(index), Dist = t, Len = len,
+            Along = s * len,
+            Right = (ex * (oy - y1) - ey * (ox - x1)) > 0f
+        });
+    }
 
     static void TestWall(RooWall w, float x1, float y1, float x2, float y2,
                          float ox, float oy, float dx, float dy, List<Hit> outHits)

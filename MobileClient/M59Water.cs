@@ -145,44 +145,95 @@ public static class M59Water
                              float waveX, float waveY, float t, float ambient,
                              float worldPerPixel)
     {
-        if (tex == null) return 0xFF000000u;
+        Span s = Begin(tex, ex, ey, ez, nx, ny, nz, waveX, waveY, t, ambient);
+        return Shade(in s, wx, wy, wz, worldPerPixel);
+    }
+
+    /// <summary>
+    /// Everything in <see cref="Shade(Tex,float,float,float,float,float,float,float,float,float,float,float,float,float,float)"/>
+    /// that does not depend on the pixel, worked out once a SPAN - a
+    /// floor span or a wall part - and read by
+    /// <see cref="Shade(in Span,float,float,float,float)"/> per pixel.
+    /// Each field is the very expression the per-pixel code used to
+    /// evaluate, in the same float steps: <c>waveX * t</c> is the same
+    /// product whether it is formed once or a thousand times, and the
+    /// per-pixel sums below add it in the same place they always did.
+    /// The ambient table and the noise chain are resolved here too, so
+    /// the pixel loop reads neither static.
+    /// </summary>
+    public readonly struct Span
+    {
+        internal readonly Tex Tex;
+        internal readonly uint[] P;
+        internal readonly int W, H;
+        internal readonly Vector128<float> Normal;   // (nx, nz, ny, 0): the shader's axes
+        internal readonly Vector128<float> Eye;      // (ex, ez, ey, 0) * 0.0625
+        internal readonly bool Wall;
+        internal readonly float WaveXT, WaveYT, NoiseT, Texels;
+        internal readonly byte[] Lut;
+        internal readonly NoiseChain Chain;
+
+        internal Span(Tex tex, float ex, float ey, float ez, float nx, float ny, float nz,
+                      float waveX, float waveY, float t, float ambient)
+        {
+            Tex = tex; P = tex?.P; W = tex?.W ?? 0; H = tex?.H ?? 0;
+            // The normal, in the shader's axes. Its y is this renderer's
+            // z, and the shader's branch is exactly `normal.y != 0`.
+            float onx = nx, ony = nz, onz = ny;
+            Normal = Vector128.Create(onx, ony, onz, 0f);
+            Wall = ony == 0f;
+            Eye = Vector128.Create(ex, ez, ey, 0f) * Vector128.Create(0.0625f);
+            WaveXT = waveX * t; WaveYT = waveY * t; NoiseT = NoiseSpeed * t;
+            Texels = Wall ? WallTexels : FloorTexels;
+            ShadeLut lut = _lut;
+            if (lut == null || lut.F != ambient) lut = Lut(ambient);
+            Lut = lut.T;
+            Chain = _chain ?? Chain();
+        }
+    }
+
+    /// <summary>The span's constants, once. See <see cref="Span"/>.</summary>
+    public static Span Begin(Tex tex, float ex, float ey, float ez,
+                             float nx, float ny, float nz,
+                             float waveX, float waveY, float t, float ambient)
+        => new Span(tex, ex, ey, ez, nx, ny, nz, waveX, waveY, t, ambient);
+
+    /// <summary>The per-pixel half. See <see cref="Span"/> and the long comment above.</summary>
+    public static uint Shade(in Span s, float wx, float wy, float wz, float worldPerPixel)
+    {
+        if (s.Tex == null) return 0xFF000000u;
 
         // Ogre object space: (roomX, height, roomY) * 0.0625.
         float px = wx * 0.0625f, py = wz * 0.0625f, pz = wy * 0.0625f;
 
-        // The normal, in the shader's axes. Its y is this renderer's z,
-        // and the shader's branch is exactly `normal.y != 0`.
-        float onx = nx, ony = nz, onz = ny;
-        bool wall = ony == 0f;
-
         float u, v, noiseTexels;
-        if (!wall)
+        if (!s.Wall)
         {
-            u = px * ScaleX + waveX * t;
-            float w = pz * ScaleZ + waveY * t;
+            u = px * ScaleX + s.WaveXT;
+            float w = pz * ScaleZ + s.WaveYT;
             // The already-advected z term feeds the v coordinate, which is
             // what makes floor water flow diagonally. It reads like a typo
             // and is not one: general.hlsl:274.
-            v = py * ScaleY + w + NoiseSpeed * t;
+            v = py * ScaleY + w + s.NoiseT;
             // How fast the noise coordinate moves per screen pixel, which
             // is what sets the filter level. A floor's pixel step is
             // horizontal, so u moves with ScaleX and v with ScaleZ; the
             // larger is the bound.
-            noiseTexels = FloorTexels * worldPerPixel;
+            noiseTexels = s.Texels * worldPerPixel;
         }
         else
         {
             // general.hlsl:277-282. uvw.z has not been touched yet, so
             // the term u picks up is the plain pz * ScaleZ.
-            u = px * ScaleX + pz * ScaleZ + NoiseSpeed * t;
-            v = py * ScaleY - waveX * t;
+            u = px * ScaleX + pz * ScaleZ + s.NoiseT;
+            v = py * ScaleY - s.WaveXT;
             // A wall's pixel step is either along it, where u takes both
             // horizontal scales, or up it, where v takes the much smaller
             // ScaleY; the larger of the two is the bound.
-            noiseTexels = WallTexels * worldPerPixel;
+            noiseTexels = s.Texels * worldPerPixel;
         }
 
-        Vector128<float> noise = SampleNoise(u, v, noiseTexels);
+        Vector128<float> noise = SampleNoise(s.Chain, u, v, noiseTexels);
 
         // bump = (2n - 1) * (0.15, 0.8, 0.15) with the middle lane through
         // abs, plus (0, 0.2, 0). Lane by lane this is exactly the three
@@ -210,7 +261,7 @@ public static class M59Water
         // the last bit often enough to show. One divps is the three
         // divss it replaces, lane for lane the same IEEE quotient; the
         // same goes for sqrtps against MathF.Sqrt.
-        Vector128<float> bn = Vector128.Create(onx, ony, onz, 0f) + bump;
+        Vector128<float> bn = s.Normal + bump;
         Vector128<float> sq = bn * bn;
         float len = MathF.Sqrt(sq.GetElement(0) + sq.GetElement(1) + sq.GetElement(2));
         if (len < 1e-6f) len = 1f;
@@ -218,8 +269,7 @@ public static class M59Water
 
         // View direction, camera to surface, in the same axes:
         // (px - ex*0.0625, py - ez*0.0625, pz - ey*0.0625).
-        Vector128<float> vv = Vector128.Create(px, py, pz, 0f)
-                            - Vector128.Create(ex, ez, ey, 0f) * Vector128.Create(0.0625f);
+        Vector128<float> vv = Vector128.Create(px, py, pz, 0f) - s.Eye;
         sq = vv * vv;
         float vlen = MathF.Sqrt(sq.GetElement(0) + sq.GetElement(1) + sq.GetElement(2));
         if (vlen < 1e-6f) vlen = 1f;
@@ -239,19 +289,19 @@ public static class M59Water
         // zero, and its `u - floor(u)` is kept because a coordinate of
         // exactly one wraps to zero through it.
         float cu = Clamp01(rx), cv = Clamp01(ry);
-        int tw = tex.W, th = tex.H;
+        int tw = s.W, th = s.H;
         int tx = (int)((cu - MathF.Floor(cu)) * tw);
         int ty = (int)((cv - MathF.Floor(cv)) * th);
         if (tx < 0) tx = 0; else if (tx >= tw) tx = tw - 1;
         if (ty < 0) ty = 0; else if (ty >= th) ty = th - 1;
-        uint texel = tex.P[ty * tw + tx];
+        // tx and ty are clamped into the level just above, so the index
+        // is in range by construction; the check is not paid.
+        uint texel = Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(s.P), ty * tw + tx);
 
         // Only the room's ambient multiplies it. No lights, no
         // colour modifier: `pixel = float4(ambient, 0) * reflcol`.
         // Through the table: see Lut.
-        ShadeLut lut = _lut;
-        if (lut == null || lut.F != ambient) lut = Lut(ambient);
-        ref byte l0 = ref MemoryMarshal.GetArrayDataReference(lut.T);
+        ref byte l0 = ref MemoryMarshal.GetArrayDataReference(s.Lut);
         return 0xFF000000u
              | ((uint)Unsafe.Add(ref l0, (int)((texel >> 16) & 0xFF)) << 16)
              | ((uint)Unsafe.Add(ref l0, (int)((texel >> 8) & 0xFF)) << 8)
@@ -347,7 +397,7 @@ public static class M59Water
     /// reference sees the sizes that go with it - on the phone's weak
     /// memory ordering as well as on the desktop's.
     /// </summary>
-    sealed class NoiseChain
+    internal sealed class NoiseChain
     {
         public float[][] Levels;  // each texel as (r, g, b, 0) floats, 16 bytes
         public int[] Sizes;
@@ -434,9 +484,8 @@ public static class M59Water
     /// See the block comment above.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static Vector128<float> SampleNoise(float u, float v, float texelsPerPixel)
+    static Vector128<float> SampleNoise(NoiseChain chain, float u, float v, float texelsPerPixel)
     {
-        NoiseChain chain = _chain ?? Chain();
         if (chain == null)
         {
             WaterNoise.Sample(u, v, texelsPerPixel, out float r, out float g, out float b);
@@ -453,9 +502,11 @@ public static class M59Water
             lod = ((BitConverter.SingleToInt32Bits(texelsPerPixel) >> 23) & 0xFF) - 127;
             if (lod > chain.Log2) lod = chain.Log2;
         }
-        float[] p = chain.Levels[lod];
+        // lod is clamped to Log2, the chain's last level, so both reads
+        // are in range by construction.
+        float[] p = Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(chain.Levels), lod);
         ref float p0 = ref MemoryMarshal.GetArrayDataReference(p);
-        int n = chain.Sizes[lod];
+        int n = Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(chain.Sizes), lod);
         if (n == 1) return Vector128.LoadUnsafe(ref p0) / Div255;
         int mask = n - 1;
 

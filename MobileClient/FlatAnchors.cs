@@ -202,6 +202,141 @@ public sealed class FlatAnchors
         return false;
     }
 
+    /// <summary>
+    /// What a span-walking caller remembers between two pixels: the leaf
+    /// memo <see cref="TryAnchor(float,float,ref int,out float,out float)"/>
+    /// keeps, and the SETTLED CELL the last pixel fell in with that
+    /// cell's answer. One per band, next to the memo it extends - see
+    /// Renderer.Scratch for why it cannot live on this object.
+    /// </summary>
+    public struct Cursor
+    {
+        public int Memo;
+        /// <summary>The fine cell the last pixel was in; -1 before any.</summary>
+        public int CellX, CellY;
+        /// <summary>That cell's entry (a leaf index, or Nothing); never Mixed.</summary>
+        public int Cell;
+        public float Left, Top;
+        public static Cursor Start => new Cursor { Memo = -1, CellX = -1, CellY = -1, Cell = Mixed };
+    }
+
+    /// <summary>
+    /// <see cref="TryAnchor(float,float,ref int,out float,out float)"/>
+    /// with the cell remembered as well as the leaf.
+    ///
+    /// A floor span's pixels walk a line through the room a few units
+    /// apart, and the settled grid's cells are hundreds of units across,
+    /// so pixel after pixel lands in the cell the one before did. A
+    /// settled cell's answer is a function of the cell alone - that is
+    /// what settled MEANS, see <see cref="Settle"/> - so when the cell
+    /// is the one just asked and it was settled, the answer is the one
+    /// just given, and the grid, the leaf table and their cache lines
+    /// are not touched again. The memo is set exactly as the per-pixel
+    /// lookup set it (to the leaf on a hit, untouched on Nothing), so a
+    /// later mixed cell sees the same hint it would have. A mixed cell
+    /// is never remembered: every pixel of one runs the full search,
+    /// as before. Byte-identical by construction and held so by the
+    /// golden frames.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryAnchor(float x, float y, ref Cursor c, out float left, out float top)
+    {
+        // Written so that a NaN fails: the search below would have found
+        // nothing for one, and the settled grid must say the same.
+        if (!(x >= _minX && x <= _maxX && y >= _minY && y <= _maxY)) { left = top = 0f; return false; }
+        Settled fine = _fine;
+        if (fine == null) return TryAnchorSlow(x, y, ref c, out left, out top);
+        int fx = (int)((x - _minX) * fine.Inv), fy = (int)((y - _minY) * fine.Inv);
+        if (fx >= fine.Cols) fx = fine.Cols - 1;
+        if (fy >= fine.Rows) fy = fine.Rows - 1;
+        if (fx == c.CellX && fy == c.CellY)
+        {
+            // The same settled cell as the last pixel: its answer.
+            left = c.Left; top = c.Top;
+            if (c.Cell >= 0) { c.Memo = c.Cell; return true; }
+            return false;
+        }
+        return TryAnchorCell(x, y, fx, fy, fine, ref c, out left, out top);
+    }
+
+    /// <summary>The settled grid not yet built: build it, then look up.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    bool TryAnchorSlow(float x, float y, ref Cursor c, out float left, out float top)
+    {
+        left = top = 0f;
+        if (_leaves.Length == 0) return false;
+        Settled fine = Settle();
+        int fx = (int)((x - _minX) * fine.Inv), fy = (int)((y - _minY) * fine.Inv);
+        if (fx >= fine.Cols) fx = fine.Cols - 1;
+        if (fy >= fine.Rows) fy = fine.Rows - 1;
+        return TryAnchorCell(x, y, fx, fy, fine, ref c, out left, out top);
+    }
+
+    /// <summary>
+    /// A pixel in a cell other than the cursor's: the per-pixel lookup's
+    /// own steps from the cell read on, remembering the cell when it is
+    /// settled. A settled cell - a leaf, or nothing - is answered here;
+    /// a mixed one goes to <see cref="TryAnchorMixed"/>, which is the
+    /// old search and is kept out of line so this stays small enough to
+    /// inline into the span loop.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    bool TryAnchorCell(float x, float y, int fx, int fy, Settled fine, ref Cursor c, out float left, out float top)
+    {
+        int k = Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(fine.Cells), fy * fine.Cols + fx);
+        if (k >= 0)
+        {
+            // A leaf index the grid was built from, so in range.
+            ref Leaf s = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_leaves), k);
+            left = s.Left; top = s.Top; c.Memo = k;
+            c.CellX = fx; c.CellY = fy; c.Cell = k; c.Left = left; c.Top = top;
+            return true;
+        }
+        if (k == Nothing)
+        {
+            left = top = 0f;
+            c.CellX = fx; c.CellY = fy; c.Cell = Nothing; c.Left = 0f; c.Top = 0f;
+            return false;
+        }
+        return TryAnchorMixed(x, y, ref c, out left, out top);
+    }
+
+    /// <summary>
+    /// The search a mixed cell needs, as
+    /// <see cref="TryAnchor(float,float,ref int,out float,out float)"/>
+    /// runs it from its memo test down. The cell is forgotten so the
+    /// next pixel in it searches too.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    bool TryAnchorMixed(float x, float y, ref Cursor c, out float left, out float top)
+    {
+        left = top = 0f;
+        c.CellX = -1; c.CellY = -1; c.Cell = Mixed;
+
+        int memo = c.Memo;
+        if ((uint)memo < (uint)_leaves.Length)
+        {
+            ref Leaf m = ref _leaves[memo];
+            if (x >= m.MinX && x <= m.MaxX && y >= m.MinY && y <= m.MaxY && Inside(ref m, x, y))
+            { left = m.Left; top = m.Top; return true; }
+        }
+
+        List<int> here = _cells[Row(y) * _cols + Col(x)];
+        if (here == null) return false;
+
+        for (int i0 = 0; i0 < here.Count; i0++)
+        {
+            int i = here[i0];
+            ref Leaf l = ref _leaves[i];
+            if (x < l.MinX || x > l.MaxX || y < l.MinY || y > l.MaxY) continue;
+            if (!Inside(ref l, x, y)) continue;
+            left = l.Left; top = l.Top;
+            c.Memo = i;
+            return true;
+        }
+        return false;
+    }
+
     /// <summary>Crossing count. Leaves are convex, but not assumed to be.</summary>
     static bool Inside(ref Leaf l, float x, float y)
     {

@@ -99,11 +99,36 @@ public sealed class WallGrid
     /// </summary>
     public void Collect(float ox, float oy, float dx, float dy,
                         List<RooWall> outWalls, int[] stamp, ref int tick)
+        => Collect(ox, oy, dx, dy, outWalls, null, stamp, ref tick);
+
+    /// <summary>
+    /// The same walk handing back wall INDICES - positions in the room's
+    /// wall list, which is what <see cref="Wall"/> takes - so the caller
+    /// can test a candidate against coordinates it keeps in flat arrays
+    /// and touch the RooWall object only for the few that hit. Most
+    /// candidates miss, and each one used to cost the load of a
+    /// scattered object for its Num before its endpoints were read.
+    /// </summary>
+    public void Collect(float ox, float oy, float dx, float dy,
+                        List<int> outIndices, int[] stamp, ref int tick)
+        => Collect(ox, oy, dx, dy, null, outIndices, stamp, ref tick);
+
+    /// <summary>The wall at an index <see cref="Collect(float,float,float,float,List{int},int[],ref int)"/> handed back.</summary>
+    public RooWall Wall(int index) => _walls[index];
+
+    void Collect(float ox, float oy, float dx, float dy,
+                 List<RooWall> outWalls, List<int> outIndices, int[] stamp, ref int tick)
     {
         // The stamps are read through a bare reference below, so the
         // buffer's size is checked here once rather than per wall.
         if (stamp.Length < _walls.Length)
             throw new ArgumentException("stamp buffer smaller than WallCount", nameof(stamp));
+        // The stamps say "seen this column" by holding the column's
+        // tick, so a tick that came round again to a value the buffer
+        // still held from its first time through would have hidden a
+        // wall. Two billion columns is a few hours of play on one band;
+        // the buffer is wiped and the count restarted before that.
+        if (tick == int.MaxValue) { Array.Clear(stamp); tick = 0; }
         tick++;
         int t = tick;
 
@@ -144,7 +169,8 @@ public sealed class WallGrid
                 ref int s = ref Unsafe.Add(ref stamp0, wi);
                 if (s == t) continue;
                 s = t;
-                outWalls.Add(walls[wi]);
+                if (outIndices != null) outIndices.Add(wi);
+                else outWalls.Add(walls[wi]);
             }
 
             if (tMaxX < tMaxY) { tMaxX += tDeltaX; cx += stepX; if (cx < 0 || cx >= cols) break; }

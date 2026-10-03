@@ -61,3 +61,25 @@ here - this fixture set is missing most of the water art, grd08895
 and the 8911 family among them): the reference builds no floor for
 it either (`ControllerRoom.cpp:789-790`), so a creature standing in
 it IS drawn through the hole, in both clients.
+
+**golden** (`-- golden <resourceDir> <file>`) hashes every pixel of every
+room (640x360, sprites, lights, a clock, the pick grid) and writes the
+file when it does not exist, compares when it does. With `GOLDSKY=1`
+(and `M59SKY=<dir>` if the art is not found) a skybox stands behind the
+sunlit pass, so the sky path is under the hash too; that is a different
+picture and belongs in its own file.
+
+**prof** (`-- prof <resourceDir>`) names the eater, phase by phase, at
+1280x432 on one thread; `ROOMS=a5,badland1` narrows it, `PROFDBG=1`
+adds the counters, `NOWATER`/`NOANCHOR`/`NOSAMPLE`/`SUN` turn things off.
+
+**ab** (`-- ab <resourceDir> <room> anchor|water|none`) is A against B
+in alternating blocks inside one process, min and median of each side -
+the only way a two millisecond difference can be believed on a shared
+machine. `none` shows the noise floor.
+
+**sizes** (`-- sizes <resourceDir>`) renders every room at 1280x720,
+2400x1080, 1000x450, 97x31, 3x2, 1x1 and 1281x433, single-threaded
+against threaded, with the pick grid over each, and reports the bytes a
+settled frame allocates (single-threaded and threaded). 5068 frames, 0
+problems, 0 B and 0 B when written.

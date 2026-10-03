@@ -147,8 +147,12 @@ static class RenderCheck
         Console.Write($"{"room",-16}");
         foreach (string nm in Renderer.PhaseNames) Console.Write($"{nm,8}");
         Console.WriteLine($"{"untimed",8}");
+        // ROOMS=a5,badland1 narrows the run to those rooms, for an A/B
+        // that has to be repeated to be believed on a shared machine.
+        string only = Environment.GetEnvironmentVariable("ROOMS");
         foreach (string path in rooms)
         {
+            if (only != null && Array.IndexOf(only.Split(','), System.IO.Path.GetFileNameWithoutExtension(path)) < 0) continue;
             RooFile roo;
             try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
             if (roo.Sectors == null || roo.Sectors.Count == 0) continue;
@@ -233,6 +237,166 @@ static class RenderCheck
     }
 
     /// <summary>
+    /// One room, one knob, A against B in alternating blocks inside one
+    /// process - the only way a 2 ms difference can be believed on a
+    /// shared machine whose load moves the whole frame by more than
+    /// that between two runs. Knobs: anchor (LeafAnchoredFlats),
+    /// water (Renderer.Water), none (A and B the same, to see the
+    /// noise floor). Prints min and median of each side.
+    /// </summary>
+    static void AB(string dir, string room, string knob)
+    {
+        var rm = new ResourceManager(); rm.Init(dir, dir, dir, dir, dir, dir, dir);
+        string path = System.IO.Path.Combine(dir, room + ".roo");
+        var roo = new RooFile(path); roo.ResolveResources(rm);
+        if (!Spot(roo, out float cx, out float cy, out float cz)) { Console.WriteLine("no spot"); return; }
+        const int W = 1280, H = 432;
+        var px = new uint[W * H];
+        var bgf = rm.GetObject("Knight.bgf");
+        // Two renderers, because a band's texture memo remembers whether
+        // a flat is liquid and would not notice the water knob moving
+        // under it; each side keeps its own.
+        var rs = new Renderer[2];
+        for (int side = 0; side < 2; side++)
+        {
+            var r0 = new Renderer(roo, new TexCache(rm)) { Threaded = false };
+            var rng = new Random(5);
+            for (int i = 0; i < 12 && bgf != null; i++)
+            {
+                float d = 600f + (float)rng.NextDouble() * 6000f;
+                float t = ((float)rng.NextDouble() - 0.5f) * 1.2f;
+                float sx2 = cx + MathF.Cos(t) * d, sy2 = cy + MathF.Sin(t) * d;
+                var sec = r0.SectorAtPoint(sx2, sy2);
+                var tex = Tex.FromSprite(bgf, rng.Next(0, bgf.Frames.Count));
+                if (tex == null) continue;
+                r0.Sprites.Add(new Renderer.Sprite {
+                    X = sx2, Y = sy2, BaseZ = sec != null ? M59Geo.FloorXY(sec, sx2, sy2) : cz - Renderer.EyeHeight,
+                    Height = 600f, Texture = tex, Tag = i });
+            }
+            rs[side] = r0;
+        }
+        Renderer r = rs[0];
+        void Set(bool on)
+        {
+            r = rs[on ? 0 : 1];
+            if (knob == "anchor") r.LeafAnchoredFlats = on;
+            else if (knob == "water") Renderer.Water = on;
+        }
+        for (int k = 0; k < 10; k++) { Set(true); r.Render(px, W, H, cx, cy, cz, 0f); Set(false); r.Render(px, W, H, cx, cy, cz, 0f); }
+        var a = new List<double>(); var b = new List<double>();
+        var sw = new System.Diagnostics.Stopwatch();
+        for (int rep = 0; rep < 30; rep++)
+            foreach (bool on in new[] { true, false })
+            {
+                Set(on);
+                sw.Restart();
+                for (int k = 0; k < 4; k++) r.Render(px, W, H, cx, cy, cz, 0f);
+                sw.Stop();
+                (on ? a : b).Add(sw.Elapsed.TotalMilliseconds / 4);
+            }
+        Set(true);
+        a.Sort(); b.Sort();
+        Console.WriteLine($"{room} {knob}: A(on)  min {a[0]:F2} med {a[a.Count / 2]:F2}   B(off) min {b[0]:F2} med {b[b.Count / 2]:F2}   diff min {a[0] - b[0]:F2} med {a[a.Count / 2] - b[b.Count / 2]:F2}");
+    }
+
+    /// <summary>
+    /// Odd buffer sizes, every room: the phone's own 2400x1080 and
+    /// 1280x720, a 1000x450 that divides into nothing, and a few
+    /// absurd ones, single-threaded against threaded and with the pick
+    /// grid run over each, so an index that is only right when W is a
+    /// multiple of the band count or H is even cannot hide. Also the
+    /// bytes a settled single-threaded frame allocates, which should be
+    /// none: every room is rendered twice more and the allocation
+    /// counter read around the second.
+    /// </summary>
+    static int Sizes(string dir)
+    {
+        var rm = new ResourceManager(); rm.Init(dir, dir, dir, dir, dir, dir, dir);
+        var rooms = Directory.GetFiles(dir, "*.roo").OrderBy(x => x).ToArray();
+        var bgf = rm.GetObject("Knight.bgf");
+        var sizes = new (int W, int H)[] { (1280, 720), (2400, 1080), (1000, 450), (97, 31), (3, 2), (1, 1), (1281, 433) };
+        int bad = 0, frames = 0; long allocMax = 0, allocThreaded = 0, allocN = 0; string allocRoom = "";
+        var sky = M59Sky.FindDir(dir) != null ? M59Sky.Load(M59Sky.FindDir(dir), "skya") : null;
+        foreach (string path in rooms)
+        {
+            RooFile roo;
+            try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
+            if (roo.Sectors == null || roo.Sectors.Count == 0) continue;
+            if (!Spot(roo, out float cx, out float cy, out float cz)) continue;
+            var r1 = new Renderer(roo, new TexCache(rm)) { Threaded = false, Sky = sky };
+            var r2 = new Renderer(roo, new TexCache(rm)) { Threaded = true, Sky = sky };
+            var rng = new Random(path.Length);
+            for (int i = 0; i < 12 && bgf != null; i++)
+            {
+                float d = 400f + (float)rng.NextDouble() * 6000f;
+                float t = (float)rng.NextDouble() * 6.2832f;
+                float sx2 = cx + MathF.Cos(t) * d, sy2 = cy + MathF.Sin(t) * d;
+                var sec = r1.SectorAtPoint(sx2, sy2);
+                var tex = Tex.FromSprite(bgf, rng.Next(0, bgf.Frames.Count));
+                if (tex == null) continue;
+                foreach (var r in new[] { r1, r2 })
+                    r.Sprites.Add(new Renderer.Sprite {
+                        X = sx2, Y = sy2, BaseZ = sec != null ? M59Geo.FloorXY(sec, sx2, sy2) : cz - Renderer.EyeHeight,
+                        Height = 600f, Texture = tex, Tag = i, Opacity = i % 5 == 0 ? 0.5f : 1f });
+            }
+            foreach (var r in new[] { r1, r2 })
+            {
+                r.Time = 12.5f; r.Brightness = 0.8f; r.SunLight = 0.7f; r.SunX = 0.3f; r.SunY = 0.2f; r.SunZ = 0.93f;
+                r.Lights.Add(new Renderer.Light { X = cx + 500f, Y = cy, Z = cz, R = 1f, G = 0.7f, B = 0.4f, Range = 1800f, R2 = 1800f * 1800f });
+            }
+            foreach (var (W, H) in sizes)
+            {
+                var a = new uint[W * H]; var b = new uint[W * H];
+                for (int k = 0; k < 2; k++)
+                {
+                    float ang = k * 1.9f;
+                    r1.Pitch = r2.Pitch = (k - 0.5f) * 0.3f;
+                    try
+                    {
+                        int s1 = r1.Render(a, W, H, cx, cy, cz, ang);
+                        int s2 = r2.Render(b, W, H, cx, cy, cz, ang);
+                        frames++;
+                        if (s1 != s2) { Console.WriteLine($"  {Path.GetFileName(path)} {W}x{H}: solid cols {s1} vs {s2}"); bad++; }
+                        int diff = 0;
+                        for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) diff++;
+                        if (diff != 0) { Console.WriteLine($"  {Path.GetFileName(path)} {W}x{H}: {diff} px differ single vs threaded"); bad++; }
+                        for (int gy = 0; gy < H; gy += Math.Max(1, H / 7)) for (int gx = 0; gx < W; gx += Math.Max(1, W / 9))
+                        { foreach (var sp in r1.PickAll(gx, gy, W, H, cx, cy, cz, ang)) { } r1.DebugFlatDepth(gx, gy); }
+                        r1.PickAll(W - 1, H - 1, W, H, cx, cy, cz, ang);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine($"  {Path.GetFileName(path)} {W}x{H} k={k}: {e.GetType().Name}: {e.Message}");
+                        bad++;
+                    }
+                }
+            }
+            // Allocation of a settled single-threaded frame at the phone size.
+            {
+                var px = new uint[1280 * 432];
+                r1.Render(px, 1280, 432, cx, cy, cz, 0.3f);
+                r1.Render(px, 1280, 432, cx, cy, cz, 0.3f);
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                r1.Render(px, 1280, 432, cx, cy, cz, 0.3f);
+                long alloc = GC.GetAllocatedBytesForCurrentThread() - before;
+                if (alloc > allocMax) { allocMax = alloc; allocRoom = Path.GetFileName(path); }
+                // And the threaded frame, process-wide: Parallel.For's
+                // own bookkeeping is in this number, so it is a floor to
+                // know, not a zero to demand.
+                r2.Render(px, 1280, 432, cx, cy, cz, 0.3f);
+                r2.Render(px, 1280, 432, cx, cy, cz, 0.3f);
+                long tb = GC.GetTotalAllocatedBytes(true);
+                r2.Render(px, 1280, 432, cx, cy, cz, 0.3f);
+                long ta = GC.GetTotalAllocatedBytes(true) - tb;
+                allocThreaded += ta; allocN++;
+            }
+        }
+        Console.WriteLine($"sizes: {frames} frames, {bad} problems; worst settled single-thread frame allocation {allocMax} B {allocRoom}; threaded mean {allocThreaded / Math.Max(1, allocN)} B/frame");
+        Console.WriteLine(bad == 0 ? "OK" : "PROBLEM");
+        return bad;
+    }
+
+    /// <summary>
     /// Every pixel of every room, as a hash, so an optimisation can be
     /// held to "the same picture" and not merely to "the same picture as
     /// itself on another thread". Writes the file when it does not
@@ -248,6 +412,16 @@ static class RenderCheck
         const int W = 640, H = 360;
         var px = new uint[W * H];
         var lines = new List<string>();
+        // GOLDSKY set puts a skybox behind the holes on the sunlit pass,
+        // so the sky path is under the hash too; it is a different
+        // picture, so it belongs in a golden file of its own.
+        M59Sky sky = null;
+        if (Environment.GetEnvironmentVariable("GOLDSKY") != null)
+        {
+            string skyDir = M59Sky.FindDir(dir);
+            sky = skyDir != null ? M59Sky.Load(skyDir, "skya") : null;
+            Console.WriteLine(sky != null ? "sky: skya" : "sky: NOT FOUND");
+        }
         foreach (string path in rooms)
         {
             RooFile roo;
@@ -283,6 +457,7 @@ static class RenderCheck
                     }
                 }
                 else { r.Time = 0f; r.Brightness = 1f; r.SunLight = 0f; }
+                r.Sky = pass == 1 ? sky : null;
                 for (int k = 0; k < 4; k++)
                 {
                     float ang = k * MathF.PI / 2f;
@@ -363,6 +538,8 @@ static class RenderCheck
         if (mode == "repack"  || mode == "all") bad += RepackCheck();
         if (mode == "cold") Cold(dir);
         if (mode == "prof") Prof(dir, a.Length > 2 && a[2] == "lights");
+        if (mode == "sizes") bad += Sizes(dir);
+        if (mode == "ab") AB(dir, a.Length > 2 ? a[2] : "badland1", a.Length > 3 ? a[3] : "none");
         if (mode == "golden") bad += Golden(dir, a.Length > 2 ? a[2] : "/tmp/golden.txt");
         if (mode == "threads" || mode == "all") bad += Threads(dir);
         if (mode == "pick"    || mode == "all") bad += Pick(dir);
