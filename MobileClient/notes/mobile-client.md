@@ -31,7 +31,61 @@ An item is matched by name AND NumOfSameName, because names in this game
 are not unique. A stored object id would be worse than useless: ids are
 per session.
 
+Unset rows are written and read back too, in Num order, as the game
+writes every cell (`OgreClientConfig.cpp:1203-1211`): a seat the player
+emptied stays empty across a login instead of every later binding
+moving up one. See "The HotKeys panel" for why that matters now.
+
 See also: HotbarStore.cs
+
+## The HotKeys panel
+Tags: design | Hotbar pages laid flat - a page a row of HotSeats seats - for putting a binding in a chosen seat and moving one; the two things the "+" buttons cannot do
+
+`HotKeysPanel` is the drawer tile "HotKeys" ("Hotbar pages"), beside
+Actions. The reference needs no such window: all 48 cells are on
+screen and a spell is DRAGGED onto the one you want
+(`UIActionButtons.cpp:359-438`). Here the list you drag from covers
+the arc, so Bind takes the first empty seat, and until this panel
+nothing could choose the seat or move a binding afterwards.
+
+The rows are the cluster's own model: every config but the Attack
+primary, in Num order, cut into pages of `ActionButtons.HotSeats`
+(four). Attack is shown once at the top as the primary and is not a
+seat; unbound, the row offers "Set Attack" through Bind. Tap a seat,
+then the footer strip: Set… opens an in-panel chooser (Actions as
+`ActionsPanel` lists them plus Go, Spells, active Skills, Items you
+carry) and writes the seat with the library's own setters
+(`ActionButtonConfig.SetToSpell/SetToSkill/SetToItem/SetToAction`,
+`ActionButtons.SetToGo`), keeping the seat's Num; Clear is
+`SetToUnset`; ◀ ▶ SWAP THE TWO NUMS of the seat and its neighbour,
+across a page boundary too. Nothing else moves: the configs, their
+listeners and BaseClient's subscriptions to them stay where they are,
+and the cluster re-sorts by Num. Add page appends empty seats to one
+page past the last; Remove last page is offered only for an empty one.
+Every change is `HotbarStore.Save` and the cluster rebuilds off its
+signature at once (`ActionButtons.WantPage` turns it to the edited
+page when it comes back).
+
+Two things changed under the cluster for it. The arc is POSITIONAL:
+an Unset config keeps its seat and draws as the ring, where it used
+to be compacted out - the reference's grid shows every cell and a
+clear (`:471-473`) empties one without moving the rest. And the arc
+is ordered by Num rather than list position (`ActionButtons.ByNum`,
+`Stable`), which is what makes a swap of Nums a move. The store writes
+Unset rows now so a hole survives a login.
+
+Played, with `--shots`: open with two pages; `hk7` (page 2, seat 4)
+Set… > Spells > `pick5002` puts kraanan's blessing there; ◀ swaps it
+with Wave; `hk1` Clear leaves a ring where Loot was; Close shows the
+ring on page 1 of the cluster; relaunch on the same `XDG_DATA_HOME`
+shows the same rows, and `hotpage` shows Buy, Trade, spell, Wave. Five
+Add pages scroll the list behind the gutter; Remove last page takes
+one back. Seats are named `hk{pos}` (zero-based, across pages), the
+chooser rows `pick{id}` / `pick{Action}` / `pickGo`, the tabs
+`hkTab{Actions,Spells,Skills,Items}`, the strip `hkSet`, `hkClear`,
+`hkLeft`, `hkRight`, `hkAddPage`, `hkRemovePage`, `hkClose`, `hkBack`.
+
+See also: HotKeysPanel.cs | the hotbar -> ActionButtons.cs | HotbarStore.cs
 
 ## First run, and the half-installed game
 Tags: gotchas, lessons | The "unpacked" test was "the folder holds one .roo", which is true seconds into a ~470MB copy - so an interrupted first run left the game permanently half-installed with no message anywhere

@@ -59,10 +59,22 @@ public static class HotbarStore
             var file = new ConfigFile();
             file.Load(Path); // a missing file is not an error, it is the first run
 
+            // Every button, EMPTY ONES INCLUDED, in Num order. The game
+            // writes the whole set - the loop at
+            // `OgreClientConfig.cpp:1203-1211` runs over set->Count with
+            // no test on the type - because its grid is positional and
+            // an empty cell is a place the player chose to leave empty.
+            // This used to skip Unset rows, which was harmless while the
+            // cluster compacted; now that a hole is a hole (see
+            // ActionButtons.Sync) a skipped row would move every later
+            // binding up a seat on the next login.
+            var ordered = new List<ActionButtonConfig>();
+            foreach (ActionButtonConfig b in data.ActionButtons) if (b != null) ordered.Add(b);
+            ActionButtons.Stable(ordered);
+
             var rows = new List<string>();
-            foreach (ActionButtonConfig b in data.ActionButtons)
+            foreach (ActionButtonConfig b in ordered)
             {
-                if (b == null || b.ButtonType == ActionButtonType.Unset) continue;
                 // Tab separated: a button's name is a thing the server
                 // chose and may hold anything typographic, but not a tab.
                 //
@@ -116,8 +128,18 @@ public static class HotbarStore
                 if (f.Length < 4) continue;
                 if (!int.TryParse(f[0], out int num)) continue;
                 if (!Enum.TryParse(f[1], out ActionButtonType type)) continue;
-                if (type == ActionButtonType.Unset) continue;
                 uint.TryParse(f[2], out uint same);
+
+                // An empty seat, kept as one. The game's loader builds
+                // the config whatever the type (`OgreClientConfig.cpp:630-636`)
+                // and so keeps the hole; this one used to drop the row,
+                // and a hole that does not survive a login is not a hole
+                // the player can rely on.
+                if (type == ActionButtonType.Unset)
+                {
+                    restored.Add(new ActionButtonConfig(num, ActionButtonType.Unset, ""));
+                    continue;
+                }
 
                 // An alias is the one type whose data is NOT the
                 // server's to fill in, and the one the game's loader
@@ -134,10 +156,7 @@ public static class HotbarStore
                 // (`Meridian59/Client/BaseClient.cs:272` guards the whole
                 // switch on Data being non-null).
                 //
-                // Dropping the row rather than keeping an Unset one is
-                // this loader's existing habit two lines up, and comes to
-                // the same place: Save writes no Unset buttons, and
-                // Bind reuses or appends a slot regardless.
+                // Dropping the row is what the game does with it too.
                 // Go, which is an Action-typed row whose data is
                 // AvatarAction.None (`ActionButtons.Extra`). It has to
                 // be rebuilt rather than constructed, because the

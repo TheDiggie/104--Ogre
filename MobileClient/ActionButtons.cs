@@ -588,6 +588,43 @@ public partial class ActionButtons : Control
     /// </summary>
     public static int LastBound { get; private set; } = -1;
 
+    /// <summary>
+    /// A page the HotKeys panel wants shown when the cluster comes back,
+    /// so an edit made on page two is on screen when the panel closes.
+    /// Spent by the next Sync, like <see cref="LastBound"/>; -1 is "no
+    /// request".
+    /// </summary>
+    public static int WantPage { get; set; } = -1;
+
+    /// <summary>The page the last rebuild drew, zero-based. For the panel's "showing" mark.</summary>
+    public static int CurrentPage { get; private set; }
+
+    /// <summary>
+    /// The arc's order: by Num, not by list position. The reference's
+    /// grid is positional - button `num` is the cell it sits in
+    /// (`UIActionButtons.cpp:23-26`) - and the HotKeys panel moves a
+    /// binding by swapping two Nums, which is only a move if this is
+    /// what the cluster sorts on. Stable, so two equal Nums (a corrupt
+    /// file) keep their list order rather than flickering.
+    /// </summary>
+    public static int ByNum(ActionButtonConfig a, ActionButtonConfig b) => a.Num.CompareTo(b.Num);
+
+    /// <summary>
+    /// Sorts a list by Num in place, stably. List.Sort is not stable
+    /// and allocates a comparer; this runs every frame on a dozen
+    /// entries, where an insertion sort is both.
+    /// </summary>
+    public static void Stable(List<ActionButtonConfig> list)
+    {
+        for (int i = 1; i < list.Count; i++)
+        {
+            ActionButtonConfig k = list[i];
+            int j = i - 1;
+            while (j >= 0 && list[j].Num > k.Num) { list[j + 1] = list[j]; j--; }
+            list[j + 1] = k;
+        }
+    }
+
     public static bool Bind(DataController data, object what)
     {
         if (data?.ActionButtons == null || what == null) return false;
@@ -598,7 +635,9 @@ public partial class ActionButtons : Control
         {
             if (b == null) continue;
             if (b.Num >= next) next = b.Num + 1;
-            if (slot == null && b.ButtonType == ActionButtonType.Unset) slot = b;
+            // The lowest-numbered empty seat, which is the first ring
+            // the player sees - the arc runs by Num (see ByNum).
+            if (b.ButtonType == ActionButtonType.Unset && (slot == null || b.Num < slot.Num)) slot = b;
         }
 
         if (slot == null)
@@ -719,8 +758,24 @@ public partial class ActionButtons : Control
             if (b.ButtonType == ActionButtonType.Action
                 && b.Data is AvatarAction act && act == AvatarAction.Attack) { anchor = b; break; }
 
-        List<ActionButtonConfig> arc = _arc; arc.Clear(); arc.AddRange(set);
-        if (anchor != null) arc.Remove(anchor);
+        // THE ARC IS POSITIONAL NOW, which is a change from "the set
+        // buttons, compacted". Unset configs stay in their seats and are
+        // drawn as rings, and the order is by Num rather than by list
+        // position (ByNum). Both halves come from the reference: its
+        // grid shows every cell, a cleared one included
+        // (`UIActionButtons.cpp:23-26`, the drop-on-root clear at
+        // `:471-473` empties the cell and moves nothing), and its config
+        // writes every button, unset or not
+        // (`OgreClientConfig.cpp:1203-1211`, the loop over set->Count).
+        // Compacting meant a cleared seat shuffled every later binding
+        // up a place, which on a thumb-memorised arc is three buttons
+        // moved for one cleared - and it made the HotKeys panel's "put
+        // this HERE" impossible to honour, because a hole could not
+        // exist.
+        List<ActionButtonConfig> arc = _arc; arc.Clear();
+        foreach (ActionButtonConfig b in data.ActionButtons)
+            if (b != null && b != anchor) arc.Add(b);
+        Stable(arc);
 
         // The game draws all forty-eight buttons at once, twelve by four
         // (`UIActionButtons.cpp:23-26`). A phone has one row, and what
@@ -753,6 +808,9 @@ public partial class ActionButtons : Control
             if (at >= 0) _page = at / perPage;
             LastBound = -1;
         }
+        // The HotKeys panel's request, for the same reason: the page
+        // that was just edited is the one to come back to.
+        if (WantPage >= 0) { _page = WantPage; WantPage = -1; }
 
         // WRAPS, and the clamp below is only for a page count that
         // SHRANK under us - something unbound while you were on the
@@ -767,6 +825,7 @@ public partial class ActionButtons : Control
         _pages = pages;
         if (_page >= pages) _page = pages - 1;
         if (_page < 0) _page = 0;
+        CurrentPage = _page;
 
         int first = _page * perPage;
         int count = Math.Min(perPage, Math.Max(0, arc.Count - first));
@@ -807,6 +866,9 @@ public partial class ActionButtons : Control
             bool primary = i < 0;
             if (primary && anchor == null) continue;
             ActionButtonConfig cfg = primary ? anchor : arc[first + i];
+            // An empty seat on this page: a ring, drawn with the rest of
+            // them below. No button, so the tap goes through to the world.
+            if (!primary && cfg.ButtonType == ActionButtonType.Unset) continue;
             float d = primary ? Atk : Btn;
             Rect2 cell = Round(primary ? Pivot(v) : Seat(v, i + 1), d);
             Button b = Take(at0);
@@ -1040,7 +1102,10 @@ public partial class ActionButtons : Control
         // the usual case with the seeded set.
         int ring = 0;
         if (anchor == null) Ring(ring++, Round(Pivot(v), Atk), sc);
-        for (int i = count; i < HotSeats; i++) Ring(ring++, Round(Seat(v, i + 1), Btn), sc);
+        // Past the end of the arc, and any hole inside it.
+        for (int i = 0; i < HotSeats; i++)
+            if (i >= count || arc[first + i].ButtonType == ActionButtonType.Unset)
+                Ring(ring++, Round(Seat(v, i + 1), Btn), sc);
         for (int i = ring; i < _rings.Count; i++) _rings[i].Visible = false;
 
         // The highest seat, not seat 0: the arc's top is one step round

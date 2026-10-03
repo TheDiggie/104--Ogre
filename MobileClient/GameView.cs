@@ -292,6 +292,7 @@ public partial class GameView : Node2D
     Button _loot, _go, _auto;
     LootPanel _lootList;
     ActionsPanel _acts;
+    HotKeysPanel _hotkeys;
     LootPanel _contents;
     BuyPanel _shop;
     AttributesPanel _sheet;
@@ -2649,6 +2650,22 @@ public partial class GameView : Node2D
             });
             _ui.AddChild(_acts);
         });
+        // The hotbar laid out flat, a page a row, for putting a binding
+        // in a chosen seat and moving one - the two things the "+"
+        // buttons cannot do. It writes the slots itself with the
+        // library's setters; the view only asks for the lists it
+        // chooses from, as the book and the bag do on opening.
+        Widget("hotkeys", () =>
+        {
+            _hotkeys = new HotKeysPanel();
+            _hotkeys.Opened += () => Act(() =>
+            {
+                _client.SendSendSpellsMessage();
+                _client.SendSendSkillsMessage();
+                _client.SendReqInventoryMessage();
+            });
+            _ui.AddChild(_hotkeys);
+        });
         Widget("hotbar", () =>
         {
             _hotbar = new ActionButtons();
@@ -3636,6 +3653,7 @@ public partial class GameView : Node2D
         FrameProbe.Mark("hotbar");
         _look?.Sync(_client.Data);
         _book?.Sync(_client.Data);
+        _hotkeys?.Sync(_client.Data);
         FrameProbe.Mark("look+book");
 
         RoomObject me = _client.Data?.AvatarObject;
@@ -4739,6 +4757,7 @@ public partial class GameView : Node2D
         || (_guildCreate != null && _guildCreate.IsOpen)
         || (_wizard != null && _wizard.IsOpen)
         || (_acts != null && _acts.IsOpen)
+        || (_hotkeys != null && _hotkeys.IsOpen)
         || (_ask != null && _ask.IsOpen);
 
     /// <summary>
