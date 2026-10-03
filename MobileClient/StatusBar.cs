@@ -6,8 +6,8 @@ using Meridian59.Data;
 
 /// <summary>
 /// The line along the top of the game: how well it is running, what
-/// time it is, where you are, how many people are on, your mood and
-/// whether your safety is on.
+/// time it is, where you are, how many people are on and whether your
+/// safety is on.
 ///
 /// `UIStatusBar.cpp`. Everything in it is read off `Data` - TPS, RTT,
 /// MeridianTime, RoomInformation.RoomName, OnlinePlayers.Count and
@@ -25,8 +25,14 @@ using Meridian59.Data;
 /// tells you whether the client is keeping up with the server. The
 /// renderer's own rate stays on the debug line where it belongs.
 ///
-/// The four mood buttons send ActionType.Happy, Neutral, Sad and
-/// Angry, which is all they do. The safety toggle flips
+/// The reference's four mood buttons (ActionType.Happy, Neutral, Sad
+/// and Angry, `UIStatusBar.cpp`) are NOT here. They were, as four
+/// smiley squares after the safety button, and Ashton asked for them
+/// to go: "remove the emotes from the 'room name, clock, player
+/// count, safety' ui element". Nothing else in this client sends a
+/// mood - the Acts panel lists AvatarActions, and a mood is an
+/// ActionType - so the moods are gone rather than moved, as asked.
+/// The safety toggle flips
 /// ClientPreferences.IsSafetyOff and then tells the server - and which
 /// message that is depends on the build: vanilla has a dedicated
 /// safety command, and this one, like Server 104, sends the whole
@@ -46,8 +52,8 @@ using Meridian59.Data;
 ///
 ///  - the player's half comes first, on one line: where you are and
 ///    what time it is on a plate of their own, then the controls - who
-///    is on, your safety, your mood - as actual buttons in the panels'
-///    button family, each a thumb's height.
+///    is on, your safety - as actual buttons in the panels' button
+///    family, each a thumb's height.
 ///  - the diagnostics - tick rate and round trip - drop to a second,
 ///    smaller, dimmer line underneath. They keep their colour rules,
 ///    which are the library's, and are the first thing you want when
@@ -70,8 +76,6 @@ public partial class StatusBar : Control
     /// </summary>
     [Export] public float TopReserve = 124f;
 
-    /// <summary>A mood was picked.</summary>
-    public event Action<ActionType> Mood;
     /// <summary>Safety was flipped; the caller tells the server.</summary>
     public event Action<bool> Safety;
     /// <summary>The player count was tapped.</summary>
@@ -85,7 +89,6 @@ public partial class StatusBar : Control
 
     Label _fps, _rtt, _time, _room;
     Button _players, _safety;
-    Button[] _moods;
     /// <summary>What the room name and the clock sit on. See the class note.</summary>
     Panel _plate;
 
@@ -96,7 +99,7 @@ public partial class StatusBar : Control
     const float CtrlH = 46f;
     /// <summary>Inside the plate, left and right of the text.</summary>
     const float PlatePad = 12f;
-    /// <summary>Between two controls; the moods get half of it, being a set.</summary>
+    /// <summary>Between two controls.</summary>
     const float Gap = 8f;
 
     /// <summary>What the row last showed, as values: the comparison used to be an interpolated string per frame.</summary>
@@ -127,20 +130,7 @@ public partial class StatusBar : Control
         _players = Small("0", () => Players?.Invoke(), M59Skin.Kind.Secondary);
         _safety = Small("safety", () => Flip(_data), M59Skin.Kind.Secondary);
 
-        // The moods are one set of four, so they take one kind of their
-        // own - the small gold square the panels use for steppers - and
-        // sit tighter to each other than to anything else. Four faces in
-        // a row in the SAME dress as the buttons beside them read as
-        // eight unrelated buttons.
-        _moods = new[]
-        {
-            Small(":)", () => Mood?.Invoke(ActionType.Happy), M59Skin.Kind.Step),
-            Small(":|", () => Mood?.Invoke(ActionType.Neutral), M59Skin.Kind.Step),
-            Small(":(", () => Mood?.Invoke(ActionType.Sad), M59Skin.Kind.Step),
-            Small(">:(", () => Mood?.Invoke(ActionType.Angry), M59Skin.Kind.Step),
-        };
-
-        // One cluster: the room, the clock and the four controls read as
+        // One cluster: the room, the clock and the two controls read as
         // one line, so they move and scale together. See M59Hud.
         M59Hud.Register("status", "Status bar", this);
         M59Hud.Changed += Layout;
@@ -173,8 +163,8 @@ public partial class StatusBar : Control
     }
 
     /// <summary>
-    /// The smallest a control a thumb presses may become. Four of these
-    /// six are pressed mid-fight, so the scale's floor of 0.7 is not
+    /// The smallest a control a thumb presses may become. Both buttons
+    /// are pressed mid-fight, so the scale's floor of 0.7 is not
     /// allowed to take them under it - see where it clamps in Layout.
     /// </summary>
     const float TapFloor = 44f;
@@ -201,7 +191,6 @@ public partial class StatusBar : Control
         if (_note != null) _note.AddThemeFontSizeOverride("font_size", Pt(FontSize, s));
         _players.AddThemeFontSizeOverride("font_size", Pt(FontSize, s));
         _safety.AddThemeFontSizeOverride("font_size", Pt(FontSize, s));
-        foreach (Button b in _moods) b.AddThemeFontSizeOverride("font_size", Pt(FontSize + 3, s));
     }
 
     /// <summary>
@@ -267,14 +256,12 @@ public partial class StatusBar : Control
         // from what comes back.
         //
         // Every metric is multiplied by the player's scale - the plate's
-        // padding, the gaps, the control height, the mood squares and the
-        // font sizes - with a floor of 44 points on anything pressed.
+        // padding, the gaps, the control height and the font sizes - with
+        // a floor of 44 points on anything pressed.
         float s = HudScale();
         Redress(s);
         float ctrlH = Mathf.Max(TapFloor, CtrlH * s);
         float plateP = PlatePad * s, gap = Gap * s;
-        float moodW = Mathf.Max(TapFloor, 54f * s);
-        float moodGap = 4f * s;
         float split = 14f * s;
 
         // Widths come from the combined minimum, not from Size: Size is
@@ -289,9 +276,10 @@ public partial class StatusBar : Control
         float playersW = Mathf.Max(96f * s, _players.GetCombinedMinimumSize().X + 26f * s);
         float safetyW = Mathf.Max(96f * s, _safety.GetCombinedMinimumSize().X + 26f * s);
 
+        // The row ends at the safety button: the width shrinks with the
+        // moods gone rather than keeping their seats empty.
         float wide = (inner > 0f ? plateW + gap + 4f * s : 0f)
-                   + playersW + gap + safetyW + gap
-                   + 6f * s + _moods.Length * (moodW + moodGap);
+                   + playersW + gap + safetyW;
 
         Rect2 at = M59Hud.Place("status", new Rect2(Margin, TopReserve, wide, BlockHeight),
                                 GetViewportRect().Size);
@@ -326,15 +314,6 @@ public partial class StatusBar : Control
             x += w + gap;
         }
 
-        // A set, so a wider gap before it and a narrow one inside it.
-        x += 6f * s;
-        foreach (Button b in _moods)
-        {
-            b.Visible = show;
-            b.Position = new Vector2(x, y);
-            b.Size = new Vector2(moodW, ctrlH);
-            x += moodW + moodGap;
-        }
         _noteX = x + 10f * s;
         if (_note != null) { _note.Visible = _note.Visible && show; if (_note.Visible) PlaceNote(); }
 

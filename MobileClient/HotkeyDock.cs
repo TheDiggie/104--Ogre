@@ -69,7 +69,7 @@ public partial class HotkeyDock : Control
     [Export] public int FontSize = 12;
     /// <summary>Eight across, two down: the inventory dock's defaults, as asked.</summary>
     [Export] public int Columns = 8;
-    public const int MinCols = 2, MaxCols = 16;
+    public const int MinCols = 2, MaxCols = 40;
     [Export] public int Rows = 2;
     public const int MinRows = 1, MaxRows = 8;
 

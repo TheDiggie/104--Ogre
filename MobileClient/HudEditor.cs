@@ -1213,7 +1213,11 @@ public partial class HudEditor : Control
             if (p.Rows > 0 && HasRows(p)) tag += $"  {p.RowsNow * p.RowsUnit} {p.RowsLabel.ToLowerInvariant()}";
 
             float tw = f.GetStringSize(tag, HorizontalAlignment.Left, -1, 16).X;
-            var chip = new Rect2(r.Position.X + 2f, r.Position.Y + 2f, tw + 14f, 22f);
+            // Kept on the glass: a piece hung from the right edge (the
+            // room enchantments, two icons wide) has a chip wider than
+            // itself, and "Room enchantm" is not a name.
+            float cx = Mathf.Max(0f, Mathf.Min(r.Position.X + 2f, v.X - tw - 14f));
+            var chip = new Rect2(cx, r.Position.Y + 2f, tw + 14f, 22f);
             DrawRect(chip, new Color(0.04f, 0.036f, 0.031f, 0.88f), true);
             DrawRect(chip, line, false, 1f);
             DrawString(f, new Vector2(chip.Position.X + 7f, chip.Position.Y + 16f), tag,

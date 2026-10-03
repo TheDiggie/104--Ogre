@@ -312,8 +312,10 @@ public static class Panels
     /// top of the screen to half way down it - so the piece permanently
     /// "overlapped" the status bar and the editor flagged it on every
     /// launch for a crossing that does not exist. They are also what a
-    /// player would separate first: the band is Menu and Map, the edge is
-    /// Auto beside the walking thumb.
+    /// player would separate first: the band is Menu (it was Menu and
+    /// Map until the Map toggle went - see MiniMap), the edge is Auto
+    /// beside the walking thumb. With no Where.Top seat the band is the
+    /// Menu control's own width, centred, so nothing leaves a gap.
     /// </summary>
     /// <remarks>
     /// TopId is public because the HUD editor has to know which piece

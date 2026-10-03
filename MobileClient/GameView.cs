@@ -2508,7 +2508,6 @@ public partial class GameView : Node2D
         Widget("statusbar", () =>
         {
             _bar = new StatusBar();
-            _bar.Mood   += a => WorldAct(() => _client.SendActionMessage(a));
             // Non-vanilla, like Server 104: the whole preferences word
             // goes up rather than a dedicated safety command.
             _bar.Safety += _ => Act(() => _client.SendUserCommandSendPreferences());
@@ -2521,7 +2520,10 @@ public partial class GameView : Node2D
         });
         Widget("roombuffs", () =>
         {
-            // Under the minimap, which owns the top-right corner.
+            // Under the minimap's DEFAULT place, which owns the top-right
+            // corner. That is the piece's natural rect only: it registers
+            // itself as "roombuffs" and the arrange screen moves it from
+            // there (RoomBuffsPanel). Nothing here reads its bottom.
             _roomBuffs = new RoomBuffsPanel { TopReserve = 220f + 8f };
             _roomBuffs.Look += id => Act(() => _client.SendReqLookMessage(id));
             _ui.AddChild(_roomBuffs);

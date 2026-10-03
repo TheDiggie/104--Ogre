@@ -125,8 +125,7 @@ public partial class MiniMap : Control
     // Fallback face, for when the dial cannot be loaded.
     static readonly Color Back   = new Color(0.82f, 0.82f, 0.80f, 0.92f);
 
-    Button _toggle, _in, _out, _bigger;
-    bool _shown = true;
+    Button _in, _out, _bigger;
     Texture2D _dial;
 
     RooFile _room;
@@ -202,10 +201,13 @@ public partial class MiniMap : Control
         _group.AddChild(_surface);
         AddChild(_group);
 
-        _toggle = new Button { Text = "Map" };
-        _toggle.Pressed += () => { _shown = !_shown; Save(); Layout(); Redraw(); };
-        AddChild(_toggle);
-        Panels.Opener(_toggle, "The map", 10, Panels.Where.Top);
+        // There is no Map toggle on the top band any more. It only ever
+        // hid and showed this dial, and the HUD editor's Hide does the
+        // same for every piece - two switches for one thing, and Ashton
+        // asked for the band to be Menu alone: "remove the map button
+        // from the 'menu map' buttons". The player's hide lives in
+        // hud.cfg with the rest of the layout (M59Hud.Shows), so what
+        // used to be `shown` in view.cfg is not read any more.
 
         // The game zooms with the mouse wheel, between 1 and 32
         // (`UIMiniMap.cpp:105-114`). A wheel is desktop input but zoom
@@ -411,7 +413,7 @@ public partial class MiniMap : Control
     /// </summary>
     public override void _UnhandledInput(InputEvent e)
     {
-        if (!_shown || e is not InputEventMagnifyGesture pinch) return;
+        if (!M59Hud.Shows("minimap") || e is not InputEventMagnifyGesture pinch) return;
         if (pinch.Factor <= 0f) return;
         Zoom = Mathf.Clamp(Zoom / pinch.Factor, MinZoom, MaxZoom);
         Save();
@@ -465,7 +467,7 @@ public partial class MiniMap : Control
 
     void Layout()
     {
-        if (_toggle == null) return;
+        if (_in == null) return;
         Vector2 v = GetViewportRect().Size;
         // A size saved on one orientation can be too big for another -
         // the reference never has to think about this because its
@@ -499,14 +501,11 @@ public partial class MiniMap : Control
         _out.Position = new Vector2(left + d * 0.5f - w - 6f * sc, y);
         _in.Position = new Vector2(left + d * 0.5f + 6f * sc, y);
         // The dial's own controls follow the opener row, not just the
-        // dial: with the Menu drawer open the Map TOGGLE was hidden and
-        // these three were left floating outside the card over the
-        // grid. They were never pressable - the drawer's scrim eats the
-        // tap - so this is a look rather than a dead control, but a
-        // button standing on a modal is a button that looks broken.
-        //
-        // The player's own choice is ANDed on, never substituted: the
-        // opener gate and the map's own toggle still decide first.
+        // dial: with the Menu drawer open the band was hidden and these
+        // three were left floating outside the card over the grid. They
+        // were never pressable - the drawer's scrim eats the tap - so
+        // this is a look rather than a dead control, but a button
+        // standing on a modal is a button that looks broken.
         int glyph = Mathf.Max(8, Mathf.RoundToInt(24f * sc));
         _in.AddThemeFontSizeOverride("font_size", glyph);
         _out.AddThemeFontSizeOverride("font_size", glyph);
@@ -538,24 +537,25 @@ public partial class MiniMap : Control
     /// the three buttons hidden until the next resize - which is exactly
     /// what a scaled run showed, a dial with no zoom on it.
     ///
-    /// The player's own hide is ANDed in here, under the row's gate and
-    /// the map's own toggle, never instead of them.
+    /// The player's own hide (the HUD editor's, M59Hud.Shows) is ANDed
+    /// in here, under the row's gate, never instead of it.
     /// </summary>
     void Chrome()
     {
-        if (_toggle == null) return;
+        if (_in == null) return;
         bool shows = M59Hud.Shows("minimap");
-        bool chrome = _shown && Panels.OpenersShown && shows;
-        _in.Visible = _out.Visible = _bigger.Visible = chrome;
-        _group.Visible = _shown && shows;
+        _in.Visible = _out.Visible = _bigger.Visible = Panels.OpenersShown && shows;
+        _group.Visible = shows;
     }
 
     const string PrefsPath = "user://view.cfg";
 
     /// <summary>
-    /// Keeps the map's zoom, its size, and whether it is up at all.
+    /// Keeps the map's zoom and its size. Whether it is up at all is the
+    /// HUD layout's business now (hud.cfg, M59Hud), with every other
+    /// piece's hide.
     ///
-    /// Only the last two are the reference's behaviour. It writes the
+    /// Only the size is the reference's behaviour. It writes the
     /// minimap window's position, size and visibility into its
     /// configuration on the way out (`ControllerUI.cpp:643-645`) and reads
     /// the visibility back on a mode change (`:722`); the zoom is NOT
@@ -575,7 +575,6 @@ public partial class MiniMap : Control
             var f = new ConfigFile();
             f.Load(PrefsPath);
             f.SetValue("map", "zoom", Zoom);
-            f.SetValue("map", "shown", _shown);
             // Alongside the zoom, in the same file and the same section
             // the rest of this view's settings live in. The reference
             // persists the minimap's size the same way - as part of the
@@ -595,7 +594,6 @@ public partial class MiniMap : Control
             var f = new ConfigFile();
             if (f.Load(PrefsPath) != Error.Ok) return;
             Zoom = Mathf.Clamp((float)f.GetValue("map", "zoom", Zoom), MinZoom, MaxZoom);
-            _shown = (bool)f.GetValue("map", "shown", _shown);
             // Clamped on the way in as the reference clamps on the way
             // round (`UIMiniMap.cpp:79-80`): a config edited by hand, or
             // written on a larger screen, must not be able to hand this
@@ -651,16 +649,16 @@ public partial class MiniMap : Control
     public void SetPlayer(float kodX, float kodY, float angle)
     {
         _px = kodX; _py = kodY; _angle = angle;
-        if (_shown) Redraw();
+        if (M59Hud.Shows("minimap")) Redraw();
     }
 
     public override void _Draw()
     {
         // Only the dial's face lives here; the map is on the drawsurface
         // (see <see cref="_group"/>), which is what carries the 0.9.
-        // The player may also have put the whole cluster away, which is
-        // separate from the map's own toggle.
-        if (!_shown || !M59Hud.Shows("minimap")) return;
+        // The player may also have put the whole cluster away (the HUD
+        // editor's Hide).
+        if (!M59Hud.Shows("minimap")) return;
 
         // Where Layout put it, rather than the corner it used to compute
         // here: the player may have dragged and scaled the cluster.
@@ -680,7 +678,7 @@ public partial class MiniMap : Control
         // map-never still has you in it, and the game always draws the
         // dial and the arrow (`MiniMapCEGUI.cpp:274`, `:337`). Bailing
         // on an empty wall list turned that into a blank corner.
-        if (!_shown || !M59Hud.Shows("minimap")) return;
+        if (!M59Hud.Shows("minimap")) return;
 
         // Local to the drawsurface: it is positioned at the dial's corner.
         // Half the DRAWN width, so a scaled dial reaches further into the
