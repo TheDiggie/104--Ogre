@@ -12,7 +12,7 @@ using Meridian59.Data.Models;
 /// and the only way to know how much you have is to open the pack and
 /// look. On a desktop that is one window away. On a phone the pack
 /// covers the whole screen and the world with it, so "can I afford
-/// this" costs you sight of the room you are standing in. The three
+/// this" costs you sight of the room you are standing in. The four
 /// numbers are small and they are read often, which is exactly the
 /// case for putting them on the HUD.
 ///
@@ -28,10 +28,20 @@ using Meridian59.Data.Models;
 /// for a coin means a single one - so it counts as one rather than as
 /// nothing. Several stacks of the same coin add up.
 ///
-/// A row is drawn even when you have none of that coin. A readout that
-/// disappears is a readout you have to think about: three lines that
-/// are always in the same place can be read with one glance, and zero
-/// is an answer.
+/// ONLY WHAT YOU CARRY IS LISTED. Ashton: "only display currencies you
+/// have on your person. so if i only have shillings only show
+/// shillings." A row with none of that coin is not drawn, and the plate
+/// shrinks to the rows it has; with no coin at all the plate is not
+/// drawn either. The rows keep their order (shillings, platinum,
+/// doubloons, souls), so a coin that arrives slots in where it belongs
+/// rather than at the end. In the HUD editor an empty purse keeps a
+/// one-row natural rect so it is still a handle the player can pick up
+/// and place, as RoomBuffsPanel does for an empty row - a piece with a
+/// zero rect cannot be picked (HudEditor.Drawn).
+///
+/// SOULS are money on Server 104: `Souls is Money`, named "contained
+/// soul" / "contained souls" (`kod/object/item/passitem/numbitem/money/
+/// souls.kod:19,26`), so "soul" is the word to match.
 /// </summary>
 public partial class Purse : Control
 {
@@ -52,6 +62,7 @@ public partial class Purse : Control
         ("shillings", "shilling"),
         ("platinum",  "platinum"),
         ("doubloons", "doubloon"),
+        ("souls",     "soul"),
     };
 
     /// <summary>Where the block sits: to the right of the vitals plate.</summary>
@@ -150,27 +161,40 @@ public partial class Purse : Control
         float sc = HudScale();
         Redress(sc);
         float pad = Pad * sc, nameW = NameW * sc, valueW = ValueW * sc, rowH = RowH * sc;
-        float plateW = pad + nameW + valueW + pad;
-        float plateH = pad * 2f + rowH * Coins.Length;
 
-        Rect2 at = M59Hud.Place("purse", new Rect2(Left, Top, plateW, plateH),
+        int rows = 0;
+        for (int i = 0; i < Coins.Length; i++) if (_held[i] > 0) rows++;
+
+        // Empty: nothing on the glass, but in the editor a one-row rect
+        // so the piece can still be picked up (see the class comment).
+        // Place is called either way so the store's Natural follows the
+        // plate's real size - an editor handle over a stale rect would be
+        // a handle over nothing.
+        int shape = rows > 0 ? rows : (M59Hud.Editing ? 1 : 0);
+        float plateW = pad + nameW + valueW + pad;
+        float plateH = pad * 2f + rowH * shape;
+        Rect2 at = M59Hud.Place("purse",
+                                new Rect2(Left, Top, shape > 0 ? plateW : 0f, shape > 0 ? plateH : 0f),
                                 GetViewportRect().Size);
+        if (shape == 0) { HideRows(); return; }
+
         DrawStyleBox(Vitals.Plate(), new Rect2(at.Position, at.Size));
 
         float row = at.Position.Y + pad;
         for (int i = 0; i < Coins.Length; i++)
         {
+            if (_held[i] <= 0)
+            {
+                _names[i].Visible = false;
+                _values[i].Visible = false;
+                continue;
+            }
             _names[i].Text = Coins[i].Label;
             _names[i].Position = new Vector2(at.Position.X + pad, row);
             _names[i].Size = new Vector2(nameW, rowH);
             _names[i].Visible = true;
 
             _values[i].Text = _held[i].ToString("N0");
-            // Dim at nothing, bright when there is some: a zero you are
-            // not meant to act on should not pull the eye like a number
-            // that changed.
-            _values[i].AddThemeColorOverride("font_color",
-                _held[i] > 0 ? M59Skin.Text : M59Skin.TextOff);
             _values[i].Position = new Vector2(at.Position.X + pad + nameW, row);
             _values[i].Size = new Vector2(valueW, rowH);
             _values[i].Visible = true;

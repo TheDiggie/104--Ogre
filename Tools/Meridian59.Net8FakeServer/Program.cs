@@ -64,6 +64,7 @@ static class FakeServer
     const uint RID_COIN = 60030;
     const uint RID_SHILLING = 60210;
     const uint RID_PLATINUM = 60211;
+    const uint RID_SOULS = 60212;
     const uint RID_COINBGF = 60031;
     const uint RID_BOOK = 60032;
     const uint RID_BOOKBGF = 60033;
@@ -315,6 +316,17 @@ static class FakeServer
     static int stackCount = -1;      // -1: not running
     static uint coinId = 8003;
     static uint coinNow = 25;
+
+    // --- What coin the tester carries --------------------------------------
+    // M59_PURSE=shillings,platinum,doubloons,souls - a comma list of the
+    //   currencies in the bag; default all four. The HUD purse shows only
+    //   the rows the player has, so a one-coin list and an empty one
+    //   (M59_PURSE=none) are the cases to shoot. "doubloons" is the
+    //   coin stack (8003) that M59_STACK changes.
+    static readonly HashSet<string> purse = new HashSet<string>(
+        (EnvStr("M59_PURSE") ?? "shillings,platinum,doubloons,souls")
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+        StringComparer.OrdinalIgnoreCase);
 
     // --- Sound ---------------------------------------------------------------
     // The fixture's whole audible surface used to be three messages in room 1:
@@ -767,6 +779,11 @@ static class FakeServer
             // than it is. See notes/harness.md.
             new RsbResourceID(RID_SHILLING,   "12 shillings",    4),
             new RsbResourceID(RID_PLATINUM,   "a platinum bar",  4),
+            // Souls are Money on Server 104: `Souls is Money`,
+            // souls_name_rsc = "contained soul", plural "contained souls"
+            // (`kod/object/item/passitem/numbitem/money/souls.kod:19,26`).
+            // Named as the server names a stack, like the others.
+            new RsbResourceID(RID_SOULS,      "3 contained souls", 4),
             new RsbResourceID(RID_COINBGF,    "doubloon.bgf",    4),
             new RsbResourceID(RID_BOOK,       "a tattered book", 4),
             new RsbResourceID(RID_BOOKBGF,    "book1.bgf",       4),
@@ -1944,22 +1961,29 @@ static class FakeServer
     /// </summary>
     static void SendBag(NetworkStream ns, MessageControllerClient ctrl)
     {
-        var bag = new[]
+        var all = new List<InventoryObject>
         {
             Carry(8001, RID_AXEBGF,  RID_AXE,   0, true),
             Carry(8002, RID_BOOKBGF, RID_BOOK,  0, false),
-            Carry(coinId, RID_COINBGF, RID_COIN, coinNow, false),
+        };
+        // The coin, by M59_PURSE (default all four).
+        if (purse.Contains("doubloons"))
+            all.Add(Carry(coinId, RID_COINBGF, RID_COIN, coinNow, false));
+        if (purse.Contains("shillings"))
+        {
             // Two stacks of shillings rather than one, because the purse
             // adds stacks up and a single stack would not show whether
             // it does.
-            Carry(8011, RID_COINBGF, RID_SHILLING, 240, false),
-            Carry(8012, RID_COINBGF, RID_SHILLING, 67,  false),
-            // Count 0 is NOT STACKABLE, which for a coin means one of
-            // it - the case the purse has to read as 1 and not as 0.
-            Carry(8013, RID_COINBGF, RID_PLATINUM, 0,   false),
-        };
+            all.Add(Carry(8011, RID_COINBGF, RID_SHILLING, 240, false));
+            all.Add(Carry(8012, RID_COINBGF, RID_SHILLING, 67,  false));
+        }
+        // Count 0 is NOT STACKABLE, which for a coin means one of
+        // it - the case the purse has to read as 1 and not as 0.
+        if (purse.Contains("platinum"))
+            all.Add(Carry(8013, RID_COINBGF, RID_PLATINUM, 0,   false));
+        if (purse.Contains("souls"))
+            all.Add(Carry(8014, RID_COINBGF, RID_SOULS, 3, false));
 
-        var all = new List<InventoryObject>(bag);
         all.AddRange(takenSoFar);
 
         // M59_BIGBAG=1 fills the pack to a hundred, which is what
