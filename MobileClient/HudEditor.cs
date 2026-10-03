@@ -100,6 +100,13 @@ public partial class HudEditor : Control
     Label _barHint, _barGrip;
     readonly List<Button> _slots = new List<Button>();
     Button _resetAll, _cancel, _done;
+
+    /// <summary>
+    /// Asks the player before Reset all: the question, and what to do on
+    /// Yes. Returns false when no popup could be shown, in which case
+    /// the caller goes ahead. Wired by the view to its ConfirmPopup.
+    /// </summary>
+    public Func<string, Action, bool> Confirm;
     /// <summary>
     /// The control scheme, as a button whose caption says which is on.
     /// Not a toggle, for the reason the Hide button is not one (see
@@ -226,10 +233,14 @@ public partial class HudEditor : Control
             _slots.Add(b);
         }
 
+        // Asked first. Ashton: "when you hit 'Reset all' in the ui
+        // customizer make sure u add a confirmation pop up so ppl dont
+        // do it on accident" - it is the one control here that throws
+        // away every layout at once, a thumb's width from Layout 3.
         _resetAll = Make("Reset all", "hudResetAll", M59Skin.Kind.Danger, () =>
         {
-            M59Hud.ResetAll();
-            Follow();
+            void Go() { M59Hud.ResetAll(); Follow(); }
+            if (Confirm == null || !Confirm("Reset every piece of every layout to where it started?", Go)) Go();
         });
 
         _barHint = M59Skin.Caption("");

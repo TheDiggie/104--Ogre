@@ -2078,6 +2078,7 @@ public partial class GameView : Node2D
             // the control the player already found.
             _hudEditor = new HudEditor();
             _hudEditor.Closed += () => _options?.Open();
+            _hudEditor.Confirm = (text, go) => _ask != null && _ask.Choice(text, 0, _ => go(), destructive: true);
             _ui.AddChild(_hudEditor);
         });
         Widget("guild", () =>
