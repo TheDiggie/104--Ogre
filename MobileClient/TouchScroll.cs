@@ -59,6 +59,63 @@ public partial class TouchScroll : ScrollContainer
         // client is one of these, and a bar styled in twenty places is
         // twenty places for the next change to miss one.
         M59Skin.Scroller(this);
+        // And kept clear of its own bar, for the same reason. See Fit.
+        Resized += Fit;
+        ChildEnteredTree += _ => Fit();
+        Fit();
+    }
+
+    /// <summary>
+    /// Keeps the content out from under the bar, for every list, from
+    /// here.
+    ///
+    /// A ScrollContainer lays its child out at its OWN width when the
+    /// child expands, bar or no bar, so the last control on a row -
+    /// a "+", a checkbox, a slider's end - sat under the grabber. The
+    /// first fix was M59Skin.RowsFit, which each panel's Layout had to
+    /// remember to call; fourteen did and seven did not, and the
+    /// Settings list was one of the seven. Ashton, 2026-10-02: "make
+    /// sure no scroll bar in the app covers content." A rule that lives
+    /// in each panel is a rule seven panels forget; one that lives in
+    /// the container cannot be forgotten, so it moved here. RowsFit is
+    /// left in place where it is - it sets the same two things.
+    ///
+    /// The bar's width is reserved whenever vertical scrolling is
+    /// allowed at all, not only when the bar happens to be showing:
+    /// a list that reflows its rows the moment it grows past the box
+    /// is a list that jumps, and 52 points of margin on a short list
+    /// is a cheaper thing to look at than that.
+    /// </summary>
+    /// <summary>
+    /// Off for a list that places its own children and reserves its own
+    /// bar - the inventory dock, which draws a slimmer bar and sizes its
+    /// box to the slots. Everything else leaves it on.
+    /// </summary>
+    public bool FitContent = true;
+
+    /// <remarks>
+    /// Also run from _Process, and that is not belt-and-braces. A
+    /// panel's Layout sets `_scroll.Size` - which raises Resized and
+    /// this fit - and on its NEXT line sets the row box's own minimum
+    /// width, undoing it; the Settings list did exactly that and the
+    /// first photograph after this was written showed a 3-point gap.
+    /// Every write below is guarded by a compare, so a frame where
+    /// nothing changed costs a few comparisons and no re-sort, and a
+    /// frame after a panel's Layout corrects it once and stops.
+    /// </remarks>
+    void Fit()
+    {
+        if (!FitContent || VerticalScrollMode == ScrollMode.Disabled) return;
+        float w = Size.X - M59Skin.ScrollBarW;
+        if (w < 120f) return;
+        foreach (Node n in GetChildren())
+        {
+            if (n is not Control c || c == GetVScrollBar() || c == GetHScrollBar()) continue;
+            if (!Mathf.IsEqualApprox(c.CustomMinimumSize.X, w))
+                c.CustomMinimumSize = new Vector2(w, c.CustomMinimumSize.Y);
+            if (c.SizeFlagsHorizontal != Control.SizeFlags.ShrinkBegin)
+                c.SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin;
+        }
     }
 
     public override void _Input(InputEvent e)
@@ -133,6 +190,7 @@ public partial class TouchScroll : ScrollContainer
 
     public override void _Process(double delta)
     {
+        Fit();
         if (_down || Mathf.Abs(_velocity) < 8f) { if (!_down) _velocity = 0f; return; }
         Move((float)(_velocity * delta));
         _velocity *= Mathf.Exp((float)(-Friction * delta));

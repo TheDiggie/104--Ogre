@@ -168,6 +168,10 @@ public partial class InventoryDock : Control
         _box.HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled;
         _host.AddChild(_box);
         M59Skin.SlimScroller(_box);
+        // The dock lays its slots out by hand and reserves its own,
+        // slimmer bar in the box width; TouchScroll's general fit
+        // would narrow the grid under them. See TouchScroll.Fit.
+        _box.FitContent = false;
         _grid = new Control { Name = "dockGrid", MouseFilter = MouseFilterEnum.Ignore };
         _box.AddChild(_grid);
 
