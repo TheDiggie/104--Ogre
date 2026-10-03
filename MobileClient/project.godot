@@ -14,7 +14,7 @@ config/name="Meridian 59 Mobile"
 ; pack's file count and total size too. It was absent before, and the
 ; Android preset's version/code - which is NOT readable at runtime - was
 ; 1 for every build, so a new APK's resources were ignored for ever.
-config/version="0.14.1"
+config/version="0.14.2"
 config/icon="res://art/icon.png"
 run/main_scene="res://Game.tscn"
 config/features=PackedStringArray("4.7", "C#", "Mobile")

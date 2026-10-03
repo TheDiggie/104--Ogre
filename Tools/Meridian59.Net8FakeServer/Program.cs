@@ -778,7 +778,7 @@ static class FakeServer
             // with a bare "shilling" would make the matching look easier
             // than it is. See notes/harness.md.
             new RsbResourceID(RID_SHILLING,   "12 shillings",    4),
-            new RsbResourceID(RID_PLATINUM,   "a platinum bar",  4),
+            new RsbResourceID(RID_PLATINUM,   "a silver coin",   4),
             // Souls are Money on Server 104: `Souls is Money`,
             // souls_name_rsc = "contained soul", plural "contained souls"
             // (`kod/object/item/passitem/numbitem/money/souls.kod:19,26`).

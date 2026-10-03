@@ -32,7 +32,7 @@ using Meridian59.Data.Models;
 /// have on your person. so if i only have shillings only show
 /// shillings." A row with none of that coin is not drawn, and the plate
 /// shrinks to the rows it has; with no coin at all the plate is not
-/// drawn either. The rows keep their order (shillings, platinum,
+/// drawn either. The rows keep their order (shillings, silver,
 /// doubloons, souls), so a coin that arrives slots in where it belongs
 /// rather than at the end. In the HUD editor an empty purse keeps a
 /// one-row natural rect so it is still a handle the player can pick up
@@ -60,7 +60,9 @@ public partial class Purse : Control
     static readonly (string Label, string Match)[] Coins =
     {
         ("shillings", "shilling"),
-        ("platinum",  "platinum"),
+        // silver.kod:19-20 - "silver coin(s)", with platinum.bgf for a
+        // picture, which is how it came to be called platinum here.
+        ("silver",    "silver coin"),
         ("doubloons", "doubloon"),
         ("souls",     "soul"),
     };
