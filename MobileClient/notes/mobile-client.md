@@ -1231,3 +1231,57 @@ so objects are created at the changed depth; a depth that changes
 mid-room would stand them wrong until they step, in both clients.
 
 See also: the oracle -> ../../Tools/Meridian59.Net8RenderCheck/README.md | WorldSync.cs
+
+## The trade's Add opens the bag beside it, and picks toggle
+Tags: design, architecture | Add puts the bag on the right of the band in a toggling pick mode; the offer fills live; Done ends it. The over-the-trade fallback exists but the stretch mode never reaches it
+
+Ashton: "when i hit add pop my inventory up to the right of the trade
+ui not over it, and let me add multiple items at once". The game
+drags items one at a time onto its own side, as many as you like
+(`UITrade.cpp:470-481` adds `InventoryObjects[index]` to `ItemsYou`
+unless `Contains`), and Offer sends the whole list as one
+`ReqOffer(partner, ObjectID[])` / `ReqCounterOffer(ObjectID[])`
+(`UITrade.cpp:395-421`, `BaseClient.cs:2380,2426`). So a multi-pick
+is the game's own shape, only the picking gesture is ours.
+
+- `TradePanel.Beside(v, out trade, out bag)` is the one place the
+  geometry lives: the band `M59Skin.Frame(v)` at full height, the
+  trade card its left 600 (`PickTradeW`; the two lists STACK, since
+  564 of body is under the 620 two-up threshold), the bag the rest
+  past a double Gap. False when the band is under 1150 wide
+  (600 + 20 + `PickBagMinW` 530) and then the bag opens over the
+  trade with its scrim, as before. With `canvas_items/expand` on a
+  1920x1080 base the LOGICAL width is never under 1920, whatever
+  `--resolution` says (1100x1080 physical is 1920x1885 logical), so
+  the fallback was proved only by narrowing `viewport_width` in
+  project.godot for one run and putting it back.
+- The bag's scrim is dark while it is beside the trade: the trade's
+  own scrim already dims the world, and a second one over the trade
+  card would hide the thing the player is meant to watch fill.
+  `InventoryPanel.IsOpen` reads the CARD now, not the scrim.
+- `InventoryPanel.OpenPicking(trade)`: a tap calls `trade.Toggle`
+  (in if out, out if in; a stack going in asks the amount through the
+  existing `AmountWanted` -> `_amount.Ask(id, Chosen, Count)` and
+  stays picked; coming out forgets its number). "Picked" in the grid
+  is `trade.Has(id)` - the gold border on as many slots as are on the
+  offer, over the in-use yellow where both hold - and the signature
+  carries it so a line Reconcile drops unmarks its slot. The
+  "You offer" column rebuilds from `ItemsYou` on the next Sync, so
+  the offer is seen building. Done, Close and the X all go through
+  `Close`, which calls `trade.PickDone()` after the hide.
+- Picking ends on its own when the server echoes your side
+  (`IsItemsYouSet`), at the Offer press, and when the trade window
+  hides; Add is hidden while the bag is up for it. Every rule in
+  TradePanel's notes stands: Put by ID, Reconcile re-ids a replaced
+  stack, Chosen clamps, the counter-offer path is the same list.
+- The single-tap `PickMode` (a container's Put) is untouched; the
+  trade no longer goes through `GameView`'s `PickFor` routing, so
+  `PickFor.Trade` and the `else _trade?.Put(item)` arm of the Picked
+  handler are dead code left in place.
+
+Proved on the wire: axe, book, doubloons picked (25 asked), book
+tapped off, Done, Offer -> fixture log `ReqCounterOffer: offered 8001
+x0, offered 8003 x25`. The fixture echoes a canned book back as your
+side, which is its answer, not the client's.
+
+See also: TradePanel.cs | InventoryPanel.cs | the server's half -> fake-server.md

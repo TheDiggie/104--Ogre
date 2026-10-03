@@ -135,6 +135,19 @@ public partial class InventoryPanel : Control
     /// <summary>One tap chooses and closes, instead of select-then-use.</summary>
     public bool PickMode;
 
+    /// <summary>
+    /// The trade this bag is picking for, while it is. Not PickMode:
+    /// that is one thing and the bag shuts on it (a container's Put).
+    /// Here a tap TOGGLES the item on the trade's offer and the bag
+    /// stays up - the game lets you drag as many things onto your side
+    /// as you like (`UITrade.cpp:470-481`) - and Done, Close or the X
+    /// end it. The bag also sits BESIDE the trade card while there is
+    /// room, so the offer can be watched filling (TradePanel.Beside).
+    /// </summary>
+    TradePanel _for;
+    /// <summary>Open in the multi-pick mode for a trade.</summary>
+    public bool IsPicking => _for != null;
+
     Button _open;
     ColorRect _panel;
     Panel _card, _bar;
@@ -143,7 +156,7 @@ public partial class InventoryPanel : Control
     ScrollContainer _scroll;
     GridContainer _grid;
     Label _selected;
-    Button _use, _drop, _look, _bind, _close;
+    Button _use, _drop, _look, _bind, _close, _done;
 
     /// <summary>
     /// UI_INTERVALINVENTORYCLICK: how long a second tap has to arrive
@@ -218,6 +231,9 @@ public partial class InventoryPanel : Control
         _look  = MakeAction("Look",  () => { if (_picked != null) LookItem?.Invoke(_picked); });
         _bind  = MakeAction("Hotbar",() => { if (_picked != null) BindItem?.Invoke(_picked); });
         _close = MakeAction("Close", Close);
+        // Picking for a trade: the one way out, and the Primary one,
+        // because the bag's job then is "finish choosing".
+        _done  = MakeAction("Done", Close, M59Skin.Kind.Primary);
 
         GetViewport().SizeChanged += Layout;
         Layout();
@@ -265,11 +281,20 @@ public partial class InventoryPanel : Control
                                  SlotSize * 0.5f, SlotSize * 2f);
         float want = rows * (cell + 8f) + M59Skin.RowH;   // grid plus the selected-item line
         Rect2 card = M59Skin.Frame(v, want);
-        Rect2 body = M59Skin.Body(card);
-        Rect2 foot = M59Skin.Foot(card);
+        // Picking for a trade with room for both: the right of the band
+        // at full height, the trade card on the left of it. The trade's
+        // own scrim already dims the world and eats the stray touch, so
+        // this one goes dark - were it up it would cover the trade card
+        // the player is meant to watch fill. Too narrow for both and
+        // the bag opens over the trade with its scrim, as it always did.
+        bool beside = false;
+        if (_for != null && TradePanel.Beside(v, out _, out Rect2 side)) { beside = true; card = side; }
+        _panel.Visible = IsOpen && !beside;
 
         _panel.Position = Vector2.Zero;
         _panel.Size = v;
+        Rect2 body = M59Skin.Body(card);
+        Rect2 foot = M59Skin.Foot(card);
         _card.Position = card.Position;
         _card.Size = card.Size;
         _bar.Position = card.Position;
@@ -295,7 +320,7 @@ public partial class InventoryPanel : Control
         // destroys something, so it goes to the far left of the footer
         // with the width of the card between it and the others - see
         // M59Skin.FootLeft.
-        M59Skin.FootRow(foot, _close, _bind, _look, _use);
+        M59Skin.FootRow(foot, _close, _done, _bind, _look, _use);
         M59Skin.FootLeft(foot, _drop);
     }
 
@@ -337,6 +362,20 @@ public partial class InventoryPanel : Control
     }
 
     /// <summary>
+    /// Opens the bag to pick things for a trade - toggling, several at
+    /// once, beside the trade card when there is room. The card is told
+    /// when it is over (TradePanel.PickDone), whichever button ended it.
+    /// </summary>
+    public void OpenPicking(TradePanel trade)
+    {
+        if (trade == null) { Open(); return; }
+        _for = trade;
+        PickMode = false;
+        Pick(null);
+        Open();
+    }
+
+    /// <summary>
     /// Shuts the bag, and drops the picking mode with it.
     ///
     /// PickMode was cleared only by a tap, so backing out of "pick an
@@ -349,24 +388,38 @@ public partial class InventoryPanel : Control
     {
         bool wasPicking = PickMode;
         PickMode = false;
+        TradePanel trade = _for;
+        _for = null;
         Show(false);
         Pick(null);
         if (wasPicking) PickCancelled?.Invoke();
+        // After the hide, so the trade re-lays out against a bag that
+        // is already gone.
+        trade?.PickDone();
     }
 
     void Show(bool on)
     {
         // Above whatever else is open - see Panels.ToFront.
         if (on) Panels.ToFront(this);
+        bool picking = on && _for != null;
         _panel.Visible = on; _title.Visible = on; _scroll.Visible = on;
         _card.Visible = on; _bar.Visible = on; _x.Visible = on;
         _open.Visible = !on;
-        _close.Visible = on;
-        if (!on) { _use.Visible = false; _drop.Visible = false; _look.Visible = false; _bind.Visible = false; _selected.Visible = false; }
+        // One way out, named for what it does: Done while picking for a
+        // trade, Close otherwise. Same call behind both.
+        _close.Visible = on && !picking;
+        _done.Visible = picking;
+        if (!on || picking) { _use.Visible = false; _drop.Visible = false; _look.Visible = false; _bind.Visible = false; _selected.Visible = false; }
+        if (picking) _title.Text = "Pick things to offer";
         Layout();
     }
 
-    public bool IsOpen => _panel != null && _panel.Visible;
+    /// <summary>
+    /// The card, not the scrim: beside a trade the scrim is dark while
+    /// the bag is open (see Layout).
+    /// </summary>
+    public bool IsOpen => _card != null && _card.Visible;
 
     /// <summary>
     /// The live pack, as last handed to Sync - even while the window is
@@ -401,7 +454,11 @@ public partial class InventoryPanel : Control
               .Append(o != null && o.IsInUse ? "u" : "-").Append(':')
               .Append(o != null && o.Flags != null && o.Flags.IsApplyable ? "a" : "-").Append(':')
               .Append(o?.Name).Append(':').Opt(o?.ColorTranslation).Append(':')
-              .Opt(o?.Effect).Append(':').Opt(o?.ViewerFrameIndex).Append(';');
+              .Opt(o?.Effect).Append(':').Opt(o?.ViewerFrameIndex).Append(':')
+              // On the offer or not, while picking for a trade: the
+              // trade can drop a line on its own (Reconcile), and the
+              // slot's mark has to follow.
+              .Append(_for != null && o != null && _for.Has(o.ID) ? "p" : "-").Append(';');
         }
         // The column count is part of it: turn the phone and the grid
         // has to be rebuilt, and a signature that ignored the width
@@ -481,7 +538,8 @@ public partial class InventoryPanel : Control
         }
 
         SizeCells();
-        _title.Text = items.Count == 0 ? "Carrying nothing" : $"Carrying ({items.Count})";
+        _title.Text = _for != null ? "Pick things to offer"
+                    : items.Count == 0 ? "Carrying nothing" : $"Carrying ({items.Count})";
 
         // The card is sized from the number of rows, and until now
         // nothing re-laid it out after the rows existed - so the window
@@ -541,7 +599,13 @@ public partial class InventoryPanel : Control
             box.BorderColor = M59Skin.InUseEdge;
             box.SetBorderWidthAll(2);
         }
-        if (o != null && _picked != null && o.ID == _picked.ID)
+        // Picking for a trade, "picked" means "on the offer", asked of
+        // the trade itself so a slot and the offer list can never
+        // disagree; the mark is the same gold border, on as many slots
+        // as are on the offer.
+        bool chosen = o != null && (_for != null ? _for.Has(o.ID)
+                                                : _picked != null && o.ID == _picked.ID);
+        if (chosen)
         {
             if (!o.IsInUse) box.BgColor = M59Skin.RowPick;
             box.BorderColor = o.IsInUse ? M59Skin.GoldBright : M59Skin.Gold;
@@ -599,6 +663,10 @@ public partial class InventoryPanel : Control
         slot.Preview = icon.Texture;
         slot.Tapped += item =>
         {
+            // For a trade: in or out of the offer, and the bag stays.
+            // The slot's mark is read back from the trade on the
+            // rebuild the cleared signature forces.
+            if (_for != null) { _for.Toggle(item); _lastSignature = ""; return; }
             if (PickMode) { PickMode = false; Close(); Picked?.Invoke(item); return; }
 
             ulong now = Time.GetTicksMsec();

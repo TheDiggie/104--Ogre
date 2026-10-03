@@ -1956,13 +1956,10 @@ public partial class GameView : Node2D
                 // writes the box back - see TradePanel.Chosen.
                 _amount.Ask(o.ID, (int)_trade.Chosen(o), (int)o.Count, o.Name);
             };
-            _trade.AddWanted += () =>
-            {
-                if (_bag == null) return;
-                _pickFor = PickFor.Trade;
-                _bag.PickMode = true;
-                _bag.Open();
-            };
+            // Add is the trade's own now: it opens the bag beside itself
+            // in a toggling pick mode (TradePanel.BeginPick,
+            // InventoryPanel.OpenPicking) and the bag reports each tap
+            // straight back to it, so no PickFor routing is needed here.
             _ui.AddChild(_trade);
         });
         Widget("quests", () =>

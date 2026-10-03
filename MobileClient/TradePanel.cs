@@ -31,10 +31,19 @@ using Meridian59.Drawing2D;
 ///  - Accept is `SendAcceptOffer` with no arguments and Cancel is
 ///    `SendCancelOffer`; neither carries the list.
 ///
-/// Items get into your side by dragging them from the inventory there.
-/// Here the window has an Add button that opens the bag in a picking
-/// mode, because a phone cannot show both windows at once to drag
-/// between them. That part is not the game's.
+/// Items get into your side by dragging them from the inventory there,
+/// one drop per item and as many drops as you like
+/// (`UITrade.cpp:470-481`: each drop adds `InventoryObjects[index]` to
+/// `ItemsYou` unless it is already there), and Offer sends the whole
+/// list as one `ReqOffer(partner, ObjectID[])` (`UITrade.cpp:395-421`,
+/// `BaseClient.cs:2380`). Here the window has an Add button that opens
+/// the bag BESIDE it in a picking mode - the trade keeps the left of the
+/// band and the bag takes the right, see <see cref="Beside"/> - and a
+/// tap in the bag toggles the item into the offer without closing it,
+/// so several go in at once and the "You offer" column fills as they
+/// are picked. On a glass too narrow for both the bag opens over the
+/// trade as it always did. That part is not the game's; what the offer
+/// may hold is.
 /// </summary>
 public partial class TradePanel : Control
 {
@@ -50,8 +59,44 @@ public partial class TradePanel : Control
     public event Action<List<ObjectID>> Offer;
     public event Action Accept;
     public event Action Cancel;
-    /// <summary>Open the bag to pick something to add.</summary>
-    public event Action AddWanted;
+
+    /// <summary>
+    /// The trade card's width while the bag is open beside it. Narrower
+    /// than the two-column threshold (620 of body), so the two lists
+    /// stack - "You offer" above "They offer" - and each row still
+    /// holds icon, name floor, amount button and Inspect clear of the
+    /// scrollbar (36 + 180 + 72 + 104 + gaps = 416, in 564 - 52).
+    /// </summary>
+    public const float PickTradeW = 600f;
+    /// <summary>
+    /// The least the bag may have beside it: five slots at a finger's
+    /// size (5 x 80 + 4 x 8) plus its scrollbar lane and padding.
+    /// </summary>
+    public const float PickBagMinW = 530f;
+
+    /// <summary>
+    /// Where the trade and the bag go while an item is being picked:
+    /// the band a single card would take (<see cref="M59Skin.Frame"/>,
+    /// full height), the trade on its left at <see cref="PickTradeW"/>,
+    /// the bag on the rest, a double gap between. False - and both
+    /// rects the whole band - when the band is too narrow for both at
+    /// those widths, which is <c>Frame(v).Size.X &lt; 1150</c>: 1620 at
+    /// 1920x1080 and 2400x1080 (beside), 1080 at 1280x720 (over).
+    /// </summary>
+    public static bool Beside(Vector2 v, out Rect2 trade, out Rect2 bag)
+    {
+        Rect2 band = M59Skin.Frame(v);
+        float gap = M59Skin.Gap * 2f;
+        trade = bag = band;
+        if (band.Size.X < PickTradeW + gap + PickBagMinW) return false;
+        trade = new Rect2(band.Position, new Vector2(PickTradeW, band.Size.Y));
+        bag = new Rect2(band.Position.X + PickTradeW + gap, band.Position.Y,
+                        band.Size.X - PickTradeW - gap, band.Size.Y);
+        return true;
+    }
+
+    /// <summary>The bag is open beside (or over) this card, picking for it.</summary>
+    bool _picking;
 
     /// <summary>How many of this stackable of yours to offer.</summary>
     public event Action<ObjectBase> AmountWanted;
@@ -259,7 +304,7 @@ public partial class TradePanel : Control
         _scrollTheirs.AddChild(_rowsTheirs);
         AddChild(_scrollTheirs);
 
-        _add = Act("Add", () => AddWanted?.Invoke());
+        _add = Act("Add", BeginPick);
         // Read at the press, not captured when the item was added. The
         // game is explicit that the model's count is not kept up to
         // date and reads the row instead (`UITrade.cpp:398-414`); this
@@ -281,6 +326,10 @@ public partial class TradePanel : Control
             // under it the player is shown that INSTEAD of the offer
             // going out - they press again knowing what it now holds.
             if (Reconcile(_trade)) return;
+            // The offer is leaving your hands; a bag still open beside
+            // it would go on toggling things into a list the server is
+            // about to own.
+            EndPick();
             _notice.Text = ""; Layout();
             var send = new List<ObjectID>();
             if (_trade?.ItemsYou != null)
@@ -358,10 +407,92 @@ public partial class TradePanel : Control
         Clear();
     }
 
+    /// <summary>The bag, found once among the siblings and re-checked for life.</summary>
+    InventoryPanel Bag()
+    {
+        if (_bag != null && !IsInstanceValid(_bag)) _bag = null;
+        if (_bag == null && GetParent() != null)
+            foreach (Node n in GetParent().GetChildren())
+                if (n is InventoryPanel b) { _bag = b; break; }
+        return _bag;
+    }
+
+    /// <summary>
+    /// Add: the bag opens beside this card in picking mode and stays
+    /// open while things are toggled in and out - see the class note.
+    /// Pressing it again while the bag is up is a no-op.
+    /// </summary>
+    void BeginPick()
+    {
+        InventoryPanel bag = Bag();
+        if (bag == null || _trade == null || _trade.IsItemsYouSet) return;
+        _picking = true;
+        // Sync sets this too, but only re-lays the footer on a list
+        // change; the button has to leave the row now.
+        _add.Visible = false;
+        bag.OpenPicking(this);
+        Layout();
+    }
+
+    /// <summary>Shuts a bag that is picking for this card; the bag calls PickDone back.</summary>
+    void EndPick()
+    {
+        if (!_picking) return;
+        InventoryPanel bag = Bag();
+        if (bag != null && bag.IsPicking) bag.Close();
+        else PickDone();
+    }
+
+    /// <summary>The bag's word that picking is over, however it ended.</summary>
+    public void PickDone()
+    {
+        if (!_picking) return;
+        _picking = false;
+        _add.Visible = IsOpen && _trade != null && !_trade.IsItemsYouSet;
+        Layout();
+    }
+
+    /// <summary>Is this one of yours already on the offer? Drawn as picked in the bag.</summary>
+    public bool Has(uint id)
+    {
+        if (_trade?.ItemsYou == null) return false;
+        foreach (ObjectBase o in _trade.ItemsYou)
+            if (o != null && o.ID == id) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// A tap in the picking bag: in if it was out, out if it was in. A
+    /// stack going in asks how many at once (the same prompt the row's
+    /// amount button opens) and stays in whatever is answered; a stack
+    /// coming out forgets the number it was given, so a second pick of
+    /// it starts from the whole stack again as a fresh add would.
+    /// Nothing moves once the server holds the list (IsItemsYouSet).
+    /// </summary>
+    public void Toggle(InventoryObject item)
+    {
+        if (item == null || _trade?.ItemsYou == null || _trade.IsItemsYouSet) return;
+        if (Has(item.ID))
+        {
+            for (int i = _trade.ItemsYou.Count - 1; i >= 0; i--)
+                if (_trade.ItemsYou[i] != null && _trade.ItemsYou[i].ID == item.ID)
+                    _trade.ItemsYou.RemoveAt(i);
+            _amounts.Remove(item.ID);
+            _mineSignature = "";
+            return;
+        }
+        Put(item);
+        if (item.IsStackable) AmountWanted?.Invoke(item);
+    }
+
     void Show(bool on)
     {
         // Above whatever else is open - see Panels.ToFront.
         if (on) Panels.ToFront(this);
+        // A bag picking for a card that is going away has nobody to
+        // pick for; shut it before the card hides, so its Close lands
+        // on a card that is still laid out.
+        if (!on) EndPick();
         foreach (Node n in GetChildren())
             if (n is Control c && c != this) c.Visible = on;
         _notice.Visible = on && _notice.Text != "";
@@ -390,6 +521,13 @@ public partial class TradePanel : Control
                                              _rowsTheirs?.GetChildCount() ?? 0));
         float noteH = _notice.Text != "" ? 52f : 0f;
         Rect2 card = M59Skin.Frame(v, headH + longest * (RowHeight + RowGap) + noteH + M59Skin.Gap);
+        // While the bag is picking beside this card, the card is the
+        // left of the band at full height - the two columns stack in
+        // it (564 of body is under the 620 two-up threshold) and the
+        // "You offer" list has the room to show the offer building.
+        // When the band is too narrow for both, Beside is false and the
+        // card stays where it was, with the bag over it as before.
+        if (_picking && Beside(v, out Rect2 mine, out _)) card = mine;
         Rect2 body = M59Skin.Body(card);
         Rect2 foot = M59Skin.Foot(card);
 
@@ -529,14 +667,7 @@ public partial class TradePanel : Control
     {
         if (trade?.ItemsYou == null || trade.IsItemsYouSet || trade.ItemsYou.Count == 0) return false;
 
-        if (_bag == null || !IsInstanceValid(_bag))
-        {
-            _bag = null;
-            if (GetParent() != null)
-                foreach (Node n in GetParent().GetChildren())
-                    if (n is InventoryPanel b) { _bag = b; break; }
-        }
-        IList<InventoryObject> pack = _bag?.Items;
+        IList<InventoryObject> pack = Bag()?.Items;
         if (pack == null) return false;
 
         var gone = new List<string>();
@@ -618,8 +749,14 @@ public partial class TradePanel : Control
         // before anyone had offered anything and Offer stayed tappable
         // after you had committed, so a trade could be re-offered or
         // accepted while unset.
+        // Once the server has echoed your side there is nothing left to
+        // pick, so a bag still picking is shut - a counter-offer coming
+        // in while you were choosing is the case.
+        if (trade.IsItemsYouSet) EndPick();
         _offer.Visible = !trade.IsItemsYouSet;
-        _add.Visible = !trade.IsItemsYouSet;
+        // Add stands down while the bag is already up for it; the bag's
+        // Done is the way back.
+        _add.Visible = !trade.IsItemsYouSet && !_picking;
         _accept.Visible = trade.IsItemsYouSet && trade.IsItemsPartnerSet && !trade.IsBackgroundOffer;
 
         // An invisible partner is not named: the game hides the name
