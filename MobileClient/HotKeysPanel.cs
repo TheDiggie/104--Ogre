@@ -175,16 +175,21 @@ public partial class HotKeysPanel : Control
         _scrim.Position = Vector2.Zero;
         _scrim.Size = v;
 
-        // As tall as its pages and as wide as a list: a row here is a
-        // word and five seats, which across the whole of a sideways
+        // As tall as its pages and as wide as a row: a row here is a
+        // word and HotSeats seats, which across the whole of a sideways
         // screen would be a caption at one end and the seats a long way
-        // off. The chooser takes all the height it can get, since a
-        // spell list is as long as the character is old. Frame caps
-        // both against the screen, and the list scrolls past the cap.
+        // off. The width is READ off HotSeats rather than assumed: at
+        // five the list measure (ListW) held a row; at six it did not,
+        // and the sixth seat ran under the scrollbar. The chooser takes
+        // all the height it can get, since a spell list is as long as
+        // the character is old. Frame caps both against the screen, and
+        // the list scrolls past the cap.
         float want = 0f;
         if (!_choosing && _data?.ActionButtons != null)
             want = (Pages(Arc(_data).Count) + 1) * (SlotSize + 12f + 6f) + M59Skin.RowH + 6f;
-        Rect2 card = M59Skin.Frame(v, want, true, M59Skin.ListW);
+        float rowW = PageW + ActionButtons.HotSeats * (SlotSize + M59Skin.Gap)
+                   + M59Skin.ScrollBarW + M59Skin.Pad * 2f;
+        Rect2 card = M59Skin.Frame(v, want, true, Mathf.Max(M59Skin.ListW, rowW));
         Rect2 body = M59Skin.Body(card);
         Rect2 foot = M59Skin.Foot(card);
         _chrome.Place(card);

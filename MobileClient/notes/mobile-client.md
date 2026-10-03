@@ -49,7 +49,10 @@ the arc, so Bind takes the first empty seat, and until this panel
 nothing could choose the seat or move a binding afterwards.
 
 The rows are the cluster's own model: every config but the primary,
-in Num order, cut into pages of `ActionButtons.HotSeats` (five). The
+in Num order, cut into pages of `ActionButtons.HotSeats` (six since
+2026-10-03; the card's width is read off HotSeats too, because at six
+a row no longer fit the list measure and the last seat ran under the
+scrollbar). The
 primary is shown once at the top and is not a seat; it CAN be Set
 (see "The combat cluster: Phase, Door inside, the padlock and a
 chosen primary" below), never cleared or moved; unbound, the row
@@ -89,28 +92,38 @@ chooser rows `pick{id}` / `pick{Action}` / `pickGo`, the tabs
 
 See also: HotKeysPanel.cs | the hotbar -> ActionButtons.cs | HotbarStore.cs
 
-## The combat cluster: Phase, Door inside, the padlock and a chosen primary
-Tags: design, architecture | Five bindings a page; Door and a fixed Phase seat inside the arc; a padlock (default locked, global, in hotbar.cfg) gates the pull-off clear; the big disc is any config, chosen by Num (`primary=` in hotbar.cfg), and is never cleared
+## The combat cluster: two arcs, the padlock and a chosen primary
+Tags: design, architecture | Six bindings on the outer arc, a page; four fixed utilities (Next, Phase, pager, Door) on an inner arc at r 168; a padlock (default locked, global, in hotbar.cfg) gates the pull-off clear; the big disc is any config, chosen by Num (`primary=` in hotbar.cfg), and is never cleared
 
 Ashton (2026-10-03, a marked-up phone shot): a normal-sized button that
 casts Phase ("every player has it and it is very important"); one more
 seat on the arc with Door moved right; no dragging off Attack, Phase
 or Door; a padlock bottom-right that locks the hotkeys; and the
-customizer able to put other things on the big attack button.
+customizer able to put other things on the big attack button. Later
+the same day: "move the target next button down a bit and add another
+hotkey to the hotkey arc. I want an outer hotkey arc of 6 keys and the
+inner arc of utilities 'door, page change, phase, target next'".
 
-- THE ARC KEEPS ITS SIX SEATS, radius and chord (`ActionButtons.
-  ArcSeats`, `ArcR`): Door left the 180-degree seat and that seat is
-  the fifth binding (`HotSeats = ArcSeats - 1`). Every old number in
-  the arc arithmetic still holds; a page is five.
-- INSIDE THE ARC, by angle and 1x distance from the pivot, scaled with
-  it: Door at 180 deg / 166, Phase at 135 deg / 165, the pager at
-  95 deg / 190 (it was on the 125 bisector; Phase has that). Rim gaps
-  at 1x, all printed by `M59HUDRECTS`: door 38 to the disc and 38 to
-  the arc, phase 37/39 and 31 to Door, pager 74 to the disc, 27 to
-  seat 1, 40 to Phase. `Measure` now counts `under44` and `overlaps`
-  over every control (circles, and the lock's square) and prints
-  `offglass`; the proof is `controls=11 under44=0 overlaps=0
-  offglass=0` at 1920x1080 and 2400x1080.
+- THE OUTER ARC IS SIX BINDINGS, radius and chord unchanged
+  (`ActionButtons.ArcSeats`, `ArcR` 300, 70 to 180 degrees):
+  `HotSeats = ArcSeats`, a page is six, and a hotbar.cfg saved under
+  five re-pages (Nums are one long row; the page is a window on it).
+  Bindings still fill bottom-left to top (`ArcSeat(v,i) = Seat(v,
+  HotSeats-1-i)`), so the arc reads as the HotKeys panel's row.
+  Ceiling and the cluster's box did not move: the top seat is where
+  Target Next was.
+- THE INNER ARC, four fixed controls at 1x radius `InnerR` 168 from
+  the pivot, scaled with it, from the top going round: Target Next
+  60 deg, Phase 102, the pager 142 (its smaller 72 size), Door 180
+  beside Attack. Chosen for the chords: 168 is 40 off the disc's rim
+  and 36 off the outer seats' inner rims (a radial gap is a floor on
+  the true one); the 42/40/38-degree steps leave next-to-phase 24,
+  phase-to-page 31, page-to-door 25. Nearest outer seat: next 42,
+  phase 42, page 50, door 36. Next's right rim is 28 from the glass.
+  `Measure` prints all of these and counts `under44`, `overlaps` over
+  every control (circles, and the lock's square) and `offglass`; the
+  proof is `controls=12 under44=0 overlaps=0 offglass=0` at 1920x1080
+  and 2400x1080 (box 499x428, ceiling 566, unchanged).
 - PHASE is a fixed control like Door, not a config: never paged,
   cleared or saved. It finds the player's spell by name
   (`ActionButtons.FindPhase`, "phase", case-insensitive, on every

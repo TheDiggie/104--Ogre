@@ -45,13 +45,13 @@ using Meridian59.Data.Models;
 ///    they always were;
 ///  - the other bound slots FAN in an arc up and to the left of it, at
 ///    one thumb-sweep radius, so the hand does not move to reach them;
-///  - Next sits at the top of that arc, because acquiring a target is
-///    part of attacking and it was a tile in the menu drawer, four taps
-///    from the fight;
-///  - Door and Phase sit INSIDE the arc, between its lower end and the
-///    primary, fixed: neither is paged, cleared or saved. Door is the
-///    only way out of a room; Phase is the spell every character has
-///    and, in the owner's words, "very important". A padlock in the
+///  - four UTILITIES sit on a second, inner arc between the primary and
+///    the bindings, fixed - none is paged, cleared or saved. From the
+///    top: Next, because acquiring a target is part of attacking and it
+///    was a tile in the menu drawer, four taps from the fight; Phase,
+///    the spell every character has and, in the owner's words, "very
+///    important"; the pager; and Door, the only way out of a room,
+///    beside Attack. A padlock in the
 ///    cluster's bottom-right corner locks every seat against the
 ///    pull-off clear (default locked), and the primary, Door and Phase
 ///    can never be pulled off at all;
@@ -197,7 +197,7 @@ public partial class ActionButtons : Control
     public const float ArcFrom = 70f, ArcTo = 180f;
 
     /// <summary>
-    /// Seats on the arc: Target Next, then five bindings.
+    /// Seats on the arc: six bindings, and nothing else.
     ///
     /// SIX, and the arithmetic is the whole argument - the same
     /// arithmetic that said five, run again after the radius moved.
@@ -225,68 +225,68 @@ public partial class ActionButtons : Control
     /// its lower end and the primary. So the arc keeps its six seats,
     /// its radius and its chord - every number above still holds - and
     /// gains a binding without gaining a seat.
+    ///
+    /// Then Target Next left it too (2026-10-03, "add another hotkey to
+    /// the hotkey arc. I want an outer hotkey arc of 6 keys and the
+    /// inner arc of utilities 'door, page change, phase, target next'"),
+    /// so the six seats are six bindings and the arc holds nothing
+    /// fixed. The utilities are a second, inner arc - see below.
     /// </summary>
     public const int ArcSeats = 6;
 
     /// <summary>
-    /// Hotbar seats: the arc, less Target Next at the top.
+    /// Hotbar seats: every seat on the outer arc. Six, from five: Target
+    /// Next moved to the inner arc with Door, Phase and the pager, and
+    /// the seat it held at 70 degrees is the sixth binding. A page is
+    /// six, and a hotbar.cfg saved under five simply re-pages - Nums
+    /// are positions in one long row, and the page is a window on it.
     ///
-    /// Five, from four, and that is the whole of the owner's second
-    /// request. Next stays fixed at 70 degrees because acquiring a
-    /// target is part of attacking. Door stays fixed too, but inside
-    /// the arc now rather than at its end, for the reason it always
-    /// was: it is pressed in a corridor, between fights, when the thing
-    /// you want is "take me through" and not whatever the page happens
-    /// to be showing. A control you have to turn a page to reach is a
-    /// control you do not use. Phase (<see cref="PhaseSeat"/>) is fixed
-    /// for the same reason, in the owner's words: "every player has it
-    /// and it is very important".
+    /// The four utilities stay off the bindings for the reason they
+    /// always were: each is pressed when the thing you want is "take me
+    /// through" or "aim at the next one", and not whatever the page
+    /// happens to be showing. A control you have to turn a page to
+    /// reach is a control you do not use. Phase (<see cref="PhaseSeat"/>)
+    /// is fixed in the owner's words: "every player has it and it is
+    /// very important".
     /// </summary>
-    public const int HotSeats = ArcSeats - 1;
+    public const int HotSeats = ArcSeats;
 
-    // ---- inside the arc -----------------------------------------------
+    // ---- the inner arc --------------------------------------------------
     //
-    // Three fixed controls sit in the annulus between the primary's rim
-    // (80 from the pivot) and the arc seats' inner rims (300 - 48 = 252):
-    // Door, Phase and the pager. Each is placed by angle and distance
-    // from the pivot, as the arc is, so they scale and move with it, and
-    // each is checked against its neighbours rim to rim below (Measure
-    // prints every gap). The numbers at 1x:
+    // Four fixed controls sit on a second, smaller arc in the annulus
+    // between the primary's rim (80 from the pivot) and the outer seats'
+    // inner rims (300 - 48 = 252): from the top going round, Target
+    // Next, Phase, the pager and Door. Each is placed by angle and 1x
+    // distance from the pivot, as the outer arc is, so they scale and
+    // move with it, and each is checked against its neighbours rim to
+    // rim below (Measure prints every gap).
     //
-    //   Door   180 deg, r 166: 38 to the primary, 38 to the arc's 180 seat.
-    //   Phase  135 deg, r 165: 37 to the primary, 39 to the arc, 31 to Door.
-    //   Pager   95 deg, r 190: 74 to the primary, 27 to the arc's seat 1,
-    //                          40 to Phase.
+    // THE RADIUS is 168 for all four: a 96 seat there is 40 from the
+    // disc's rim and 36 from the outer seats' inner rims, both over the
+    // ~24 asked for, and a radial gap is a floor on the true one - two
+    // centres on different radii are never closer than the radii differ.
     //
-    // All over the 8-point floor between targets of this size; none of
-    // them is near a screen edge, where 16 would apply.
+    // THE ANGLES are 60, 102, 142, 180, chosen for the chords: at 168 a
+    // 42-degree step subtends 120.4 points, so Next and Phase (96 each)
+    // keep 24.4 rim to rim; the 40-degree step to the pager (72) keeps
+    // 30.9; the 38-degree step from the pager to Door keeps 25.4. Next
+    // sits at 60 rather than 70 because the owner asked for it "down a
+    // bit": on the inner radius it is 145 above the pivot where it was
+    // 282, and its right rim is 28 from the glass. Door stays straight
+    // left at 180, beside Attack, where he drew it. Nothing changed
+    // on the outer arc, so Ceiling and the cluster's box are what they
+    // were.
 
-    /// <summary>
-    /// Door's distance from the pivot, straight left of it (180 degrees).
-    /// Centred in the annulus: the primary's rim is at 80 and the arc
-    /// seat's inner rim at 252, so a 96 seat at 166 leaves 38 to each.
-    /// Where the owner drew it: "right of the new seat, just left of
-    /// Attack and below Phase".
-    /// </summary>
-    const float DoorIn = 166f;
-    /// <summary>
-    /// Phase's place: 135 degrees from the pivot - the bisector of the
-    /// annulus's lower-left quarter, above-left of the primary, over
-    /// Door - at 165, which is the same depth as Door and so the same
-    /// gaps to the primary and the arc.
-    /// </summary>
-    // Swapped with the pager at Ashton's word ("swap the position of the
-    // phase key and the page switcher"): Phase stands over the primary
-    // at 95 degrees, the pager takes the 135-degree bisector.
-    const float PhaseAngle = 95f, PhaseIn = 190f;
-    /// <summary>
-    /// The pager's place: 95 degrees, almost straight above the primary,
-    /// at 190. It used to sit on the 125-degree bisector; Phase has that
-    /// now, and the stepper - 72 wide, the smallest thing here - takes
-    /// the narrower gap over the primary, where it is 27 from the arc's
-    /// first binding and 74 from the disc.
-    /// </summary>
-    const float TurnAngle = 135f, TurnIn = 165f;
+    /// <summary>The inner arc's radius at 1x. See the section note.</summary>
+    const float InnerR = 168f;
+    /// <summary>Target Next: the top of the inner arc, "down a bit" from the 70 it had on the outer.</summary>
+    const float NextAngle = 60f;
+    /// <summary>Phase: over the primary, second from the top.</summary>
+    const float PhaseAngle = 102f;
+    /// <summary>The pager: the 142-degree seat, between Phase and Door, the smallest thing here.</summary>
+    const float TurnAngle = 142f;
+    /// <summary>Door: straight left of the primary, the bottom of the inner arc.</summary>
+    const float DoorAngle = ArcTo;
     /// <summary>
     /// The padlock's edge. 44 is the tap floor, and that is all it needs
     /// to be: it is pressed once a session, not in a fight.
@@ -371,26 +371,22 @@ public partial class ActionButtons : Control
         _shift = Vector2.Zero;
         Rect2 box = Round(Pivot(v), Atk);
         for (int i = 0; i < ArcSeats; i++) box = box.Merge(Round(Seat(v, i), Btn));
-        box = box.Merge(Round(DoorSeat(v), Btn)).Merge(Round(PhaseSeat(v), Btn)).Merge(LockRect(v));
+        box = box.Merge(Round(NextSeat(v), Btn)).Merge(Round(DoorSeat(v), Btn))
+                 .Merge(Round(PhaseSeat(v), Btn)).Merge(LockRect(v));
         _shift = held;
         return box;
     }
 
     /// <summary>
-    /// Seat 0 is the top of the arc and holds Next; 1 upwards are the
-    /// hotbar's, running down and round towards the left, the last at
-    /// 180 degrees where Door used to be.
+    /// The arc seat of binding <paramref name="i"/> on the page. Seat 0
+    /// is the top of the outer arc (70 degrees) and seat ArcSeats-1 the
+    /// bottom-left (180); bindings fill it from the bottom-left so that
+    /// the page reads LEFT TO RIGHT as the HotKeys panel draws it -
+    /// Ashton: "i have rest as my first hotkey in the manager but in the
+    /// arc it is on the right, make the arc copy the manager left to
+    /// right".
     /// </summary>
-    /// <summary>
-    /// The arc seat of binding <paramref name="i"/> on the page. The
-    /// arc runs from the top (seat 1, by Target Next) round to the
-    /// bottom-left (seat HotSeats), and bindings fill it from the
-    /// bottom-left so that the page reads LEFT TO RIGHT as the HotKeys
-    /// panel draws it - Ashton: "i have rest as my first hotkey in the
-    /// manager but in the arc it is on the right, make the arc copy the
-    /// manager left to right".
-    /// </summary>
-    Vector2 ArcSeat(Vector2 v, int i) => Seat(v, HotSeats - i);
+    Vector2 ArcSeat(Vector2 v, int i) => Seat(v, HotSeats - 1 - i);
 
     Vector2 Seat(Vector2 v, int i)
     {
@@ -405,19 +401,22 @@ public partial class ActionButtons : Control
         return Pivot(v) + new Vector2(Mathf.Cos(a), -Mathf.Sin(a)) * (at * HudScale());
     }
 
-    /// <summary>Door's centre: straight left of the primary, inside the arc. See DoorIn.</summary>
-    Vector2 DoorSeat(Vector2 v) => Inside(v, ArcTo, DoorIn);
+    /// <summary>Target Next's centre: the top of the inner arc. See NextAngle.</summary>
+    Vector2 NextSeat(Vector2 v) => Inside(v, NextAngle, InnerR);
 
-    /// <summary>Phase's centre: above-left of the primary, over Door. See PhaseIn.</summary>
-    Vector2 PhaseSeat(Vector2 v) => Inside(v, PhaseAngle, PhaseIn);
+    /// <summary>Door's centre: straight left of the primary, the bottom of the inner arc.</summary>
+    Vector2 DoorSeat(Vector2 v) => Inside(v, DoorAngle, InnerR);
+
+    /// <summary>Phase's centre: over the primary, second on the inner arc.</summary>
+    Vector2 PhaseSeat(Vector2 v) => Inside(v, PhaseAngle, InnerR);
 
     /// <summary>
-    /// The page stepper's seat: inside the arc, over the primary. It is
-    /// not ON the arc because an arc seat spent on turning the page is a
-    /// binding the player cannot reach, which is the whole complaint the
-    /// paging answers. See TurnIn for the numbers.
+    /// The page stepper's seat: third on the inner arc, between Phase
+    /// and Door. It is not ON the outer arc because a seat spent on
+    /// turning the page is a binding the player cannot reach, which is
+    /// the whole complaint the paging answers.
     /// </summary>
-    Vector2 TurnSeat(Vector2 v) => Inside(v, TurnAngle, TurnIn);
+    Vector2 TurnSeat(Vector2 v) => Inside(v, TurnAngle, InnerR);
 
     /// <summary>
     /// The padlock's rect: bottom-right of the cluster, right of the
@@ -979,7 +978,7 @@ public partial class ActionButtons : Control
         // sweep, and dropping the overflow is what used to happen and
         // reads as a client that lost your binding. The stepper does NOT
         // cost a seat any more - it sits inside the arc (see TurnSeat),
-        // so a page is HotSeats bindings - five now - rather than one fewer.
+        // so a page is HotSeats bindings - six now - rather than one fewer.
         bool paged = arc.Count > HotSeats;
         int perPage = HotSeats;
         int pages = paged ? (arc.Count + perPage - 1) / perPage : 1;
@@ -1178,8 +1177,11 @@ public partial class ActionButtons : Control
             b.Pressed += () => Fire(slot);
         }
 
-        // Next, at the top of the arc, where an upward flick of the
-        // thumb finds it.
+        // Next, at the top of the INNER arc, where an upward flick of
+        // the thumb finds it. It held the outer arc's 70-degree seat
+        // until the owner asked for that seat as a sixth binding and
+        // Next "down a bit" - so it is the first of the four utilities
+        // on the inner arc now (NextSeat), above Phase.
         //
         // It is a TARGETING control and not a binding: it holds no
         // config, it cannot be dragged off, and it does not page. The
@@ -1223,7 +1225,7 @@ public partial class ActionButtons : Control
         // Smaller than a slot's caption, because this one is two lines
         // inside the same circle.
         _nextBtn.AddThemeFontSizeOverride("font_size", Pt(FontSize - 3, sc));
-        Rect2 nextCell = Round(Seat(v, 0), Btn);
+        Rect2 nextCell = Round(NextSeat(v), Btn);
         _nextBtn.Position = nextCell.Position;
         _nextBtn.Size = nextCell.Size;
         SlotEdge(_nextBtn, Btn, false, true, sc);
@@ -1239,9 +1241,10 @@ public partial class ActionButtons : Control
         // player able to walk around one room and never leave it.
         //
         // It held the arc's 180-degree seat; that seat is a binding now
-        // and Door sits straight left of the primary at DoorIn, between
-        // the arc's lower end and the disc - "move the door button over
-        // to the right as i did in the picture".
+        // and Door sits straight left of the primary at the bottom of
+        // the inner arc, between the outer arc's lower end and the disc
+        // - "move the door button over to the right as i did in the
+        // picture".
         if (_doorBtn == null)
         {
             _doorBtn = new Button { Text = "Door" };
@@ -1257,7 +1260,7 @@ public partial class ActionButtons : Control
         SlotEdge(_doorBtn, Btn, false, true, sc);
         _doorBtn.Visible = true;
 
-        // PHASE, fixed, over Door. "A normal sized button that cast the
+        // PHASE, fixed, second on the inner arc under Next. "A normal sized button that cast the
         // spell phase (every player has it and it is very important)."
         //
         // Not a config in the list: a config is paged, cleared and
@@ -2059,36 +2062,47 @@ public partial class ActionButtons : Control
         // centre - and so the overlap count is over circles, not boxes.
         var discs = new List<(string name, Vector2 c, float d)>();
         discs.Add((anchor != null ? "ATTACK" : "attack(-)", Pivot(v), Atk));
-        discs.Add(("next", Seat(v, 0), Btn));
-        for (int i = 1; i <= HotSeats; i++)
-            discs.Add((i <= count ? $"seat{i}" : $"seat{i}(-)", Seat(v, i), Btn));
-        discs.Add(("door", DoorSeat(v), Btn));
+        // The outer arc, in binding order (bottom-left to top).
+        for (int i = 0; i < HotSeats; i++)
+            discs.Add((i < count ? $"seat{i + 1}" : $"seat{i + 1}(-)", ArcSeat(v, i), Btn));
+        // The inner arc, top to bottom.
+        discs.Add(("next", NextSeat(v), Btn));
         discs.Add(("phase", PhaseSeat(v), Btn));
         if (paged) discs.Add(("page", TurnSeat(v), Turn));
+        discs.Add(("door", DoorSeat(v), Btn));
         foreach (var (name, c, d) in discs) Say(name, Round(c, d));
         Rect2 pad = LockRect(v);
         Say("lock", pad);
 
-        // The gaps the rules are about.
+        // The gaps the rules are about. The inner arc's gap to the outer
+        // is the radial one, which is a floor on the true gap to any seat.
         float rim = Arc - Atk * 0.5f - Btn * 0.5f;
         float step = (Seat(v, 1) - Seat(v, 0)).Length() - Btn;
-        float door = (DoorSeat(v) - Pivot(v)).Length() - Atk * 0.5f - Btn * 0.5f;
-        float doorArc = (Seat(v, ArcSeats - 1) - DoorSeat(v)).Length() - Btn;
-        float phase = (PhaseSeat(v) - Pivot(v)).Length() - Atk * 0.5f - Btn * 0.5f;
-        float phaseArc = Arc - (PhaseSeat(v) - Pivot(v)).Length() - Btn;
+        float inner = InnerR * HudScale();
+        float innerDisc = inner - Atk * 0.5f - Btn * 0.5f;
+        float innerArc = Arc - Btn * 0.5f - inner - Btn * 0.5f;
+        float nextPhase = (NextSeat(v) - PhaseSeat(v)).Length() - Btn;
+        float phaseTurn = (PhaseSeat(v) - TurnSeat(v)).Length() - Btn * 0.5f - Turn * 0.5f;
+        float turnDoor = (TurnSeat(v) - DoorSeat(v)).Length() - Turn * 0.5f - Btn * 0.5f;
         float phaseDoor = (PhaseSeat(v) - DoorSeat(v)).Length() - Btn;
-        float turn = (TurnSeat(v) - Pivot(v)).Length() - Atk * 0.5f - Turn * 0.5f;
-        float near = (TurnSeat(v) - Seat(v, 1)).Length() - Turn * 0.5f - Btn * 0.5f;
-        float turnPhase = (TurnSeat(v) - PhaseSeat(v)).Length() - Turn * 0.5f - Btn * 0.5f;
+        // The nearest outer seat to each inner control, rim to rim.
+        float Nearest(Vector2 c, float d)
+        {
+            float best = float.MaxValue;
+            for (int i = 0; i < ArcSeats; i++)
+                best = Mathf.Min(best, (Seat(v, i) - c).Length() - Btn * 0.5f - d * 0.5f);
+            return best;
+        }
         // The lock is a square beside a circle: its nearest corner to the
         // disc's centre, less the disc's radius.
         Vector2 lockNear = new Vector2(pad.Position.X, Mathf.Clamp(Pivot(v).Y, pad.Position.Y, pad.End.Y));
         float lockGap = (lockNear - Pivot(v)).Length() - Atk * 0.5f;
         GD.Print($"[hud] gaps primary-to-arc={rim:0} arc-to-arc={step:0}" +
-                 $" primary-to-door={door:0} door-to-arc={doorArc:0}" +
-                 $" primary-to-phase={phase:0} phase-to-arc={phaseArc:0} phase-to-door={phaseDoor:0}" +
-                 $" primary-to-page={turn:0} page-to-arc={near:0} page-to-phase={turnPhase:0}" +
-                 $" primary-to-lock={lockGap:0} lock-to-edge={v.X - pad.End.X:0}");
+                 $" primary-to-inner={innerDisc:0} inner-to-arc={innerArc:0}" +
+                 $" next-to-phase={nextPhase:0} phase-to-page={phaseTurn:0} page-to-door={turnDoor:0} phase-to-door={phaseDoor:0}" +
+                 $" next-to-seat={Nearest(NextSeat(v), Btn):0} phase-to-seat={Nearest(PhaseSeat(v), Btn):0}" +
+                 $" page-to-seat={Nearest(TurnSeat(v), Turn):0} door-to-seat={Nearest(DoorSeat(v), Btn):0}" +
+                 $" primary-to-lock={lockGap:0} lock-to-edge={v.X - pad.End.X:0} next-to-edge={v.X - Round(NextSeat(v), Btn).End.X:0}");
 
         // The two claims the whole layout rests on, counted rather than
         // eyeballed: nothing under the tap floor, nothing touching.
