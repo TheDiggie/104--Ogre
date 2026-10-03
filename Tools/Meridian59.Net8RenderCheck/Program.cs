@@ -126,6 +126,193 @@ static class RenderCheck
             Console.WriteLine($"{"mean of " + n,-22} {tc / n,9:F1} {tw / n,9:F1} {ts / n,9:F1}");
     }
 
+    /// <summary>
+    /// Where a settled frame's time goes, phase by phase, at the phone's
+    /// buffer size and on one thread so the sums mean something. A dozen
+    /// sprites stand in the room, as they do in play, so the depth
+    /// buffers are reset and the sprite pass runs. This is the mode that
+    /// NAMES the eater; the cold mode only says how big the meal is.
+    /// </summary>
+    static void Prof(string dir, bool lights)
+    {
+        string[] rooms = System.IO.Directory.GetFiles(dir, "*.roo");
+        Array.Sort(rooms);
+        var rm = new ResourceManager(); rm.Init(dir, dir, dir, dir, dir, dir, dir);
+        const int W = 1280, H = 432;
+        var px = new uint[W * H];
+        var bgf = rm.GetObject("Knight.bgf");
+        var sum = new double[Renderer.PhCount];
+        double plainSum = 0;
+        int n = 0;
+        Console.Write($"{"room",-16}");
+        foreach (string nm in Renderer.PhaseNames) Console.Write($"{nm,8}");
+        Console.WriteLine($"{"untimed",8}");
+        foreach (string path in rooms)
+        {
+            RooFile roo;
+            try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
+            if (roo.Sectors == null || roo.Sectors.Count == 0) continue;
+            if (!Spot(roo, out float cx, out float cy, out float cz)) continue;
+            var r = new Renderer(roo, new TexCache(rm)) { Threaded = false };
+            if (Environment.GetEnvironmentVariable("NOANCHOR") != null) r.LeafAnchoredFlats = false;
+            if (Environment.GetEnvironmentVariable("NOSAMPLE") != null) r.NoSample = true;
+            if (Environment.GetEnvironmentVariable("NOWATER") != null) Renderer.Water = false;
+            // Sunlit: every wall orientation gets its own factor, which is
+            // the case that could thrash a table cache. See LutCache.
+            if (Environment.GetEnvironmentVariable("SUN") != null)
+            { r.SunLight = 0.7f; r.SunX = 0.3f; r.SunY = 0.2f; r.SunZ = 0.93f; r.Brightness = 0.8f; }
+            var rng = new Random(5);
+            for (int i = 0; i < 12 && bgf != null; i++)
+            {
+                float d = 600f + (float)rng.NextDouble() * 6000f;
+                float t = ((float)rng.NextDouble() - 0.5f) * 1.2f;
+                float sx2 = cx + MathF.Cos(t) * d, sy2 = cy + MathF.Sin(t) * d;
+                var sec = r.SectorAtPoint(sx2, sy2);
+                var tex = Tex.FromSprite(bgf, rng.Next(0, bgf.Frames.Count));
+                if (tex == null) continue;
+                r.Sprites.Add(new Renderer.Sprite {
+                    X = sx2, Y = sy2, BaseZ = sec != null ? M59Geo.FloorXY(sec, sx2, sy2) : cz - Renderer.EyeHeight,
+                    Height = 600f, Texture = tex, Tag = i });
+            }
+            if (lights)
+                for (int i = 0; i < 4; i++)
+                {
+                    float d = 400f + i * 900f, t = (i - 1.5f) * 0.4f;
+                    r.Lights.Add(new Renderer.Light { X = cx + MathF.Cos(t) * d, Y = cy + MathF.Sin(t) * d,
+                        Z = cz, R = 1f, G = 0.8f, B = 0.5f, Range = 1500f, R2 = 1500f * 1500f });
+                }
+            for (int k = 0; k < 6; k++) r.Render(px, W, H, cx, cy, cz, 0f);
+            // Best of several blocks: the box is shared.
+            var best = new double[Renderer.PhCount];
+            for (int i = 0; i < best.Length; i++) best[i] = double.MaxValue;
+            for (int rep = 0; rep < 5; rep++)
+            {
+                Array.Clear(Renderer.Phase);
+                Renderer.Profile = true;
+                for (int k = 0; k < 6; k++) r.Render(px, W, H, cx, cy, cz, 0f);
+                Renderer.Profile = false;
+                double ms = 1000.0 / System.Diagnostics.Stopwatch.Frequency / 6;
+                if (Renderer.Phase[Renderer.PhTotal] * ms < best[Renderer.PhTotal])
+                    for (int i = 0; i < best.Length; i++) best[i] = Renderer.Phase[i] * ms;
+            }
+            // And the frame with the timers off, which is the number the
+            // phases are a breakdown of; the timers themselves cost a
+            // few calls per wall crossed and the difference is theirs.
+            double plain = double.MaxValue;
+            var sw = new System.Diagnostics.Stopwatch();
+            for (int rep = 0; rep < 5; rep++)
+            {
+                sw.Restart();
+                for (int k = 0; k < 6; k++) r.Render(px, W, H, cx, cy, cz, 0f);
+                sw.Stop();
+                plain = Math.Min(plain, sw.Elapsed.TotalMilliseconds / 6);
+            }
+            plainSum += plain;
+            Console.Write($"{System.IO.Path.GetFileName(path),-16}");
+            for (int i = 0; i < best.Length; i++) { Console.Write($"{best[i],8:F2}"); sum[i] += best[i]; }
+            Console.Write($"{plain,8:F2}");
+            if (Environment.GetEnvironmentVariable("PROFDBG") != null)
+            {
+                double ms = 1000.0 / System.Diagnostics.Stopwatch.Frequency / 30;
+                Console.Write($"  grid {Renderer.DbgGrid * ms:F2} test {Renderer.DbgTest * ms:F2} cand/col {Renderer.DbgCand / 30.0 / W:F1} hits/col {Renderer.DbgHits / 30.0 / W:F1}");
+                Console.Write($" wallpx {Renderer.DbgWallPx / 30.0 / (W * H) * 100:F0}% {best[Renderer.PhWalls] * 1e6 / Math.Max(1, Renderer.DbgWallPx / 30.0):F1}ns flatpx {Renderer.DbgFlatPx / 30.0 / (W * H) * 100:F0}% {best[Renderer.PhFlats] * 1e6 / Math.Max(1, Renderer.DbgFlatPx / 30.0):F1}ns");
+                Console.Write($" nullpx {Renderer.DbgNullPx / 30.0 / (W * H) * 100:F0}% slowpx {Renderer.DbgSlowPx / 30.0 / (W * H) * 100:F0}% liquid {Renderer.DbgLiquidPx / 30.0 / (W * H) * 100:F0}% slope {Renderer.DbgSlopePx / 30.0 / (W * H) * 100:F0}%");
+                Console.Write($" masked n/frame {Renderer.DbgMaskedN / 30.0:F0} sort {Renderer.DbgMaskedSort * ms:F2}ms px {Renderer.DbgMaskedPx / 30.0 / (W * H) * 100:F1}%");
+                Renderer.DbgLiquidPx = Renderer.DbgSlopePx = Renderer.DbgMaskedN = Renderer.DbgMaskedSort = Renderer.DbgMaskedPx = 0;
+                Renderer.DbgGrid = Renderer.DbgTest = Renderer.DbgCand = Renderer.DbgHits = Renderer.DbgWallPx = Renderer.DbgFlatPx = Renderer.DbgNullPx = Renderer.DbgSlowPx = 0;
+            }
+            Console.WriteLine();
+            if (++n >= 24) break;
+        }
+        Console.Write($"{"mean of " + n,-16}");
+        for (int i = 0; i < sum.Length; i++) Console.Write($"{sum[i] / Math.Max(1, n),8:F2}");
+        Console.WriteLine($"{plainSum / Math.Max(1, n),8:F2}");
+        Console.Write($"{"share",-16}");
+        for (int i = 0; i < sum.Length; i++) Console.Write($"{100 * sum[i] / Math.Max(1e-9, sum[Renderer.PhTotal]),7:F0}%");
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Every pixel of every room, as a hash, so an optimisation can be
+    /// held to "the same picture" and not merely to "the same picture as
+    /// itself on another thread". Writes the file when it does not
+    /// exist, compares against it when it does. Sprites, point lights, a
+    /// non-zero clock and the pick path are all in the scene so every
+    /// branch of the hot path is under the hash.
+    /// </summary>
+    static int Golden(string dir, string file)
+    {
+        var rm = new ResourceManager(); rm.Init(dir, dir, dir, dir, dir, dir, dir);
+        var rooms = Directory.GetFiles(dir, "*.roo").OrderBy(x => x).ToArray();
+        var bgf = rm.GetObject("Knight.bgf");
+        const int W = 640, H = 360;
+        var px = new uint[W * H];
+        var lines = new List<string>();
+        foreach (string path in rooms)
+        {
+            RooFile roo;
+            try { roo = new RooFile(path); roo.ResolveResources(rm); } catch { continue; }
+            if (roo.Sectors == null || roo.Sectors.Count == 0) continue;
+            if (!Spot(roo, out float cx, out float cy, out float cz)) continue;
+            var r = new Renderer(roo, new TexCache(rm)) { Threaded = false };
+            var rng = new Random(path.Length);
+            for (int i = 0; i < 12 && bgf != null; i++)
+            {
+                float d = 400f + (float)rng.NextDouble() * 6000f;
+                float t = (float)rng.NextDouble() * 6.2832f;
+                float sx2 = cx + MathF.Cos(t) * d, sy2 = cy + MathF.Sin(t) * d;
+                var sec = r.SectorAtPoint(sx2, sy2);
+                var tex = Tex.FromSprite(bgf, rng.Next(0, bgf.Frames.Count));
+                if (tex == null) continue;
+                r.Sprites.Add(new Renderer.Sprite {
+                    X = sx2, Y = sy2, BaseZ = sec != null ? M59Geo.FloorXY(sec, sx2, sy2) : cz - Renderer.EyeHeight,
+                    Height = 600f, Texture = tex, Tag = i, Opacity = i % 5 == 0 ? 0.5f : 1f,
+                    TintR = i % 7 == 0 ? 5f : 1f, TintG = i % 7 == 0 ? 3f : 1f, TintB = i % 7 == 0 ? 3f : 1f });
+            }
+            for (int pass = 0; pass < 2; pass++)
+            {
+                r.Lights.Clear();
+                if (pass == 1)
+                {
+                    r.Time = 12.5f; r.Brightness = 0.8f; r.SunLight = 0.7f; r.SunX = 0.3f; r.SunY = 0.2f; r.SunZ = 0.93f;
+                    for (int i = 0; i < 3; i++)
+                    {
+                        float d = 500f + i * 1200f, t = (i - 1f) * 0.7f;
+                        r.Lights.Add(new Renderer.Light { X = cx + MathF.Cos(t) * d, Y = cy + MathF.Sin(t) * d,
+                            Z = cz, R = 1f, G = 0.7f, B = 0.4f, Range = 1800f, R2 = 1800f * 1800f });
+                    }
+                }
+                else { r.Time = 0f; r.Brightness = 1f; r.SunLight = 0f; }
+                for (int k = 0; k < 4; k++)
+                {
+                    float ang = k * MathF.PI / 2f;
+                    r.Pitch = (k - 1.5f) * 0.2f;
+                    Array.Clear(px);
+                    int solid = r.Render(px, W, H, cx, cy, cz, ang);
+                    ulong h = 14695981039346656037UL;
+                    for (int i = 0; i < px.Length; i++) { h ^= px[i]; h *= 1099511628211UL; }
+                    int picks = 0;
+                    for (int gy = 20; gy < H; gy += 60) for (int gx = 20; gx < W; gx += 60)
+                        foreach (var sp in r.PickAll(gx, gy, W, H, cx, cy, cz, ang)) { picks = picks * 31 + (int)sp.Tag + gx; }
+                    lines.Add($"{Path.GetFileName(path)} {pass} {k} {h:X16} {solid} {picks}");
+                }
+            }
+        }
+        if (!File.Exists(file))
+        {
+            File.WriteAllLines(file, lines);
+            Console.WriteLine($"wrote {lines.Count} golden frames to {file}");
+            return 0;
+        }
+        var old = File.ReadAllLines(file);
+        int bad = 0;
+        var oldSet = new HashSet<string>(old);
+        foreach (string l in lines) if (!oldSet.Contains(l)) { if (bad < 10) Console.WriteLine("  differs: " + l); bad++; }
+        Console.WriteLine($"{lines.Count} frames, {bad} differ from {file}" + (old.Length != lines.Count ? $" (file has {old.Length})" : ""));
+        Console.WriteLine(bad == 0 && old.Length == lines.Count ? "IDENTICAL" : "DIFFERENT");
+        return bad == 0 && old.Length == lines.Count ? 0 : 1;
+    }
+
     /// <summary>A point inside the room, with a floor under it.</summary>
     static bool Spot(RooFile roo, out float cx, out float cy, out float cz)
     {
@@ -158,6 +345,8 @@ static class RenderCheck
         int bad = 0;
         if (mode == "repack"  || mode == "all") bad += RepackCheck();
         if (mode == "cold") Cold(dir);
+        if (mode == "prof") Prof(dir, a.Length > 2 && a[2] == "lights");
+        if (mode == "golden") bad += Golden(dir, a.Length > 2 ? a[2] : "/tmp/golden.txt");
         if (mode == "threads" || mode == "all") bad += Threads(dir);
         if (mode == "pick"    || mode == "all") bad += Pick(dir);
         if (mode == "seethrough" || mode == "all") SeeThrough(dir);

@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Meridian59.Common;
 using Meridian59.Common.Constants;
@@ -499,6 +501,62 @@ public sealed class Renderer
     readonly FlatAnchors _anchors;
 
     /// <summary>
+    /// A sidedef's three textures and their liquid flags, resolved once
+    /// per sidedef per animation group rather than once per COLUMN per
+    /// hit. The column walk asked the texture cache - a concurrent
+    /// dictionary, hash and all - up to four times for every wall it
+    /// crossed, and a frame crosses tens of thousands; the answers never
+    /// change for a given number and group, so they are kept here by
+    /// sidedef number. An entry is immutable and swapped in whole, so
+    /// the bands can share the table without a lock: a race builds the
+    /// same entry twice and nothing else. The server changes a wall's
+    /// textures - a door, a wall change message - and the group moves
+    /// with the animation, so an entry carries the three numbers and
+    /// the group it was built for and is rebuilt when any differ.
+    /// </summary>
+    sealed class SideTex
+    {
+        public ushort Group, MidNum, UpNum, LowNum;
+        public Tex Mid, Upper, Lower, MaskedMid;
+        public bool MidWet, UpWet, LowWet;
+    }
+    SideTex[] _sideTex = Array.Empty<SideTex>();
+
+    /// <summary>
+    /// Every wall's endpoints as the floats TestWall reads, by wall
+    /// number, in four flat arrays. RooWall.X1 is `(int)p1.X` on a
+    /// double, so the test paid four double-to-int-to-float conversions
+    /// and a cache line of a scattered object per candidate, and a
+    /// column tests thirty candidates. Same values - `(float)(int)` of
+    /// the same doubles - laid out so the hot loop reads them in order.
+    /// Null when the numbering is not 1..N, in which case the objects
+    /// are read as before.
+    /// </summary>
+    float[] _wX1, _wY1, _wX2, _wY2;
+
+    /// <summary>The resolved textures of sidedef <paramref name="num"/> (1-based) at a group.</summary>
+    SideTex SideTextures(int num, RooSideDef side, ushort group)
+    {
+        SideTex[] table = _sideTex;
+        SideTex e = (uint)num < (uint)table.Length ? table[num] : null;
+        if (e != null && e.Group == group && e.MidNum == side.MiddleTexture
+            && e.UpNum == side.UpperTexture && e.LowNum == side.LowerTexture) return e;
+        e = new SideTex {
+            Group = group, MidNum = side.MiddleTexture, UpNum = side.UpperTexture, LowNum = side.LowerTexture,
+            Mid = _tex.Get(side.MiddleTexture, group),
+            Upper = _tex.Get(side.UpperTexture, 1),
+            Lower = _tex.Get(side.LowerTexture, 1),
+            MidWet = M59Water.Is(side.MiddleTexture),
+            UpWet = M59Water.Is(side.UpperTexture),
+            LowWet = M59Water.Is(side.LowerTexture),
+        };
+        // The masked copy is only ever asked for on art with holes.
+        if (e.Mid != null && e.Mid.HasHoles) e.MaskedMid = _tex.GetMasked(side.MiddleTexture, group);
+        if ((uint)num < (uint)table.Length) table[num] = e;
+        return e;
+    }
+
+    /// <summary>
     /// Anchor floor and ceiling textures per leaf, as the game does, and
     /// not at the world origin. Off reproduces what this renderer did
     /// before, which is what the reference renders were taken with.
@@ -506,6 +564,8 @@ public sealed class Renderer
     public bool LeafAnchoredFlats { get; set; } = true;
     Scratch[] _scratch = Array.Empty<Scratch>();
     readonly List<Masked> _order = new List<Masked>(256);
+    long[] _orderKey = Array.Empty<long>();
+    int[] _orderIdx = Array.Empty<int>();
     float[] _spriteDepth;
     // Per-column distance to whatever closed that column, for sprite depth.
     float[] _depth = new float[0];
@@ -611,6 +671,29 @@ public sealed class Renderer
         for (int i = 0; i < n && _clipD[b + i] <= d; i++)
         { top = _clipT[b + i]; bot = _clipB[b + i]; }
     }
+
+    /// <summary>
+    /// Phase timing, for the check tool's `prof` mode. Off, nothing here
+    /// costs more than a predictable branch; on, Stopwatch ticks are
+    /// summed per phase so a frame's cost can be NAMED rather than
+    /// guessed at. Meant for the single-threaded path - the sums are
+    /// not atomic.
+    /// </summary>
+    public static bool Profile;
+    public const int PhClear = 0, PhHits = 1, PhFlats = 2, PhWalls = 3, PhSky = 4,
+                     PhSprites = 5, PhMasked = 6, PhColumn = 7, PhTotal = 8, PhCount = 9;
+    public static readonly long[] Phase = new long[PhCount];
+    /// <summary>
+    /// Counters behind the same flag, for `prof` with PROFDBG set: where
+    /// the hits phase goes (grid walk against wall tests), how many
+    /// candidates and hits a column has, and how many pixels of the
+    /// frame each kind of span painted - which is how the fixture with
+    /// most of its textures missing was caught timing the sky.
+    /// </summary>
+    public static long DbgGrid, DbgTest, DbgCand, DbgHits, DbgWallPx, DbgFlatPx, DbgNullPx, DbgSlowPx,
+                       DbgLiquidPx, DbgSlopePx, DbgMaskedN, DbgMaskedSort, DbgMaskedPx;
+    public static readonly string[] PhaseNames =
+        { "clear", "hits", "flats", "walls", "sky", "sprites", "masked", "column", "total" };
 
     /// <summary>Set false to fall back to testing every wall (reference path).</summary>
     public bool UseGrid { get; set; } = true;
@@ -768,6 +851,42 @@ public sealed class Renderer
         /// <summary>The lights that can reach this column, and this wall part.</summary>
         public readonly List<Light> ColLights = new List<Light>(16);
         public readonly List<Light> PartLights = new List<Light>(16);
+        /// <summary>
+        /// The last floor and the last ceiling texture this band filled
+        /// with, resolved: the Tex, whether it is a liquid, and its mip
+        /// chain laid out for the row loop. A column's spans are nearly
+        /// always the same two textures as the column before, and the
+        /// cache lookup, the liquid set lookup and the per-level walk
+        /// were being paid per SPAN. See FlatMemo.
+        /// </summary>
+        public readonly FlatMemo[] Flats = { new FlatMemo(), new FlatMemo() };
+        /// <summary>The last slope's texture frame. See SlopeFrame.</summary>
+        public readonly SlopeFrame Slope = new SlopeFrame();
+        /// <summary>This band's shade tables. See LutCache.</summary>
+        public readonly LutCache Luts = new LutCache();
+    }
+
+    /// <summary>One resolved floor or ceiling texture. See Scratch.Flats.</summary>
+    sealed class FlatMemo
+    {
+        public ushort Num;          // 0 is "nothing memoised": Get(0) is null anyway
+        public Tex T;
+        public bool Liquid;
+        public int Max;             // highest level index
+        public uint[][] Lp = new uint[16][];
+        public int[] Lw = new int[16], Lh = new int[16];
+
+        public void Set(ushort num, Tex t, bool liquid)
+        {
+            Num = num; T = t; Liquid = liquid; Max = 0;
+            if (t == null) return;
+            // Level k is what Sample picks for 2^k texels a pixel, and
+            // the chain is at most the texture's own size in halvings.
+            int n = Math.Min(t.LevelCount, Lp.Length);
+            for (int k = 0; k < n; k++)
+                Lp[k] = t.Level(k == 0 ? 1f : (float)(1 << k), out Lw[k], out Lh[k]);
+            Max = n - 1;
+        }
     }
 
     /// <summary>
@@ -791,17 +910,26 @@ public sealed class Renderer
         public Tex T;
     }
 
-    static readonly Comparison<Hit> ByDistanceThenWall = (p, q) =>
-    {
-        int c = p.Dist.CompareTo(q.Dist);
-        return c != 0 ? c : p.Wall.Num.CompareTo(q.Wall.Num);
-    };
-
     public Renderer(RooFile roo, TexCache tex)
     {
         _roo = roo; _tex = tex;
         _grid = new WallGrid(roo);
         _anchors = new FlatAnchors(roo);
+        _sideTex = new SideTex[(roo?.SideDefs?.Count ?? 0) + 1];
+        if (roo?.Walls != null)
+        {
+            int n = roo.Walls.Count;
+            var x1 = new float[n + 1]; var y1 = new float[n + 1];
+            var x2 = new float[n + 1]; var y2 = new float[n + 1];
+            bool ok = true;
+            for (int i = 0; i < n && ok; i++)
+            {
+                RooWall w = roo.Walls[i];
+                if (w == null || w.Num != i + 1) { ok = false; break; }
+                x1[i + 1] = w.X1; y1[i + 1] = w.Y1; x2[i + 1] = w.X2; y2[i + 1] = w.Y2;
+            }
+            if (ok) { _wX1 = x1; _wY1 = y1; _wX2 = x2; _wY2 = y2; }
+        }
     }
 
     public RooSector SectorAtPoint(float x, float y) => SectorAt(_roo, x, y);
@@ -884,6 +1012,7 @@ public sealed class Renderer
     /// <summary>Renders one frame into <paramref name="px"/> (length W*H, ARGB).</summary>
     public int Render(uint[] px, int W, int H, float camX, float camY, float camZ, float angle)
     {
+        long tFrame = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         float proj = Projection(W, H);
         float horizon = Horizon(H, proj);
 
@@ -981,13 +1110,27 @@ public sealed class Renderer
         // this size. It is only RESET when something will read it: the
         // fill is one sequential pass over W*H floats and is the whole
         // of what this costs on a frame with nothing in it.
+        long tClear = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         if (_flatDepth.Length < W * H) _flatDepth = new float[W * H];
         if (_spriteValid)
         {
             if (_spriteDepth == null || _spriteDepth.Length < W * H) _spriteDepth = new float[W * H];
-            Array.Clear(_spriteDepth, 0, W * H);
-            Array.Fill(_flatDepth, float.MaxValue, 0, W * H);
+            if (bands <= 1)
+            {
+                Array.Clear(_spriteDepth, 0, W * H);
+                Array.Fill(_flatDepth, float.MaxValue, 0, W * H);
+            }
+            else
+            {
+                // Two sequential passes over W*H floats each, split by
+                // rows across the cores the column pass is about to use.
+                // It has to finish before any column writes a depth, so
+                // it is its own fork and join, not part of the bands'.
+                _bW = W; _bH = H; _bPer = (H + bands - 1) / bands;
+                Parallel.For(0, bands, _bClear ??= ClearRows);
+            }
         }
+        if (Profile) Phase[PhClear] += System.Diagnostics.Stopwatch.GetTimestamp() - tClear;
 
         if (bands <= 1)
         {
@@ -1014,8 +1157,17 @@ public sealed class Renderer
         }
         for (int b = 0; b < bands; b++) solidCols += _scratch[b].SolidCols;
 
+        long tSpr = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         DrawSprites(px, W, H, camX, camY, camZ, angle, proj, horizon);
+        long tMask = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         DrawMasked(px, W, H, bands);
+        if (Profile)
+        {
+            long end = System.Diagnostics.Stopwatch.GetTimestamp();
+            Phase[PhSprites] += tMask - tSpr;
+            Phase[PhMasked] += end - tMask;
+            Phase[PhTotal] += end - tFrame;
+        }
         return solidCols;
     }
 
@@ -1025,7 +1177,16 @@ public sealed class Renderer
     RooSector _bSector;
     List<Light> _bLights;
     bool _bAnyLights;
-    Action<int> _bBand;
+    Action<int> _bBand, _bClear;
+
+    /// <summary>One band's share of the depth reset, by rows. See Render.</summary>
+    void ClearRows(int b)
+    {
+        int y0 = b * _bPer, y1 = Math.Min(_bH, y0 + _bPer);
+        if (y0 >= y1) return;
+        Array.Clear(_spriteDepth, y0 * _bW, (y1 - y0) * _bW);
+        Array.Fill(_flatDepth, float.MaxValue, y0 * _bW, (y1 - y0) * _bW);
+    }
 
     /// <summary>One band of the threaded path. See where _bBand is set.</summary>
     void RenderOneBand(int b)
@@ -1055,14 +1216,21 @@ public sealed class Renderer
                     float proj, float horizon, RooSector camSector,
                     List<Light> frameLights, bool anyLights)
     {
+        bool prof = Profile;
+        // The clock the water shader runs on, a sawtooth of period
+        // 100 (general.material:96) - the same one the flats use.
+        float wallWaterTime = Time - 100f * MathF.Floor(Time / 100f);
+        bool wallWater = Water && WaterNoise.Ready();
         for (int sx = x0; sx < x1; sx++)
         {
+            long tCol = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             float camOff = (sx - W * 0.5f) / proj;
             float rayA = angle + MathF.Atan(camOff);
             float cosFix = MathF.Cos(rayA - angle);
             float rdx = MathF.Cos(rayA), rdy = MathF.Sin(rayA);
 
             CollectHits(_roo, camX, camY, rdx, rdy, sc);
+            if (prof) { long n = System.Diagnostics.Stopwatch.GetTimestamp(); Phase[PhHits] += n - tCol; tCol = n; }
 
             // Which of them can reach THIS column. Everything the column
             // draws - every wall part it meets and every floor and
@@ -1145,14 +1313,21 @@ public sealed class Renderer
                 int ceilY  = ScreenY(nc, camZ, horizon, proj, perp);
                 int floorY = ScreenY(nf, camZ, horizon, proj, perp);
 
+                long tFl = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+                // The lit fraction is only worked out for a span that has
+                // rows in it: the clamp inside cannot turn an empty span
+                // into a full one, and most spans down a column are empty.
+                if (yTop <= Math.Min(yBot, ceilY - 1))
                 FillFlat(px, _flatDepth, W, H, sx, yTop, Math.Min(yBot, ceilY - 1), true,
-                         near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
+                         near, camX, camY, camZ, horizon, proj, angle, rayA, rdx, rdy, cosFix, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
                          LitFlat(near, true), Brightness, Sky, colLights, anyLights, sc);
+                if (Math.Max(yTop, floorY + 1) <= yBot)
                 FillFlat(px, _flatDepth, W, H, sx, Math.Max(yTop, floorY + 1), yBot, false,
-                         near, camX, camY, camZ, horizon, proj, angle, rayA, _tex,
+                         near, camX, camY, camZ, horizon, proj, angle, rayA, rdx, rdy, cosFix, _tex,
                          NoFlats, NoSample, Time, LeafAnchoredFlats ? _anchors : null,
                          LitFlat(near, false), Brightness, Sky, colLights, anyLights, sc);
+                if (prof) { long n = System.Diagnostics.Stopwatch.GetTimestamp(); Phase[PhFlats] += n - tFl; Phase[PhColumn] -= n - tFl; }
 
                 yTop = Math.Max(yTop, ceilY);
                 yBot = Math.Min(yBot, floorY);
@@ -1205,7 +1380,7 @@ public sealed class Renderer
                 // and below an animating door flicker where the game
                 // holds it still.
                 ushort texGroup = side?.Animation != null ? side.Animation.CurrentGroup : (ushort)1;
-                const ushort EdgeGroup = 1;
+                SideTex st = side != null ? SideTextures(h.Right ? h.Wall.RightSideNum : h.Wall.LeftSideNum, side, texGroup) : null;
                 int xOff = h.Right ? h.Wall.RightXOffset : h.Wall.LeftXOffset;
                 int yOff = h.Right ? h.Wall.RightYOffset : h.Wall.LeftYOffset;
                 // The wall's normal, which the room shader's N.L needs
@@ -1218,10 +1393,6 @@ public sealed class Renderer
                 if (wnl > 0f) { wnx /= wnl; wny /= wnl; }
                 if (wnx * rdx + wny * rdy > 0f) { wnx = -wnx; wny = -wny; }
                 float fog = Falloff(perp) * Lit(wnx, wny, 0f, RoomAmbientWeight, RoomSunWeight);
-                // The clock the water shader runs on, a sawtooth of period
-                // 100 (general.material:96) - the same one the flats use.
-                float wallWaterTime = Time - 100f * MathF.Floor(Time / 100f);
-                bool wallWater = Water && WaterNoise.Ready();
                 // World units one screen pixel spans on this wall. Turning
                 // that into texels needs the texture's shrink, so DrawWall
                 // finishes it - the old constant here quietly assumed
@@ -1230,8 +1401,9 @@ public sealed class Renderer
 
                 if (far == null)
                 {
-                    Tex oneMid = side != null ? _tex.Get(side.MiddleTexture, texGroup) : null;
-                    bool oneWet = wallWater && side != null && M59Water.Is(side.MiddleTexture);
+                    Tex oneMid = st?.Mid;
+                    bool oneWet = wallWater && st != null && st.MidWet;
+                    long tW1 = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                     DrawWall(px, W, H, sx, yTop, yBot, ceilY, floorY, nf, nc,
                              oneMid,
                              along, xOff, yOff, side != null && side.Flags.IsNormalTopDown,
@@ -1251,7 +1423,8 @@ public sealed class Renderer
                                                      WallWave(side.Flags.ScrollSpeed,
                                                               side.Flags.ScrollDirection, oneMid),
                                                      wallWaterTime, Brightness)
-                                    : LiquidWall.None);
+                                    : LiquidWall.None, sc.Luts);
+                    if (prof) { long n = System.Diagnostics.Stopwatch.GetTimestamp(); Phase[PhWalls] += n - tW1; Phase[PhColumn] -= n - tW1; }
                     _depth[sx] = perp;
                     closed = true;
                     break;
@@ -1268,9 +1441,10 @@ public sealed class Renderer
                     // shows the room beyond, which the rest of this
                     // column walk will draw. Filling it here painted a
                     // band over the view through a doorway.
-                    Tex upper = side != null ? _tex.Get(side.UpperTexture, EdgeGroup) : null;
+                    Tex upper = st?.Upper;
                     bool UpTop = side == null || !side.Flags.IsAboveBottomUp;
-                    bool upWet = wallWater && side != null && M59Water.Is(side.UpperTexture);
+                    bool upWet = wallWater && st != null && st.UpWet;
+                    long tUp = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                     if (upper != null)
                     DrawWall(px, W, H, sx, yTop, Math.Min(yBot, farCeilY - 1), ceilY, farCeilY, fc, nc,
                              upper,
@@ -1285,7 +1459,7 @@ public sealed class Renderer
                                                     WallWave(side.Flags.ScrollSpeed,
                                                              side.Flags.ScrollDirection, upper),
                                                     wallWaterTime, Brightness)
-                                   : LiquidWall.None);
+                                   : LiquidWall.None, sc.Luts);
                     // Nobody draws the band when there is no texture for
                     // it, and yTop moves past it either way - so those
                     // rows kept whatever the last frame left there and
@@ -1295,6 +1469,7 @@ public sealed class Renderer
                     else for (int y = Math.Max(0, yTop);
                               y < Math.Min(H, Math.Min(yBot + 1, farCeilY)); y++)
                         px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
+                    if (prof) { long n = System.Diagnostics.Stopwatch.GetTimestamp(); Phase[PhWalls] += n - tUp; Phase[PhColumn] -= n - tUp; }
                     yTop = Math.Max(yTop, farCeilY);
                     // Past this wall the column can only show what is
                     // below its upper part. See Narrow.
@@ -1303,9 +1478,10 @@ public sealed class Renderer
                 if (ff > nf)
                 {
                     int farFloorY = ScreenY(ff, camZ, horizon, proj, perp);
-                    Tex lower = side != null ? _tex.Get(side.LowerTexture, EdgeGroup) : null;
+                    Tex lower = st?.Lower;
                     bool LowTop = side != null && side.Flags.IsBelowTopDown;
-                    bool lowWet = wallWater && side != null && M59Water.Is(side.LowerTexture);
+                    bool lowWet = wallWater && st != null && st.LowWet;
+                    long tLo = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                     if (lower != null)
                     DrawWall(px, W, H, sx, Math.Max(yTop, farFloorY), yBot, farFloorY, floorY, nf, ff,
                              lower,
@@ -1320,10 +1496,11 @@ public sealed class Renderer
                                                      WallWave(side.Flags.ScrollSpeed,
                                                               side.Flags.ScrollDirection, lower),
                                                      wallWaterTime, Brightness)
-                                    : LiquidWall.None);
+                                    : LiquidWall.None, sc.Luts);
                     else for (int y = Math.Max(0, Math.Max(yTop, farFloorY));
                               y < Math.Min(H, yBot + 1); y++)
                         px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
+                    if (prof) { long n = System.Diagnostics.Stopwatch.GetTimestamp(); Phase[PhWalls] += n - tLo; Phase[PhColumn] -= n - tLo; }
                     yBot = Math.Min(yBot, farFloorY);
                     Narrow(sx, perp, yTop, yBot);
                 }
@@ -1385,7 +1562,7 @@ public sealed class Renderer
                     // 5399 here; the 32 that differ were drawn wrongly,
                     // and 23 of them were being sent down the masked path
                     // for a texture with nothing to see through.
-                    Tex solid = _tex.Get(side.MiddleTexture, texGroup);
+                    Tex solid = st.Mid;
                     // A LIQUID middle is never see-through, whatever its
                     // art has in it. The masked path exists because
                     // base_material_room rejects alpha under 64
@@ -1394,7 +1571,7 @@ public sealed class Renderer
                     // (ControllerRoom.cpp:1014-1021), has no
                     // alpha_rejection line at all and does not sample the
                     // bitmap by the wall's own UVs in the first place.
-                    bool midWet = wallWater && M59Water.Is(side.MiddleTexture);
+                    bool midWet = wallWater && st.MidWet;
                     bool seeThrough = SeeThroughWalls && solid != null && solid.HasHoles && !midWet;
 
                     if (!seeThrough)
@@ -1402,6 +1579,7 @@ public sealed class Renderer
                         Tex mid = solid;
                         if (mid != null)
                         {
+                            long tMid = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                             DrawWall(px, W, H, sx,
                                      Math.Max(yTop, midTopY), Math.Min(yBot, midBotY),
                                      midTopY, midBotY, midBotH, midTopH, mid,
@@ -1416,7 +1594,8 @@ public sealed class Renderer
                                                              WallWave(side.Flags.ScrollSpeed,
                                                                       side.Flags.ScrollDirection, mid),
                                                              wallWaterTime, Brightness)
-                                            : LiquidWall.None);
+                                            : LiquidWall.None, sc.Luts);
+                            if (prof) { long n = System.Diagnostics.Stopwatch.GetTimestamp(); Phase[PhWalls] += n - tMid; Phase[PhColumn] -= n - tMid; }
                             _depth[sx] = perp;
                             closed = true;
                             break;
@@ -1424,7 +1603,7 @@ public sealed class Renderer
                     }
                     else
                     {
-                        Tex mid = _tex.GetMasked(side.MiddleTexture, texGroup);
+                        Tex mid = st.MaskedMid;
                         if (mid != null)
                             sc.Masked.Add(new Masked {
                                 Sx = sx, Depth = perp,
@@ -1450,9 +1629,12 @@ public sealed class Renderer
                 // than the untouched float.MaxValue - the same reason as
                 // above.
                 _depth[sx] = _depth[sx] == float.MaxValue ? 1e9f : _depth[sx];
+                long tSky = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                 for (int y = yTop; y <= yBot && y < H; y++) if (y >= 0)
                     px[y * W + sx] = SkyAt(Sky, Tex.Void, rayA, cosFix, y, horizon, proj);
+                if (prof) { long n = System.Diagnostics.Stopwatch.GetTimestamp(); Phase[PhSky] += n - tSky; Phase[PhColumn] -= n - tSky; }
             }
+            if (prof) Phase[PhColumn] += System.Diagnostics.Stopwatch.GetTimestamp() - tCol;
         }
     }
 
@@ -1472,26 +1654,41 @@ public sealed class Renderer
         int total = 0;
         for (int b = 0; b < bands; b++) total += _scratch[b].Masked.Count;
         if (total == 0) return;
+        long tM0 = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 
         _order.Clear();
         if (_order.Capacity < total) _order.Capacity = total;
         for (int b = 0; b < bands; b++) _order.AddRange(_scratch[b].Masked);
         // Far first, so a near grate covers a far one. Ties broken on the
         // column to keep the order independent of how the bands were split.
-        _order.Sort((p, q) =>
+        //
+        // Sorted as KEYS, not as the entries: a Masked is eighty bytes
+        // and there are thousands of them in a room full of railings,
+        // and sorting the list itself with a comparison delegate moved
+        // all of that and called back on every compare - over a
+        // millisecond in a1 for a few see-through walls. A depth is
+        // positive, so its bits order as it does; inverted for far
+        // first, with the column in the low half for the tiebreak, one
+        // long per entry sorts with the runtime's primitive sort.
+        if (_orderKey.Length < total) { _orderKey = new long[total]; _orderIdx = new int[total]; }
+        for (int i = 0; i < total; i++)
         {
-            int c = q.Depth.CompareTo(p.Depth);
-            return c != 0 ? c : p.Sx.CompareTo(q.Sx);
-        });
+            int bits = BitConverter.SingleToInt32Bits(_order[i].Depth);
+            _orderKey[i] = ((long)(int.MaxValue - bits) << 32) | (uint)_order[i].Sx;
+            _orderIdx[i] = i;
+        }
+        Array.Sort(_orderKey, _orderIdx, 0, total);
+        if (Profile) { DbgMaskedN += total; DbgMaskedSort += System.Diagnostics.Stopwatch.GetTimestamp() - tM0; }
 
         bool haveSprites = _spriteDepth != null && Sprites.Count > 0;
-        foreach (Masked m in _order)
+        for (int k = 0; k < total; k++)
         {
+            Masked m = _order[_orderIdx[k]];
             DrawWall(px, W, H, m.Sx, m.Y0, m.Y1, m.SpanTopY, m.SpanBotY,
                      m.SpanBotH, m.SpanTopH, m.T, m.Along, m.XOff, m.YOff, m.TopDown,
                      m.Fog, m.Tpp, true, haveSprites ? _spriteDepth : null, m.Depth, W,
                      m.NoVTile, m.ScrollSpeed, m.ScrollDir, Time,
-                     null, 0f, 1f, 0f, 1f, null, 0f, 0f, m.VOrigin);
+                     null, 0f, 1f, 0f, 1f, null, 0f, 0f, m.VOrigin, default, _mainLuts);
         }
     }
 
@@ -1540,10 +1737,19 @@ public sealed class Renderer
             int x1 = (int)MathF.Ceiling(p.Left + p.WPx);
             if (x1 < 0 || x0 >= W) continue;
 
+            // The plain sprite - one lit factor for all three channels,
+            // no tint, opaque - shades through a table. See ShadeLut;
+            // Shade's three-factor form is Shade's one-factor form when
+            // the factors agree and are not negative, which a sum of
+            // ambient, sun and lights cannot be.
+            bool plain = p.LitR == p.LitG && p.LitG == p.LitB && p.LitR >= 0f
+                      && sp.TintR == 1f && sp.TintG == 1f && sp.TintB == 1f && sp.Opacity >= 1f;
+            byte[] lut = plain ? _mainLuts.Get(p.LitR, (int)(p.HPx * p.WPx)) : null;
+            uint[] lp = p.T.Level(SpriteTpp(p), out int lw, out int lh);
+
             for (int sx = Math.Max(0, x0); sx <= Math.Min(W - 1, x1); sx++)
             {
                 if (depth >= _depth[sx]) continue;           // behind a wall
-                uint[] lp = p.T.Level(SpriteTpp(p), out int lw, out int lh);
                 int tx = TexelX(p, sx, lw);
                 if (tx < 0) continue;
 
@@ -1555,6 +1761,34 @@ public sealed class Renderer
                 if (ClipSprites) Window(sx, depth, out wTop, out wBot);
                 int yA = Math.Max(Math.Max(0, wTop), (int)MathF.Floor(p.YTop));
                 int yB = Math.Min(Math.Min(H - 1, wBot), (int)MathF.Ceiling(p.YBot));
+                if (lut != null && ClipFlats && _spriteDepth != null)
+                {
+                    // The plain sprite's column, as a loop of its own:
+                    // TexelY and the test and the stores above, by
+                    // reference, with the row's texel column fixed. yA..yB
+                    // lie inside the frame, sx inside the row, ty inside
+                    // the level, and the table is 256 long.
+                    ref uint px0 = ref MemoryMarshal.GetArrayDataReference(px);
+                    ref float fd0 = ref MemoryMarshal.GetArrayDataReference(_flatDepth);
+                    ref float sd0 = ref MemoryMarshal.GetArrayDataReference(_spriteDepth);
+                    ref uint lp0 = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(lp), tx);
+                    ref byte lut0 = ref MemoryMarshal.GetArrayDataReference(lut);
+                    float hPx = MathF.Max(1f, p.HPx), yTop = p.YTop;
+                    for (int y = yA; y <= yB; y++)
+                    {
+                        float v = (y + 0.5f - yTop) / hPx;
+                        if (v < 0f || v >= 1f) continue;
+                        int ty = (int)(v * lh);
+                        if (ty < 0) ty = 0; else if (ty >= lh) ty = lh - 1;
+                        int at = y * W + sx;
+                        if (depth >= Unsafe.Add(ref fd0, at)) continue;
+                        uint c = Unsafe.Add(ref lp0, ty * lw);
+                        if ((c >> 24) == 0) continue;
+                        Unsafe.Add(ref px0, at) = ShadeLutPx(c, ref lut0);
+                        Unsafe.Add(ref sd0, at) = depth;
+                    }
+                    continue;
+                }
                 for (int y = yA; y <= yB; y++)
                 {
                     int ty = TexelY(p, y, lh);
@@ -1590,7 +1824,8 @@ public sealed class Renderer
                     if (ClipFlats && depth >= _flatDepth[y * W + sx]) continue;
                     uint c = lp[ty * lw + tx];
                     if ((c >> 24) == 0) continue;            // transparent texel
-                    uint lit = Material(Shade(c | 0xFF000000u, p.LitR, p.LitG, p.LitB), sp);
+                    uint lit = lut != null ? ShadeLutPx(c, lut)
+                             : Material(Shade(c | 0xFF000000u, p.LitR, p.LitG, p.LitB), sp);
                     // Opacity one is the ordinary case and must cost
                     // nothing; anything less is blended over whatever the
                     // walls and floor already put there.
@@ -2018,10 +2253,19 @@ public sealed class Renderer
                                   float camX, float camY, float camZ,
                                   float rdx, float rdy, float sSlope, float cosFix,
                                   out float d)
+        => SolveSlope(-(float)(slope.A * camX + slope.B * camY + slope.C * camZ + slope.D),
+                      (float)(slope.A * rdx + slope.B * rdy), (float)slope.C,
+                      sSlope, cosFix, out d);
+
+    /// <summary>
+    /// The same with the two terms that do not vary down a column -
+    /// the plane at the eye, and the plane along the ray - handed in,
+    /// so a span solves them once. Same expression, same floats.
+    /// </summary>
+    static bool SolveSlope(float num, float ab, float c, float sSlope, float cosFix, out float d)
     {
         d = 0f;
-        float num = -(float)(slope.A * camX + slope.B * camY + slope.C * camZ + slope.D);
-        float den = (float)(slope.A * rdx + slope.B * rdy) - (float)slope.C * sSlope * cosFix;
+        float den = ab - c * sSlope * cosFix;
         if (MathF.Abs(den) < 1e-6f) return false;
         d = num / den;
         return d > 0f;
@@ -2107,7 +2351,8 @@ public sealed class Renderer
                          float horizon = 0f, float proj = 1f,
                          List<Light> lights = null, float hx = 0f, float hy = 0f,
                          float vOrigin = float.NaN,
-                         LiquidWall liquid = default)
+                         LiquidWall liquid = default,
+                         LutCache luts = null)
     {
         if (y0 < 0) y0 = 0;
         if (y1 > H - 1) y1 = H - 1;
@@ -2130,6 +2375,7 @@ public sealed class Renderer
         // Ported from RooWall.GetVertexData, itself a port of the game's
         // d3drender.c.
         float u = 0f, vBase = 0f, vPerHeight = 0f, tpp = texelsPerPixel;
+        uint[] lp = null; int lw = 0, rowBase = 0; byte[] lut = null;
         if (t != null)
         {
             float shrink = t.Shrink;
@@ -2167,8 +2413,54 @@ public sealed class Renderer
                 vBase += sxr * time;
                 u     += syr * time;
             }
+
+            // The reduced copy and the texel ROW are the same for every
+            // pixel of the part: tpp does not vary down a column, and
+            // the along-wall coordinate u is the sampler's second axis.
+            // Sample(v, u, tpp) picked the level by halving in a loop
+            // and re-derived the row, per pixel. Same arithmetic, once.
+            lp = t.Level(tpp, out lw, out int lh);
+            int ty = (int)((u - MathF.Floor(u)) * lh);
+            if (ty < 0) ty = 0; else if (ty >= lh) ty = lh - 1;
+            rowBase = ty * lw;
+            // Dry, unlit, unmasked, no sprite test and no WF_NO_VTILE:
+            // the common wall. Its factor is one per part, so the shade
+            // is a table lookup. See ShadeLut.
+            if (!liquid.On && (lights == null || lights.Count == 0) && luts != null)
+                lut = luts.Get(fog, y1 - y0 + 1);
         }
 
+        if (lut != null && !masked && spriteDepth == null)
+        {
+            // The plain wall, tight: nothing in the loop but the row's
+            // height, the texel and the table - and WF_NO_VTILE's one
+            // compare, which 3699 sidedefs carry and which kept them
+            // all on the slow path below until it was brought here.
+            if (Profile) DbgWallPx += Math.Max(0, y1 - y0 + 1);
+            // Through references rather than indexers: y is clamped to
+            // the buffer above, tx to the level here, and the table is
+            // 256 long by construction, so the checks the JIT would
+            // keep were proving what is already known - a tenth of the
+            // loop, measured.
+            ref uint px0 = ref MemoryMarshal.GetArrayDataReference(px);
+            ref uint lp0 = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(lp), rowBase);
+            ref byte lut0 = ref MemoryMarshal.GetArrayDataReference(lut);
+            float spanDh = spanBotH - spanTopH;
+            for (int y = y0; y <= y1; y++)
+            {
+                float f = (y - spanTopY) / span;
+                float worldH = spanTopH + f * spanDh;
+                float v = vBase + worldH * vPerHeight;
+                if (noVTile && v < 0f)
+                { px[y * W + sx] = SkyAt(sky, 0xFF000000u, rayA, cosFix, y, horizon, proj); continue; }
+                int tx = (int)((v - MathF.Floor(v)) * lw);
+                if (tx < 0) tx = 0; else if (tx >= lw) tx = lw - 1;
+                Unsafe.Add(ref px0, y * W + sx) = ShadeLutPx(Unsafe.Add(ref lp0, tx), ref lut0);
+            }
+            return;
+        }
+
+        if (Profile) { if (t == null) DbgNullPx += Math.Max(0, y1 - y0 + 1); else DbgSlowPx += Math.Max(0, y1 - y0 + 1); if (masked) DbgMaskedPx += Math.Max(0, y1 - y0 + 1); }
         for (int y = y0; y <= y1; y++)
         {
             uint c;
@@ -2228,7 +2520,9 @@ public sealed class Renderer
                 // the grounds that its mip chain would bleed the key
                 // colour - which the alpha-weighted average it now has
                 // does not - and a distant grate crawled as you moved.
-                uint texel = t.Sample(v, u, tpp);
+                int tx = (int)((v - MathF.Floor(v)) * lw);
+                if (tx < 0) tx = 0; else if (tx >= lw) tx = lw - 1;
+                uint texel = lp[rowBase + tx];
                 // A see-through wall keeps the palette's transparent index,
                 // which carries alpha 0; those texels are skipped, not
                 // blended, the same as sprites.
@@ -2257,6 +2551,7 @@ public sealed class Renderer
                                        liquid.WaveX, 0f, liquid.Time, liquid.Ambient,
                                        worldPerPixel);
                 }
+                else if (lut != null) c = ShadeLutPx(texel, lut);
                 else if (lights == null || lights.Count == 0) c = Shade(texel | 0xFF000000u, fog);
                 else
                 {
@@ -2291,40 +2586,91 @@ public sealed class Renderer
     public static void SlopeUV(RooSectorSlopeInfo sl, float wx, float wy, float camZ,
                                float texOffX, float texOffY, out float u, out float v)
     {
-        float pz = M59Geo.Plane(sl, wx, wy);
-        float p0x = (float)sl.P0.X, p0y = (float)sl.P0.Y, p0z = (float)sl.P0.Z;
-        float d1x = wx - p0x, d1y = wy - p0y, d1z = pz - p0z;
-        float d2x = (float)sl.P1.X - p0x, d2y = (float)sl.P1.Y - p0y, d2z = (float)sl.P1.Z - p0z;
-        float d3x = (float)sl.P2.X - p0x, d3y = (float)sl.P2.Y - p0y, d3z = (float)sl.P2.Z - p0z;
-
-        float du = Perp(d1x, d1y, d1z, d2x, d2y, d2z);
-        float dv = Perp(d1x, d1y, d1z, d3x, d3y, d3z);
-
-        // The library adds the sector offsets halved, then flips the sign
-        // of the whole thing - offset included - on the far side of each
-        // axis. Order matters; doing it the other way round moves the
-        // texture by twice the offset across the axis line.
-        du += texOffY * 0.5f;
-        dv += texOffX * 0.5f;
-
-        // Which side of each axis the point is on, decided in plan view
-        // from the normalised 2D vectors, as the library does.
-        float vlen = MathF.Sqrt(d1x * d1x + d1y * d1y); if (vlen == 0f) vlen = 1f;
-        float vx = d1x / vlen, vy = d1y / vlen;
-        float ulen = MathF.Sqrt(d2x * d2x + d2y * d2y); if (ulen == 0f) ulen = 1f;
-        float vlen2 = MathF.Sqrt(d3x * d3x + d3y * d3y); if (vlen2 == 0f) vlen2 = 1f;
-        if (vx * (d2x / ulen) + vy * (d2y / ulen) <= 0f) dv = -dv;
-        if (vx * (d3x / vlen2) + vy * (d3y / vlen2) > 0f) du = -du;
-
-        u = du / M59Geo.Fineness;
-        v = dv / M59Geo.Fineness;
+        var fr = new SlopeFrame();
+        fr.Set(sl);
+        fr.UV(wx, wy, texOffX, texOffY, out u, out v);
     }
 
-    /// <summary>Distance from a point to the line through the origin along an axis.</summary>
-    static float Perp(float px, float py, float pz, float ax, float ay, float az)
+    /// <summary>
+    /// The part of <see cref="SlopeUV"/> that does not depend on the
+    /// point: the plane's texture frame, its two axes, their lengths and
+    /// their unit plan-view directions. Nineteen of the thirty-odd
+    /// operations SlopeUV did per PIXEL were these, the same for every
+    /// pixel of a span, four square roots among them. Every expression
+    /// is kept as it was and merely evaluated once, so the floats are
+    /// the same floats; the public SlopeUV above now goes through here
+    /// too, which is what the UV oracle checks.
+    ///
+    /// A class held by the band's Scratch, not a struct local: as a
+    /// seventeen-field struct inside FillFlat it pushed that method past
+    /// what the JIT will keep in registers and the LEVEL floors slowed
+    /// by half - measured, and the reason it lives here. Re-set only
+    /// when the slope changes, which down a band it rarely does.
+    /// </summary>
+    sealed class SlopeFrame
     {
-        float den = ax * ax + ay * ay + az * az;
-        if (den == 0f) den = 1f;
+        public RooSectorSlopeInfo Sl;
+        float _p0x, _p0y, _p0z;
+        float _d2x, _d2y, _d2z, _d3x, _d3y, _d3z;
+        float _den2, _den3;                       // Perp's denominators
+        float _u2x, _u2y, _u3x, _u3y;             // the axes, unit length in plan
+
+        public void Set(RooSectorSlopeInfo sl)
+        {
+            Sl = sl;
+            _p0x = (float)sl.P0.X; _p0y = (float)sl.P0.Y; _p0z = (float)sl.P0.Z;
+            _d2x = (float)sl.P1.X - _p0x; _d2y = (float)sl.P1.Y - _p0y; _d2z = (float)sl.P1.Z - _p0z;
+            _d3x = (float)sl.P2.X - _p0x; _d3y = (float)sl.P2.Y - _p0y; _d3z = (float)sl.P2.Z - _p0z;
+            _den2 = _d2x * _d2x + _d2y * _d2y + _d2z * _d2z; if (_den2 == 0f) _den2 = 1f;
+            _den3 = _d3x * _d3x + _d3y * _d3y + _d3z * _d3z; if (_den3 == 0f) _den3 = 1f;
+            float ulen = MathF.Sqrt(_d2x * _d2x + _d2y * _d2y); if (ulen == 0f) ulen = 1f;
+            float vlen2 = MathF.Sqrt(_d3x * _d3x + _d3y * _d3y); if (vlen2 == 0f) vlen2 = 1f;
+            _u2x = _d2x / ulen; _u2y = _d2y / ulen;
+            _u3x = _d3x / vlen2; _u3y = _d3y / vlen2;
+        }
+
+        /// <summary>
+        /// The plane's height at a point: M59Geo.Plane itself, not a copy.
+        /// The library's `Real` is float on this build and double on an
+        /// X64 one, and a copy that read the coefficients into doubles
+        /// moved every sloped texel by an ulp - caught by the golden
+        /// frames, twelve of them, all in the valley.
+        /// </summary>
+        public float Plane(float x, float y) => M59Geo.Plane(Sl, x, y);
+
+        public void UV(float wx, float wy, float texOffX, float texOffY, out float u, out float v)
+        {
+            float pz = Plane(wx, wy);
+            float d1x = wx - _p0x, d1y = wy - _p0y, d1z = pz - _p0z;
+
+            float du = Perp(d1x, d1y, d1z, _d2x, _d2y, _d2z, _den2);
+            float dv = Perp(d1x, d1y, d1z, _d3x, _d3y, _d3z, _den3);
+
+            // The library adds the sector offsets halved, then flips the sign
+            // of the whole thing - offset included - on the far side of each
+            // axis. Order matters; doing it the other way round moves the
+            // texture by twice the offset across the axis line.
+            du += texOffY * 0.5f;
+            dv += texOffX * 0.5f;
+
+            // Which side of each axis the point is on, decided in plan view
+            // from the normalised 2D vectors, as the library does.
+            float vlen = MathF.Sqrt(d1x * d1x + d1y * d1y); if (vlen == 0f) vlen = 1f;
+            float vx = d1x / vlen, vy = d1y / vlen;
+            if (vx * _u2x + vy * _u2y <= 0f) dv = -dv;
+            if (vx * _u3x + vy * _u3y > 0f) du = -du;
+
+            u = du * InvFineness;
+            v = dv * InvFineness;
+        }
+    }
+
+    /// <summary>1/FINENESS. Exact, FINENESS being a power of two; see FillFlat.</summary>
+    const float InvFineness = 1f / M59Geo.Fineness;
+
+    /// <summary>Distance from a point to the line through the origin along an axis, its squared length given (1 for a zero axis).</summary>
+    static float Perp(float px, float py, float pz, float ax, float ay, float az, float den)
+    {
         float k = (px * ax + py * ay + pz * az) / den;
         float ex = px - k * ax, ey = py - k * ay, ez = pz - k * az;
         return MathF.Sqrt(ex * ex + ey * ey + ez * ez);
@@ -2339,7 +2685,8 @@ public sealed class Renderer
     /// </summary>
     static void FillFlat(uint[] px, float[] fd, int W, int H, int sx, int y0, int y1, bool ceiling,
                          RooSector sec, float camX, float camY, float camZ,
-                         float horizon, float proj, float angle, float rayA, TexCache tc,
+                         float horizon, float proj, float angle, float rayA,
+                         float rdx, float rdy, float cosFix, TexCache tc,
                          bool skip, bool noSample, float time, FlatAnchors anchors,
                          float bright, float ambient, M59Sky sky, List<Light> lights,
                          bool anyLights, Scratch sc)
@@ -2352,7 +2699,6 @@ public sealed class Renderer
         RooSectorSlopeInfo slope = ceiling ? sec.SlopeInfoCeiling : sec.SlopeInfoFloor;
         float planeH = ceiling ? M59Geo.CeilingXY(sec) : M59Geo.FloorXY(sec);
         ushort texNum = ceiling ? sec.CeilingTexture : sec.FloorTexture;
-        Tex t = tc.Get(texNum);
 
         // Whether this surface is a liquid, which the room file does not
         // say - see M59Water. Its own scroll speed becomes the wave's
@@ -2360,7 +2706,21 @@ public sealed class Renderer
         // never calls setScrollAnimation, it sets waveSpeed to
         // 0.3 * -scroll (Util.h:766-767), and the sector bitmap's UVs
         // never move at all.
-        bool liquid = Water && WaterNoise.Ready() && M59Water.Is(texNum);
+        //
+        // The texture, the liquid test and the mip chain come through the
+        // band's memo of the last floor or ceiling it painted - the same
+        // answers, looked up once per CHANGE of texture rather than once
+        // per span. The cache never changes its mind about a number, so
+        // the memo cannot go stale within one TexCache.
+        FlatMemo memo = sc != null ? sc.Flats[ceiling ? 1 : 0] : null;
+        Tex t; bool liquid;
+        if (memo != null && memo.Num == texNum) { t = memo.T; liquid = memo.Liquid; }
+        else
+        {
+            t = tc.Get(texNum);
+            liquid = Water && WaterNoise.Ready() && M59Water.Is(texNum);
+            memo?.Set(texNum, t, liquid);
+        }
         // The surface's own normal, which the liquid shader needs as a
         // vector and which does not vary across the plane.
         FlatNormal(sec, ceiling, out float fnx, out float fny, out float fnz);
@@ -2382,8 +2742,22 @@ public sealed class Renderer
         // The shader's clock is time_0_x with a period of 100 seconds
         // (general.material:96), so it is a sawtooth, not a ramp.
         float waterTime = time - 100f * MathF.Floor(time / 100f);
-        float cosFix = MathF.Cos(rayA - angle);
-        float rdx = MathF.Cos(rayA), rdy = MathF.Sin(rayA);
+        // rdx, rdy and cosFix arrive from the column, which had already
+        // worked them out from the same rayA and angle: three
+        // transcendentals a span, for nothing.
+
+        // The constant-factor shade as a table, and the chain laid out
+        // for the row loop. See ShadeLut and FlatMemo. The level is
+        // chosen per row because the texels a pixel spans change down
+        // the column; Sample picked it by halving in a loop, and the
+        // float's own exponent is that count.
+        // Not at a factor of one: Shade hands the texel back untouched
+        // there, alpha and all, where the table would force it opaque.
+        float lutFog = Falloff(1f) * bright;
+        byte[] lut = (!anyLights && t != null && !liquid && !noSample && lutFog != 1f && sc != null)
+                   ? sc.Luts.Get(lutFog, y1 - y0 + 1) : null;
+        bool fastSample = memo != null && memo.T == t && t != null;
+        int lodMax = fastSample ? memo.Max : 0;
 
         // A sloped plane is Ax + By + Cz + D = 0. Walking a screen column,
         // the ray through row y drops by s = (y - horizon)/proj per unit of
@@ -2391,6 +2765,20 @@ public sealed class Renderer
         // (camX + rdx*d, camY + rdy*d, camZ - s*cosFix*d). Substituting and
         // solving for d costs one division, the same as the flat case.
         float cosFixMax = MathF.Max(0.2f, cosFix);
+        // The slope's constants, once a span. See SlopeFrame and SolveSlope.
+        SlopeFrame frame = null;
+        float slopeNum = 0f, slopeAB = 0f, slopeC = 0f;
+        if (slope != null)
+        {
+            if (sc != null)
+            {
+                frame = sc.Slope;
+                if (!ReferenceEquals(frame.Sl, slope)) frame.Set(slope);
+            }
+            slopeNum = -(float)(slope.A * camX + slope.B * camY + slope.C * camZ + slope.D);
+            slopeAB = (float)(slope.A * rdx + slope.B * rdy);
+            slopeC = (float)slope.C;
+        }
 
         // Whether this span needs the anchor table at all, and on which
         // side of the slope branch it is asked. Hoisted out of the row
@@ -2399,6 +2787,23 @@ public sealed class Renderer
         bool anchorEarly = useAnchors && !FlatAnchorHoist;
         bool anchorLate  = useAnchors && FlatAnchorHoist;
         bool anchorMemo  = useAnchors && FlatAnchorMemo && sc != null;
+
+        if (Profile) { DbgFlatPx += y1 - y0 + 1; if (liquid) DbgLiquidPx += y1 - y0 + 1; if (slope != null) DbgSlopePx += y1 - y0 + 1; }
+
+        // The common span - a LEVEL floor or ceiling, textured, dry,
+        // unlit, no distance falloff - goes through a loop of its own
+        // with nothing in it but that case. The general loop below is
+        // the same arithmetic in the same order; what the split buys is
+        // a method small enough for the JIT to keep in registers, which
+        // this one, with its sixty locals, is not. Measured, not argued.
+        if (slope == null && t != null && !liquid && !noSample && !anyLights && !DistanceFalloff
+            && fastSample && !anchorEarly && (lut != null || lutFog == 1f))
+        {
+            FillLevelPlain(px, fd, W, sx, y0, y1, horizon, proj, camX, camY, camZ, planeH,
+                           rdx, rdy, cosFixMax, t.UvW, texOffX, texOffY, scrollU, scrollV,
+                           memo, lut, anchorLate ? anchors : null, anchorMemo ? sc : null, flat);
+            return;
+        }
 
         for (int y = y0; y <= y1; y++)
         {
@@ -2415,7 +2820,7 @@ public sealed class Renderer
             float straight, d;
             if (slope != null)
             {
-                if (!SolveSlope(slope, camX, camY, camZ, rdx, rdy, dy / proj, cosFixMax, out d))
+                if (!SolveSlope(slopeNum, slopeAB, slopeC, dy / proj, cosFixMax, out d))
                 { px[y * W + sx] = flat; continue; }
                 straight = d * cosFixMax;
             }
@@ -2449,10 +2854,9 @@ public sealed class Renderer
             // straight/proj, and far from the horizon that is the bigger
             // step of the two. Taking only the column rate left the near
             // rows at level 0 where they span several noise texels.
-            float noisePerPixel = MathF.Max(worldPerPixel, straight / proj);
-
             if (liquid)
             {
+                float noisePerPixel = MathF.Max(worldPerPixel, straight / proj);
                 float surfaceZ = slope != null ? M59Geo.Plane(slope, wx, wy) : planeH;
                 // The PLAIN ambient, not `bright`: the water pass is one
                 // `illumination_stage ambient` and its only uniform is
@@ -2467,7 +2871,11 @@ public sealed class Renderer
             }
 
             float fog = Falloff(straight) * bright;
-            float texelsPerPixel = worldPerPixel * t.UvW / M59Geo.Fineness;
+            // Over FINENESS as a multiply by its reciprocal: 1024 is a
+            // power of two, so the two round to the same float every
+            // time, and a divide a pixel becomes a multiply. Likewise
+            // the two below.
+            float texelsPerPixel = worldPerPixel * t.UvW * InvFineness;
             // Same axis swap as walls - grd02011 is a floor of tall stone
             // slabs and rendered as wide ones until y,x were used. The
             // library says the same thing: RooSubSector.UpdateVertexUV
@@ -2500,7 +2908,8 @@ public sealed class Renderer
                 // 4674 of the 30806 sectors in the game carry a slope, so
                 // this is not a corner case; it is every ramp, hillside and
                 // sloping roof in Meridian.
-                SlopeUV(slope, wx, wy, camZ, texOffX, texOffY, out su, out sv);
+                if (frame != null) frame.UV(wx, wy, texOffX, texOffY, out su, out sv);
+                else SlopeUV(slope, wx, wy, camZ, texOffX, texOffY, out su, out sv);
             }
             else
             {
@@ -2521,13 +2930,37 @@ public sealed class Renderer
                     if (anchorMemo) anchors.TryAnchor(wx, wy, ref sc.AnchorMemo, out anchorX, out anchorY);
                     else            anchors.TryAnchor(wx, wy, out anchorX, out anchorY);
                 }
-                su = (wy - anchorY - texOffY) / M59Geo.Fineness;
-                sv = (wx - anchorX - texOffX) / M59Geo.Fineness;
+                su = (wy - anchorY - texOffY) * InvFineness;
+                sv = (wx - anchorX - texOffX) * InvFineness;
             }
 
-            uint texel = noSample ? t.P[0]
-                                  : t.Sample(su + scrollU, sv + scrollV, texelsPerPixel);
-            if (!anyLights) px[y * W + sx] = Shade(texel, fog);
+            uint texel;
+            if (noSample) texel = t.P[0];
+            else if (fastSample)
+            {
+                // Sample(u, v, tpp), inlined over the memo's chain. The
+                // loop it replaces halves tpp until it is under two, so
+                // its count is floor(log2 tpp) for any tpp of two or
+                // more - the float's exponent - and zero below that,
+                // which is also what it does with a NaN. Clamped to the
+                // last level as the loop was.
+                float sU = su + scrollU, sV = sv + scrollV;
+                int lod = 0;
+                if (texelsPerPixel >= 2f && lodMax > 0)
+                {
+                    lod = ((BitConverter.SingleToInt32Bits(texelsPerPixel) >> 23) & 0xFF) - 127;
+                    if (lod > lodMax) lod = lodMax;
+                }
+                int lw = memo.Lw[lod], lh = memo.Lh[lod];
+                int tx = (int)((sU - MathF.Floor(sU)) * lw);
+                int ty = (int)((sV - MathF.Floor(sV)) * lh);
+                if (tx < 0) tx = 0; else if (tx >= lw) tx = lw - 1;
+                if (ty < 0) ty = 0; else if (ty >= lh) ty = lh - 1;
+                texel = memo.Lp[lod][ty * lw + tx];
+            }
+            else texel = t.Sample(su + scrollU, sv + scrollV, texelsPerPixel);
+            if (lut != null && fog == lutFog) px[y * W + sx] = ShadeLutPx(texel, lut);
+            else if (!anyLights) px[y * W + sx] = Shade(texel, fog);
             else
             {
                 // The surface's own height at the sampled point, which
@@ -2540,6 +2973,63 @@ public sealed class Renderer
             }
         }
     }
+    /// <summary>
+    /// FillFlat's row loop for the level, textured, dry, unlit span. See
+    /// the call site: every line here is a line of the general loop,
+    /// with the branches that case never takes left out, and the golden
+    /// frames hold the two to the same pixels.
+    /// </summary>
+    static void FillLevelPlain(uint[] px, float[] fd, int W, int sx, int y0, int y1,
+                               float horizon, float proj, float camX, float camY, float camZ,
+                               float planeH, float rdx, float rdy, float cosFixMax, float uvW,
+                               float texOffX, float texOffY, float scrollU, float scrollV,
+                               FlatMemo memo, byte[] lut, FlatAnchors anchors, Scratch sc, uint flat)
+    {
+        float rise = camZ - planeH;
+        int lodMax = memo.Max;
+        uint[][] lp = memo.Lp; int[] lws = memo.Lw, lhs = memo.Lh;
+        // References, as in DrawWall's plain loop: every index below is
+        // clamped before use. The table is read through its first byte;
+        // null here means a factor of one, the texel as it is.
+        ref uint px0 = ref MemoryMarshal.GetArrayDataReference(px);
+        ref float fd0 = ref MemoryMarshal.GetArrayDataReference(fd);
+        ref byte lut0 = ref (lut != null ? ref MemoryMarshal.GetArrayDataReference(lut) : ref Unsafe.NullRef<byte>());
+        bool shade = lut != null;
+        for (int y = y0; y <= y1; y++)
+        {
+            float dy = y - horizon;
+            if (MathF.Abs(dy) < 0.5f) { px[y * W + sx] = flat; continue; }
+            float straight = MathF.Abs(rise * proj / dy);
+            float d = straight / cosFixMax;
+            int at = y * W + sx;
+            Unsafe.Add(ref fd0, at) = straight;
+            float wx = camX + rdx * d, wy = camY + rdy * d;
+            float worldPerPixel = straight / MathF.Max(1f, MathF.Abs(dy));
+            float texelsPerPixel = worldPerPixel * uvW * InvFineness;
+            float anchorX = 0f, anchorY = 0f;
+            if (anchors != null)
+            {
+                if (sc != null) anchors.TryAnchor(wx, wy, ref sc.AnchorMemo, out anchorX, out anchorY);
+                else            anchors.TryAnchor(wx, wy, out anchorX, out anchorY);
+            }
+            float sU = (wy - anchorY - texOffY) * InvFineness + scrollU;
+            float sV = (wx - anchorX - texOffX) * InvFineness + scrollV;
+            int lod = 0;
+            if (texelsPerPixel >= 2f && lodMax > 0)
+            {
+                lod = ((BitConverter.SingleToInt32Bits(texelsPerPixel) >> 23) & 0xFF) - 127;
+                if (lod > lodMax) lod = lodMax;
+            }
+            int lw = lws[lod], lh = lhs[lod];
+            int tx = (int)((sU - MathF.Floor(sU)) * lw);
+            int ty = (int)((sV - MathF.Floor(sV)) * lh);
+            if (tx < 0) tx = 0; else if (tx >= lw) tx = lw - 1;
+            if (ty < 0) ty = 0; else if (ty >= lh) ty = lh - 1;
+            uint texel = Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(lp[lod]), ty * lw + tx);
+            Unsafe.Add(ref px0, at) = shade ? ShadeLutPx(texel, ref lut0) : texel;
+        }
+    }
+
     /// <summary>
     /// The object's colormodifier applied to a lit texel: multiply and
     /// clamp, which is what the shader's saturate does on the way out.
@@ -2628,6 +3118,86 @@ public sealed class Renderer
         return 0xFF000000u | (r << 16) | (g << 8) | b;
     }
 
+    /// <summary>
+    /// <see cref="Shade(uint,float)"/> as a table: the 256 answers for one
+    /// factor, so a span whose factor does not change - every floor span
+    /// and every dry, unlit wall part - pays three loads a pixel instead
+    /// of three float multiplies, three mins and six conversions. Built
+    /// by the very expression Shade uses, entry by entry, so the picture
+    /// cannot differ; the check tool's golden mode holds it to that.
+    ///
+    /// Immutable once built, so the cache below can be read from every
+    /// band at once without a lock: a reader sees either a whole entry
+    /// or none. A lost race builds the same table twice, which is the
+    /// only thing a race here can do.
+    /// </summary>
+    sealed class ShadeLut
+    {
+        public readonly float F;
+        public readonly byte[] T = new byte[256];
+        public ShadeLut(float f)
+        {
+            F = f;
+            for (uint c = 0; c < 256; c++) T[c] = (byte)(Shade(c, f) & 0xFF);
+        }
+    }
+
+    /// <summary>
+    /// A small cache of shade tables, one per band and one for the
+    /// main thread's sprite and see-through passes, so no two threads
+    /// share one. Lit by the sun, every wall orientation in view has a
+    /// factor of its own and a sloped valley has one per sector, so
+    /// the cache CAN miss - and a table costs 256 shades to build,
+    /// which a short span never pays back. A miss on a span under
+    /// <see cref="LutMinSpan"/> rows therefore hands back null and the
+    /// caller shades the old way; the worst case is the old cost, not
+    /// a table per column.
+    /// </summary>
+    sealed class LutCache
+    {
+        const int Slots = 32;
+        readonly ShadeLut[] _luts = new ShadeLut[Slots];
+        int _next;
+
+        public byte[] Get(float f, int spanLen)
+        {
+            ShadeLut[] luts = _luts;
+            for (int i = 0; i < Slots; i++)
+            {
+                ShadeLut l = luts[i];
+                if (l != null && l.F == f) return l.T;
+            }
+            if (spanLen < LutMinSpan) return null;
+            var fresh = new ShadeLut(f);
+            luts[_next] = fresh;
+            _next = (_next + 1) & (Slots - 1);
+            return fresh.T;
+        }
+    }
+
+    /// <summary>Rows a span must have before a missing table is worth building for it.</summary>
+    const int LutMinSpan = 96;
+
+    /// <summary>The main thread's tables, for sprites and see-through walls.</summary>
+    readonly LutCache _mainLuts = new LutCache();
+
+    /// <summary>Shade through a table ShadeTable built for the factor.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static uint ShadeLutPx(uint c, byte[] lut)
+        => 0xFF000000u | ((uint)lut[(c >> 16) & 0xFF] << 16) | ((uint)lut[(c >> 8) & 0xFF] << 8) | lut[c & 0xFF];
+
+    /// <summary>
+    /// The same through a reference to the table's first byte. The
+    /// index is a byte, the table has 256 entries, and the JIT cannot
+    /// see the second fact, so each lookup paid a bounds check; the hot
+    /// loops take this form. See the plain-wall loop in DrawWall.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static uint ShadeLutPx(uint c, ref byte lut0)
+        => 0xFF000000u | ((uint)Unsafe.Add(ref lut0, (int)((c >> 16) & 0xFF)) << 16)
+                       | ((uint)Unsafe.Add(ref lut0, (int)((c >> 8) & 0xFF)) << 8)
+                       | Unsafe.Add(ref lut0, (int)(c & 0xFF));
+
     internal static uint Shade(uint c, float f)
     {
         if (f == 1f) return c;
@@ -2649,9 +3219,21 @@ public sealed class Renderer
         if (UseGrid && _grid != null)
         {
             sc.Candidates.Clear();
+            long tA = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             _grid.Collect(ox, oy, dx, dy, sc.Candidates, sc.Stamp, ref sc.Tick);
-            for (int i = 0; i < sc.Candidates.Count; i++)
-                TestWall(sc.Candidates[i], ox, oy, dx, dy, outHits);
+            long tB = Profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            List<RooWall> cand = sc.Candidates;
+            if (_wX1 != null)
+                for (int i = 0; i < cand.Count; i++)
+                {
+                    RooWall w = cand[i];
+                    int k = w.Num;
+                    TestWall(w, _wX1[k], _wY1[k], _wX2[k], _wY2[k], ox, oy, dx, dy, outHits);
+                }
+            else
+                for (int i = 0; i < cand.Count; i++)
+                    TestWall(cand[i], ox, oy, dx, dy, outHits);
+            if (Profile) { long tC = System.Diagnostics.Stopwatch.GetTimestamp(); DbgGrid += tB - tA; DbgTest += tC - tB; DbgCand += sc.Candidates.Count; DbgHits += outHits.Count; }
         }
         else
         {
@@ -2664,21 +3246,57 @@ public sealed class Renderer
         // whether the grid or the full wall list fed it. That made grid and
         // brute-force output differ on 5 of 362 rooms. The tiebreak makes
         // the result independent of iteration order.
-        outHits.Sort(ByDistanceThenWall);
+        // An insertion sort, in place of List.Sort with the comparison
+        // above: a column crosses a dozen walls, Sort's own small-array
+        // path IS an insertion sort, and what this saves is the delegate
+        // call per compare and the helper it sets up per column. The key
+        // is total - no two hits share a distance AND a wall number, the
+        // grid stamps a wall once - so every correct sort gives the one
+        // order, and the oracle holds grid against brute force on it.
+        int n = outHits.Count;
+        for (int i = 1; i < n; i++)
+        {
+            Hit h = outHits[i];
+            int j = i - 1;
+            while (j >= 0)
+            {
+                Hit q = outHits[j];
+                if (q.Dist < h.Dist || (q.Dist == h.Dist && q.Wall.Num <= h.Wall.Num)) break;
+                outHits[j + 1] = q;
+                j--;
+            }
+            outHits[j + 1] = h;
+        }
     }
 
     static void TestWall(RooWall w, float ox, float oy, float dx, float dy, List<Hit> outHits)
+        => TestWall(w, w.X1, w.Y1, w.X2, w.Y2, ox, oy, dx, dy, outHits);
+
+    static void TestWall(RooWall w, float x1, float y1, float x2, float y2,
+                         float ox, float oy, float dx, float dy, List<Hit> outHits)
     {
-        float x1 = w.X1, y1 = w.Y1, x2 = w.X2, y2 = w.Y2;
         float ex = x2 - x1, ey = y2 - y1;
         float den = dx * ey - dy * ex;
         if (MathF.Abs(den) < 1e-6f) return;
+        float sNum = (x1 - ox) * dy - (y1 - oy) * dx;
+        // Most candidates miss the segment, and the miss is decided
+        // before either divide: s is negative when the two differ in
+        // sign - a quotient keeps its sign through rounding, and the
+        // 1e-30 keeps it from a quotient so small it rounds to zero - and is
+        // over one by more than rounding could hide when |sNum| clears
+        // |den| by a millionth. The exact tests below still decide every
+        // case this lets through, so no answer changes; only the two
+        // divides a miss used to pay.
+        float aDen = MathF.Abs(den);
+        if ((sNum < 0f) != (den < 0f) && MathF.Abs(sNum) > aDen * 1e-30f) return;
+        if (MathF.Abs(sNum) > aDen * 1.000001f) return;
         float t = ((x1 - ox) * ey - (y1 - oy) * ex) / den;
-        float s = ((x1 - ox) * dy - (y1 - oy) * dx) / den;
+        float s = sNum / den;
         if (t <= 1f || s < 0f || s > 1f) return;
+        float len = MathF.Sqrt(ex * ex + ey * ey);
         outHits.Add(new Hit {
-            Wall = w, Dist = t, Len = MathF.Sqrt(ex * ex + ey * ey),
-            Along = s * MathF.Sqrt(ex * ex + ey * ey),
+            Wall = w, Dist = t, Len = len,
+            Along = s * len,
             Right = (ex * (oy - y1) - ey * (ox - x1)) > 0f
         });
     }
