@@ -100,6 +100,8 @@ public partial class OptionsPanel : Control
     public event Action<float> Brightness;
     /// <summary>Look sensitivity and whether up is down.</summary>
     public event Action<float> LookSpeed;
+    /// <summary>The look stick's own multiplier, on top of Look speed. 1 = the reference's turn rate.</summary>
+    public event Action<float> StickSpeed;
     public event Action<bool> InvertLook;
 
     /// <summary>
@@ -194,7 +196,7 @@ public partial class OptionsPanel : Control
     // DEFAULTVAL_ENGINE_DISABLELOOPSOUNDS is false (:58). Seven and five
     // were nobody's numbers, and the game is a quieter game at seven
     // than the one the sounds were mixed for.
-    float _sound = 10f, _music = 4f, _bright = 0f, _look = 1f;
+    float _sound = 10f, _music = 4f, _bright = 0f, _look = 1f, _stick = 1f;
     bool _loops = true, _invert;
 
     /// <summary>
@@ -360,6 +362,7 @@ public partial class OptionsPanel : Control
             _music  = (float)file.GetValue(StoreSection, "music", _music);
             _bright = (float)file.GetValue(StoreSection, "brightness", _bright);
             _look   = (float)file.GetValue(StoreSection, "look", _look);
+            _stick  = (float)file.GetValue(StoreSection, "stick", _stick);
             _loops  = (bool)file.GetValue(StoreSection, "loops", _loops);
             _invert = (bool)file.GetValue(StoreSection, "invert", _invert);
             _fpsCap = (int)file.GetValue(StoreSection, "fpscap", _fpsCap);
@@ -389,6 +392,7 @@ public partial class OptionsPanel : Control
             file.SetValue(StoreSection, "music", _music);
             file.SetValue(StoreSection, "brightness", _bright);
             file.SetValue(StoreSection, "look", _look);
+            file.SetValue(StoreSection, "stick", _stick);
             file.SetValue(StoreSection, "loops", _loops);
             file.SetValue(StoreSection, "invert", _invert);
             file.SetValue(StoreSection, "fpscap", _fpsCap);
@@ -416,6 +420,7 @@ public partial class OptionsPanel : Control
         LoopSounds?.Invoke(_loops);
         Brightness?.Invoke(_bright);
         LookSpeed?.Invoke(_look);
+        StickSpeed?.Invoke(_stick);
         InvertLook?.Invoke(_invert);
         Engine.MaxFps = _fpsCap;
         // The language is deliberately NOT pushed from here. Apply runs
@@ -533,6 +538,13 @@ public partial class OptionsPanel : Control
         _rows.AddChild(Section("Controls"));
         _rows.AddChild(Slider("Look speed", () => _look * 10f, v =>
             { _look = Mathf.Max(v, 1f) / 10f; LookSpeed?.Invoke(_look); Keep(); }, 30f));
+        // The look stick's own speed, on top of Look speed. At 10 the
+        // stick turns at the reference's keyboard rate (3 rad/s,
+        // ControllerInput.h:49); players called that sluggish against
+        // the drag, where a half-screen swipe is a third of a turn.
+        // Only the stick: the drag already has its slider above.
+        _rows.AddChild(Slider("Stick speed", () => _stick * 10f, v =>
+            { _stick = Mathf.Max(v, 1f) / 10f; StickSpeed?.Invoke(_stick); Keep(); }, 40f));
         _rows.AddChild(Switch("Invert look", () => _invert, on =>
             { _invert = on; InvertLook?.Invoke(on); Keep(); }));
         // The two controls, mirrored from the arrange screen. They LIVE

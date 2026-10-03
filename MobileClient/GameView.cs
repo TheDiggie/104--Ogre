@@ -1138,6 +1138,7 @@ public partial class GameView : Node2D
         // finished picture - AdjustAmbientLight, not a gamma ramp.
         _options.Brightness  += v => _bright = v;
         _options.LookSpeed   += v => { if (_touch != null) _touch.LookSensitivity = 0.006f * v; };
+        _options.StickSpeed  += v => _stickGain = v;
         _options.InvertLook  += on => { if (_touch != null) _touch.InvertLook = on; };
         _options.Preferences += () => Act(() => _client.SendUserCommandSendPreferences());
         // The aliases are a page of the Options window in the
@@ -3446,7 +3447,7 @@ public partial class GameView : Node2D
         // through the same Look speed and Invert look as the drag.
         float stickPitch = 0f;
         if (_fixed != null && _fixed.Look.Y != 0f)
-            stickPitch = -_fixed.Look.Y * PitchRate * LookGain() * (float)delta * (_touch.InvertLook ? -1f : 1f);
+            stickPitch = -_fixed.Look.Y * PitchRate * LookGain() * _stickGain * (float)delta * (_touch.InvertLook ? -1f : 1f);
         _pitch = Math.Clamp(_pitch + _touch.TakePitch(delta) + stickPitch, -Renderer.MaxPitch, Renderer.MaxPitch);
 
         _clock += (float)delta;
@@ -3894,6 +3895,9 @@ public partial class GameView : Node2D
     /// </summary>
     float LookGain() => _touch.LookSensitivity / 0.006f;
 
+    /// <summary>The Stick speed option: the look stick's rate on top of Look speed. 1 is the reference's rate.</summary>
+    float _stickGain = 1f;
+
     void ApplyInput(double delta)
     {
         RoomObject avatar = _client.Data?.AvatarObject;
@@ -4030,7 +4034,7 @@ public partial class GameView : Node2D
         // is a rule about the rotate keys (ControllerInput.cpp:968-972);
         // the stick stands in for mouse aiming, which the reference
         // never slows.
-        float stickTurn = _fixed != null ? _fixed.Look.X * TurnSpeed * LookGain() * (float)delta : 0f;
+        float stickTurn = _fixed != null ? _fixed.Look.X * TurnSpeed * LookGain() * _stickGain * (float)delta : 0f;
         float dAngle = turn * rate * (float)delta + stickTurn + _touch.TakeTurn(delta);
         if (dAngle != 0f) _client.TryYaw(dAngle);
 
