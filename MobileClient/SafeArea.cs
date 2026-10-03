@@ -79,9 +79,20 @@ public static class SafeArea
     /// uniform - the same on both axes - because a layer squashed on
     /// one axis turns every round icon into an egg.
     /// </summary>
+    /// <summary>
+    /// Off. The inset scaled the UI layer in from the phone's cutout
+    /// and curve, and on Ashton's phone that drew a wall 167 points in
+    /// from the left that nothing could be dragged past - the "border
+    /// limit" he asked to have removed, twice. The whole glass is the
+    /// layer now; a player who wants a piece clear of the notch moves
+    /// it, which is what the editor is for.
+    /// </summary>
+    public static readonly bool Enabled = false;
+
     public static void Apply(CanvasLayer layer, Vector2 viewport)
     {
         if (layer == null || viewport.X < 1f || viewport.Y < 1f) return;
+        if (!Enabled) { layer.Scale = Vector2.One; layer.Offset = Vector2.Zero; return; }
 
         Vector4 i = Insets(viewport);
         float w = Mathf.Max(1f, viewport.X - i.X - i.Z);

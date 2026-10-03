@@ -281,21 +281,12 @@ public static class M59Hud
 
         Vector2 pos = natural.Position + p.Offset;
         Vector2 size = natural.Size;
-        // A thumb's worth and no more. This kept a quarter of the piece
-        // on screen, and a quarter of a wide piece is a border: Ashton,
-        // "some ui elements cant be moved outside your border limit,
-        // remove the border limit". So only the thumb's 44 points stay
-        // on the glass now, whatever the piece's size - enough to grab
-        // it back, and Reset in the editor is the other way home.
-        float keepX = Mathf.Min(size.X, 44f);
-        float keepY = Mathf.Min(size.Y, 44f);
-        pos.X = Mathf.Clamp(pos.X, -(size.X - keepX), v.X - keepX);
-        pos.Y = Mathf.Clamp(pos.Y, -(size.Y - keepY), v.Y - keepY);
-
-        // Write the clamp back, so a drag that hit the edge does not
-        // leave the saved offset pointing somewhere the piece will never
-        // be drawn - otherwise the next launch snaps it somewhere else.
-        p.Offset = pos - natural.Position;
+        // NO CLAMP. There was one - a quarter of the piece, then a
+        // thumb's 44 points - and Ashton hit it twice: "Your ui element
+        // border still stops me from putting stuff further left. Remove
+        // this restriction system." So a piece goes where the finger
+        // puts it, off the glass included; Reset in the editor is the
+        // way home for one that is lost, and Reset all for the lot.
         return new Rect2(pos, size);
     }
 
