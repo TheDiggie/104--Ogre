@@ -275,7 +275,10 @@ public partial class ActionButtons : Control
     /// Door - at 165, which is the same depth as Door and so the same
     /// gaps to the primary and the arc.
     /// </summary>
-    const float PhaseAngle = 135f, PhaseIn = 165f;
+    // Swapped with the pager at Ashton's word ("swap the position of the
+    // phase key and the page switcher"): Phase stands over the primary
+    // at 95 degrees, the pager takes the 135-degree bisector.
+    const float PhaseAngle = 95f, PhaseIn = 190f;
     /// <summary>
     /// The pager's place: 95 degrees, almost straight above the primary,
     /// at 190. It used to sit on the 125-degree bisector; Phase has that
@@ -283,7 +286,7 @@ public partial class ActionButtons : Control
     /// the narrower gap over the primary, where it is 27 from the arc's
     /// first binding and 74 from the disc.
     /// </summary>
-    const float TurnAngle = 95f, TurnIn = 190f;
+    const float TurnAngle = 135f, TurnIn = 165f;
     /// <summary>
     /// The padlock's edge. 44 is the tap floor, and that is all it needs
     /// to be: it is pressed once a session, not in a fight.
@@ -378,6 +381,17 @@ public partial class ActionButtons : Control
     /// hotbar's, running down and round towards the left, the last at
     /// 180 degrees where Door used to be.
     /// </summary>
+    /// <summary>
+    /// The arc seat of binding <paramref name="i"/> on the page. The
+    /// arc runs from the top (seat 1, by Target Next) round to the
+    /// bottom-left (seat HotSeats), and bindings fill it from the
+    /// bottom-left so that the page reads LEFT TO RIGHT as the HotKeys
+    /// panel draws it - Ashton: "i have rest as my first hotkey in the
+    /// manager but in the arc it is on the right, make the arc copy the
+    /// manager left to right".
+    /// </summary>
+    Vector2 ArcSeat(Vector2 v, int i) => Seat(v, HotSeats - i);
+
     Vector2 Seat(Vector2 v, int i)
     {
         float a = Mathf.DegToRad(ArcFrom + (ArcTo - ArcFrom) * i / (ArcSeats - 1));
@@ -1059,7 +1073,7 @@ public partial class ActionButtons : Control
             // them below. No button, so the tap goes through to the world.
             if (!primary && cfg.ButtonType == ActionButtonType.Unset) continue;
             float d = primary ? Atk : Btn;
-            Rect2 cell = Round(primary ? Pivot(v) : Seat(v, i + 1), d);
+            Rect2 cell = Round(primary ? Pivot(v) : ArcSeat(v, i), d);
             Button b = Take(at0);
 
             // Label is an empty string rather than null when unset, so a
@@ -1289,7 +1303,9 @@ public partial class ActionButtons : Control
         // The spell's own picture when the resource has arrived, as a
         // Spell seat shows; the word alone until then, and for ever when
         // the character has no such spell.
-        Texture2D phaseIcon = phase != null && phase.Resource != null ? Icon(phase, IconPx) : null;
+        // No picture: "remove the spell icon from the phase button" - the
+        // word is the button, as Door's is.
+        Texture2D phaseIcon = null;
         _phaseBtn.Icon = phaseIcon;
         _phaseBtn.Text = phaseIcon != null ? "" : "Phase";
         SlotEdge(_phaseBtn, Btn, false, true, sc);
@@ -1411,7 +1427,7 @@ public partial class ActionButtons : Control
         // Past the end of the arc, and any hole inside it.
         for (int i = 0; i < HotSeats; i++)
             if (i >= count || arc[first + i].ButtonType == ActionButtonType.Unset)
-                Ring(ring++, Round(Seat(v, i + 1), Btn), sc);
+                Ring(ring++, Round(ArcSeat(v, i), Btn), sc);
         for (int i = ring; i < _rings.Count; i++) _rings[i].Visible = false;
 
         // The highest seat, not seat 0: the arc's top is one step round

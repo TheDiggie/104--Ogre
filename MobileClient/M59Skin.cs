@@ -211,7 +211,7 @@ public static class M59Skin
 
     // ---- pieces ----------------------------------------------------
 
-    static StyleBoxFlat Flat(Color bg, float radius = 0f)
+    public static StyleBoxFlat Flat(Color bg, float radius = 0f)
     {
         var s = new StyleBoxFlat { BgColor = bg };
         if (radius > 0f)

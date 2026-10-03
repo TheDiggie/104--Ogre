@@ -74,12 +74,16 @@ public partial class LoginPrompt : Control
         "the server creates the account the first time you log in. If you need help, reach out to us on Discord.";
 
     /// <summary>Where "reach out to us on Discord" goes, and the wiki beside it.</summary>
+    /// <summary>A poster's width when there is room, and the least it will stand at.</summary>
+    const float PosterW = 320f, PosterMin = 200f;
+
     public const string DiscordUrl = "https://discord.gg/vjEkbpxAJt";
     public const string WikiUrl = "https://wiki.meridian59.us/";
     ColorRect _bg;
     Panel _card, _bar;
     LineEdit _user, _pass;
-    Button _go, _options, _discord, _wiki;
+    Button _go, _options;
+    Poster _discord, _wiki;
     OptionButton _servers;
 
     /// <summary>
@@ -198,14 +202,19 @@ public partial class LoginPrompt : Control
         // browser the way Update does (OS.ShellOpen), which is the one
         // place an outside window is the right answer - there is no
         // in-page way to open Discord.
-        _discord = new Button { Text = "Discord", Name = "loginDiscord" };
-        M59Skin.Dress(_discord, M59Skin.Kind.Secondary);
-        _discord.Pressed += () => OS.ShellOpen(DiscordUrl);
+        // POSTERS, not buttons. Ashton: "i dont want them as small
+        // buttons, i want them like posters to the left and right of
+        // the login window." Two tall cards flanking the login card,
+        // each the whole of itself a target, each saying in large type
+        // what it opens. They are the only two places a new player is
+        // sent, so they get the room a footer button cannot give.
+        _discord = new Poster("Discord",
+                              "Join the community.\nHelp, news, events, and the people who run the server.",
+                              "Tap to open Discord", DiscordUrl) { Name = "loginDiscord" };
         AddChild(_discord);
-
-        _wiki = new Button { Text = "Wiki", Name = "loginWiki" };
-        M59Skin.Dress(_wiki, M59Skin.Kind.Secondary);
-        _wiki.Pressed += () => OS.ShellOpen(WikiUrl);
+        _wiki = new Poster("Wiki",
+                           "Every spell, item, monster and map.\nwiki.meridian59.us",
+                           "Tap to open the wiki", WikiUrl) { Name = "loginWiki" };
         AddChild(_wiki);
 
         // The progress line and every refusal. Body-sized rather than
@@ -608,14 +617,81 @@ public partial class LoginPrompt : Control
         // card need not grow - but it is checked, not trusted: should a
         // caption ever lengthen, the links drop out rather than overlap
         // Connect.
-        float left = M59Skin.FootRow(foot, _go, _options);
-        _discord.Visible = _wiki.Visible = true;
-        float right = M59Skin.FootLeftRow(foot, _discord, _wiki);
-        if (right + M59Skin.Gap > left)
+        M59Skin.FootRow(foot, _go, _options);
+
+        // The posters stand either side of the card, as tall as it,
+        // and as wide as the space allows up to PosterW. Under PosterMin
+        // of room (a narrow phone with the keyboard up, say) they step
+        // out rather than squeeze: a poster you cannot read is noise
+        // beside the one box that matters.
+        float side = card.Position.X - M59Skin.Pad * 2f;
+        float pw = Mathf.Min(PosterW, side);
+        bool fit = pw >= PosterMin;
+        _discord.Visible = _wiki.Visible = fit;
+        if (fit)
         {
-            _wiki.Visible = false;
-            right = M59Skin.FootLeftRow(foot, _discord);
-            if (right + M59Skin.Gap > left) _discord.Visible = false;
+            _discord.Place(new Rect2(card.Position.X - M59Skin.Pad - pw, card.Position.Y, pw, card.Size.Y));
+            _wiki.Place(new Rect2(card.End.X + M59Skin.Pad, card.Position.Y, pw, card.Size.Y));
         }
+    }
+}
+
+/// <summary>
+/// A poster beside the login card: a tall card that is one big button,
+/// with a word at the top, a line or two under it, and what a tap does
+/// along the bottom. Styled as a window so it reads as part of the
+/// same screen; the title in gold at twice the title size so it reads
+/// from across a room.
+/// </summary>
+public sealed partial class Poster : Button
+{
+    readonly Label _word, _blurb, _foot;
+
+    public Poster(string word, string blurb, string foot, string url)
+    {
+        FocusMode = FocusModeEnum.None;
+        var s = M59Skin.Flat(M59Skin.Card, M59Skin.Radius);
+        s.BorderWidthTop = s.BorderWidthBottom = s.BorderWidthLeft = s.BorderWidthRight = 2;
+        s.BorderColor = M59Skin.EdgeLit;
+        s.ShadowColor = new Color(0, 0, 0, 0.55f);
+        s.ShadowSize = 18;
+        s.AntiAliasing = true;
+        AddThemeStyleboxOverride("normal", s);
+        var lit = (StyleBoxFlat)s.Duplicate();
+        lit.BorderColor = M59Skin.Gold;
+        AddThemeStyleboxOverride("hover", lit);
+        AddThemeStyleboxOverride("pressed", lit);
+        AddThemeStyleboxOverride("focus", s);
+        Pressed += () => OS.ShellOpen(url);
+
+        _word = new Label { Text = word, HorizontalAlignment = HorizontalAlignment.Center,
+                            MouseFilter = MouseFilterEnum.Ignore };
+        _word.AddThemeFontSizeOverride("font_size", 52);
+        _word.AddThemeColorOverride("font_color", M59Skin.Gold);
+        AddChild(_word);
+        _blurb = new Label { Text = blurb, HorizontalAlignment = HorizontalAlignment.Center,
+                             AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                             MouseFilter = MouseFilterEnum.Ignore };
+        _blurb.AddThemeFontSizeOverride("font_size", M59Skin.BodySize);
+        _blurb.AddThemeColorOverride("font_color", M59Skin.Text);
+        AddChild(_blurb);
+        _foot = new Label { Text = foot, HorizontalAlignment = HorizontalAlignment.Center,
+                            MouseFilter = MouseFilterEnum.Ignore };
+        _foot.AddThemeFontSizeOverride("font_size", M59Skin.SmallSize);
+        _foot.AddThemeColorOverride("font_color", M59Skin.TextDim);
+        AddChild(_foot);
+    }
+
+    public void Place(Rect2 r)
+    {
+        Position = r.Position; Size = r.Size;
+        float pad = M59Skin.Pad;
+        float w = r.Size.X - pad * 2f;
+        _word.Position = new Vector2(pad, pad * 1.5f);
+        _word.Size = new Vector2(w, 70f);
+        _blurb.Position = new Vector2(pad, pad * 1.5f + 80f);
+        _blurb.Size = new Vector2(w, Mathf.Max(40f, r.Size.Y - pad * 1.5f - 80f - 40f - pad));
+        _foot.Position = new Vector2(pad, r.Size.Y - pad - 28f);
+        _foot.Size = new Vector2(w, 28f);
     }
 }
