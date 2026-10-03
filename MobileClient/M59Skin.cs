@@ -902,9 +902,16 @@ public static class M59Skin
     /// device whose window is not exactly the viewport. Zero when there
     /// is no keyboard, which is every desktop and every headless run.
     /// </summary>
+    static float _fakeKeyboard = -1f;
+
     public static float KeyboardH(Viewport vp)
     {
         if (vp == null) return 0f;
+        // M59KEYBOARD=<points> pretends one is up, for the harness: xvfb
+        // has no keyboard to raise and the lift cannot be seen without.
+        if (_fakeKeyboard < 0f)
+            _fakeKeyboard = float.TryParse(OS.GetEnvironment("M59KEYBOARD"), out float fk) ? fk : 0f;
+        if (_fakeKeyboard > 0f) return _fakeKeyboard;
         float px = DisplayServer.VirtualKeyboardGetHeight();
         if (px <= 0f) return 0f;
         float win = DisplayServer.WindowGetSize().Y;

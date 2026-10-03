@@ -3454,8 +3454,75 @@ public partial class GameView : Node2D
     public override void _Process(double delta)
     {
         _coveredLastFrame = Covered();
-        try { Pump(delta); }
+        try { Pump(delta); LiftForKeyboard(); }
         catch (Exception e) { Boom("running", e); }
+    }
+
+    /// <summary>
+    /// Keeps the box being typed into above the on-screen keyboard.
+    ///
+    /// Ashton: "typing is an issue, when you're typing in chat or typing
+    /// a number to drop or deposit players need to be able to see what
+    /// they are typing out." The keyboard takes the bottom of the glass
+    /// and the chat entry, the amount prompt and most text boxes live
+    /// there. Rather than teach every panel about the keyboard (the
+    /// login card already does its own, M59Skin.ClearOfKeyboard), the
+    /// whole UI layer is slid up by exactly the overlap of the FOCUSED
+    /// text box, and slid back when the keyboard goes. Controls under a
+    /// CanvasLayer receive their touches through its transform, so taps
+    /// still land; the world is drawn on its own layer and does not
+    /// move. The slide is capped so the box's top stays on the glass.
+    /// </summary>
+    /// <summary>
+    /// The card a text box sits in: the largest control that encloses
+    /// the box short of a full-screen (or unsized) host - an ancestor,
+    /// or a sibling under that host, which is how the panels here are
+    /// built (a host Control the size of the glass, a card Panel and
+    /// the controls as its siblings).
+    /// </summary>
+    static Rect2 CardAround(Control f, Vector2 v)
+    {
+        Rect2 fr = f.GetGlobalRect();
+        Rect2 best = fr;
+        bool Host(Rect2 a) => a.Size.X < 1f || a.Size.Y < 1f || a.Size.X >= v.X * 0.95f || a.Size.Y >= v.Y * 0.9f;
+        Control host = null;
+        for (Node n = f.GetParent(); n is Control a; n = a.GetParent())
+        {
+            Rect2 ar = a.GetGlobalRect();
+            if (Host(ar)) { host = a; break; }
+            if (ar.Encloses(fr) && ar.Size.Y >= best.Size.Y) best = ar;
+        }
+        if (host != null)
+            foreach (Node c in host.GetChildren())
+                if (c is Control cc && cc.Visible)
+                {
+                    Rect2 cr = cc.GetGlobalRect();
+                    if (!Host(cr) && cr.Encloses(fr) && cr.Size.Y >= best.Size.Y) best = cr;
+                }
+        return best;
+    }
+
+    void LiftForKeyboard()
+    {
+        if (_ui == null) return;
+        float want = 0f;
+        float kb = M59Skin.KeyboardH(GetViewport());
+        if (kb > 0f && GetViewport().GuiGetFocusOwner() is Control f
+            && (f is LineEdit || f is TextEdit) && f.IsVisibleInTree())
+        {
+            Vector2 v = GetViewportRect().Size;
+            // The CARD the box sits in, not the box alone: an amount
+            // prompt's OK sits under its box, and a box clear of the
+            // keyboard with its OK under it is still a box you cannot
+            // use. The card is the outermost ancestor that is not a
+            // full-screen host.
+            Rect2 r = CardAround(f, v);
+            const float margin = 16f;
+            float limit = v.Y - kb - margin;
+            float over = r.End.Y - limit;
+            if (over > 0f) want = -Mathf.Min(over, Mathf.Max(0f, r.Position.Y - margin));
+        }
+        if (Mathf.Abs(_ui.Offset.Y - want) > 0.5f) _ui.Offset = new Vector2(_ui.Offset.X, want);
     }
 
     void Pump(double delta)

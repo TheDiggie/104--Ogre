@@ -377,3 +377,16 @@ frame before and after (12 of 12), a panel tour is pixel-identical
 wall-clock-timed walk covers in a slower run.
 
 See also: FrameProbe.cs | Sig.cs | GameView.WorldStamp | the harness -> harness.md
+
+## The keyboard lift
+Tags: godot, input | The UI layer slides up by the overlap of the card holding the focused text box (GameView.LiftForKeyboard); M59KEYBOARD=<pt> fakes a keyboard for the harness
+
+The on-screen keyboard takes the bottom of the glass, where the chat
+entry and the amount prompt live. Rather than teach each panel, the
+whole UI CanvasLayer gets an Offset.Y of minus the overlap between
+the keyboard and the CARD around the focused LineEdit/TextEdit
+(CardAround: the largest enclosing control short of a full-screen or
+0x0 host, ancestors or host siblings - the house pattern puts the card
+Panel beside the controls, not above them). Capped so the card's top
+stays on the glass. Controls under a CanvasLayer receive input through
+its transform, so taps still land. Proven with M59KEYBOARD=420.
